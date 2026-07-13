@@ -153,7 +153,7 @@ export function extractItems(raw) {
   const seen = new Set();
 
   function visit(node, depth) {
-    if (!node || depth > 8) return;
+    if (!node || depth > 16) return;
     if (Array.isArray(node)) {
       for (const el of node) visit(el, depth + 1);
       return;
@@ -192,10 +192,19 @@ export function extractItems(raw) {
             : null,
         returned: low.returned === true ? true : low.returned === false ? false : null,
         returnStatus: typeof low.returnstatus === 'string' ? low.returnstatus : null,
+        approved: low.approved === true ? true : low.approved === false ? false : null,
+        published: low.published === true ? true : low.published === false ? false : null,
+        reviewStatus: typeof low.reviewstatus === 'string' ? low.reviewstatus : null,
         productId:
           low.productid || low.asin || low.styleid || low.styleId || low.pid || null,
+        orderId:
+          low.orderid || low.storeorderid || low.order_id || null,
+        productUrl:
+          typeof low.producturl === 'string' ? low.producturl : null,
       };
-      const sig = [item.product, item.date, item.rating, item.text, item.asin].join('|');
+      // Include orderId so two distinct orders of the same product on the same
+      // day (e.g. one delivered + one returned) don't collapse into one card.
+      const sig = [item.product, item.date, item.rating, item.text, item.asin, item.orderId].join('|');
       if (!seen.has(sig)) {
         seen.add(sig);
         items.push(item);

@@ -6,13 +6,13 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import HomeScreen from './src/HomeScreen';
 import ConnectScreen from './src/ConnectScreen';
-import { PLATFORMS } from './src/platforms';
+import { PLATFORM_LIST } from './src/platforms';
 
 const Stack = createNativeStackNavigator();
 
-function makeConnectScreen(platformKey) {
+function makeConnectScreen(platform) {
   return function Screen() {
-    return <ConnectScreen platform={PLATFORMS[platformKey]} />;
+    return <ConnectScreen platform={platform} />;
   };
 }
 
@@ -27,21 +27,14 @@ export default function App() {
             component={HomeScreen}
             options={{ headerShown: false }}
           />
-          <Stack.Screen
-            name="flipkart"
-            component={makeConnectScreen('flipkart')}
-            options={{ title: 'Flipkart', headerTintColor: '#2874F0' }}
-          />
-          <Stack.Screen
-            name="amazon"
-            component={makeConnectScreen('amazon')}
-            options={{ title: 'Amazon', headerTintColor: '#FF9900' }}
-          />
-          <Stack.Screen
-            name="myntra"
-            component={makeConnectScreen('myntra')}
-            options={{ title: 'Myntra', headerTintColor: '#FF3F6C' }}
-          />
+          {PLATFORM_LIST.map((p) => (
+            <Stack.Screen
+              key={p.key}
+              name={p.key}
+              component={makeConnectScreen(p)}
+              options={{ title: p.name, headerTintColor: p.color }}
+            />
+          ))}
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

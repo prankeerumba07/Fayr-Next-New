@@ -33,6 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 
+# captured marketplace responses (contain real personal order history)
+fayr-*.json
+
 # typescript
 *.tsbuildinfo
 

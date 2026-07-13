@@ -1,51 +1,19 @@
 import React, { useRef, useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator,
-  ScrollView, Image, Platform,
+  ScrollView, Platform, Linking, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
-import { extractItems, timelineOf } from './extract';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { extractItems } from './extract';
 
 function fmt(ms) {
-  if (!ms) return '—';
+  if (!ms) return null;
   const d = new Date(ms);
-  if (isNaN(d.getTime())) return '—';
+  if (isNaN(d.getTime())) return null;
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
-const VERDICT = {
-  eligible: { label: '✓ Eligible to verify', color: '#1a7f37', bg: '#eaf7ee' },
-  in_window: { label: '⏳ In return window', color: '#9a6700', bg: '#fff4e0' },
-  returned: { label: '✗ Returned / cancelled', color: '#b3261e', bg: '#fdeceb' },
-  unknown: { label: '❔ Dates unavailable', color: '#666', bg: '#f0f0f0' },
-};
-
-function Timeline({ item }) {
-  const t = timelineOf(item);
-  const rows = [
-    ['Order', fmt(t.orderDate)],
-    ['Delivered', fmt(t.deliveryDate)],
-    ['Reviewed', fmt(t.reviewDate)],
-  ].filter((r) => r[1] !== '—');
-  const v = VERDICT[t.verdict];
-  return (
-    <View style={styles.timeline}>
-      {rows.map(([k, val]) => (
-        <Text key={k} style={styles.tlRow}>
-          <Text style={styles.tlKey}>{k}: </Text>{val}
-        </Text>
-      ))}
-      <Text style={styles.tlRow}>
-        <Text style={styles.tlKey}>Return window: </Text>
-        {t.returnClosesAt ? `${t.returnClosed ? 'closed' : 'closes'} ${fmt(t.returnClosesAt)}` : '—'}
-        <Text style={styles.tlDim}>{`  (${t.periodDays}d${item.returnPeriodDays ? '' : ', default'})`}</Text>
-      </Text>
-      <View style={[styles.verdict, { backgroundColor: v.bg }]}>
-        <Text style={[styles.verdictText, { color: v.color }]}>{v.label}</Text>
-      </View>
-    </View>
-  );
 }
 
 function Stars({ rating }) {
@@ -59,38 +27,40 @@ function Stars({ rating }) {
   );
 }
 
-const PID_LABEL = { amazon: 'ASIN', flipkart: 'PID', myntra: 'Style ID' };
-
+// Exactly the fields requested: Product Name, Rating, Review Title, Review Text,
+// Review Date, Order ID, Product URL, Marketplace Name. Delivery/return timeline
+// and approval/publish-status data are still computed (see extract.js) and
+// visible via "Show raw JSON" - just not on this card, to keep it to what was
+// asked for.
 function ReviewCard({ item, color, platform }) {
-  const idLabel = PID_LABEL[platform.key] || 'Product ID';
-  const productId =
-    item.productId != null ? String(item.productId) : item.asin || null;
+  const reviewDate = fmt(item.reviewDate) || item.date || null;
   return (
     <View style={[styles.card, { borderLeftColor: color }]}>
-      <View style={styles.cardRow}>
-        {item.image ? (
-          <Image source={{ uri: item.image }} style={styles.thumb} resizeMode="cover" />
-        ) : null}
-        <View style={{ flex: 1 }}>
-          {item.product ? (
-            <Text style={styles.product} numberOfLines={2}>{item.product}</Text>
-          ) : item.title ? (
-            <Text style={styles.product} numberOfLines={2}>{item.title}</Text>
-          ) : null}
-          {item.date ? <Text style={styles.date}>Ordered / reviewed: {item.date}</Text> : null}
-          <Stars rating={item.rating} />
-          {item.product && item.title ? <Text style={styles.reviewTitle}>{item.title}</Text> : null}
-          {item.text ? <Text style={styles.reviewText}>{item.text}</Text> : null}
-          <View style={styles.badgeRow}>
-            {item.verified ? <Text style={styles.verified}>✓ Verified Purchase</Text> : null}
-            {productId ? <Text style={styles.asin}>{idLabel} {productId}</Text> : null}
-          </View>
-          <Timeline item={item} />
-        </View>
+      <Text style={styles.marketplace}>{platform.name}</Text>
+      {(item.product || item.title) ? (
+        <Text style={styles.product} numberOfLines={2}>{item.product || item.title}</Text>
+      ) : null}
+      <Stars rating={item.rating} />
+      {item.product && item.title ? <Text style={styles.reviewTitle}>{item.title}</Text> : null}
+      {item.text ? <Text style={styles.reviewText}>{item.text}</Text> : null}
+      <View style={styles.metaRow}>
+        {reviewDate ? <Text style={styles.metaText}>Reviewed: {reviewDate}</Text> : null}
+        {item.orderId ? <Text style={styles.metaText}>Order ID: {item.orderId}</Text> : null}
       </View>
+      {item.productUrl ? (
+        <TouchableOpacity onPress={() => Linking.openURL(item.productUrl)}>
+          <Text style={styles.productUrl} numberOfLines={1}>{item.productUrl}</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
+
+// Meesho has no confirmed API schema yet (see platforms.js) - card-parsing
+// generic embedded state produces false positives (public catalog ratings,
+// unrelated app state), so default to the raw view instead of pretending the
+// cards are reliable. (Zepto/Blinkit/Instamart now have real parsers.)
+const DISCOVERY_PLATFORMS = ['meesho'];
 
 export default function ConnectScreen({ platform }) {
   const webRef = useRef(null);
@@ -125,8 +95,9 @@ export default function ConnectScreen({ platform }) {
     } catch (e) {
       setItems([]);
     }
+    setShowRaw(DISCOVERY_PLATFORMS.includes(platform.key));
     setMode('results');
-  }, []);
+  }, [platform]);
 
   const fetchReviews = useCallback(() => {
     setBusy(true);
@@ -138,6 +109,26 @@ export default function ConnectScreen({ platform }) {
     setMode('web');
     setShowRaw(false);
   }, []);
+
+  const downloadRawJson = useCallback(async () => {
+    if (!raw) return;
+    try {
+      const file = new File(Paths.cache, `fayr-${platform.key}-${Date.now()}.json`);
+      file.create({ overwrite: true });
+      file.write(JSON.stringify(raw, null, 2));
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'application/json',
+          dialogTitle: `${platform.name} raw JSON`,
+        });
+      } else {
+        Alert.alert('Saved', `File written to ${file.uri}`);
+      }
+    } catch (e) {
+      Alert.alert('Could not export JSON', String((e && e.message) || e));
+    }
+  }, [raw, platform]);
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -183,11 +174,18 @@ export default function ConnectScreen({ platform }) {
             <TouchableOpacity onPress={backToLogin} style={styles.linkBtn}>
               <Text style={[styles.link, { color: platform.color }]}>‹ Back to {platform.name}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowRaw((s) => !s)} style={styles.linkBtn}>
-              <Text style={[styles.link, { color: platform.color }]}>
-                {showRaw ? 'Show cards' : 'Show raw JSON'}
-              </Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row' }}>
+              <TouchableOpacity onPress={() => setShowRaw((s) => !s)} style={styles.linkBtn}>
+                <Text style={[styles.link, { color: platform.color }]}>
+                  {showRaw ? 'Show cards' : 'Show raw JSON'}
+                </Text>
+              </TouchableOpacity>
+              {raw ? (
+                <TouchableOpacity onPress={downloadRawJson} style={[styles.linkBtn, { marginLeft: 14 }]}>
+                  <Text style={[styles.link, { color: platform.color }]}>Download JSON</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
 
           {error ? (
@@ -258,23 +256,15 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
-  cardRow: { flexDirection: 'row' },
-  thumb: { width: 56, height: 56, borderRadius: 8, marginRight: 12, backgroundColor: '#f0f0f0' },
-  product: { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
-  date: { fontSize: 12, color: '#777', marginTop: 2 },
+  marketplace: { fontSize: 11, fontWeight: '700', color: '#999', textTransform: 'uppercase', letterSpacing: 0.5 },
+  product: { fontSize: 15, fontWeight: '700', color: '#1a1a1a', marginTop: 4 },
   stars: { fontSize: 15, color: '#f5a623', marginTop: 4 },
   ratingNum: { fontSize: 12, color: '#777' },
   reviewTitle: { fontSize: 14, fontWeight: '600', color: '#333', marginTop: 6 },
   reviewText: { fontSize: 13, color: '#444', marginTop: 4, lineHeight: 18 },
-  badgeRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6, flexWrap: 'wrap' },
-  verified: { fontSize: 12, fontWeight: '700', color: '#1a7f37', marginRight: 10 },
-  asin: { fontSize: 11, color: '#888', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  timeline: { marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#eee' },
-  tlRow: { fontSize: 12, color: '#444', marginBottom: 2 },
-  tlKey: { color: '#888' },
-  tlDim: { color: '#bbb', fontSize: 11 },
-  verdict: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 6 },
-  verdictText: { fontSize: 12, fontWeight: '700' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, flexWrap: 'wrap' },
+  metaText: { fontSize: 12, color: '#777', marginRight: 14 },
+  productUrl: { fontSize: 12, color: '#2874F0', marginTop: 6, textDecorationLine: 'underline' },
   errorBox: { margin: 16, padding: 16, borderRadius: 12, backgroundColor: '#fff4f4', borderWidth: 1, borderColor: '#f3caca' },
   errorTitle: { fontSize: 15, fontWeight: '700', color: '#b3261e', marginBottom: 6 },
   errorText: { fontSize: 13, color: '#7a1f1a', lineHeight: 18 },
