@@ -596,6 +596,53 @@ function discoveryHook() {
   }
   setInterval(fayrAnnotateBlinkit, 1500);
 
+  // Same idea for Instamart (Swiggy DASH): its web order list doesn't clearly
+  // badge rated orders in the WebView. The DASH data has no product images to
+  // anchor on, so we mark the order by finding a DOM element that shows the
+  // rated order's product NAME (rating_info.is_rated) and appending a badge.
+  function fayrAnnotateInstamart(){
+    try {
+      if (!/swiggy\\.com/.test(location.host)) return;
+      var calls = window.__fayrCalls || [];
+      var ratedKeys = [];
+      calls.forEach(function(c){
+        if (!c || !c.url || c.url.indexOf("/mapi/order/dash") < 0 || c.url.indexOf("details") >= 0 || !c.respJson) return;
+        var orders = (c.respJson.data && c.respJson.data.orders) || [];
+        orders.forEach(function(o){
+          var v2 = o.order_data_v2 || {};
+          var shipments = v2.shipments || [];
+          var rated = false, names = [];
+          shipments.forEach(function(sh){
+            var ri = sh.rating_info;
+            if (ri && (ri.is_rated === true || (ri.button && /edit/i.test(ri.button.text || "")))) rated = true;
+            (sh.items || []).forEach(function(it){ if (it && typeof it.name === "string" && it.name.trim()) names.push(it.name.trim()); });
+          });
+          if (rated) { names.forEach(function(n){ if (n.length >= 8) ratedKeys.push(n.slice(0, 24).toLowerCase()); }); }
+        });
+      });
+      if (!ratedKeys.length) return;
+      var els = document.querySelectorAll("div,p,span,a,li,h3,h4");
+      for (var i=0;i<els.length;i++){
+        var el = els[i];
+        if (el.__fayrBadged) continue;
+        if (el.children && el.children.length > 3) continue; // target leaf-ish text
+        var txt = (el.textContent || "").toLowerCase();
+        if (!txt || txt.length > 200) continue;
+        for (var j=0;j<ratedKeys.length;j++){
+          if (txt.indexOf(ratedKeys[j]) >= 0){
+            el.__fayrBadged = true;
+            var b = document.createElement("span");
+            b.textContent = " \\u2605 Rated";
+            b.style.cssText = "display:inline-block;background:#FC8019;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px;vertical-align:middle;";
+            el.appendChild(b);
+            break;
+          }
+        }
+      }
+    } catch(e){}
+  }
+  setInterval(fayrAnnotateInstamart, 1500);
+
   var of = window.fetch;
   if (of) {
     window.fetch = function(input, init){
