@@ -604,21 +604,40 @@ function discoveryHook() {
     try {
       if (!/swiggy\\.com/.test(location.host)) return;
       var calls = window.__fayrCalls || [];
-      var ratedKeys = [];
+      // Collect every order with: is it DELIVERED-and-RATED, and its product
+      // names. Failed/cancelled orders are never rated (no rating_info /
+      // is_rated), so they're excluded here.
+      var ordersInfo = [];
       calls.forEach(function(c){
         if (!c || !c.url || c.url.indexOf("/mapi/order/dash") < 0 || c.url.indexOf("details") >= 0 || !c.respJson) return;
         var orders = (c.respJson.data && c.respJson.data.orders) || [];
         orders.forEach(function(o){
+          var delivered = /deliver/i.test(String(o.history_status || ""));
           var v2 = o.order_data_v2 || {};
           var shipments = v2.shipments || [];
-          var rated = false, names = [];
+          var rated = false, texts = [];
           shipments.forEach(function(sh){
             var ri = sh.rating_info;
             if (ri && (ri.is_rated === true || (ri.button && /edit/i.test(ri.button.text || "")))) rated = true;
-            (sh.items || []).forEach(function(it){ if (it && typeof it.name === "string" && it.name.trim()) names.push(it.name.trim()); });
+            (sh.items || []).forEach(function(it){ if (it && typeof it.name === "string" && it.name.trim()) texts.push(it.name.trim().toLowerCase()); });
           });
-          if (rated) { names.forEach(function(n){ var k = n.slice(0, 18).toLowerCase(); if (n.length >= 6 && ratedKeys.indexOf(k) < 0) ratedKeys.push(k); }); }
+          ordersInfo.push({ rated: rated && delivered, texts: texts });
         });
+      });
+      // For each delivered+rated order, pick a product key that is UNIQUE to it
+      // (not a substring of any OTHER order's products) so the badge lands on
+      // exactly that order's card and never on a shared-product order.
+      var ratedKeys = [];
+      ordersInfo.forEach(function(oi, idx){
+        if (!oi.rated) return;
+        var otherPool = "";
+        ordersInfo.forEach(function(oj, jdx){ if (jdx !== idx) otherPool += " || " + oj.texts.join(" || "); });
+        for (var n=0; n<oi.texts.length; n++){
+          var nm = oi.texts[n];
+          if (nm.length < 6) continue;
+          var k = nm.slice(0, 18);
+          if (otherPool.indexOf(k) < 0){ if (ratedKeys.indexOf(k) < 0) ratedKeys.push(k); break; }
+        }
       });
       if (!ratedKeys.length) return;
       var els = document.querySelectorAll("div,p,span,li,h3,h4");
