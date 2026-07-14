@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator,
   ScrollView, Platform, Linking, Alert, TextInput,
@@ -8,6 +8,7 @@ import { WebView } from 'react-native-webview';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { extractItems } from './extract';
+import { restoreSession, persistSession } from './session';
 
 function fmt(ms) {
   if (!ms) return null;
@@ -99,6 +100,23 @@ export default function ConnectScreen({ platform }) {
   const [error, setError] = useState(null);
   const [showRaw, setShowRaw] = useState(false);
   const [target, setTarget] = useState(''); // the product the review task is for
+  // Restore any saved login cookies BEFORE the WebView creates its store, so a
+  // returning user is already signed in. Persist again when leaving.
+  const [sessionReady, setSessionReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    restoreSession(platform.key, platform.startUrl).finally(() => {
+      if (alive) setSessionReady(true);
+    });
+    return () => {
+      alive = false;
+      persistSession(platform.key, platform.startUrl);
+    };
+  }, [platform]);
+
+  const saveSession = useCallback(() => {
+    persistSession(platform.key, platform.startUrl);
+  }, [platform]);
 
   // When a target product is set, show only its review(s) - this is the
   // "fetch only the correct product" behaviour the background flow needs.
@@ -190,6 +208,11 @@ export default function ConnectScreen({ platform }) {
           <View style={[styles.hintBar, { backgroundColor: platform.color }]}>
             <Text style={styles.hintText}>{platform.hint}</Text>
           </View>
+          {!sessionReady ? (
+            <View style={styles.webLoading}>
+              <ActivityIndicator size="large" color={platform.color} />
+            </View>
+          ) : (
           <WebView
             ref={webRef}
             source={{ uri: platform.startUrl }}
@@ -201,6 +224,9 @@ export default function ConnectScreen({ platform }) {
             domStorageEnabled
             // Persist cache/cookies across launches (iOS WKWebView shared store).
             cacheEnabled
+            // Save cookies to the Keychain after each load so login survives
+            // relaunch (no-op unless the native cookie module is present).
+            onLoadEnd={saveSession}
             javaScriptEnabled
             // A desktop-ish UA tends to expose the same endpoints as captured.
             userAgent={
@@ -219,6 +245,7 @@ export default function ConnectScreen({ platform }) {
             )}
             startInLoadingState
           />
+          )}
           <TouchableOpacity
             style={[styles.fetchBtn, { backgroundColor: platform.color }]}
             onPress={fetchReviews}
