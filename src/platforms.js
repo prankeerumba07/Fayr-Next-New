@@ -868,46 +868,64 @@ const meesho = {
       function currentBuildId(){ try { var nd = document.getElementById("__NEXT_DATA__"); if (nd && nd.textContent) return (JSON.parse(nd.textContent) || {}).buildId || null; } catch(e){} return null; }
 
       function reviewTextOf(o){
-        var keys = ["comment","comments","review_text","reviewtext","review_comment","reviewcomment","rating_comment","description","review","text","feedback","message"];
-        for (var i=0;i<keys.length;i++){ var v = o[keys[i]]; if (typeof v === "string" && v.trim().length > 1 && !/^(rate your experience|rate & review|rate and review)$/i.test(v.trim())) return v.trim(); }
+        var keys = ["comment","comments","review_text","reviewtext","review_comment","reviewcomment","rating_comment","customer_comment","description","review","text","feedback","message"];
+        for (var i=0;i<keys.length;i++){ var v = o[keys[i]]; if (typeof v === "string" && v.trim().length > 1 && !/^(rate your experience|rate & review|rate and review|type comment|add feedback)$/i.test(v.trim())) return v.trim(); }
         return null;
       }
       function subOrderIdOf(o){
         var v = (o.sub_order_id != null) ? o.sub_order_id : (o.suborder_id != null ? o.suborder_id : (o.subOrderId != null ? o.subOrderId : null));
         return v != null ? String(v) : null;
       }
-      // Deep-scan any JSON for a node carrying both a sub_order_id and free text,
-      // keyed by sub_order_id, so the review text attaches to the right product
+      // Count review photos/videos on a node (Meesho gates public visibility on
+      // media). Only counted alongside real rating context so product-image
+      // arrays elsewhere aren't mistaken for review media.
+      function mediaCountOf(o){
+        var n = 0; var keys = ["image_urls","images","media","photos","videos","media_urls","review_images","rating_images","image_url_list"];
+        for (var i=0;i<keys.length;i++){ var v = o[keys[i]]; if (Array.isArray(v)) { for (var j=0;j<v.length;j++){ var it = v[j]; if (typeof it === "string" || (it && (it.url || it.image_url || it.video_url))) n++; } } }
+        return n;
+      }
+      // Deep-scan any JSON for a node carrying a sub_order_id + review text
+      // and/or media, keyed by sub_order_id, so it attaches to the right product
       // regardless of the response's exact shape.
       function collectInto(o, map, d){
         if (o == null || d > 14) return;
         if (Array.isArray(o)) { for (var i=0;i<o.length;i++) collectInto(o[i], map, d+1); return; }
         if (typeof o !== "object") return;
         var sid = subOrderIdOf(o);
-        if (sid) { var t = reviewTextOf(o); if (t && !map[sid]) map[sid] = t; }
+        if (sid) {
+          var t = reviewTextOf(o);
+          var hasRatingCtx = t || o.current_rating != null || o.rating != null || o.comment != null;
+          var m = hasRatingCtx ? mediaCountOf(o) : 0;
+          if (t || m) {
+            var e = map[sid] || { text: null, media: 0 };
+            if (t && !e.text) e.text = t;
+            if (m > e.media) e.media = m;
+            map[sid] = e;
+          }
+        }
         for (var k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) collectInto(o[k], map, d+1); }
       }
-      function collectReviewTexts(){
+      function collectRich(){
         var map = {};
         var calls = window.__fayrCalls || [];
         for (var i=0;i<calls.length;i++){ var c = calls[i]; if (c && c.respJson) collectInto(c.respJson, map, 0); }
         return map;
       }
-      // The order-detail routes, read from the REAL order links on the page (not
-      // guessed): map each order's numeric id -> its detail path so we can pull
-      // that order's SSR data endpoint, which carries the submitted review text.
-      function orderDetailPaths(){
-        var map = {};
+      // Internal detail/rating/feedback links read from the REAL page (not
+      // guessed), with the numeric ids they carry, so we can pull the SSR data
+      // endpoint that holds the submitted review text.
+      function internalLinks(){
+        var out = [];
         try {
-          var as = document.querySelectorAll('a[href]');
+          var as = document.querySelectorAll("a[href]");
           for (var i=0;i<as.length;i++){
             var h = as[i].getAttribute("href") || "";
-            if (h.indexOf("order") < 0) continue;
-            var m = h.match(/(\\d{12,})/);
-            if (m) map[m[1]] = h.split("?")[0].split("#")[0];
+            if (h.charAt(0) !== "/") continue;
+            if (!/order|rating|review|feedback|detail/i.test(h)) continue;
+            out.push({ path: h.split("?")[0].split("#")[0], ids: (h.match(/\\d{7,}/g) || []) });
           }
         } catch(e){}
-        return map;
+        return out;
       }
       function reviewProbe(extra){
         var out = [];
@@ -915,22 +933,24 @@ const meesho = {
         for (var i=0;i<calls.length && out.length < 12;i++){
           var c = calls[i];
           if (!c || !c.url) continue;
-          if (!/rating|review|feedback|order.*details|order\\/[0-9]/i.test(c.url) && !/rating|review/i.test(c.resp || "")) continue;
+          if (!/rating|review|feedback|order.*detail|order\\/[0-9]/i.test(c.url) && !/rating|review|comment/i.test(c.resp || "")) continue;
           out.push({ url: c.url, method: c.method, status: c.status, respSample: (c.resp || "").slice(0, 1500) });
         }
         return extra && extra.length ? out.concat(extra) : out;
       }
 
-      function makeReviews(all, textMap){
+      function makeReviews(all, rich){
         var reviews = [];
         all.forEach(function(row){
           var s = row.s;
           if (!rated(s)) return; // only genuinely-rated products
           var sid = s.sub_order_id != null ? String(s.sub_order_id) : null;
+          var e = (sid && rich[sid]) || null;
           reviews.push({
             productname: s.product_name || null,
             rating: s.review.current_rating,
-            reviewtext: (sid && textMap[sid]) ? textMap[sid] : null,
+            reviewtext: e && e.text ? e.text : null,
+            mediacount: e && e.media ? e.media : null,
             reviewstatus: "RATED",
             approved: true,
             orderid: s.order_num != null ? String(s.order_num) : null,
@@ -946,6 +966,7 @@ const meesho = {
       }
       function finish(all, reviews, extraProbe){
         var withText = reviews.filter(function(r){ return r.reviewtext; }).length;
+        var withMedia = reviews.filter(function(r){ return r.mediacount; }).length;
         var sample = all.map(function(row){ var s = row.s; return { product: (s.product_name||"").slice(0,44), status: s.status_message, current_rating: (s.review && s.review.current_rating), rated: rated(s) }; });
         return {
           platform: "meesho",
@@ -953,41 +974,50 @@ const meesho = {
           reviews: reviews,
           ratedCount: reviews.length,
           reviewsWithText: withText,
+          reviewsWithMedia: withMedia,
           totalSubOrders: all.length,
           __ordersSample: sample,
           __reviewProbe: reviewProbe(extraProbe),
-          note: "Meesho: " + reviews.length + " rated of " + all.length + " sub-order(s); " + withText + " have review text. If text < rated, __reviewProbe shows the order-detail responses so the text field can be pinned."
+          note: "Meesho: " + reviews.length + " rated of " + all.length + " sub-order(s); " + withText + " with review text, " + withMedia + " with photos/videos. If text < rated, __reviewProbe shows the detail/feedback responses so the text field can be pinned."
         };
       }
 
       function build(j){
         var all = subs(j);
-        var reviews = makeReviews(all, collectReviewTexts());
+        var rich = collectRich();
+        var reviews = makeReviews(all, rich);
         var missing = reviews.filter(function(r){ return !r.reviewtext; });
         var bid = currentBuildId();
-        var paths = orderDetailPaths();
-        // Auto-enrich: pull each still-missing order's detail data endpoint
-        // (route taken from the page's own order links) and scan it for the text.
-        if (!bid || !missing.length || !Object.keys(paths).length) return finish(all, reviews, null);
-        var textMap = {};
-        var extraProbe = [];
-        var seen = {};
-        var jobs = [];
+        var links = internalLinks();
+        // Auto-enrich: for each order still missing text, pull the SSR data
+        // endpoint of any detail/rating/feedback link on the page that carries
+        // one of that order's ids, and scan it for the review text + media.
+        if (!bid || !missing.length || !links.length) return finish(all, reviews, null);
+        var wanted = {};
         missing.forEach(function(r){
-          var p = (r.orderid && paths[r.orderid]) || (r.suborderid && paths[r.suborderid]) || null;
-          if (!p || p.charAt(0) !== "/") return;
-          var url = "/_next/data/" + bid + p + ".json";
-          if (seen[url]) return; seen[url] = true;
-          jobs.push(
-            fetch(url, { credentials:"include", headers:{ accept:"application/json" } })
-              .then(function(res){ return res.ok ? res.text() : null; })
-              .then(function(t){ if (!t) return; var jj = tryParse(t); if (jj) collectInto(jj, textMap, 0); if (extraProbe.length < 8) extraProbe.push({ url: url, status: "ok", respSample: (t || "").slice(0, 1500) }); })
-              .catch(function(){})
-          );
+          var toks = [r.orderid, r.suborderid, r.productid].filter(function(x){ return !!x; });
+          links.forEach(function(l){
+            if (l.path.charAt(0) !== "/") return;
+            var hit = false;
+            for (var i=0;i<l.ids.length;i++){ if (toks.indexOf(l.ids[i]) >= 0) { hit = true; break; } }
+            if (hit) wanted["/_next/data/" + bid + l.path + ".json"] = true;
+          });
         });
-        if (!jobs.length) return finish(all, reviews, null);
+        var urls = Object.keys(wanted).slice(0, 10);
+        if (!urls.length) return finish(all, reviews, null);
+        var rich2 = {};
+        var extraProbe = [];
+        var jobs = urls.map(function(url){
+          return fetch(url, { credentials:"include", headers:{ accept:"application/json" } })
+            .then(function(res){ return res.ok ? res.text() : null; })
+            .then(function(t){ if (!t) return; var jj = tryParse(t); if (jj) collectInto(jj, rich2, 0); if (extraProbe.length < 8) extraProbe.push({ url: url, status: "ok", respSample: (t || "").slice(0, 1500) }); })
+            .catch(function(){});
+        });
         return Promise.all(jobs).then(function(){
-          reviews.forEach(function(r){ if (!r.reviewtext && r.suborderid && textMap[r.suborderid]) r.reviewtext = textMap[r.suborderid]; });
+          reviews.forEach(function(r){
+            var e = (r.suborderid && (rich2[r.suborderid] || rich[r.suborderid])) || null;
+            if (e) { if (!r.reviewtext && e.text) r.reviewtext = e.text; if (!r.mediacount && e.media) r.mediacount = e.media; }
+          });
           return finish(all, reviews, extraProbe);
         });
       }

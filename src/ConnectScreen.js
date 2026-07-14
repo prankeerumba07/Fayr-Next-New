@@ -66,6 +66,11 @@ function ReviewCard({ item, color, platform }) {
       ) : null}
       {item.product && item.title ? <Text style={styles.reviewTitle}>{item.title}</Text> : null}
       {item.text ? <Text style={styles.reviewText}>{item.text}</Text> : null}
+      {item.mediaCount ? (
+        <Text style={styles.mediaNote}>📷 {item.mediaCount} photo/video in review (public on product page)</Text>
+      ) : item.approved === true && item.text ? (
+        <Text style={styles.mediaNoteMuted}>No photos/videos — review may not show publicly</Text>
+      ) : null}
       <View style={styles.metaRow}>
         {reviewDate ? <Text style={styles.metaText}>Reviewed: {reviewDate}</Text> : null}
         {item.orderId ? <Text style={styles.metaText}>Order ID: {item.orderId}</Text> : null}
@@ -345,6 +350,8 @@ const styles = StyleSheet.create({
   notRatedBadge: { fontSize: 13, fontWeight: '600', color: '#b0772a', marginTop: 4 },
   reviewTitle: { fontSize: 14, fontWeight: '600', color: '#333', marginTop: 6 },
   reviewText: { fontSize: 13, color: '#444', marginTop: 4, lineHeight: 18 },
+  mediaNote: { fontSize: 12, color: '#0C831F', fontWeight: '600', marginTop: 6 },
+  mediaNoteMuted: { fontSize: 12, color: '#999', marginTop: 6 },
   metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, flexWrap: 'wrap' },
   metaText: { fontSize: 12, color: '#777', marginRight: 14 },
   productUrl: { fontSize: 12, color: '#2874F0', marginTop: 6, textDecorationLine: 'underline' },

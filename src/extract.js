@@ -195,6 +195,11 @@ export function extractItems(raw) {
         approved: low.approved === true ? true : low.approved === false ? false : null,
         published: low.published === true ? true : low.published === false ? false : null,
         reviewStatus: typeof low.reviewstatus === 'string' ? low.reviewstatus : null,
+        // Count of review photos/videos (Meesho gates public visibility on this).
+        mediaCount:
+          Number(low.mediacount) > 0 ? Number(low.mediacount)
+            : low.hasmedia === true ? 1
+            : null,
         productId:
           low.productid || low.asin || low.styleid || low.styleId || low.pid || null,
         orderId:
