@@ -553,6 +553,49 @@ function discoveryHook() {
   snapshotEmbedded();
   setInterval(snapshotEmbedded, 1500);
 
+  // Blinkit's WEB order list doesn't visibly badge rated orders (only a faint
+  // "edit rating" icon), unlike its native app. So we overlay our own "Rated"
+  // badge directly on the order cards BEFORE the user taps Fetch. We know which
+  // orders are rated from the captured order_history (type === "edit_rating"),
+  // and anchor the badge on each rated order's unique product image filename,
+  // which appears both in that data and in the rendered page.
+  function fayrAnnotateBlinkit(){
+    try {
+      if (!/blinkit\\.com/.test(location.host)) return;
+      var calls = window.__fayrCalls || [];
+      var ratedFiles = {};
+      calls.forEach(function(c){
+        if (!c || !c.url || c.url.indexOf("/v1/layout/order_history") < 0 || !c.respJson) return;
+        var snippets = (c.respJson.response && c.respJson.response.snippets) || [];
+        snippets.forEach(function(sn){
+          if (!sn || sn.widget_type !== "order_history_container_vr" || !sn.data) return;
+          var rated = false;
+          (function scan(o,d){ if(o==null||d>16)return; if(Array.isArray(o)){for(var i=0;i<o.length;i++)scan(o[i],d+1);return;} if(typeof o==="object"){ if(o.type==="edit_rating")rated=true; for(var k in o){ if(Object.prototype.hasOwnProperty.call(o,k))scan(o[k],d+1);}}})(sn.data,0);
+          if (!rated) return;
+          (function scan(o,d){ if(o==null||d>16)return; if(Array.isArray(o)){for(var i=0;i<o.length;i++)scan(o[i],d+1);return;} if(typeof o==="object"){ if(typeof o.url==="string"){ var m=o.url.match(/product\\/([^\\/.?]+)/); if(m)ratedFiles[m[1]]=true; } for(var k in o){ if(Object.prototype.hasOwnProperty.call(o,k))scan(o[k],d+1);}}})(sn.data,0);
+        });
+      });
+      if (!Object.keys(ratedFiles).length) return;
+      var imgs = document.getElementsByTagName("img");
+      for (var i=0;i<imgs.length;i++){
+        var src = imgs[i].src || "";
+        var mm = src.match(/product\\/([^\\/.?]+)/);
+        if (mm && ratedFiles[mm[1]] && !imgs[i].__fayrBadged){
+          imgs[i].__fayrBadged = true;
+          var p = imgs[i].parentNode;
+          if (p) {
+            try { var cs = window.getComputedStyle(p); if (cs && cs.position === "static") p.style.position = "relative"; } catch(e){}
+            var b = document.createElement("div");
+            b.textContent = "\\u2605 Rated";
+            b.style.cssText = "position:absolute;top:2px;left:2px;background:#0C831F;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px;z-index:99999;box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:none;";
+            p.appendChild(b);
+          }
+        }
+      }
+    } catch(e){}
+  }
+  setInterval(fayrAnnotateBlinkit, 1500);
+
   var of = window.fetch;
   if (of) {
     window.fetch = function(input, init){
