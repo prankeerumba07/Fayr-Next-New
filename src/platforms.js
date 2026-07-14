@@ -822,6 +822,18 @@ const blinkit = {
         for (var k2 in o) { if (Object.prototype.hasOwnProperty.call(o,k2)) { var r2=findRating(o[k2], depth+1); if(r2) return r2; } }
         return null;
       }
+      // The ONLY reliable rated marker on Blinkit's order history: the order
+      // header carries tracking.common_attributes.type === "edit_rating" once
+      // rated (unrated orders have type null). The visible "Rating submitted /
+      // Edit Rating" text is client-rendered from this, not present as data.
+      function findActionType(o, depth){
+        if (o == null || depth > 16) return null;
+        if (Array.isArray(o)) { for (var i=0;i<o.length;i++){ var r=findActionType(o[i], depth+1); if(r) return r; } return null; }
+        if (typeof o !== "object") return null;
+        if (o.type === "edit_rating" || o.type === "rate_order") return o.type;
+        for (var k in o) { if (Object.prototype.hasOwnProperty.call(o,k)) { var r2=findActionType(o[k], depth+1); if(r2) return r2; } }
+        return null;
+      }
       // "01 Jun, 2:50 pm" (no year) | "12 Oct 2025" | "11 May 2024" -> epoch ms.
       function parseDate(t){
         if (!t) return null;
@@ -843,8 +855,6 @@ const blinkit = {
 
       // Texts that are status/CTA/rating chrome, never product names.
       var SKIP = /^₹|return|refund|reorder|arrived in|delivered|rate order|rate this order|rate now|rating submitted|thank you|thanks for rating|^edit$|edit rating|you rated|your rating|already rated/i;
-      var RATED_MARKER = /rating submitted|already rated|you rated|your rating|edit rating|thanks? for rating|rated this order/i;
-      var RATE_CTA = /rate order|rate this order|rate now/i;
 
       var reviews = [];
       var seen = {};
@@ -880,25 +890,22 @@ const blinkit = {
             if (t !== dateText) products.push(t);
           });
 
-          // Rating is ORDER-level on Blinkit ("Rating submitted. Thank you!" on
-          // the order card). Detect from: (1) a captured order_details star,
-          // (2) any numeric star in the card, (3) the "Rating submitted"/"Edit
-          // Rating" text marker. "Rate order" means rateable-but-unrated.
+          // Rating is ORDER-level on Blinkit. The authoritative marker is the
+          // header action type "edit_rating" (rated) vs "rate_order"/null. Keep
+          // an order_details star as a bonus if one was ever captured.
+          var actionType = findActionType(sn.data, 0);
           var star = (orderId && detailRating[orderId] != null) ? detailRating[orderId] : findRating(sn.data, 0);
-          var ratedMarker = RATED_MARKER.test(joined);
-          var rateCta = RATE_CTA.test(joined);
-          var rated = star != null || ratedMarker;
+          var rated = star != null || actionType === "edit_rating";
 
-          // Debug: keep the raw card so the exact rating marker can be located
-          // if detection is still wrong (Download JSON -> __debug).
-          if (debugCards.length < 12) {
-            debugCards.push({ orderId: orderId, texts: texts, rated: rated, rawData: sn.data });
+          // Slim debug (marker now calibrated): status per order, no raw tree.
+          if (debugCards.length < 40) {
+            debugCards.push({ orderId: orderId, actionType: actionType, rated: rated });
           }
 
           if (!products.length) products = [null];
           var reviewstatus = star != null ? "RATED"
             : (rated ? "RATED_STAR_NOT_EXPOSED_ON_WEB"
-              : (rateCta ? "NOT_RATED" : "RATING_NOT_FOUND"));
+              : (delivered ? "NOT_RATED" : "RATING_NOT_FOUND"));
 
           // One entry per product so a task's target product can be isolated.
           products.forEach(function(pname, idx){
