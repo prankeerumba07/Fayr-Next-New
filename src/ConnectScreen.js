@@ -102,6 +102,18 @@ export default function ConnectScreen({ platform }) {
     [items, target]
   );
 
+  // Cap the raw dump: React Native can fail to paint (blank/black) a single
+  // <Text> holding megabytes. Show the first slice and point at "Download JSON"
+  // for the rest.
+  const rawText = useMemo(() => {
+    if (raw == null) return '';
+    const s = JSON.stringify(raw, null, 2) || '';
+    const LIMIT = 200000;
+    return s.length > LIMIT
+      ? `${s.slice(0, LIMIT)}\n\n…(truncated ${s.length - LIMIT} more chars — use “Download JSON” for the full file)`
+      : s;
+  }, [raw]);
+
   const onMessage = useCallback((event) => {
     setBusy(false);
     let msg;
@@ -126,7 +138,10 @@ export default function ConnectScreen({ platform }) {
     } catch (e) {
       setItems([]);
     }
-    setShowRaw(DISCOVERY_PLATFORMS.includes(platform.key));
+    // Never auto-open the dark raw viewer: a multi-MB Meesho payload in a single
+    // <Text> node paints as a blank near-black screen. Default to the (light)
+    // cards view; the user can still toggle "Show raw JSON" on demand.
+    setShowRaw(false);
     setMode('results');
   }, [platform]);
 
@@ -239,7 +254,7 @@ export default function ConnectScreen({ platform }) {
           ) : showRaw ? (
             <ScrollView style={styles.rawBox}>
               <Text style={styles.rawText} selectable>
-                {JSON.stringify(raw, null, 2)}
+                {rawText}
               </Text>
             </ScrollView>
           ) : (
