@@ -978,7 +978,7 @@ const meesho = {
           totalSubOrders: all.length,
           __ordersSample: sample,
           __reviewProbe: reviewProbe(extraProbe),
-          note: "Meesho: " + reviews.length + " rated of " + all.length + " sub-order(s); " + withText + " with review text, " + withMedia + " with photos/videos. If text < rated, __reviewProbe shows the detail/feedback responses so the text field can be pinned."
+          note: "Meesho: " + reviews.length + " rated of " + all.length + " sub-order(s); star + purchase captured from web. Review COMMENT is app-only (Meesho's website has no review-view/edit flow), so text is not fetchable on web" + (withText ? " - but " + withText + " came through this session." : ".")
         };
       }
 
