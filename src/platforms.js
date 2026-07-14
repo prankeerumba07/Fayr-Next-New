@@ -604,62 +604,53 @@ function discoveryHook() {
     try {
       if (!/swiggy\\.com/.test(location.host)) return;
       var calls = window.__fayrCalls || [];
-      // Collect every order with: is it DELIVERED-and-RATED, and its product
-      // names. Failed/cancelled orders are never rated (no rating_info /
-      // is_rated), so they're excluded here.
-      var ordersInfo = [];
+      // Per-order facts from the DASH list: delivered?, rated?, and product
+      // "keys" (name prefixes) that identify the order's items.
+      var orders = [];
       calls.forEach(function(c){
         if (!c || !c.url || c.url.indexOf("/mapi/order/dash") < 0 || c.url.indexOf("details") >= 0 || !c.respJson) return;
-        var orders = (c.respJson.data && c.respJson.data.orders) || [];
-        orders.forEach(function(o){
+        ((c.respJson.data && c.respJson.data.orders) || []).forEach(function(o){
           var delivered = /deliver/i.test(String(o.history_status || ""));
           var v2 = o.order_data_v2 || {};
-          var shipments = v2.shipments || [];
-          var rated = false, texts = [];
-          shipments.forEach(function(sh){
+          var rated = false, keys = [];
+          (v2.shipments || []).forEach(function(sh){
             var ri = sh.rating_info;
             if (ri && (ri.is_rated === true || (ri.button && /edit/i.test(ri.button.text || "")))) rated = true;
-            (sh.items || []).forEach(function(it){ if (it && typeof it.name === "string" && it.name.trim()) texts.push(it.name.trim().toLowerCase()); });
+            (sh.items || []).forEach(function(it){ if (it && typeof it.name === "string" && it.name.trim().length >= 4) keys.push(it.name.trim().toLowerCase().slice(0, 16)); });
           });
-          ordersInfo.push({ rated: rated && delivered, texts: texts });
+          orders.push({ delivered: delivered, rated: rated, keys: keys });
         });
       });
-      // For each delivered+rated order, pick a product key that is UNIQUE to it
-      // (not a substring of any OTHER order's products) so the badge lands on
-      // exactly that order's card and never on a shared-product order.
-      var ratedKeys = [];
-      ordersInfo.forEach(function(oi, idx){
-        if (!oi.rated) return;
-        var otherPool = "";
-        ordersInfo.forEach(function(oj, jdx){ if (jdx !== idx) otherPool += " || " + oj.texts.join(" || "); });
-        for (var n=0; n<oi.texts.length; n++){
-          var nm = oi.texts[n];
-          if (nm.length < 6) continue;
-          var k = nm.slice(0, 18);
-          if (otherPool.indexOf(k) < 0){ if (ratedKeys.indexOf(k) < 0) ratedKeys.push(k); break; }
+      // Walk the ACTUAL order cards. Swiggy renders no rating text, so:
+      //  - the card's own status ("delivered") excludes failed/cancelled, and
+      //  - matching the card's product set to a dash order tells us if it's
+      //    rated (unique per delivered order, even when products are shared
+      //    with a failed order - that one is filtered out by status).
+      var cards = document.querySelectorAll('[data-testid="dash-order-card"]');
+      for (var i=0;i<cards.length;i++){
+        var card = cards[i];
+        if (card.__fayrRated) continue;
+        var st = card.querySelector('[data-testid="order-status"]');
+        var stText = (st ? st.textContent : "") || "";
+        if (!/deliver/i.test(stText)) continue; // never badge failed/cancelled
+        var det = card.querySelector('[data-testid="dash-order-card-details"]') || card;
+        var cardText = (det.textContent || "").toLowerCase();
+        var match = null;
+        for (var j=0;j<orders.length;j++){
+          var od = orders[j];
+          if (!od.delivered || !od.keys.length) continue;
+          var all = true;
+          for (var k=0;k<od.keys.length;k++){ if (cardText.indexOf(od.keys[k]) < 0){ all = false; break; } }
+          if (all){ match = od; break; }
         }
-      });
-      if (!ratedKeys.length) return;
-      var els = document.querySelectorAll("div,p,span,li,h3,h4");
-      // For each rated product name, badge the SMALLEST element that contains
-      // it (the tightest wrapper around the product line) - robust to however
-      // Swiggy nests the card, and avoids badging a whole card container.
-      ratedKeys.forEach(function(key){
-        var best = null, bestLen = 100000;
-        for (var i=0;i<els.length;i++){
-          var el = els[i];
-          if (el.__fayrRated) continue;
-          var t = (el.textContent || "").toLowerCase();
-          if (t.length < 300 && t.length < bestLen && t.indexOf(key) >= 0){ best = el; bestLen = t.length; }
+        if (match && match.rated){
+          card.__fayrRated = true;
+          var badge = document.createElement("span");
+          badge.textContent = " \\u2605 Rated";
+          badge.style.cssText = "display:inline-block;background:#FC8019;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px;vertical-align:middle;";
+          (st || card).appendChild(badge);
         }
-        if (best){
-          best.__fayrRated = true;
-          var b = document.createElement("span");
-          b.textContent = " \\u2605 Rated";
-          b.style.cssText = "display:inline-block;background:#FC8019;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px;vertical-align:middle;";
-          best.appendChild(b);
-        }
-      });
+      }
     } catch(e){}
   }
   setInterval(fayrAnnotateInstamart, 1500);
@@ -894,42 +885,20 @@ const instamart = {
       // order history); the Target product box isolates a task's product.
       var ratedOnly = reviews.filter(function(r){ return r.orderrated === true; });
 
-      // Diagnostic: capture the REAL rated-order card DOM so the badge
-      // annotator's fallback (anchor on Swiggy's own per-card rating marker)
-      // can be built against actual markup, not a guess. For each rated order
-      // we find its product line in the page and record the ancestor chain up
-      // to the card, plus any element whose text is a rating CTA.
+      // Slim diagnostic: one line per rendered order card - its status and
+      // whether our annotator badged it - so mis-badging can be spotted at a
+      // glance without dumping the whole DOM.
       var domSample = [];
       try {
-        function upChain(el, levels){
-          var out = [], cur = el;
-          for (var l=0; l<levels && cur; l++){
-            out.push({ lvl: l, tag: cur.tagName, cls: String(cur.className || "").slice(0, 90),
-                       text: (cur.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 140),
-                       html: (cur.outerHTML || "").slice(0, 1400) });
-            cur = cur.parentElement;
-          }
-          return out;
-        }
-        var ratedNames = [];
-        reviews.forEach(function(r){ if (r.orderrated === true && r.productname){ var k = r.productname.toLowerCase().slice(0, 24); if (ratedNames.indexOf(k) < 0) ratedNames.push(k); } });
-        var allEls = document.querySelectorAll("div,span,p,li");
-        ratedNames.forEach(function(key){
-          if (domSample.length >= 6) return;
-          var best = null, bestLen = 100000;
-          for (var i=0;i<allEls.length;i++){ var t=(allEls[i].textContent||"").toLowerCase(); if (t.length<400 && t.length<bestLen && t.indexOf(key)>=0){ best=allEls[i]; bestLen=t.length; } }
-          if (best) domSample.push({ kind: "rated-card", key: key, chain: upChain(best, 8) });
-        });
-        // Every element whose text is a rating CTA - shows if Swiggy renders
-        // "Edit Rating" / "already rated" / "Rate Order" as text, and where.
-        var markerEls = document.querySelectorAll("div,span,p,button,a,li");
-        var mc = 0;
-        for (var m=0; m<markerEls.length && mc<8; m++){
-          var tx = (markerEls[m].textContent || "").replace(/\\s+/g, " ").trim();
-          if (tx.length < 45 && /edit rating|already rated|rate order|rate now|rate your order/i.test(tx)){
-            domSample.push({ kind: "marker", text: tx.slice(0, 60), tag: markerEls[m].tagName, cls: String(markerEls[m].className || "").slice(0, 90) });
-            mc++;
-          }
+        var cardEls = document.querySelectorAll('[data-testid="dash-order-card"]');
+        for (var q=0; q<cardEls.length && domSample.length<20; q++){
+          var stEl = cardEls[q].querySelector('[data-testid="order-status"]');
+          var dEl = cardEls[q].querySelector('[data-testid="dash-order-card-details"]');
+          domSample.push({
+            status: (stEl ? stEl.textContent : "").replace(/\\s+/g, " ").trim().slice(0, 20),
+            badged: cardEls[q].__fayrRated === true,
+            products: (dEl ? dEl.textContent : "").replace(/\\s+/g, " ").trim().slice(0, 80)
+          });
         }
       } catch(e){}
 
