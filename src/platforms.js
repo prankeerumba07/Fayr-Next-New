@@ -856,19 +856,65 @@ const meesho = {
       }
       function rated(s){ return !!(s && s.review && typeof s.review.current_rating === "number" && s.review.current_rating >= 1); }
 
+      // orders.json carries the STAR but not the review TEXT. The text lives in a
+      // separate rating/review call that fires when you open a rated order's
+      // review screen. Deep-scan whatever the hook captured for a node that has
+      // BOTH a sub_order_id and a free-text comment, and key the text by
+      // sub_order_id so it attaches to the right product no matter the exact
+      // response shape (works the moment that call is present - no guessing).
+      function reviewTextOf(o){
+        var keys = ["comment","comments","review_text","reviewtext","review_comment","reviewcomment","description","review","text","feedback","message"];
+        for (var i=0;i<keys.length;i++){ var v = o[keys[i]]; if (typeof v === "string" && v.trim().length > 1) return v.trim(); }
+        return null;
+      }
+      function subOrderIdOf(o){
+        var v = (o.sub_order_id != null) ? o.sub_order_id : (o.suborder_id != null ? o.suborder_id : (o.subOrderId != null ? o.subOrderId : null));
+        return v != null ? String(v) : null;
+      }
+      function collectReviewTexts(){
+        var map = {};
+        var calls = window.__fayrCalls || [];
+        function scan(o, d){
+          if (o == null || d > 12) return;
+          if (Array.isArray(o)) { for (var i=0;i<o.length;i++) scan(o[i], d+1); return; }
+          if (typeof o !== "object") return;
+          var sid = subOrderIdOf(o);
+          if (sid) { var t = reviewTextOf(o); if (t) map[sid] = t; }
+          for (var k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) scan(o[k], d+1); }
+        }
+        for (var i=0;i<calls.length;i++){ var c = calls[i]; if (c && c.respJson) scan(c.respJson, 0); }
+        return map;
+      }
+      // Compact dump of any captured rating/review call, so if the generic
+      // matcher misses I can see the real endpoint + shape from one download.
+      function reviewProbe(){
+        var out = [];
+        var calls = window.__fayrCalls || [];
+        for (var i=0;i<calls.length && out.length < 12;i++){
+          var c = calls[i];
+          if (!c || !c.url) continue;
+          if (!/rating|review|feedback/i.test(c.url) && !/rating|review/i.test(c.resp || "")) continue;
+          out.push({ url: c.url, method: c.method, status: c.status, respSample: (c.resp || "").slice(0, 1200) });
+        }
+        return out;
+      }
+
       function build(j){
         var all = subs(j);
+        var textMap = collectReviewTexts();
         var reviews = [];
         all.forEach(function(row){
           var s = row.s;
           if (!rated(s)) return; // only genuinely-rated products
+          var sid = s.sub_order_id != null ? String(s.sub_order_id) : null;
           reviews.push({
             productname: s.product_name || null,
             rating: s.review.current_rating,
+            reviewtext: (sid && textMap[sid]) ? textMap[sid] : null,
             reviewstatus: "RATED",
             approved: true,
             orderid: s.order_num != null ? String(s.order_num) : null,
-            suborderid: s.sub_order_id != null ? String(s.sub_order_id) : null,
+            suborderid: sid,
             orderdate: (row.g && row.g.date) || ((row.o.order_date && row.o.order_date.date_string) || null),
             statusmessage: s.status_message || null,
             imageurl: s.first_image_url || null,
@@ -876,6 +922,7 @@ const meesho = {
             verified: true
           });
         });
+        var withText = reviews.filter(function(r){ return r.reviewtext; }).length;
         // Compact audit line for every sub-order so "why isn't X shown" is answerable.
         var sample = all.map(function(row){ var s = row.s; return { product: (s.product_name||"").slice(0,44), status: s.status_message, current_rating: (s.review && s.review.current_rating), rated: rated(s) }; });
         return {
@@ -883,9 +930,11 @@ const meesho = {
           source: "orders.json",
           reviews: reviews,
           ratedCount: reviews.length,
+          reviewsWithText: withText,
           totalSubOrders: all.length,
           __ordersSample: sample,
-          note: "Meesho: " + reviews.length + " of " + all.length + " sub-order(s) are rated (review.current_rating >= 1). Only rated products are returned."
+          __reviewProbe: reviewProbe(),
+          note: "Meesho: " + reviews.length + " rated of " + all.length + " sub-order(s); " + withText + " have review text. If text is 0, open a rated order's review screen (so the review-text call is captured) and Fetch again - __reviewProbe shows the endpoint."
         };
       }
 
