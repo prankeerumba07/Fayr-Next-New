@@ -617,28 +617,30 @@ function discoveryHook() {
             if (ri && (ri.is_rated === true || (ri.button && /edit/i.test(ri.button.text || "")))) rated = true;
             (sh.items || []).forEach(function(it){ if (it && typeof it.name === "string" && it.name.trim()) names.push(it.name.trim()); });
           });
-          if (rated) { names.forEach(function(n){ if (n.length >= 8) ratedKeys.push(n.slice(0, 24).toLowerCase()); }); }
+          if (rated) { names.forEach(function(n){ var k = n.slice(0, 18).toLowerCase(); if (n.length >= 6 && ratedKeys.indexOf(k) < 0) ratedKeys.push(k); }); }
         });
       });
       if (!ratedKeys.length) return;
-      var els = document.querySelectorAll("div,p,span,a,li,h3,h4");
-      for (var i=0;i<els.length;i++){
-        var el = els[i];
-        if (el.__fayrBadged) continue;
-        if (el.children && el.children.length > 3) continue; // target leaf-ish text
-        var txt = (el.textContent || "").toLowerCase();
-        if (!txt || txt.length > 200) continue;
-        for (var j=0;j<ratedKeys.length;j++){
-          if (txt.indexOf(ratedKeys[j]) >= 0){
-            el.__fayrBadged = true;
-            var b = document.createElement("span");
-            b.textContent = " \\u2605 Rated";
-            b.style.cssText = "display:inline-block;background:#FC8019;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px;vertical-align:middle;";
-            el.appendChild(b);
-            break;
-          }
+      var els = document.querySelectorAll("div,p,span,li,h3,h4");
+      // For each rated product name, badge the SMALLEST element that contains
+      // it (the tightest wrapper around the product line) - robust to however
+      // Swiggy nests the card, and avoids badging a whole card container.
+      ratedKeys.forEach(function(key){
+        var best = null, bestLen = 100000;
+        for (var i=0;i<els.length;i++){
+          var el = els[i];
+          if (el.__fayrRated) continue;
+          var t = (el.textContent || "").toLowerCase();
+          if (t.length < 300 && t.length < bestLen && t.indexOf(key) >= 0){ best = el; bestLen = t.length; }
         }
-      }
+        if (best){
+          best.__fayrRated = true;
+          var b = document.createElement("span");
+          b.textContent = " \\u2605 Rated";
+          b.style.cssText = "display:inline-block;background:#FC8019;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px;vertical-align:middle;";
+          best.appendChild(b);
+        }
+      });
     } catch(e){}
   }
   setInterval(fayrAnnotateInstamart, 1500);
@@ -872,13 +874,34 @@ const instamart = {
       // Show ALL orders/products with their rated status (mirrors the app's
       // order history); the Target product box isolates a task's product.
       var ratedOnly = reviews.filter(function(r){ return r.orderrated === true; });
+
+      // Diagnostic: capture the real order-card DOM so the on-page "Rated"
+      // badge annotator can be calibrated to Swiggy's actual markup if it still
+      // misses. Only cards that carry a rating CTA are grabbed, trimmed small.
+      var domSample = [];
+      try {
+        var seenH = {};
+        var nodes = document.querySelectorAll("div,section,article,li");
+        for (var q=0; q<nodes.length && domSample.length<4; q++){
+          var tt = nodes[q].textContent || "";
+          if (tt.length > 60 && tt.length < 1400 && (nodes[q].children ? nodes[q].children.length : 0) >= 2 &&
+              /rate order|already rated|edit rating/i.test(tt)){
+            var html = nodes[q].outerHTML || "";
+            var sig = html.slice(0, 100);
+            if (html && !seenH[sig]){ seenH[sig] = 1; domSample.push(html.slice(0, 2500)); }
+          }
+        }
+      } catch(e){}
+
       return Promise.resolve({
         source: "captured-mapi",
         note: "Instamart rates the ORDER, not individual products ('You've already rated this order'), and web never exposes the star count. Every order's products are listed with a rated/not-rated marker; use the Target product box to isolate the one your task is for.",
         orderListCallsSeen: calls.filter(function(c){ return c && c.url && c.url.indexOf("/mapi/order/dash") >= 0 && c.url.indexOf("details") < 0; }).length,
         parsedCount: reviews.length,
         ratedCount: ratedOnly.length,
-        reviews: reviews
+        reviews: reviews,
+        // Stringified so extractItems doesn't walk it; readable in the download.
+        __domSample: JSON.stringify(domSample)
       });
     })()
   `
