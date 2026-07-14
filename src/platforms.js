@@ -835,9 +835,12 @@ const meesho = {
   key: 'meesho',
   name: 'Meesho',
   color: '#620E62',
-  startUrl: 'https://www.meesho.com/',
+  // Open straight on the orders page so a single "Fetch my reviews" tap works
+  // with no navigation: the fetch reads the authenticated orders.json + each
+  // rated order's detail endpoint itself.
+  startUrl: 'https://www.meesho.com/orders',
   beforeLoadScript: discoveryHook(),
-  hint: 'Log in and open "My Orders", then tap "Fetch my reviews". (Only orders you actually rated are shown.)',
+  hint: 'Log in if asked, then just tap "Fetch my reviews" — no need to open anything.',
   // Meesho's orders live in the Next.js data endpoint
   // /_next/data/<buildId>/orders.json. Each sub_order carries
   // review.current_rating: >=1 => the user rated it (the star they gave),
@@ -862,46 +865,63 @@ const meesho = {
       // BOTH a sub_order_id and a free-text comment, and key the text by
       // sub_order_id so it attaches to the right product no matter the exact
       // response shape (works the moment that call is present - no guessing).
+      function currentBuildId(){ try { var nd = document.getElementById("__NEXT_DATA__"); if (nd && nd.textContent) return (JSON.parse(nd.textContent) || {}).buildId || null; } catch(e){} return null; }
+
       function reviewTextOf(o){
-        var keys = ["comment","comments","review_text","reviewtext","review_comment","reviewcomment","description","review","text","feedback","message"];
-        for (var i=0;i<keys.length;i++){ var v = o[keys[i]]; if (typeof v === "string" && v.trim().length > 1) return v.trim(); }
+        var keys = ["comment","comments","review_text","reviewtext","review_comment","reviewcomment","rating_comment","description","review","text","feedback","message"];
+        for (var i=0;i<keys.length;i++){ var v = o[keys[i]]; if (typeof v === "string" && v.trim().length > 1 && !/^(rate your experience|rate & review|rate and review)$/i.test(v.trim())) return v.trim(); }
         return null;
       }
       function subOrderIdOf(o){
         var v = (o.sub_order_id != null) ? o.sub_order_id : (o.suborder_id != null ? o.suborder_id : (o.subOrderId != null ? o.subOrderId : null));
         return v != null ? String(v) : null;
       }
+      // Deep-scan any JSON for a node carrying both a sub_order_id and free text,
+      // keyed by sub_order_id, so the review text attaches to the right product
+      // regardless of the response's exact shape.
+      function collectInto(o, map, d){
+        if (o == null || d > 14) return;
+        if (Array.isArray(o)) { for (var i=0;i<o.length;i++) collectInto(o[i], map, d+1); return; }
+        if (typeof o !== "object") return;
+        var sid = subOrderIdOf(o);
+        if (sid) { var t = reviewTextOf(o); if (t && !map[sid]) map[sid] = t; }
+        for (var k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) collectInto(o[k], map, d+1); }
+      }
       function collectReviewTexts(){
         var map = {};
         var calls = window.__fayrCalls || [];
-        function scan(o, d){
-          if (o == null || d > 12) return;
-          if (Array.isArray(o)) { for (var i=0;i<o.length;i++) scan(o[i], d+1); return; }
-          if (typeof o !== "object") return;
-          var sid = subOrderIdOf(o);
-          if (sid) { var t = reviewTextOf(o); if (t) map[sid] = t; }
-          for (var k in o) { if (Object.prototype.hasOwnProperty.call(o, k)) scan(o[k], d+1); }
-        }
-        for (var i=0;i<calls.length;i++){ var c = calls[i]; if (c && c.respJson) scan(c.respJson, 0); }
+        for (var i=0;i<calls.length;i++){ var c = calls[i]; if (c && c.respJson) collectInto(c.respJson, map, 0); }
         return map;
       }
-      // Compact dump of any captured rating/review call, so if the generic
-      // matcher misses I can see the real endpoint + shape from one download.
-      function reviewProbe(){
+      // The order-detail routes, read from the REAL order links on the page (not
+      // guessed): map each order's numeric id -> its detail path so we can pull
+      // that order's SSR data endpoint, which carries the submitted review text.
+      function orderDetailPaths(){
+        var map = {};
+        try {
+          var as = document.querySelectorAll('a[href]');
+          for (var i=0;i<as.length;i++){
+            var h = as[i].getAttribute("href") || "";
+            if (h.indexOf("order") < 0) continue;
+            var m = h.match(/(\\d{12,})/);
+            if (m) map[m[1]] = h.split("?")[0].split("#")[0];
+          }
+        } catch(e){}
+        return map;
+      }
+      function reviewProbe(extra){
         var out = [];
         var calls = window.__fayrCalls || [];
         for (var i=0;i<calls.length && out.length < 12;i++){
           var c = calls[i];
           if (!c || !c.url) continue;
-          if (!/rating|review|feedback/i.test(c.url) && !/rating|review/i.test(c.resp || "")) continue;
-          out.push({ url: c.url, method: c.method, status: c.status, respSample: (c.resp || "").slice(0, 1200) });
+          if (!/rating|review|feedback|order.*details|order\\/[0-9]/i.test(c.url) && !/rating|review/i.test(c.resp || "")) continue;
+          out.push({ url: c.url, method: c.method, status: c.status, respSample: (c.resp || "").slice(0, 1500) });
         }
-        return out;
+        return extra && extra.length ? out.concat(extra) : out;
       }
 
-      function build(j){
-        var all = subs(j);
-        var textMap = collectReviewTexts();
+      function makeReviews(all, textMap){
         var reviews = [];
         all.forEach(function(row){
           var s = row.s;
@@ -922,8 +942,10 @@ const meesho = {
             verified: true
           });
         });
+        return reviews;
+      }
+      function finish(all, reviews, extraProbe){
         var withText = reviews.filter(function(r){ return r.reviewtext; }).length;
-        // Compact audit line for every sub-order so "why isn't X shown" is answerable.
         var sample = all.map(function(row){ var s = row.s; return { product: (s.product_name||"").slice(0,44), status: s.status_message, current_rating: (s.review && s.review.current_rating), rated: rated(s) }; });
         return {
           platform: "meesho",
@@ -933,9 +955,41 @@ const meesho = {
           reviewsWithText: withText,
           totalSubOrders: all.length,
           __ordersSample: sample,
-          __reviewProbe: reviewProbe(),
-          note: "Meesho: " + reviews.length + " rated of " + all.length + " sub-order(s); " + withText + " have review text. If text is 0, open a rated order's review screen (so the review-text call is captured) and Fetch again - __reviewProbe shows the endpoint."
+          __reviewProbe: reviewProbe(extraProbe),
+          note: "Meesho: " + reviews.length + " rated of " + all.length + " sub-order(s); " + withText + " have review text. If text < rated, __reviewProbe shows the order-detail responses so the text field can be pinned."
         };
+      }
+
+      function build(j){
+        var all = subs(j);
+        var reviews = makeReviews(all, collectReviewTexts());
+        var missing = reviews.filter(function(r){ return !r.reviewtext; });
+        var bid = currentBuildId();
+        var paths = orderDetailPaths();
+        // Auto-enrich: pull each still-missing order's detail data endpoint
+        // (route taken from the page's own order links) and scan it for the text.
+        if (!bid || !missing.length || !Object.keys(paths).length) return finish(all, reviews, null);
+        var textMap = {};
+        var extraProbe = [];
+        var seen = {};
+        var jobs = [];
+        missing.forEach(function(r){
+          var p = (r.orderid && paths[r.orderid]) || (r.suborderid && paths[r.suborderid]) || null;
+          if (!p || p.charAt(0) !== "/") return;
+          var url = "/_next/data/" + bid + p + ".json";
+          if (seen[url]) return; seen[url] = true;
+          jobs.push(
+            fetch(url, { credentials:"include", headers:{ accept:"application/json" } })
+              .then(function(res){ return res.ok ? res.text() : null; })
+              .then(function(t){ if (!t) return; var jj = tryParse(t); if (jj) collectInto(jj, textMap, 0); if (extraProbe.length < 8) extraProbe.push({ url: url, status: "ok", respSample: (t || "").slice(0, 1500) }); })
+              .catch(function(){})
+          );
+        });
+        if (!jobs.length) return finish(all, reviews, null);
+        return Promise.all(jobs).then(function(){
+          reviews.forEach(function(r){ if (!r.reviewtext && r.suborderid && textMap[r.suborderid]) r.reviewtext = textMap[r.suborderid]; });
+          return finish(all, reviews, extraProbe);
+        });
       }
 
       function fromCaptured(){
