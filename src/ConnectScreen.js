@@ -1,7 +1,7 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator,
-  ScrollView, Platform, Linking, Alert,
+  ScrollView, Platform, Linking, Alert, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -14,6 +14,22 @@ function fmt(ms) {
   const d = new Date(ms);
   if (isNaN(d.getTime())) return null;
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// Given a target product (what the review task is for), decide whether a
+// fetched item is that product. In the real app this string comes from the
+// task; here it's typed in. Quick-commerce has no order-confirmation email to
+// key off, so we match on the product name: substring first, then a
+// majority-of-tokens overlap so minor wording differences still match.
+function productMatches(item, target) {
+  const t = (target || '').trim().toLowerCase();
+  if (!t) return true;
+  const hay = `${item.product || ''} ${item.title || ''}`.toLowerCase();
+  if (hay.includes(t)) return true;
+  const toks = t.split(/\s+/).filter((w) => w.length > 2);
+  if (!toks.length) return false;
+  const hits = toks.filter((w) => hay.includes(w)).length;
+  return hits / toks.length >= 0.6;
 }
 
 function Stars({ rating }) {
@@ -40,7 +56,14 @@ function ReviewCard({ item, color, platform }) {
       {(item.product || item.title) ? (
         <Text style={styles.product} numberOfLines={2}>{item.product || item.title}</Text>
       ) : null}
-      <Stars rating={item.rating} />
+      {item.rating != null ? (
+        <Stars rating={item.rating} />
+      ) : item.approved === true ? (
+        // Rated, but this marketplace's web doesn't expose the star count.
+        <Text style={styles.ratedBadge}>✓ Rated{' '}<Text style={styles.ratedBadgeSub}>(star not shown on web)</Text></Text>
+      ) : /not_rated|rating_not_found/i.test(item.reviewStatus || '') ? (
+        <Text style={styles.notRatedBadge}>Not rated yet</Text>
+      ) : null}
       {item.product && item.title ? <Text style={styles.reviewTitle}>{item.title}</Text> : null}
       {item.text ? <Text style={styles.reviewText}>{item.text}</Text> : null}
       <View style={styles.metaRow}>
@@ -70,6 +93,14 @@ export default function ConnectScreen({ platform }) {
   const [raw, setRaw] = useState(null);
   const [error, setError] = useState(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [target, setTarget] = useState(''); // the product the review task is for
+
+  // When a target product is set, show only its review(s) - this is the
+  // "fetch only the correct product" behaviour the background flow needs.
+  const visibleItems = useMemo(
+    () => items.filter((it) => productMatches(it, target)),
+    [items, target]
+  );
 
   const onMessage = useCallback((event) => {
     setBusy(false);
@@ -153,7 +184,16 @@ export default function ConnectScreen({ platform }) {
                 ? 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36'
                 : undefined
             }
-            style={{ flex: 1 }}
+            // Opaque white so the WebView never shows through as a black/blank
+            // flash while a heavy SPA (Zepto/Blinkit/Swiggy) is still loading.
+            style={{ flex: 1, backgroundColor: '#fff' }}
+            containerStyle={{ backgroundColor: '#fff' }}
+            renderLoading={() => (
+              <View style={styles.webLoading}>
+                <ActivityIndicator size="large" color={platform.color} />
+              </View>
+            )}
+            startInLoadingState
           />
           <TouchableOpacity
             style={[styles.fetchBtn, { backgroundColor: platform.color }]}
@@ -169,7 +209,7 @@ export default function ConnectScreen({ platform }) {
           </TouchableOpacity>
         </>
       ) : (
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, backgroundColor: '#fff' }}>
           <View style={styles.resultsHeader}>
             <TouchableOpacity onPress={backToLogin} style={styles.linkBtn}>
               <Text style={[styles.link, { color: platform.color }]}>‹ Back to {platform.name}</Text>
@@ -204,23 +244,39 @@ export default function ConnectScreen({ platform }) {
             </ScrollView>
           ) : (
             <FlatList
-              data={items}
+              data={visibleItems}
               keyExtractor={(_, i) => String(i)}
               renderItem={({ item }) => (
                 <ReviewCard item={item} color={platform.color} platform={platform} />
               )}
               contentContainerStyle={{ padding: 12, paddingBottom: 32 }}
               ListHeaderComponent={
-                <Text style={styles.count}>
-                  {items.length} item{items.length === 1 ? '' : 's'} parsed
-                </Text>
+                <View>
+                  <TextInput
+                    style={styles.targetInput}
+                    value={target}
+                    onChangeText={setTarget}
+                    placeholder="Target product (leave blank to show all)"
+                    placeholderTextColor="#999"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <Text style={styles.count}>
+                    {target.trim()
+                      ? `${visibleItems.length} match${visibleItems.length === 1 ? '' : 'es'} for “${target.trim()}” (of ${items.length} fetched)`
+                      : `${items.length} item${items.length === 1 ? '' : 's'} fetched`}
+                  </Text>
+                </View>
               }
               ListEmptyComponent={
                 <View style={styles.errorBox}>
-                  <Text style={styles.errorTitle}>Nothing parsed</Text>
+                  <Text style={styles.errorTitle}>
+                    {target.trim() ? 'No matching product' : 'Nothing parsed'}
+                  </Text>
                   <Text style={styles.errorText}>
-                    The response came back but no review/order-shaped data was found.
-                    Tap “Show raw JSON” to inspect what was returned.
+                    {target.trim()
+                      ? `None of the ${items.length} fetched item(s) matched “${target.trim()}”. Clear the box to see them all.`
+                      : 'The response came back but no review/order-shaped data was found. Tap “Show raw JSON” to inspect what was returned.'}
                   </Text>
                 </View>
               }
@@ -234,6 +290,10 @@ export default function ConnectScreen({ platform }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
+  webLoading: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
+  },
   hintBar: { paddingHorizontal: 14, paddingVertical: 10 },
   hintText: { color: '#fff', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   fetchBtn: {
@@ -250,6 +310,11 @@ const styles = StyleSheet.create({
   linkBtn: { paddingVertical: 4 },
   link: { fontSize: 15, fontWeight: '600' },
   count: { fontSize: 13, color: '#666', marginBottom: 8, marginLeft: 4 },
+  targetInput: {
+    borderWidth: 1, borderColor: '#ddd', borderRadius: 10, paddingHorizontal: 12,
+    paddingVertical: 10, fontSize: 14, color: '#1a1a1a', backgroundColor: '#fafafa',
+    marginBottom: 8,
+  },
   card: {
     backgroundColor: '#fff', borderRadius: 12, borderLeftWidth: 4, padding: 12, marginBottom: 10,
     borderWidth: StyleSheet.hairlineWidth, borderColor: '#e6e6e6',
@@ -260,6 +325,9 @@ const styles = StyleSheet.create({
   product: { fontSize: 15, fontWeight: '700', color: '#1a1a1a', marginTop: 4 },
   stars: { fontSize: 15, color: '#f5a623', marginTop: 4 },
   ratingNum: { fontSize: 12, color: '#777' },
+  ratedBadge: { fontSize: 14, fontWeight: '700', color: '#0C831F', marginTop: 4 },
+  ratedBadgeSub: { fontSize: 11, fontWeight: '400', color: '#999' },
+  notRatedBadge: { fontSize: 13, fontWeight: '600', color: '#b0772a', marginTop: 4 },
   reviewTitle: { fontSize: 14, fontWeight: '600', color: '#333', marginTop: 6 },
   reviewText: { fontSize: 13, color: '#444', marginTop: 4, lineHeight: 18 },
   metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, flexWrap: 'wrap' },

@@ -201,6 +201,14 @@ export function extractItems(raw) {
           low.orderid || low.storeorderid || low.order_id || null,
         productUrl:
           typeof low.producturl === 'string' ? low.producturl : null,
+        // Kept for cross-verification against a screenshot/task amount. Raw as
+        // captured ("₹604", paise, or a number); verify.js normalizes it.
+        amount:
+          low.amount != null ? low.amount
+            : low.grandtotalamount != null ? low.grandtotalamount
+            : low.total != null ? low.total
+            : low.orderamount != null ? low.orderamount
+            : null,
       };
       // Include orderId so two distinct orders of the same product on the same
       // day (e.g. one delivered + one returned) don't collapse into one card.

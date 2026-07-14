@@ -656,12 +656,14 @@ const instamart = {
   key: 'instamart',
   name: 'Instamart',
   color: '#FC8019',
-  startUrl: 'https://www.swiggy.com/instamart',
+  // Open on the Swiggy account page - the capture shows the DASH order list
+  // (/mapi/order/dash) loads here - so it's captured without the user navigating.
+  startUrl: 'https://www.swiggy.com/my-account',
   // Keep the interceptor: Swiggy's /mapi/order/* endpoints are session + CSRF
   // guarded and computed by the SPA, so we parse the real authenticated
   // responses the hook captured while you browsed Orders rather than re-fetch.
   beforeLoadScript: discoveryHook(),
-  hint: 'Log in (allow location if asked), open your profile → Orders and scroll the list, then tap "Fetch my reviews".',
+  hint: 'Log in if asked and let your Orders list load, then tap "Fetch my reviews". (No need to open individual orders.)',
   // IMPORTANT: Instamart (Swiggy DASH) web exposes whether an order was rated
   // (rating_info.is_rated) but NOT the numeric star value - it lives nowhere in
   // the order list OR order details. So this verifies the PURCHASE + whether a
@@ -692,11 +694,12 @@ const instamart = {
           if (orderId) seen[orderId] = true;
 
           var status = o.history_status || null;
-          // Only delivered orders can carry a rating.
           var delivered = /deliver/i.test(String(status));
 
           var v2 = o.order_data_v2 || {};
           var shipments = v2.shipments || [];
+          // Instamart rates the ORDER, not each product ("You've already rated
+          // this order"), so is_rated applies to every item in the order.
           var names = [];
           var rated = false;
           shipments.forEach(function(sh){
@@ -704,13 +707,12 @@ const instamart = {
             var ri = sh.rating_info || null;
             if (ri) {
               if (ri.is_rated === true) rated = true;
-              // Fallback when is_rated is absent: infer from the CTA label.
               var btn = ri.button && ri.button.text;
               if (ri.is_rated == null && typeof btn === "string" && /edit/i.test(btn)) rated = true;
             }
           });
+          if (!names.length && v2.title) names.push(String(v2.title));
 
-          // "Order delivered on 3 Mar 2026, 02:25 PM by <agent>"
           var deliveryEpoch = null;
           var line1 = (o.details_text && o.details_text.line1) || "";
           var dm = line1.match(/on\\s+(.+?)(?:\\s+by\\s+|$)/i);
@@ -721,35 +723,41 @@ const instamart = {
             || String(refund.refund_processed || "0") !== "0"
             || (v2.refund_status && /refund|return/i.test(String(v2.refund_status)) && !/no_refund/i.test(String(v2.refund_status)));
 
-          reviews.push({
-            productname: names.join(", ") || (v2.title || null),
-            // Swiggy web never returns the star count, only whether it was rated.
-            rating: null,
-            reviewtext: null,
-            reviewdate: null,
-            orderdate: typeof o.created_at === "number" ? o.created_at : null,
-            deliverydate: deliveryEpoch,
-            orderid: orderId,
-            returned: returned,
-            returnstatus: returned ? "REFUNDED" : (delivered ? "DELIVERED" : status),
-            statuscode: status,
-            // From the user's own authenticated Swiggy order history.
-            verified: true,
-            approved: rated ? true : null,
-            published: rated ? true : null,
-            reviewstatus: rated ? "RATED_STAR_NOT_EXPOSED_ON_WEB"
-              : (delivered ? "NOT_RATED" : String(status || "")),
-            productid: orderId,
-            imageurl: null,
-            producturl: null
+          // Emit ONE entry per product so a task's target product can be
+          // isolated instead of a whole order's product list.
+          names.forEach(function(pname, idx){
+            reviews.push({
+              productname: pname,
+              rating: null, // Swiggy web exposes is_rated but never the star count
+              reviewtext: null,
+              reviewdate: null,
+              orderdate: typeof o.created_at === "number" ? o.created_at : null,
+              deliverydate: deliveryEpoch,
+              orderid: orderId,
+              returned: returned,
+              returnstatus: returned ? "REFUNDED" : (delivered ? "DELIVERED" : status),
+              statuscode: status,
+              verified: true,
+              approved: rated ? true : null,
+              published: rated ? true : null,
+              // Order-level rating: mark every item of a rated order as rated.
+              reviewstatus: rated ? "RATED_STAR_NOT_EXPOSED_ON_WEB"
+                : (delivered ? "NOT_RATED" : String(status || "")),
+              orderrated: rated,
+              productid: orderId + "#" + idx,
+              imageurl: null,
+              producturl: null
+            });
           });
         });
       });
 
-      var ratedOnly = reviews.filter(function(r){ return r.reviewstatus === "RATED_STAR_NOT_EXPOSED_ON_WEB"; });
+      // Show ALL orders/products with their rated status (mirrors the app's
+      // order history); the Target product box isolates a task's product.
+      var ratedOnly = reviews.filter(function(r){ return r.orderrated === true; });
       return Promise.resolve({
         source: "captured-mapi",
-        note: "Instamart (Swiggy DASH) web exposes whether an order was rated (is_rated) but not the star count, so 'rating' is null; reviewstatus RATED_STAR_NOT_EXPOSED_ON_WEB means the user did submit a rating. Parsed from /mapi/order/dash the page loaded while you browsed Orders.",
+        note: "Instamart rates the ORDER, not individual products ('You've already rated this order'), and web never exposes the star count. Every order's products are listed with a rated/not-rated marker; use the Target product box to isolate the one your task is for.",
         orderListCallsSeen: calls.filter(function(c){ return c && c.url && c.url.indexOf("/mapi/order/dash") >= 0 && c.url.indexOf("details") < 0; }).length,
         parsedCount: reviews.length,
         ratedCount: ratedOnly.length,
@@ -764,20 +772,19 @@ const blinkit = {
   key: 'blinkit',
   name: 'Blinkit',
   color: '#0C831F',
-  startUrl: 'https://blinkit.com/',
+  startUrl: 'https://blinkit.com/account/orders',
   // Keep the interceptor: Blinkit's order data comes back as server-driven
   // "layout" widget trees (v1/layout/order_history + order_details). Those
   // endpoints need exact app headers/params the SPA computes, so instead of
   // re-fetching them blind we parse the real authenticated responses the hook
   // already captured while you browsed Account -> Orders.
   beforeLoadScript: discoveryHook(),
-  hint: 'Log in (allow location if asked), open Account → Your Orders and scroll the list, then tap "Fetch my reviews".',
-  // IMPORTANT: Blinkit's WEB order layouts expose full order facts (id, date,
-  // amount, products, delivered/returned status) but NOT the star rating the
-  // user left - there is no rating value anywhere in order_history OR
-  // order_details (the ORDER_RATING subscriber is only a refresh hook). So this
-  // verifies the PURCHASE + return-window side; the rating stays null and is
-  // flagged web-unavailable rather than faked.
+  hint: 'Log in if asked and let your Orders list load, then tap "Fetch my reviews". (No need to open individual orders.)',
+  // Blinkit's WEB order_history layout gives full order facts (id, date, amount,
+  // products, delivered/returned) but in our sample carried no star rating. A
+  // rating, if the web surfaces one, appears on the order_DETAILS page - so we
+  // parse both the history list AND every order_details the hook captured while
+  // you opened orders, deep-scanning for a numeric star or a "Rated" marker.
   fetchScript: wrap(
     'blinkit',
     `
@@ -834,8 +841,14 @@ const blinkit = {
         }
       });
 
+      // Texts that are status/CTA/rating chrome, never product names.
+      var SKIP = /^₹|return|refund|reorder|arrived in|delivered|rate order|rate this order|rate now|rating submitted|thank you|thanks for rating|^edit$|edit rating|you rated|your rating|already rated/i;
+      var RATED_MARKER = /rating submitted|already rated|you rated|your rating|edit rating|thanks? for rating|rated this order/i;
+      var RATE_CTA = /rate order|rate this order|rate now/i;
+
       var reviews = [];
       var seen = {};
+      var debugCards = [];
       calls.forEach(function(c){
         if (!c || !c.url || c.url.indexOf("/v1/layout/order_history") < 0 || !c.respJson) return;
         var snippets = (c.respJson.response && c.respJson.response.snippets) || [];
@@ -850,52 +863,82 @@ const blinkit = {
 
           var texts = []; walkTexts(sn.data, texts, 0);
           var imgs = []; walkProductImgs(sn.data, imgs, 0);
+          var joined = texts.join(" | ");
 
-          var returned = texts.some(function(t){ return /return|refund/i.test(t); });
-          var delivered = texts.some(function(t){ return /arrived|delivered/i.test(t); });
+          var returned = /return|refund/i.test(joined);
+          var delivered = /arrived|delivered/i.test(joined);
           var amount = null, dateEpoch = null, dateText = null;
           var products = [];
           texts.forEach(function(t){
-            if (/^₹/.test(t)) { if (!amount) amount = t; return; }
-            if (/return|refund|reorder|arrived in|delivered/i.test(t)) return;
+            // Amount as a clean NUMBER (rupees). Handles "₹604", "Rs 604",
+            // "1,234.50" and the mojibaked "â¹604" that shows up in exports.
+            var am = t.match(/^\\s*(?:₹|â.?|rs\\.?)\\s*([\\d,]+(?:\\.\\d+)?)\\s*$/i);
+            if (am) { if (amount == null) amount = parseFloat(am[1].replace(/,/g, "")); return; }
+            if (SKIP.test(t)) return;
             var e = parseDate(t);
             if (e && !dateEpoch) { dateEpoch = e; dateText = t; return; }
-            // whatever's left that isn't the date/amount/status is a product name
             if (t !== dateText) products.push(t);
           });
 
-          reviews.push({
-            productname: products.join(", ") || null,
-            rating: (orderId && detailRating[orderId] != null) ? detailRating[orderId] : null,
-            reviewtext: null,
-            reviewdate: null,
-            orderdate: dateEpoch,
-            deliverydate: delivered ? dateEpoch : null,
-            orderid: orderId,
-            returned: returned,
-            returnstatus: returned ? "RETURNED" : (delivered ? "DELIVERED" : null),
-            statuscode: returned ? "RETURNED" : (delivered ? "DELIVERED" : null),
-            // From the user's own authenticated order history -> genuine purchase.
-            verified: true,
-            approved: null,
-            published: null,
-            // Blinkit web never returns the star rating, so the review half is
-            // unverifiable from this surface - say so explicitly.
-            reviewstatus: "RATING_NOT_EXPOSED_ON_WEB",
-            productid: cartId,
-            imageurl: imgs[0] || null,
-            producturl: null,
-            amount: amount
+          // Rating is ORDER-level on Blinkit ("Rating submitted. Thank you!" on
+          // the order card). Detect from: (1) a captured order_details star,
+          // (2) any numeric star in the card, (3) the "Rating submitted"/"Edit
+          // Rating" text marker. "Rate order" means rateable-but-unrated.
+          var star = (orderId && detailRating[orderId] != null) ? detailRating[orderId] : findRating(sn.data, 0);
+          var ratedMarker = RATED_MARKER.test(joined);
+          var rateCta = RATE_CTA.test(joined);
+          var rated = star != null || ratedMarker;
+
+          // Debug: keep the raw card so the exact rating marker can be located
+          // if detection is still wrong (Download JSON -> __debug).
+          if (debugCards.length < 12) {
+            debugCards.push({ orderId: orderId, texts: texts, rated: rated, rawData: sn.data });
+          }
+
+          if (!products.length) products = [null];
+          var reviewstatus = star != null ? "RATED"
+            : (rated ? "RATED_STAR_NOT_EXPOSED_ON_WEB"
+              : (rateCta ? "NOT_RATED" : "RATING_NOT_FOUND"));
+
+          // One entry per product so a task's target product can be isolated.
+          products.forEach(function(pname, idx){
+            reviews.push({
+              productname: pname,
+              rating: star,
+              reviewtext: null,
+              reviewdate: null,
+              orderdate: dateEpoch,
+              deliverydate: delivered ? dateEpoch : null,
+              orderid: orderId,
+              returned: returned,
+              returnstatus: returned ? "RETURNED" : (delivered ? "DELIVERED" : null),
+              statuscode: returned ? "RETURNED" : (delivered ? "DELIVERED" : null),
+              verified: true,
+              approved: rated ? true : null,
+              published: rated ? true : null,
+              reviewstatus: reviewstatus,
+              orderrated: rated,
+              productid: (cartId || orderId) + "#" + idx,
+              imageurl: imgs[idx] || imgs[0] || null,
+              producturl: null,
+              amount: amount
+            });
           });
         });
       });
 
+      var ratedOnly = reviews.filter(function(r){ return r.orderrated === true; });
       return Promise.resolve({
         source: "captured-layout",
-        note: "Blinkit web exposes order history (purchase + delivery/return status) but not the star rating, so 'rating' is null and reviewstatus is RATING_NOT_EXPOSED_ON_WEB. Parsed from the order_history layout the page loaded while you browsed.",
+        note: "Every order's products are listed with a rated/not-rated marker. If a clearly-rated order still shows as not rated, send this downloaded JSON - __debug has the raw order card so the exact rating marker (and whether it's per-product) can be located.",
         orderHistoryCallsSeen: calls.filter(function(c){ return c && c.url && c.url.indexOf("/v1/layout/order_history") >= 0; }).length,
+        orderDetailsCallsSeen: calls.filter(function(c){ return c && c.url && /\\/v1\\/layout\\/order_details\\//.test(c.url); }).length,
+        ratedCount: ratedOnly.length,
         parsedCount: reviews.length,
-        reviews: reviews
+        reviews: reviews,
+        // Stringified so extractItems (which deep-scans objects) doesn't turn
+        // the raw card widgets into junk cards - still readable in the download.
+        __debug: JSON.stringify(debugCards)
       });
     })()
   `
@@ -906,51 +949,31 @@ const zepto = {
   key: 'zepto',
   name: 'Zepto',
   color: '#8025C8',
-  startUrl: 'https://www.zepto.com/',
-  hint: 'Log in (allow location if asked), open Account → Orders so they load, then tap "Fetch my reviews".',
-  // Zepto ratings are per-ORDER (rate your delivery 1-5), served by the
-  // "samiksha" (= review) service - there are no per-product text reviews here
-  // like Flipkart/Amazon/Myntra. Two-step: fetch the order list
-  // (bff-gateway /api/v2/order), then for each DELIVERED order ask
-  // samiksha-service/order-rating for the star the user left (the list's own
-  // `rating` field is often null until that call is made). Join placedTime /
-  // arrivedTime + refund status for the return-window timeline. All requests
-  // run same-site inside the WebView with credentials:include so the .zepto.com
-  // session cookie authenticates them.
+  // Open straight on Order History so the list (with per-order star ratings)
+  // loads and is captured - the user shouldn't have to navigate or open orders.
+  startUrl: 'https://www.zepto.com/account/orders',
+  // Parse, don't re-fetch: Zepto's bff-gateway rejects a blind re-fetch (it
+  // needs auth headers the SPA computes). We keep the interceptor and read the
+  // order LIST the page itself loads (order.rating = the star shown on the
+  // list); a captured ORDER_DETAILS page is only a fallback.
+  beforeLoadScript: discoveryHook(),
+  hint: 'Log in if asked and let your Orders list load, then tap "Fetch my reviews". (No need to open individual orders.)',
+  // NOTE: Zepto's rating is per-ORDER (one star for the whole delivery), not
+  // per-product - it has no per-product text reviews. So one rated order = one
+  // rating covering all its items.
   fetchScript: wrap(
     'zepto',
     `
     (function(){
-      var GW = "https://bff-gateway.zepto.com";
+      var calls = window.__fayrCalls || [];
       var CDN = "https://cdn.zeptonow.com/production/";
-      // Returns { status, ok, json, error, textSample } instead of swallowing
-      // failures, so a 401 / shape-change is visible in "Show raw JSON".
-      function getJson(url, opts){
-        opts = opts || {};
-        return fetch(url, {
-          method: opts.method || "GET",
-          credentials: "include",
-          headers: Object.assign({ "accept": "application/json, text/plain, */*" }, opts.headers || {}),
-          body: opts.body || undefined
-        }).then(function(r){
-          return r.text().then(function(t){
-            var j=null; try{ j=JSON.parse(t); }catch(e){}
-            return { status:r.status, ok:r.ok, json:j, error:null, textSample:(t||"").slice(0,600) };
-          });
-        }).catch(function(e){
-          return { status:null, ok:false, json:null, error:String((e&&e.message)||e), textSample:null };
-        });
-      }
       function imgUrl(pv){
         var im = pv && pv.image;
         var path = im && (im.path || im.relativePath);
         return path ? (CDN + path) : null;
       }
-      // The samiksha rated-order payload shape isn't pinned down (the capture
-      // only had the empty-order_id config response), so pull the 1-5 star and
-      // any review text out defensively wherever they sit.
       function findRating(node, depth){
-        if (node == null || depth > 8) return null;
+        if (node == null || depth > 10) return null;
         if (Array.isArray(node)){
           for (var i=0;i<node.length;i++){ var r=findRating(node[i], depth+1); if(r) return r; }
           return null;
@@ -967,97 +990,101 @@ const zepto = {
         for (var k2=0;k2<keys.length;k2++){ var r2=findRating(node[keys[k2]], depth+1); if(r2) return r2; }
         return null;
       }
-      function findReviewText(node, depth){
-        if (node == null || depth > 8) return null;
-        if (Array.isArray(node)){
-          for (var i=0;i<node.length;i++){ var r=findReviewText(node[i], depth+1); if(r) return r; }
-          return null;
+      // ORDER_RATING widget: pageLayout.widgets[].widgetType==="ORDER_RATING"
+      // -> data.items[].rating ("You rated:").
+      function ratingFromDetail(detail){
+        if (!detail) return null;
+        var widgets = (detail.pageLayout && detail.pageLayout.widgets) || [];
+        for (var i=0;i<widgets.length;i++){
+          var w = widgets[i];
+          if (w && w.widgetType === "ORDER_RATING") {
+            var items = (w.data && w.data.items) || [];
+            for (var j=0;j<items.length;j++){
+              var rv = items[j] && items[j].rating;
+              if (typeof rv === "number" && rv >= 1 && rv <= 5) return rv;
+            }
+          }
         }
-        if (typeof node !== "object") return null;
-        var keys = Object.keys(node);
-        for (var k=0;k<keys.length;k++){
-          var key = keys[k].toLowerCase();
-          var v = node[keys[k]];
-          if ((key === "reviewtext" || key === "review" || key === "comment" ||
-               key === "feedbacktext" || key === "userreview") &&
-              typeof v === "string" && v.trim().length > 1) return v.trim();
-        }
-        for (var k2=0;k2<keys.length;k2++){ var r2=findReviewText(node[keys[k2]], depth+1); if(r2) return r2; }
-        return null;
+        return findRating(detail, 0);
       }
 
-      return getJson(GW + "/api/v2/order/?page_number=1").then(function(ordRes){
-        var orders = (ordRes.json && ordRes.json.orders) || [];
-        var diag = {
-          ordersCall: { status: ordRes.status, ok: ordRes.ok, error: ordRes.error, sample: ordRes.json ? null : ordRes.textSample },
-          orderCount: orders.length
+      // Rating per orderId, from every ORDER_DETAILS page the hook captured
+      // (the request body carries the orderId).
+      var ratingByOrder = {};
+      var detailsSeen = 0;
+      calls.forEach(function(c){
+        if (!c || !c.url || c.url.indexOf("ORDER_DETAILS") < 0 || !c.respJson) return;
+        detailsSeen++;
+        var oid = null;
+        try { oid = c.reqBody ? JSON.parse(c.reqBody).orderId : null; } catch(e){}
+        var r = ratingFromDetail(c.respJson);
+        if (oid && r != null) ratingByOrder[oid] = r;
+      });
+
+      // Order facts from every captured order LIST call.
+      var orderMap = {};
+      calls.forEach(function(c){
+        if (!c || !c.url || c.url.indexOf("/api/v2/order/") < 0 || !c.respJson) return;
+        var orders = c.respJson.orders || [];
+        orders.forEach(function(o){ if (o && o.id && !orderMap[o.id]) orderMap[o.id] = o; });
+      });
+
+      function toReview(o, star){
+        var products = (o && o.productsNamesAndCounts) || [];
+        var first = products[0] || {};
+        var refunded = (Number(o && o.totalRefundAmount) > 0) || !!(o && o.refundStatus);
+        return {
+          productname: products.map(function(p){ return p.name; }).filter(Boolean).join(", ") || null,
+          rating: star,
+          reviewtext: null,
+          reviewdate: null,
+          orderdate: (o && o.placedTime) || null,
+          deliverydate: (o && o.arrivedTime) || null,
+          orderid: (o && (o.code || o.id)) || null,
+          returned: refunded,
+          returnstatus: refunded ? ((o && o.refundStatus) || "REFUNDED") : ((o && o.status) || null),
+          statuscode: (o && (o.status || o.formattedStatus)) || null,
+          // grandTotalAmount is paise; store rupees so it compares directly
+          // against a screenshot/task amount.
+          amount: (o && typeof o.grandTotalAmount === "number") ? o.grandTotalAmount / 100 : null,
+          verified: true,
+          approved: star != null ? true : null,
+          published: star != null ? true : null,
+          reviewstatus: star != null ? "RATED" : "NOT_RATED",
+          eligibleforrating: (o && o.isEligibleForRating) === true,
+          productid: first.productVariantId || first.id || null,
+          imageurl: imgUrl(first),
+          producturl: null
         };
+      }
 
-        // Only DELIVERED orders can be rated - cap the per-order fan-out.
-        var toRate = orders
-          .filter(function(o){ return /deliver/i.test(String(o.status || o.formattedStatus || "")); })
-          .slice(0, 12);
+      var reviews = [];
+      var emitted = {};
+      // 1) Every order from the list - the star is on the list itself
+      //    (order.rating), so NO need to open individual orders. Fall back to a
+      //    captured detail page's rating if the list somehow omitted it.
+      Object.keys(orderMap).forEach(function(id){
+        var o = orderMap[id];
+        var listStar = (typeof o.rating === "number" && o.rating >= 1 && o.rating <= 5) ? o.rating : null;
+        var star = listStar != null ? listStar : (ratingByOrder[id] != null ? ratingByOrder[id] : null);
+        emitted[id] = true;
+        reviews.push(toReview(o, star));
+      });
+      // 2) Any order we only saw via an opened detail page (not in the list).
+      Object.keys(ratingByOrder).forEach(function(id){
+        if (!emitted[id]) reviews.push(toReview({ id: id }, ratingByOrder[id]));
+      });
 
-        return Promise.all(toRate.map(function(o, i){
-          return getJson(GW + "/samiksha-service/api/v1/order-rating", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ order_id: o.id })
-          }).then(function(res){
-            if (i === 0) { diag.ratingCall = { status: res.status, ok: res.ok, error: res.error, sample: res.json ? null : res.textSample }; }
-            return { id: o.id, samiksha: res.json };
-          }).catch(function(){ return { id: o.id, samiksha: null }; });
-        })).then(function(ratedResults){
-          var samikshaByOrder = {};
-          ratedResults.forEach(function(x){ samikshaByOrder[x.id] = x.samiksha; });
-
-          var reviews = orders.map(function(o){
-            var samiksha = samikshaByOrder[o.id] || null;
-            // List's own o.rating wins; fall back to whatever the samiksha
-            // detail carries for this order.
-            var star = (typeof o.rating === "number" && o.rating >= 1 && o.rating <= 5)
-              ? o.rating : findRating(samiksha, 0);
-            var products = o.productsNamesAndCounts || [];
-            var first = products[0] || {};
-            var refunded = (Number(o.totalRefundAmount) > 0) || !!o.refundStatus;
-            var isRated = star != null;
-            return {
-              productname: products.map(function(p){ return p.name; }).filter(Boolean).join(", ") || null,
-              rating: star,
-              reviewtext: findReviewText(samiksha, 0),
-              // These endpoints don't expose the rating timestamp; the timeline
-              // anchors on delivery (arrivedTime) instead.
-              reviewdate: null,
-              orderdate: o.placedTime || null,
-              deliverydate: o.arrivedTime || null,
-              orderid: o.code || o.id || null,
-              returned: refunded,
-              returnstatus: refunded ? (o.refundStatus || "REFUNDED") : (o.status || null),
-              statuscode: o.status || o.formattedStatus || null,
-              // Sourced from the user's own authenticated order history -> a
-              // genuine purchase by definition.
-              verified: true,
-              approved: isRated,
-              published: isRated,
-              reviewstatus: isRated ? "SUBMITTED" : (o.ratingSkipped ? "SKIPPED" : "NOT_RATED"),
-              eligibleforrating: o.isEligibleForRating === true,
-              productid: first.productVariantId || first.id || null,
-              imageurl: imgUrl(first),
-              producturl: null
-            };
-          });
-
-          // A Fayr campaign only cares about orders the user actually rated;
-          // if none are rated yet, return all orders so there's something to
-          // inspect / debug in "Show raw JSON".
-          var ratedOnly = reviews.filter(function(r){ return r.rating != null; });
-          return {
-            totalOrders: orders.length,
-            ratedCount: ratedOnly.length,
-            reviews: ratedOnly.length ? ratedOnly : reviews,
-            __diagnostic: diag
-          };
-        });
+      var rated = reviews.filter(function(r){ return r.rating != null; });
+      return Promise.resolve({
+        source: "captured",
+        note: "Zepto rating is per-ORDER (one star for the whole delivery), read straight from the Order History list (order.rating) - no need to open each order. If the list shows stars but nothing is parsed here, the list call wasn't captured: make sure you're on the Orders page, then Fetch.",
+        orderListCallsSeen: calls.filter(function(c){ return c && c.url && c.url.indexOf("/api/v2/order/") >= 0; }).length,
+        orderDetailsCallsSeen: detailsSeen,
+        ratedCount: rated.length,
+        parsedCount: reviews.length,
+        // Show rated orders only when we have any; else everything for debugging.
+        reviews: rated.length ? rated : reviews
       });
     })()
   `
