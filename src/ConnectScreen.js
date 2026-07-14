@@ -183,8 +183,10 @@ export default function ConnectScreen({ platform }) {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      {mode === 'web' ? (
-        <>
+      {/* The WebView stays MOUNTED even while results show, so returning from
+          results doesn't reload the page and drop the logged-in session. It's
+          only hidden via display:none. */}
+      <View style={[styles.flexOne, mode === 'web' ? null : styles.hidden]}>
           <View style={[styles.hintBar, { backgroundColor: platform.color }]}>
             <Text style={styles.hintText}>{platform.hint}</Text>
           </View>
@@ -197,6 +199,8 @@ export default function ConnectScreen({ platform }) {
             sharedCookiesEnabled
             thirdPartyCookiesEnabled
             domStorageEnabled
+            // Persist cache/cookies across launches (iOS WKWebView shared store).
+            cacheEnabled
             javaScriptEnabled
             // A desktop-ish UA tends to expose the same endpoints as captured.
             userAgent={
@@ -227,9 +231,9 @@ export default function ConnectScreen({ platform }) {
               <Text style={styles.fetchBtnText}>Fetch my reviews</Text>
             )}
           </TouchableOpacity>
-        </>
-      ) : (
-        <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      </View>
+      {mode === 'results' ? (
+        <View style={styles.resultsWrap}>
           <View style={styles.resultsHeader}>
             <TouchableOpacity onPress={backToLogin} style={styles.linkBtn}>
               <Text style={[styles.link, { color: platform.color }]}>‹ Back to {platform.name}</Text>
@@ -303,13 +307,16 @@ export default function ConnectScreen({ platform }) {
             />
           )}
         </View>
-      )}
+      ) : null}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
+  flexOne: { flex: 1 },
+  hidden: { display: 'none' },
+  resultsWrap: { ...StyleSheet.absoluteFillObject, backgroundColor: '#fff' },
   webLoading: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
