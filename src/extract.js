@@ -167,20 +167,12 @@ export function extractItems(raw) {
     const dateKey = DATE_KEYS.find((k) => low[k] != null);
     const date = dateKey ? formatDate(low[dateKey]) : null;
 
-    // Node qualifies if it looks like a review (rating or text), an order
-    // (product + date), or a rated order with the star/date not exposed on web
-    // (product + an explicit approved/reviewStatus/rated marker). The last case
-    // covers Instamart/Meesho, where a delivered order can be "rated" with no
-    // numeric star and no per-item date. Avoids grabbing every stray object.
-    const hasStatusSignal =
-      low.approved === true ||
-      low.orderrated === true ||
-      (typeof low.reviewstatus === 'string' && low.reviewstatus.trim() !== '');
+    // Node qualifies if it looks like a review (rating or text) or an order
+    // (product + date). Avoids grabbing every stray object.
     const isReviewLike = rating != null || (text && text.length > 1);
     const isOrderLike = product && date;
-    const isRatedMarker = product && hasStatusSignal;
 
-    if (isReviewLike || isOrderLike || isRatedMarker) {
+    if (isReviewLike || isOrderLike) {
       const item = {
         product: product || null,
         date,

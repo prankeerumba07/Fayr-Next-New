@@ -682,39 +682,62 @@ function discoveryHook() {
   }
   setInterval(fayrOpenInstamartTab, 1500);
 
-  // Meesho: the native app shows "We're happy you liked it" on a rated order.
-  // We don't yet know whether Meesho's WEB order page renders that same marker,
-  // so this annotator is DEFENSIVE - it badges a card ONLY when the live page
-  // actually contains a rated marker (the "liked it" text, or a "You rated"/
-  // "Edit review" control). If the web doesn't expose it, nothing is badged
-  // (no false positives), and the __domSample in a Fetch download tells us what
-  // the page really renders so this can be made exact.
-  function fayrMeeshoRatedEl(el){
-    // Is this element's own text (not counting big descendant blocks) a rated marker?
-    var t = (el.textContent || "").toLowerCase();
-    if (t.length > 400) return false; // too big to be a per-order marker line
-    return /happy you liked it|you rated|rated this product|edit review|edit rating/.test(t);
+  // Meesho: the orders page is a Next.js app whose data endpoint
+  // /_next/data/<buildId>/orders.json returns every sub-order with a
+  // review.current_rating - >=1 means the user rated it, -1 (title "Rate your
+  // experience") means NOT rated. That's the exact signal the native app uses
+  // to show "We're happy you liked it". We fetch it once (session cookies
+  // authenticate it; it works from any Meesho page), cache it, and badge ONLY
+  // the rated products by their product-image id (same anchor idea as Blinkit).
+  window.__fayrMeeshoOrders = undefined; // undefined=untried, null=failed, obj=ok
+  function fayrMeeshoBuildId(){
+    try { var nd = document.getElementById("__NEXT_DATA__"); if (nd && nd.textContent) return (JSON.parse(nd.textContent) || {}).buildId || null; } catch(e){}
+    return null;
   }
+  function fayrMeeshoGetOrders(cb){
+    if (window.__fayrMeeshoOrders !== undefined) { cb(window.__fayrMeeshoOrders); return; }
+    var bid = fayrMeeshoBuildId();
+    if (!bid) { cb(undefined); return; } // page not hydrated yet - retry next tick
+    window.__fayrMeeshoOrders = null; // mark attempted so we don't refetch in a loop
+    try {
+      fetch("/_next/data/" + bid + "/orders.json", { credentials:"include", headers:{ accept:"application/json" } })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){ window.__fayrMeeshoOrders = (j && j.pageProps) ? j : null; cb(window.__fayrMeeshoOrders); })
+        .catch(function(){ window.__fayrMeeshoOrders = null; cb(null); });
+    } catch(e){ window.__fayrMeeshoOrders = null; cb(null); }
+  }
+  function fayrMeeshoSubs(j){
+    var out = [];
+    try { (((j.pageProps||{}).data||{}).ordersGroupedByDate||[]).forEach(function(g){ (g.orders||[]).forEach(function(o){ (o.sub_order_details||[]).forEach(function(s){ out.push(s); }); }); }); } catch(e){}
+    return out;
+  }
+  function fayrMeeshoRated(s){ return !!(s && s.review && typeof s.review.current_rating === "number" && s.review.current_rating >= 1); }
+  function fayrMeeshoImgKey(u){ var m = (u||"").match(/products\\/(\\d+)\\/([a-z0-9]+)/i); return m ? (m[1] + "/" + m[2]) : null; }
   function fayrAnnotateMeesho(){
     try {
       if (!/meesho\\.com/.test(location.host)) return;
-      // Only act on an orders-type page to avoid badging catalog/product pages.
-      if (!/order|account|profile/i.test(location.pathname)) return;
-      var els = document.querySelectorAll("div,span,p,button,a");
-      for (var i=0;i<els.length && i<4000;i++){
-        var el = els[i];
-        if (el.__fayrMeeshoSeen) continue;
-        if (!fayrMeeshoRatedEl(el)) continue;
-        // Prefer the tightest element that carries the marker (leaf-ish).
-        var hasMarkerChild = false;
-        for (var c=0;c<el.children.length;c++){ if (fayrMeeshoRatedEl(el.children[c])){ hasMarkerChild = true; break; } }
-        if (hasMarkerChild) continue;
-        el.__fayrMeeshoSeen = true;
-        var badge = document.createElement("span");
-        badge.textContent = " \\u2605 Rated";
-        badge.style.cssText = "display:inline-block;background:#620E62;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;margin-left:6px;vertical-align:middle;";
-        el.appendChild(badge);
-      }
+      if (!/order/i.test(location.pathname)) return; // only badge on the orders page
+      fayrMeeshoGetOrders(function(j){
+        if (!j) return;
+        var rated = {};
+        fayrMeeshoSubs(j).forEach(function(s){ if (fayrMeeshoRated(s)){ var k = fayrMeeshoImgKey(s.first_image_url); if (k) rated[k] = true; } });
+        if (!Object.keys(rated).length) return;
+        var imgs = document.getElementsByTagName("img");
+        for (var i=0;i<imgs.length;i++){
+          var k = fayrMeeshoImgKey(imgs[i].src || imgs[i].getAttribute("src") || "");
+          if (k && rated[k] && !imgs[i].__fayrBadged){
+            imgs[i].__fayrBadged = true;
+            var p = imgs[i].parentNode;
+            if (p){
+              try { var cs = window.getComputedStyle(p); if (cs && cs.position === "static") p.style.position = "relative"; } catch(e){}
+              var b = document.createElement("div");
+              b.textContent = "\\u2605 Rated";
+              b.style.cssText = "position:absolute;top:2px;left:2px;background:#620E62;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px;z-index:99999;box-shadow:0 1px 3px rgba(0,0,0,.35);pointer-events:none;";
+              p.appendChild(b);
+            }
+          }
+        }
+      });
     } catch(e){}
   }
   setInterval(fayrAnnotateMeesho, 1500);
@@ -814,103 +837,90 @@ const meesho = {
   color: '#620E62',
   startUrl: 'https://www.meesho.com/',
   beforeLoadScript: discoveryHook(),
-  hint: 'Log in, open "My Orders", scroll so rated orders load, then tap "Fetch my reviews".',
-  // Meesho's web order/review API isn't confirmed, so besides the discovery
-  // snapshot we SCRAPE the rendered Orders page: for each order card we read
-  // product / price / order id / rating markers straight from the DOM. That
-  // powers the cards + the "Rated" state without an API, and __domSample carries
-  // the raw card text/markers so the parser can be made exact from real data.
+  hint: 'Log in and open "My Orders", then tap "Fetch my reviews". (Only orders you actually rated are shown.)',
+  // Meesho's orders live in the Next.js data endpoint
+  // /_next/data/<buildId>/orders.json. Each sub_order carries
+  // review.current_rating: >=1 => the user rated it (the star they gave),
+  // -1 (title "Rate your experience") => NOT rated. We fetch that authenticated
+  // endpoint and emit ONLY the rated sub-orders - so a purchase that was never
+  // reviewed is never shown as reviewed.
   fetchScript: wrap(
     'meesho',
     `
     Promise.resolve().then(function(){
       function tryParse(t){ try { return JSON.parse(t); } catch(e){ return null; } }
-      function low(s){ return (s||"").toLowerCase(); }
-      var RATED_RE = /happy you liked it|you rated|rated this product|edit review|edit rating/i;
-
-      // ---- Scrape order cards from the live DOM -------------------------------
-      // We don't know Meesho web's exact markup, so anchor on things every order
-      // row has: a rupee price and/or a rated marker. Climb to a self-contained
-      // "card" ancestor (has an image, bounded text) and read fields off it.
-      function cardAncestor(el){
-        var node = el, best = null;
-        for (var i=0; i<8 && node; i++){
-          var txt = (node.textContent || "");
-          if (node.querySelector && node.querySelector("img") && txt.length >= 20 && txt.length <= 700) best = node;
-          node = node.parentElement;
-        }
-        return best || el;
+      function subs(j){
+        var out = [];
+        try { (((j.pageProps||{}).data||{}).ordersGroupedByDate||[]).forEach(function(g){ (g.orders||[]).forEach(function(o){ (o.sub_order_details||[]).forEach(function(s){ out.push({ g:g, o:o, s:s }); }); }); }); } catch(e){}
+        return out;
       }
-      function starCount(card){
-        // Filled-star heuristics: aria-label "rated 4"/"4 out of 5", or glyphs.
-        var al = "";
-        var withAria = card.querySelectorAll("[aria-label]");
-        for (var i=0;i<withAria.length;i++){ al += " " + (withAria[i].getAttribute("aria-label")||""); }
-        var m = (al + " " + card.textContent).match(/(\\d(?:\\.\\d)?)\\s*(?:out of\\s*5|\\/\\s*5|stars?)/i)
-             || al.match(/rat(?:ed|ing)[^\\d]{0,6}(\\d(?:\\.\\d)?)/i);
-        if (m){ var n = parseFloat(m[1]); if (n > 0 && n <= 5) return n; }
+      function rated(s){ return !!(s && s.review && typeof s.review.current_rating === "number" && s.review.current_rating >= 1); }
+
+      function build(j){
+        var all = subs(j);
+        var reviews = [];
+        all.forEach(function(row){
+          var s = row.s;
+          if (!rated(s)) return; // only genuinely-rated products
+          reviews.push({
+            productname: s.product_name || null,
+            rating: s.review.current_rating,
+            reviewstatus: "RATED",
+            approved: true,
+            orderid: s.order_num != null ? String(s.order_num) : null,
+            suborderid: s.sub_order_id != null ? String(s.sub_order_id) : null,
+            orderdate: (row.g && row.g.date) || ((row.o.order_date && row.o.order_date.date_string) || null),
+            statusmessage: s.status_message || null,
+            imageurl: s.first_image_url || null,
+            productid: s.product_id != null ? String(s.product_id) : null,
+            verified: true
+          });
+        });
+        // Compact audit line for every sub-order so "why isn't X shown" is answerable.
+        var sample = all.map(function(row){ var s = row.s; return { product: (s.product_name||"").slice(0,44), status: s.status_message, current_rating: (s.review && s.review.current_rating), rated: rated(s) }; });
+        return {
+          platform: "meesho",
+          source: "orders.json",
+          reviews: reviews,
+          ratedCount: reviews.length,
+          totalSubOrders: all.length,
+          __ordersSample: sample,
+          note: "Meesho: " + reviews.length + " of " + all.length + " sub-order(s) are rated (review.current_rating >= 1). Only rated products are returned."
+        };
+      }
+
+      function fromCaptured(){
+        var calls = window.__fayrCalls || [];
+        for (var i=0;i<calls.length;i++){
+          var c = calls[i];
+          if (!c || !c.url || c.url.indexOf("orders.json") < 0) continue;
+          var j = c.respJson || tryParse(c.resp);
+          if (j && j.pageProps && j.pageProps.data && j.pageProps.data.ordersGroupedByDate) return j;
+        }
         return null;
       }
-      function pick(re, s){ var m = (s||"").match(re); return m ? m[1] : null; }
 
-      var seen = [], cards = [], sample = [];
-      var anchors = [];
-      (function(){
-        var all = document.querySelectorAll("div,section,article,li");
-        for (var i=0;i<all.length && i<6000;i++){
-          var t = all[i].textContent || "";
-          if (/\\u20B9\\s?\\d/.test(t) || RATED_RE.test(t)) anchors.push(all[i]);
-        }
-      })();
-      for (var a=0; a<anchors.length; a++){
-        var card = cardAncestor(anchors[a]);
-        if (!card || card.__fayrCard) continue;
-        card.__fayrCard = true;
-        var text = (card.textContent || "").replace(/\\s+/g, " ").trim();
-        if (text.length < 15 || text.length > 700) continue;
-        var img = card.querySelector("img");
-        var product = (img && (img.getAttribute("alt") || "").trim()) || null;
-        var rated = RATED_RE.test(text);
-        var stars = starCount(card);
-        var orderId = pick(/order\\s*(?:id|no\\.?|number)\\s*[:#]?\\s*([A-Za-z0-9_\\-]{4,})/i, text);
-        var amount = pick(/\\u20B9\\s?([\\d,]+)/, text);
-        cards.push({
-          productname: product,
-          rating: stars,
-          approved: rated ? true : (stars != null ? true : null),
-          reviewstatus: rated ? "rated" : "not_rated",
-          orderid: orderId,
-          amount: amount ? amount.replace(/,/g, "") : null
-        });
-        if (sample.length < 30) sample.push({ text: text.slice(0, 300), rated: rated, stars: stars, orderId: orderId, amount: amount, alt: product });
+      // 1) Cached copy the badge-annotator already fetched this session.
+      if (window.__fayrMeeshoOrders && window.__fayrMeeshoOrders.pageProps) return build(window.__fayrMeeshoOrders);
+
+      // 2) Fetch the authenticated data endpoint directly (works from any page).
+      var bid = null;
+      try { var nd = document.getElementById("__NEXT_DATA__"); if (nd && nd.textContent) bid = (JSON.parse(nd.textContent) || {}).buildId; } catch(e){}
+      if (bid) {
+        return fetch("/_next/data/" + bid + "/orders.json", { credentials:"include", headers:{ accept:"application/json" } })
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(j){
+            if (j && j.pageProps) return build(j);
+            var cap = fromCaptured(); if (cap) return build(cap);
+            return { platform:"meesho", reviews:[], note:"Could not load orders.json (bad status) and no captured orders call yet. Open My Orders, let it load, then retry." };
+          })
+          .catch(function(e){ var cap = fromCaptured(); if (cap) return build(cap); return { platform:"meesho", reviews:[], note:"orders.json fetch failed: " + String((e&&e.message)||e) }; });
       }
 
-      // ---- Discovery snapshot (fallback / raw inspection) --------------------
-      try {
-        var nd = document.getElementById("__NEXT_DATA__");
-        if (nd && nd.textContent && window.__fayrEmbeddedHistory){
-          var j = tryParse(nd.textContent);
-          if (j){
-            var sig = "__NEXT_DATA__|" + location.href + "|" + (JSON.stringify(j)||"").length;
-            if (!window.__fayrEmbeddedSeen[sig]){ window.__fayrEmbeddedSeen[sig] = true; window.__fayrEmbeddedHistory.push({ source:"__NEXT_DATA__", url: location.href, json: j }); }
-          }
-        }
-      } catch(e){}
-
-      return {
-        platform: "meesho",
-        scrapedFromDom: true,
-        pageUrl: location.href,
-        reviews: cards,
-        __domSample: { url: location.href, cardCount: cards.length, cards: sample },
-        matchedCallCount: (window.__fayrCalls||[]).length,
-        calls: window.__fayrCalls || [],
-        allUrlsSeenCount: (window.__fayrAllUrls||[]).length,
-        allUrlsSeen: window.__fayrAllUrls || [],
-        embeddedSnapshotCount: (window.__fayrEmbeddedHistory||[]).length,
-        embedded: window.__fayrEmbeddedHistory || [],
-        note: "Scraped " + cards.length + " order card(s) from the DOM. If a rated order isn't marked, __domSample.cards shows exactly what the page rendered so the parser can be tuned."
-      };
+      // 3) Fall back to a captured orders.json call.
+      var cap = fromCaptured();
+      if (cap) return build(cap);
+      return { platform:"meesho", reviews:[], note:"Meesho buildId not found - open My Orders and retry." };
     })
   `
   ),
