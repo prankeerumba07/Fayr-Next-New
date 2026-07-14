@@ -643,6 +643,33 @@ function discoveryHook() {
   }
   setInterval(fayrAnnotateInstamart, 1500);
 
+  // Swiggy's "Past Orders" opens on the Restaurants tab; the Instamart order
+  // cards only render once the "Instamart" (a.k.a. "Instamart & more") tab is
+  // selected - so without this the Instamart orders aren't even in the DOM to
+  // badge. Auto-click that tab (a few attempts, in case it isn't interactive
+  // yet). Tabs render before the order cards, so the first exact-text match is
+  // the tab, not a card's merchant label.
+  var fayrTabTries = 0;
+  function fayrOpenInstamartTab(){
+    try {
+      if (!/swiggy\\.com/.test(location.host)) return;
+      if (fayrTabTries >= 4) return;
+      var wanted = ["instamart & more", "instamart"];
+      var els = document.querySelectorAll("button,li,a,div,span,[role=tab]");
+      for (var w=0; w<wanted.length; w++){
+        for (var i=0;i<els.length;i++){
+          var el = els[i];
+          if ((el.textContent || "").trim().toLowerCase() === wanted[w] && el.children.length <= 1){
+            el.click();
+            fayrTabTries++;
+            return;
+          }
+        }
+      }
+    } catch(e){}
+  }
+  setInterval(fayrOpenInstamartTab, 1500);
+
   var of = window.fetch;
   if (of) {
     window.fetch = function(input, init){
