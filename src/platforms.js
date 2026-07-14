@@ -894,20 +894,41 @@ const instamart = {
       // order history); the Target product box isolates a task's product.
       var ratedOnly = reviews.filter(function(r){ return r.orderrated === true; });
 
-      // Diagnostic: capture the real order-card DOM so the on-page "Rated"
-      // badge annotator can be calibrated to Swiggy's actual markup if it still
-      // misses. Only cards that carry a rating CTA are grabbed, trimmed small.
+      // Diagnostic: capture the REAL rated-order card DOM so the badge
+      // annotator's fallback (anchor on Swiggy's own per-card rating marker)
+      // can be built against actual markup, not a guess. For each rated order
+      // we find its product line in the page and record the ancestor chain up
+      // to the card, plus any element whose text is a rating CTA.
       var domSample = [];
       try {
-        var seenH = {};
-        var nodes = document.querySelectorAll("div,section,article,li");
-        for (var q=0; q<nodes.length && domSample.length<4; q++){
-          var tt = nodes[q].textContent || "";
-          if (tt.length > 60 && tt.length < 1400 && (nodes[q].children ? nodes[q].children.length : 0) >= 2 &&
-              /rate order|already rated|edit rating/i.test(tt)){
-            var html = nodes[q].outerHTML || "";
-            var sig = html.slice(0, 100);
-            if (html && !seenH[sig]){ seenH[sig] = 1; domSample.push(html.slice(0, 2500)); }
+        function upChain(el, levels){
+          var out = [], cur = el;
+          for (var l=0; l<levels && cur; l++){
+            out.push({ lvl: l, tag: cur.tagName, cls: String(cur.className || "").slice(0, 90),
+                       text: (cur.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 140),
+                       html: (cur.outerHTML || "").slice(0, 1400) });
+            cur = cur.parentElement;
+          }
+          return out;
+        }
+        var ratedNames = [];
+        reviews.forEach(function(r){ if (r.orderrated === true && r.productname){ var k = r.productname.toLowerCase().slice(0, 24); if (ratedNames.indexOf(k) < 0) ratedNames.push(k); } });
+        var allEls = document.querySelectorAll("div,span,p,li");
+        ratedNames.forEach(function(key){
+          if (domSample.length >= 6) return;
+          var best = null, bestLen = 100000;
+          for (var i=0;i<allEls.length;i++){ var t=(allEls[i].textContent||"").toLowerCase(); if (t.length<400 && t.length<bestLen && t.indexOf(key)>=0){ best=allEls[i]; bestLen=t.length; } }
+          if (best) domSample.push({ kind: "rated-card", key: key, chain: upChain(best, 8) });
+        });
+        // Every element whose text is a rating CTA - shows if Swiggy renders
+        // "Edit Rating" / "already rated" / "Rate Order" as text, and where.
+        var markerEls = document.querySelectorAll("div,span,p,button,a,li");
+        var mc = 0;
+        for (var m=0; m<markerEls.length && mc<8; m++){
+          var tx = (markerEls[m].textContent || "").replace(/\\s+/g, " ").trim();
+          if (tx.length < 45 && /edit rating|already rated|rate order|rate now|rate your order/i.test(tx)){
+            domSample.push({ kind: "marker", text: tx.slice(0, 60), tag: markerEls[m].tagName, cls: String(markerEls[m].className || "").slice(0, 90) });
+            mc++;
           }
         }
       } catch(e){}
