@@ -350,71 +350,145 @@ const amazon = {
                     // /return(ed)?/ test reported returned=true on every single
                     // review: it was matching the JavaScript keyword "return".
                     // Strip script/style/noscript from a clone before reading text.
-                    function cardText(card){
-                      var c = card.cloneNode(true);
+                    function cleanText(el){
+                      if (!el) { return ""; }
+                      var c = el.cloneNode(true);
                       var junk = c.querySelectorAll('script, style, noscript');
                       Array.prototype.forEach.call(junk, function(n){
                         if (n.parentNode) { n.parentNode.removeChild(n); }
                       });
                       return (c.textContent || "").replace(/\\s+/g, " ").trim();
                     }
-
-                    var byAsin = {};
-                    var cardDbg = [];
-                    Array.prototype.forEach.call(cards, function(card){
-                      var linkEls = card.querySelectorAll('a[href*="/dp/"], a[href*="/product/"], a[href*="/gp/product/"]');
-                      var cardAsins = [], seenCA = {};
-                      Array.prototype.forEach.call(linkEls, function(a){
-                        var m = (a.getAttribute('href') || '').match(/[A-Z0-9]{10}/);
-                        if (m && !seenCA[m[0]]) { seenCA[m[0]] = 1; cardAsins.push(m[0]); }
-                      });
-                      var txt = cardText(card);
-
-                      // Amazon India renders dates DAY-first ("Delivered 5 June",
-                      // "Ordered on Friday, 5 June 2026"). The previous regex only
-                      // accepted MONTH-first ("Delivered June 5") and so never
-                      // matched a single card. Try day-first, then month-first.
+                    // Shared field readers, used for BOTH the order-list cards and
+                    // the per-order detail pages so the two can't drift apart.
+                    function readDates(txt){
+                      // Amazon India renders dates DAY-first ("Delivered 5 June");
+                      // try that, then month-first.
                       var dv = txt.match(/Delivered\\s*(?:on)?\\s*(\\d{1,2}\\s+[A-Za-z]{3,}(?:,?\\s*\\d{4})?)/i)
                             || txt.match(/Delivered\\s*(?:on)?\\s*([A-Za-z]{3,}\\s+\\d{1,2}(?:,?\\s*\\d{4})?)/i);
                       var od = txt.match(/Order(?:ed)?\\s*(?:placed|on)?\\s*(?:[A-Za-z]+,\\s*)?(\\d{1,2}\\s+[A-Za-z]{3,}(?:,?\\s*\\d{4})?)/i)
                             || txt.match(/Order(?:ed)?\\s*(?:placed|on)?\\s*(?:[A-Za-z]+,\\s*)?([A-Za-z]{3,}\\s+\\d{1,2}(?:,?\\s*\\d{4})?)/i);
-
-                      // Return/cancel state. Match only the COMPLETED forms: every
-                      // card carries chrome like "Return window closed on 12 June"
-                      // and "Return items: Eligible through 12 Jun", which contain
-                      // "Return" but never "Returned"/"Refunded". Requiring the -ed
-                      // form excludes that chrome without depending on class names.
-                      var returned = /\\b(returned|refunded|cancelled|canceled)\\b/i.test(txt)
+                      return { deliverydate: dv ? dv[1] : null, orderdate: od ? od[1] : null };
+                    }
+                    function readReturned(txt){
+                      // Only the COMPLETED forms - every page carries chrome like
+                      // "Return window closed" / "Return items: Eligible through",
+                      // which contain "Return" but never "Returned".
+                      return /\\b(returned|refunded|cancelled|canceled)\\b/i.test(txt)
                         || /\\brefund\\s+issued\\b/i.test(txt)
                         || /\\breturn\\s+complete[d]?\\b/i.test(txt);
-
-                      // Order total. The card header reads "ORDER PLACED / TOTAL /
-                      // SHIP TO / ORDER #", so prefer the labelled Total; fall back
-                      // to the first rupee token on the card. amountSource records
-                      // which one fired so a wrong number is debuggable.
-                      var tot = txt.match(/Total\\s*\\u20b9\\s?([\\d,]+(?:\\.\\d{2})?)/i);
+                    }
+                    function readAmount(txt){
+                      // Detail pages label it "Order Total" / "Grand Total"; the list
+                      // card header just says "Total". Try the labelled forms first,
+                      // then fall back to the first rupee token. amountsource records
+                      // which fired so a wrong number is traceable.
+                      var tot = txt.match(/(?:Order\\s+Total|Grand\\s+Total|Total)\\s*:?\\s*\\u20b9\\s?([\\d,]+(?:\\.\\d{2})?)/i);
                       var anyRs = txt.match(/\\u20b9\\s?([\\d,]+(?:\\.\\d{2})?)/);
-                      var amount = tot ? tot[1] : (anyRs ? anyRs[1] : null);
+                      return {
+                        orderamount: tot ? tot[1] : (anyRs ? anyRs[1] : null),
+                        amountsource: tot ? "total-label" : (anyRs ? "first-rupee-token" : null)
+                      };
+                    }
+                    function asinsIn(root){
+                      var out = [], seen = {};
+                      var els = root.querySelectorAll('a[href*="/dp/"], a[href*="/product/"], a[href*="/gp/product/"]');
+                      Array.prototype.forEach.call(els, function(a){
+                        var m = (a.getAttribute('href') || '').match(/[A-Z0-9]{10}/);
+                        if (m && !seen[m[0]]) { seen[m[0]] = 1; out.push(m[0]); }
+                      });
+                      return out;
+                    }
 
-                      // The order id is on the card element itself, e.g.
+                    var byAsin = {};
+                    var cardDbg = [];
+                    var orderIds = [];
+                    Array.prototype.forEach.call(cards, function(card){
+                      var cardAsins = asinsIn(card);
+                      var txt = cleanText(card);
+                      var dts = readDates(txt);
+                      var amt = readAmount(txt);
+                      var returned = readReturned(txt);
+
+                      // The order id is on the card ELEMENT, not in its text:
                       // data-csa-c-slot-id="amzn1.yourorders.order-card.408-3245318-0807503"
+                      // Reading an attribute is why this survives when the card's
+                      // text does not (the list page often ships script-only cards
+                      // hydrated client-side - see the caveat in commit 66dea7d).
                       var slot = card.getAttribute('data-csa-c-slot-id') || "";
                       var oid = slot.match(/(\\d{3}-\\d{7}-\\d{7})/) || txt.match(/\\b(\\d{3}-\\d{7}-\\d{7})\\b/);
+                      var orderid = oid ? oid[1] : null;
+                      if (orderid && orderIds.indexOf(orderid) < 0) { orderIds.push(orderid); }
 
                       var facts = {
-                        orderid: oid ? oid[1] : null,
-                        orderdate: od ? od[1] : null,
-                        orderamount: amount,
-                        amountsource: tot ? "total-label" : (anyRs ? "first-rupee-token" : null),
-                        deliverydate: dv ? dv[1] : null,
+                        orderid: orderid,
+                        orderdate: dts.orderdate,
+                        orderamount: amt.orderamount,
+                        amountsource: amt.amountsource,
+                        deliverydate: dts.deliverydate,
                         returned: returned,
-                        returnstatus: returned ? "RETURNED_OR_CANCELLED" : null
+                        returnstatus: returned ? "RETURNED_OR_CANCELLED" : null,
+                        source: "order-list"
                       };
                       if (cardDbg.length < 3) {
                         cardDbg.push({ asins: cardAsins, facts: facts, textHead: txt.slice(0, 260) });
                       }
                       cardAsins.forEach(function(asin){ byAsin[asin] = facts; });
                     });
+
+                    // PROBE: per-order detail pages. The order LIST is unreliable -
+                    // its cards are often script-only shells hydrated client-side, so
+                    // DOMParser (which does not execute scripts) sees no text and the
+                    // ASIN join yields nothing. But the order IDs above come from an
+                    // attribute and ARE reliable, so try each order's own detail page,
+                    // which may be server-rendered. Anything found here OVERWRITES the
+                    // list-derived facts, and records source:"order-details".
+                    var detailDbg = [];
+                    var probeIds = orderIds.slice(0, 6); // bound the fan-out
+                    return Promise.all(probeIds.map(function(oid){
+                      var durl = "https://www.amazon.in/gp/your-account/order-details?orderID=" + oid;
+                      return fetch(durl, { credentials:"include", headers:{ "accept":"*/*" } })
+                        .then(function(res){
+                          return res.text().then(function(dhtml){
+                            var ddoc = new DOMParser().parseFromString(dhtml, "text/html");
+                            var dtxt = cleanText(ddoc.body);
+                            var dAsins = asinsIn(ddoc);
+                            var dts = readDates(dtxt);
+                            var amt = readAmount(dtxt);
+                            var ret = readReturned(dtxt);
+                            // A page that redirected to sign-in, or whose text is
+                            // near-empty after stripping scripts, is NOT usable -
+                            // record why rather than silently mapping nulls.
+                            var signin = /ap\\/signin/i.test(res.url || "");
+                            var rendered = !signin && dtxt.length > 400;
+                            if (detailDbg.length < 3) {
+                              detailDbg.push({
+                                orderid: oid, status: res.status, finalUrl: (res.url || "").slice(0, 120),
+                                signinRedirect: signin, cleanTextLen: dtxt.length,
+                                rupeeCount: (dtxt.match(/\\u20b9/g) || []).length,
+                                serverRendered: rendered, asins: dAsins.slice(0, 8),
+                                parsed: { orderdate: dts.orderdate, orderamount: amt.orderamount, amountsource: amt.amountsource, deliverydate: dts.deliverydate, returned: ret },
+                                textHead: dtxt.slice(0, 300)
+                              });
+                            }
+                            if (!rendered) { return; }
+                            var facts = {
+                              orderid: oid,
+                              orderdate: dts.orderdate,
+                              orderamount: amt.orderamount,
+                              amountsource: amt.amountsource,
+                              deliverydate: dts.deliverydate,
+                              returned: ret,
+                              returnstatus: ret ? "RETURNED_OR_CANCELLED" : null,
+                              source: "order-details"
+                            };
+                            dAsins.forEach(function(asin){ byAsin[asin] = facts; });
+                          });
+                        })
+                        .catch(function(e){
+                          if (detailDbg.length < 3) { detailDbg.push({ orderid: oid, error: String((e && e.message) || e) }); }
+                        });
+                    })).then(function(){
                     reviews.forEach(function(r){
                       var of = r.asin && byAsin[r.asin];
                       if (of) {
@@ -425,6 +499,7 @@ const amazon = {
                         r.deliverydate = of.deliverydate;
                         r.returned = of.returned;
                         r.returnstatus = of.returnstatus;
+                        r.ordersource = of.source;
                       }
                     });
 
@@ -451,9 +526,18 @@ const amazon = {
                       // Per-card parsed facts + the script-stripped text they came
                       // from, so a wrong order amount / return flag can be traced to
                       // the exact text it was read out of instead of re-guessing.
-                      cardSamples: cardDbg
+                      cardSamples: cardDbg,
+                      // Order ids are read from a card attribute, so they survive
+                      // even when the list ships script-only cards.
+                      orderIds: orderIds,
+                      // The order-details probe: per order, whether that page was
+                      // actually server-rendered (serverRendered/cleanTextLen), what
+                      // it parsed to, and the text it parsed from. This is what tells
+                      // us whether the detail page is a usable source at all.
+                      orderDetailProbe: detailDbg
                     };
                     return { accountId: id, count: reviews.length, reviews: reviews, __amazonOrdersSample: sample };
+                    });
                   }); })
                   .catch(function(e){ return { accountId: id, reviews: reviews, __amazonOrdersError: String((e && e.message) || e) }; });
               });
