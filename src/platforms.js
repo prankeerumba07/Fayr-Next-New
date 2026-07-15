@@ -312,12 +312,42 @@ const amazon = {
                       if (am) { r.asin = am[1]; r.producturl = "https://www.amazon.in/dp/" + am[1]; }
                     }
                     r.verified = /Verified Purchase/i.test(html) || !!pdoc.querySelector('[data-hook="avp-badge"]');
+                    // Review date. ANTI-REPLAY control: it proves the review
+                    // post-dates the order, which is what stops a user claiming a
+                    // campaign for something they reviewed years ago.
+                    // The [data-hook="review-date"] element's own text came back
+                    // TRUNCATED to "Reviewed in India " (date missing) in a real
+                    // capture, so read the raw HTML instead - that is where the
+                    // date actually is - and keep the element only as a fallback.
+                    // Match on TEXT, not raw HTML. The element's text came back as
+                    // "Reviewed in India " with the date missing, which means the
+                    // date lives in a sibling node - and a regex over HTML cannot
+                    // cross "</span><span>". textContent concatenates across tags,
+                    // so it sees "Reviewed in India on 5 June 2026" either way.
                     var dn = pdoc.querySelector('[data-hook="review-date"]');
-                    if (dn) { r.reviewdate = dn.textContent.trim(); }
+                    var dnText = dn ? (dn.textContent || "").replace(/\\s+/g, " ").trim() : null;
+                    var ptext = (pdoc.body ? (pdoc.body.textContent || "") : "").replace(/\\s+/g, " ");
+                    var dm = ptext.match(/Reviewed in .{0,40}?\\bon\\s+(\\d{1,2}\\s+[A-Za-z]{3,}\\s+\\d{4})/i)
+                          || ptext.match(/Reviewed in .{0,40}?\\bon\\s+([A-Za-z]{3,}\\s+\\d{1,2},?\\s*\\d{4})/i);
+                    // Only accept a value that actually contains a date; never pass
+                    // on a bare "Reviewed in India " as if it were one.
+                    r.reviewdate = dm ? dm[1] : (dnText && /\\d{4}/.test(dnText) ? dnText : null);
+                    r.reviewdatesource = dm ? "html-regex" : (r.reviewdate ? "element-text" : null);
                     // Amazon exposes no separate "approved" state from "public" -
                     // if the permalink serves the review, it has cleared moderation.
                     r.approved = r.published;
                     if (i === 0) {
+                      // PROOF for the reviewdate fix: the element that failed, its
+                      // parent, and every "Reviewed in ..." string on the page - so
+                      // if the regex above still misses, it can be corrected from
+                      // THIS capture without another round.
+                      dbg.reviewDateElHtml = dn ? (dn.outerHTML || "").slice(0, 300) : null;
+                      dbg.reviewDateElParentHtml = (dn && dn.parentElement) ? (dn.parentElement.outerHTML || "").slice(0, 700) : null;
+                      dbg.reviewDateElText = dnText;
+                      // From TEXT, so a date split across sibling tags is visible.
+                      dbg.reviewedInMatches = (ptext.match(/Reviewed in .{0,50}/gi) || []).slice(0, 4);
+                      dbg.reviewDateParsed = r.reviewdate;
+                      dbg.reviewDateSource = r.reviewdatesource;
                       dbg.htmlLen = html.length;
                       dbg.foundProductLink = plink ? plink.getAttribute("href") : null;
                       // grab any ASIN-looking token from the page as a fallback probe
@@ -432,6 +462,59 @@ const amazon = {
                       return out;
                     }
 
+                    // PER-ITEM PRICE, keyed by ASIN.
+                    //
+                    // The order TOTAL is unusable for a percentage refund: it folds
+                    // in shipping, fees and discounts, and Amazon merges carts, so
+                    // one order can bundle a campaign product with unrelated items.
+                    // A refund of "90% of the item" needs the item's own price line.
+                    //
+                    // The item-row DOM is not known, so rather than guess a class
+                    // name, walk UP from each product link to the nearest ancestor
+                    // whose text contains a rupee amount. Record the level it was
+                    // found at and every token in that container: a high level means
+                    // the walk escaped the row and probably hit the order summary,
+                    // which is exactly the failure this needs to make visible rather
+                    // than silently pay out on.
+                    function itemPricesIn(root){
+                      var prices = {}, dbg = [];
+                      var els = root.querySelectorAll('a[href*="/dp/"], a[href*="/gp/product/"]');
+                      Array.prototype.forEach.call(els, function(a){
+                        var m = (a.getAttribute('href') || '').match(/(?:dp|gp\\/product)\\/([A-Z0-9]{10})/);
+                        if (!m) { return; }
+                        var asin = m[1];
+                        if (prices[asin]) { return; } // first (topmost) occurrence wins
+                        var node = a, level = 0, tokens = [], containerText = "", containerHtml = null;
+                        while (node && level < 7) {
+                          node = node.parentElement;
+                          if (!node) { break; }
+                          level++;
+                          var txt = cleanText(node);
+                          var all = txt.match(/\\u20b9\\s?[\\d,]+(?:\\.\\d{2})?/g) || [];
+                          if (all.length) {
+                            tokens = all; containerText = txt;
+                            containerHtml = (node.outerHTML || "").slice(0, 1200);
+                            break;
+                          }
+                        }
+                        if (tokens.length) {
+                          prices[asin] = { price: tokens[0], level: level, tokenCount: tokens.length };
+                        }
+                        if (dbg.length < 4) {
+                          dbg.push({
+                            asin: asin, foundAtLevel: level, chosen: tokens[0] || null,
+                            tokensInContainer: tokens.slice(0, 8),
+                            ambiguous: tokens.length > 1,
+                            containerTextHead: containerText.slice(0, 240),
+                            // Raw structure, so a wrong pick can be turned into a
+                            // real selector offline from this same capture.
+                            containerHtml: containerHtml
+                          });
+                        }
+                      });
+                      return { prices: prices, dbg: dbg };
+                    }
+
                     var byAsin = {};
                     var cardDbg = [];
                     var orderIds = [];
@@ -486,8 +569,9 @@ const amazon = {
                             var dtxt = cleanText(ddoc.body);
                             var dAsins = asinsIn(ddoc);
                             var dts = readDates(dtxt);
-                            var amt = readAmount(dtxt);
+                            var amt = readAmount(dtxt);   // ORDER total - NOT refundable
                             var ret = readReturned(dtxt);
+                            var items = itemPricesIn(ddoc); // per-ASIN item price
                             // A page that redirected to sign-in, or whose text is
                             // near-empty after stripping scripts, is NOT usable -
                             // record why rather than silently mapping nulls.
@@ -507,6 +591,15 @@ const amazon = {
                                 // such instead of having to be inferred.
                                 returnEvidence: returnEvidence(dtxt),
                                 returnMentions: returnMentions(dtxt),
+                                // PROOF for the per-item price: what was picked for
+                                // each ASIN, how far up the walk had to go, whether
+                                // the container held more than one amount, and the
+                                // raw container HTML. An order total leaking in as an
+                                // item price is a real overpayment, so it has to be
+                                // checkable rather than trusted.
+                                itemPrices: items.prices,
+                                itemPriceSamples: items.dbg,
+                                orderTotalForContrast: amt.orderamount,
                                 // Nav/header/footer are stripped now, so this starts
                                 // at the real order content instead of a wall of
                                 // accessibility shortcuts.
@@ -514,17 +607,27 @@ const amazon = {
                               });
                             }
                             if (!rendered) { return; }
-                            var facts = {
-                              orderid: oid,
-                              orderdate: dts.orderdate,
-                              orderamount: amt.orderamount,
-                              amountsource: amt.amountsource,
-                              deliverydate: dts.deliverydate,
-                              returned: ret,
-                              returnstatus: ret ? "RETURNED_OR_CANCELLED" : null,
-                              source: "order-details"
-                            };
-                            dAsins.forEach(function(asin){ byAsin[asin] = facts; });
+                            dAsins.forEach(function(asin){
+                              var ip = items.prices[asin] || null;
+                              // Per-ASIN facts. itemamount is the ONLY refundable
+                              // figure; orderamount is retained for contrast/audit
+                              // but must never be paid out against - it includes
+                              // shipping/fees/discounts and may bundle unrelated
+                              // items from a merged cart.
+                              byAsin[asin] = {
+                                orderid: oid,
+                                orderdate: dts.orderdate,
+                                itemamount: ip ? ip.price : null,
+                                itemamountlevel: ip ? ip.level : null,
+                                itemamountambiguous: ip ? ip.tokenCount > 1 : null,
+                                orderamount: amt.orderamount,
+                                amountsource: amt.amountsource,
+                                deliverydate: dts.deliverydate,
+                                returned: ret,
+                                returnstatus: ret ? "RETURNED_OR_CANCELLED" : null,
+                                source: "order-details"
+                              };
+                            });
                           });
                         })
                         .catch(function(e){
@@ -536,6 +639,12 @@ const amazon = {
                       if (of) {
                         r.orderid = of.orderid;
                         r.orderdate = of.orderdate;
+                        // itemamount is the campaign-refundable figure; orderamount
+                        // is audit-only. Keep them separately named so no caller can
+                        // reach for the wrong one by accident.
+                        r.itemamount = of.itemamount;
+                        r.itemamountlevel = of.itemamountlevel;
+                        r.itemamountambiguous = of.itemamountambiguous;
                         r.orderamount = of.orderamount;
                         r.amountsource = of.amountsource;
                         r.deliverydate = of.deliverydate;
@@ -544,6 +653,19 @@ const amazon = {
                         r.ordersource = of.source;
                       }
                     });
+
+                    // CAMPAIGN FILTER. A task is about ONE product, so only that
+                    // product may ever be surfaced - a user who bought our air dopes
+                    // and a mixer grinder must not have the grinder leave the device.
+                    // Set window.__fayrTargetAsin before fetching to enable it. With
+                    // no target we return everything, which is CALIBRATION MODE and
+                    // must not be used in production: the diagnostics below carry
+                    // other orders' data.
+                    var targetAsin = (typeof window !== "undefined" && window.__fayrTargetAsin) || null;
+                    var surfaced = reviews;
+                    if (targetAsin) {
+                      surfaced = reviews.filter(function(r){ return r.asin === targetAsin; });
+                    }
 
                     // RAW SAMPLES (diagnostic only). The mapped review fields are
                     // a LOSSY view - notably no order amount is mapped at all, so
@@ -576,9 +698,16 @@ const amazon = {
                       // actually server-rendered (serverRendered/cleanTextLen), what
                       // it parsed to, and the text it parsed from. This is what tells
                       // us whether the detail page is a usable source at all.
-                      orderDetailProbe: detailDbg
+                      orderDetailProbe: detailDbg,
+                      // Campaign filter (see above). filteredOut proves the filter
+                      // SELECTED rather than merely returned nothing - an empty
+                      // result and a working filter look identical otherwise.
+                      targetAsin: targetAsin,
+                      filterApplied: !!targetAsin,
+                      candidateAsins: reviews.map(function(r){ return r.asin; }),
+                      filteredOut: targetAsin ? reviews.filter(function(r){ return r.asin !== targetAsin; }).map(function(r){ return r.asin; }) : []
                     };
-                    return { accountId: id, count: reviews.length, reviews: reviews, __amazonOrdersSample: sample };
+                    return { accountId: id, targetAsin: targetAsin, count: surfaced.length, reviews: surfaced, __amazonOrdersSample: sample };
                     });
                   }); })
                   .catch(function(e){ return { accountId: id, reviews: reviews, __amazonOrdersError: String((e && e.message) || e) }; });
