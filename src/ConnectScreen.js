@@ -114,7 +114,16 @@ export default function ConnectScreen({ platform }) {
     };
   }, [platform]);
 
+  // onLoadEnd alone is not enough: an SPA login (Flipkart) authenticates
+  // without a full page load, so the only snapshot ever written was the
+  // PRE-login one. Also save on navigation changes, which SPA routing does
+  // emit. Debounced because a single navigation can fire this several times
+  // and each call writes to the Keychain.
+  const lastSaveRef = useRef(0);
   const saveSession = useCallback(() => {
+    const now = Date.now();
+    if (now - lastSaveRef.current < 1500) return;
+    lastSaveRef.current = now;
     persistSession(platform.key, platform.startUrl);
   }, [platform]);
 
@@ -155,6 +164,10 @@ export default function ConnectScreen({ platform }) {
       return;
     }
     setError(null);
+    // A successful fetch proves the WebView was authenticated, making this the
+    // most reliable moment to capture the logged-in cookies. Bypass the
+    // debounce - this snapshot matters more than any navigation one.
+    persistSession(platform.key, platform.startUrl);
     setRaw(msg.raw);
     try {
       setItems(extractItems(msg.raw));
@@ -224,9 +237,12 @@ export default function ConnectScreen({ platform }) {
             domStorageEnabled
             // Persist cache/cookies across launches (iOS WKWebView shared store).
             cacheEnabled
-            // Save cookies to the Keychain after each load so login survives
-            // relaunch (no-op unless the native cookie module is present).
+            // Save cookies to the Keychain after each load AND on every
+            // navigation change, so an SPA login that never triggers a full
+            // page load is still captured (no-op unless the native cookie
+            // module is present).
             onLoadEnd={saveSession}
+            onNavigationStateChange={saveSession}
             javaScriptEnabled
             // A desktop-ish UA tends to expose the same endpoints as captured.
             userAgent={
