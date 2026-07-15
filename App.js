@@ -6,17 +6,29 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import HomeScreen from './src/HomeScreen';
 import ConnectScreen from './src/ConnectScreen';
+import TaskScreen from './src/TaskScreen';
 import { PLATFORM_LIST } from './src/platforms';
+import { CAMPAIGN } from './src/campaign';
+import { load as loadTask } from './src/taskStore';
 
 const Stack = createNativeStackNavigator();
 
+// The campaign is passed ONLY to the marketplace it belongs to. Every other
+// platform gets no campaign and therefore fails closed on fetch
+// (error:"no_campaign_target") rather than dumping the account's orders - see
+// platforms.js. That is deliberate: the demo campaign is Amazon-only.
 function makeConnectScreen(platform) {
+  const campaign = platform.key === CAMPAIGN.marketplace ? CAMPAIGN : undefined;
   return function Screen() {
-    return <ConnectScreen platform={platform} />;
+    return <ConnectScreen platform={platform} campaign={campaign} />;
   };
 }
 
 export default function App() {
+  // Restore the persisted task before anything renders, so a relaunch resumes
+  // mid-flow instead of flashing a fresh CLAIMED task.
+  React.useEffect(() => { loadTask(); }, []);
+
   return (
     <SafeAreaProvider>
       <NavigationContainer>
@@ -26,6 +38,11 @@ export default function App() {
             name="Home"
             component={HomeScreen}
             options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Task"
+            component={TaskScreen}
+            options={{ title: 'Your task', headerTintColor: '#FF9900' }}
           />
           {PLATFORM_LIST.map((p) => (
             <Stack.Screen

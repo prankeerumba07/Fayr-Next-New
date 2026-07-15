@@ -10,6 +10,8 @@ import * as Sharing from 'expo-sharing';
 import { extractItems } from './extract';
 import { restoreSession, persistSession } from './session';
 import { DEBUG_CAPTURE } from './config';
+import { readAmazonEvidence } from './taskflow';
+import { dispatch } from './taskStore';
 
 function fmt(ms) {
   if (!ms) return null;
@@ -173,6 +175,26 @@ export default function ConnectScreen({ platform, campaign }) {
     // most reliable moment to capture the logged-in cookies. Bypass the
     // debounce - this snapshot matters more than any navigation one.
     persistSession(platform.key, platform.startUrl);
+
+    // Feed the task flow. readAmazonEvidence decides what the payload actually
+    // proves - including that it proves nothing (signin redirect, unreadable
+    // order) - and transition() decides whether that advances the task. Neither
+    // is this screen's business, which is why nothing is interpreted here.
+    if (campaign && platform.key === 'amazon') {
+      try {
+        const evidence = readAmazonEvidence(msg.raw, { asin: campaign.asin });
+        dispatch({
+          type: 'EVIDENCE',
+          // Keyed by what the evidence IS, so re-tapping Fetch on an unchanged
+          // order is a no-op rather than another history entry.
+          key: `evidence:${evidence.order ? evidence.order.id : evidence.blocker || 'none'}`,
+          evidence,
+          at: Date.now(),
+        });
+      } catch (e) {
+        /* the raw view below still works; the task simply doesn't advance */
+      }
+    }
     setRaw(msg.raw);
     try {
       setItems(extractItems(msg.raw));
@@ -184,7 +206,7 @@ export default function ConnectScreen({ platform, campaign }) {
     // cards view; the user can still toggle "Show raw JSON" on demand.
     setShowRaw(false);
     setMode('results');
-  }, [platform]);
+  }, [platform, campaign]);
 
   const fetchReviews = useCallback(() => {
     setBusy(true);
