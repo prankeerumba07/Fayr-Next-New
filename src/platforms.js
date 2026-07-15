@@ -353,11 +353,43 @@ const amazon = {
                     function cleanText(el){
                       if (!el) { return ""; }
                       var c = el.cloneNode(true);
-                      var junk = c.querySelectorAll('script, style, noscript');
+                      // Strip scripts (their minified JS was matching the "return"
+                      // KEYWORD and reporting every order as returned), and strip
+                      // site chrome - nav/header/footer carry "Returns & Orders" and
+                      // a wall of accessibility text that both pollutes the return
+                      // check and buries the real order text past any sane sample.
+                      var junk = c.querySelectorAll(
+                        'script, style, noscript, nav, header, footer, ' +
+                        '#navbar, #nav-main, #navFooter, #skiplink, .skip-link, ' +
+                        '#a-page > .a-hidden, [aria-hidden="true"]'
+                      );
                       Array.prototype.forEach.call(junk, function(n){
                         if (n.parentNode) { n.parentNode.removeChild(n); }
                       });
                       return (c.textContent || "").replace(/\\s+/g, " ").trim();
+                    }
+                    // Evidence collectors: rather than inferring whether "returned"
+                    // is real from a truncated text dump, show the EXACT phrases that
+                    // did (and could have) triggered it, with surrounding context.
+                    // "returned" gates a refund, so it has to be proven, not guessed.
+                    function matchesWithContext(txt, re, cap){
+                      var out = [], m, guard = 0;
+                      while ((m = re.exec(txt)) !== null && out.length < cap && guard++ < 400) {
+                        var start = Math.max(0, m.index - 60);
+                        out.push(txt.slice(start, m.index + m[0].length + 60).trim());
+                        if (m.index === re.lastIndex) { re.lastIndex++; }
+                      }
+                      return out;
+                    }
+                    // What actually fired readReturned (the -ed / completed forms).
+                    function returnEvidence(txt){
+                      return matchesWithContext(txt, /\\b(returned|refunded|cancelled|canceled)\\b|\\brefund\\s+issued\\b|\\breturn\\s+complete[d]?\\b/gi, 6);
+                    }
+                    // EVERY return/refund/cancel mention incl. chrome ("Return window
+                    // closed", "Return items: Eligible through"), so we can see what
+                    // the check is correctly ignoring as well as what it caught.
+                    function returnMentions(txt){
+                      return matchesWithContext(txt, /\\b(return|refund|cancel)[a-z]*\\b/gi, 12);
                     }
                     // Shared field readers, used for BOTH the order-list cards and
                     // the per-order detail pages so the two can't drift apart.
@@ -461,14 +493,24 @@ const amazon = {
                             // record why rather than silently mapping nulls.
                             var signin = /ap\\/signin/i.test(res.url || "");
                             var rendered = !signin && dtxt.length > 400;
-                            if (detailDbg.length < 3) {
+                            if (detailDbg.length < 6) {
                               detailDbg.push({
                                 orderid: oid, status: res.status, finalUrl: (res.url || "").slice(0, 120),
                                 signinRedirect: signin, cleanTextLen: dtxt.length,
                                 rupeeCount: (dtxt.match(/\\u20b9/g) || []).length,
                                 serverRendered: rendered, asins: dAsins.slice(0, 8),
                                 parsed: { orderdate: dts.orderdate, orderamount: amt.orderamount, amountsource: amt.amountsource, deliverydate: dts.deliverydate, returned: ret },
-                                textHead: dtxt.slice(0, 300)
+                                // PROOF for "returned", the field that gates a refund:
+                                // returnEvidence = the phrases that actually fired it;
+                                // returnMentions = every return/refund/cancel mention
+                                // including chrome, so a false positive is visible as
+                                // such instead of having to be inferred.
+                                returnEvidence: returnEvidence(dtxt),
+                                returnMentions: returnMentions(dtxt),
+                                // Nav/header/footer are stripped now, so this starts
+                                // at the real order content instead of a wall of
+                                // accessibility shortcuts.
+                                textHead: dtxt.slice(0, 700)
                               });
                             }
                             if (!rendered) { return; }
