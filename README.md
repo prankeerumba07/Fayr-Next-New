@@ -1,10 +1,15 @@
 # fayr — review-validation POC
 
 Expo **custom dev build** app (not Expo Go — the native cookie module that
-persists login isn't available there). User connects a Flipkart / Amazon /
-Myntra account (logs in inside the platform's own web page), and the app fetches
-their submitted reviews / orders and shows product name, order/review date, and
-rating/review content.
+persists login isn't available there). User connects a marketplace account (logs
+in inside the platform's own web page), and the app fetches their submitted
+reviews / orders and shows product name, order/review date, and rating/review
+content.
+
+Seven platforms are wired up — **Amazon, Flipkart, Myntra, Meesho, Instamart,
+Blinkit, Zepto** — though only Amazon and Flipkart are launch targets. The
+endpoints below cover the three with reverse-engineered APIs; the rest use a
+network-capture discovery mode.
 
 ## How it works
 
@@ -41,8 +46,12 @@ modules Expo Go doesn't carry.
 ## Known POC limitations
 
 - Private, unversioned endpoints — can change without notice.
-- Amazon only returns reviews the user has made **public**, and is keyed to a
-  profile, not an order id.
+- Amazon's review list only returns reviews the user has made **public** and is
+  keyed to a profile — but order ids are now recoverable: they're harvested from
+  the order list's `data-csa-c-slot-id` attribute and resolved against
+  `/gp/your-account/order-details`, which also yields order date, amount and
+  delivery status. Roughly 2 in 6 detail pages come back empty, so DKIM email
+  remains the fallback.
 - Myntra `fetchReview` id mapping is best-effort (tries UUIDs found in the
   orders payload); refine after inspecting raw output.
 - Bot-detection / ToS: fine for a hand-driven POC; not a durable production path.
