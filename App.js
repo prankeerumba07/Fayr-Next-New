@@ -19,8 +19,10 @@ const Stack = createNativeStackNavigator();
 // platforms.js. That is deliberate: the demo campaign is Amazon-only.
 function makeConnectScreen(platform) {
   const campaign = platform.key === CAMPAIGN.marketplace ? CAMPAIGN : undefined;
-  return function Screen() {
-    return <ConnectScreen platform={platform} campaign={campaign} />;
+  // Forward navigation/route through: ConnectScreen returns to the Task screen
+  // once evidence is dispatched, so the fetch result is never a dead end.
+  return function Screen(props) {
+    return <ConnectScreen {...props} platform={platform} campaign={campaign} />;
   };
 }
 

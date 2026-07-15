@@ -742,6 +742,30 @@ const amazon = {
                     // means there is no shape to accidentally leak through later.
                     var out = { accountId: id, targetAsin: targetAsin, count: surfaced.length, reviews: surfaced };
                     if (debug) { out.__amazonOrdersSample = sample; }
+
+                    // PRIVACY-SAFE DIAGNOSTICS - always on, including production.
+                    // Gating ALL diagnostics behind the debug flag made a
+                    // production failure undiagnosable: "order_unreadable" with no
+                    // way to tell whether the probe never ran, hit the re-auth
+                    // wall, or simply didn't contain the campaign product.
+                    // These are COUNTS AND BOOLEANS ONLY - no order ids, no other
+                    // ASINs, no page text - so they say what happened without
+                    // describing anything the user bought.
+                    out.__probe = {
+                      listCardCount: cards.length,
+                      orderIdsFound: orderIds.length,
+                      ordersProbed: probeIds.length,
+                      pagesServerRendered: detailDbg.filter(function(p){ return p && p.serverRendered === true; }).length,
+                      pagesSigninRedirect: detailDbg.filter(function(p){ return p && p.signinRedirect === true; }).length,
+                      pagesEmpty: detailDbg.filter(function(p){ return p && !p.error && p.serverRendered === false; }).length,
+                      pagesErrored: detailDbg.filter(function(p){ return p && p.error; }).length,
+                      // Did ANY probed order contain the campaign product? This is
+                      // the single fact that separates "we couldn't read your
+                      // orders" from "this order isn't in your recent orders".
+                      targetAsinInAnyOrder: targetAsin ? Object.keys(byAsin).indexOf(targetAsin) >= 0 : null,
+                      targetReviewFound: targetAsin ? reviews.some(function(r){ return r.asin === targetAsin; }) : null,
+                      ordersListSignin: /ap\\/signin/i.test(r.url || "")
+                    };
                     return out;
                     });
                   }); })

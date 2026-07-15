@@ -86,6 +86,37 @@ function formatDate(raw) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+const MONTHS = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+// Parse human dates OURSELVES rather than via Date.parse.
+//
+// The ECMAScript spec only REQUIRES Date.parse to understand ISO 8601; every
+// other format is implementation-defined. V8 (node, our tests) happily parses
+// "15 June 2026"; HERMES - the engine the app actually runs on - returns NaN for
+// it, and for "2 June 2026", "5 June 2026" and "June 15, 2026". Measured against
+// ios/Pods/hermes-engine/destroot/bin/hermes on 2026-07-15.
+//
+// That is a silent, engine-dependent data loss: every Amazon order/review date
+// came back null on device while the test suite was green on V8. Parsing the
+// digits ourselves makes the result identical on both engines.
+//
+// UTC midnight deliberately: these are calendar dates with no time, so anchoring
+// them to a timezone would shift the day near midnight and make return windows
+// off-by-one depending on where the phone is.
+function parseHumanDate(s) {
+  const mo = (name) => MONTHS[name.slice(0, 3).toLowerCase()];
+  // "15 June 2026" / "15 Jun 2026" / "15 June, 2026"  (Amazon India: day-first)
+  let m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,})\.?,?\s+(\d{4})$/);
+  if (m && mo(m[2]) != null) return Date.UTC(+m[3], mo(m[2]), +m[1]);
+  // "June 15, 2026" / "Jun 15 2026"  (US-style)
+  m = s.match(/^([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (m && mo(m[1]) != null) return Date.UTC(+m[3], mo(m[1]), +m[2]);
+  return null;
+}
+
 // Coerce ms-epoch numbers, numeric strings, or human date text ("Reviewed in
 // India on 26 June 2026") into a millisecond timestamp, or null.
 export function toEpoch(v) {
@@ -99,7 +130,12 @@ export function toEpoch(v) {
     }
     // "Reviewed in India on 26 June 2026" -> take the part after " on "
     const m = s.match(/on\s+(.+)$/i);
-    const candidate = m ? m[1] : s;
+    const candidate = (m ? m[1] : s).trim();
+    // Our own parser FIRST: it is the only one that behaves the same on Hermes
+    // and V8. Date.parse stays as a fallback for ISO and anything else an engine
+    // happens to accept.
+    const human = parseHumanDate(candidate);
+    if (human != null) return human;
     const t = Date.parse(candidate);
     return isNaN(t) ? null : t;
   }

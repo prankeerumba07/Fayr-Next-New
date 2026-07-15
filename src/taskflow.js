@@ -107,10 +107,12 @@ export function resolveDeliveryDate(deliveryRaw, orderRaw) {
   const orderEpoch = toEpoch(orderRaw);
   if (orderEpoch == null) return null; // no anchor -> refuse to guess
 
-  // Date.parse("2 June 2026") yields LOCAL midnight, so read the year locally
-  // too. Using getUTCFullYear here is a real bug: an order placed 1 Jan 2027 IST
-  // is 2026-12-31T18:30Z and would report year 2026.
-  const orderYear = new Date(orderEpoch).getFullYear();
+  // toEpoch now anchors human dates to UTC midnight (see parseHumanDate in
+  // extract.js - Date.parse is engine-dependent and Hermes rejects these
+  // formats outright), so the year must be read in UTC too. Mixing the two is a
+  // real bug in either direction: read locally off a UTC-midnight value and an
+  // order placed 1 Jan 2027 reports 2026 in any timezone behind UTC.
+  const orderYear = new Date(orderEpoch).getUTCFullYear();
   const first = toEpoch(`${s} ${orderYear}`);
   if (first == null) return null;
 
@@ -169,9 +171,26 @@ export function readAmazonEvidence(raw, target) {
   // so the caller routes to DKIM - do not emit nulls that look like data.
   const hasOrder = review.ordersource === SOURCES.ORDER_DETAILS && review.orderid != null;
   if (!hasOrder) {
+    // Say WHICH failure this is. "Unreadable" covers several very different
+    // causes and they need different actions - the probe counts (privacy-safe,
+    // always present) tell them apart.
+    const p = (raw && raw.__probe) || {};
+    let reason = "Amazon's order page returned no readable content for this order.";
+    if (p.ordersListSignin === true || p.pagesSigninRedirect > 0) {
+      reason = 'Amazon asked for a fresh password to read your orders.';
+    } else if (p.orderIdsFound === 0) {
+      reason = "Couldn't read your Amazon order list, so we have no orders to check.";
+    } else if (p.targetAsinInAnyOrder === false && p.pagesServerRendered > 0) {
+      reason = `This product wasn't in your ${p.ordersProbed} most recent Amazon orders.`;
+    } else if (p.pagesServerRendered === 0 && p.ordersProbed > 0) {
+      reason = `Amazon returned no readable content for any of your ${p.ordersProbed} recent orders.`;
+    }
     return {
-      blocker: BLOCKERS.ORDER_UNREADABLE,
-      reason: "Amazon's order page returned no readable content for this order.",
+      blocker: p.ordersListSignin === true || p.pagesSigninRedirect > 0
+        ? BLOCKERS.RECONNECT
+        : BLOCKERS.ORDER_UNREADABLE,
+      reason,
+      probe: p,
       fallback: SOURCES.DKIM,
       review: reviewFacts,
       order: null,
@@ -268,7 +287,18 @@ const HANDLERS = {
   EVIDENCE: (task, ev) => {
     const e = ev.evidence || {};
     if (e.blocker) {
-      return { patch: { blocker: e.blocker, blockerReason: e.reason || null, review: e.review || task.review }, to: task.state, reason: e.blocker };
+      return {
+        patch: {
+          blocker: e.blocker,
+          blockerReason: e.reason || null,
+          // Persist the probe counts: a task that stalled must carry the reason
+          // it stalled, or the only way to diagnose it is to reproduce it.
+          probe: e.probe || null,
+          review: e.review || task.review,
+        },
+        to: task.state,
+        reason: e.blocker,
+      };
     }
     const patch = { blocker: null, blockerReason: null };
     if (e.review) patch.review = e.review;

@@ -98,7 +98,7 @@ const DISCOVERY_PLATFORMS = ['meesho'];
 // know which product it is allowed to surface, so it fails closed rather than
 // returning every order on the account (see platforms.js). Nothing passes a
 // campaign yet - that arrives with the campaign model.
-export default function ConnectScreen({ platform, campaign }) {
+export default function ConnectScreen({ platform, campaign, navigation }) {
   const webRef = useRef(null);
   const [mode, setMode] = useState('web'); // 'web' | 'results'
   const [busy, setBusy] = useState(false);
@@ -191,6 +191,14 @@ export default function ConnectScreen({ platform, campaign }) {
           evidence,
           at: Date.now(),
         });
+        // Return to the task once the evidence has landed. The task screen is
+        // where the outcome lives - state, gaps, refund - so dropping the user
+        // on a raw results list makes a successful fetch look like a dead end.
+        // Navigate AFTER dispatch so the screen renders the new state, not the
+        // old one.
+        if (navigation && typeof navigation.navigate === 'function') {
+          navigation.navigate('Task');
+        }
       } catch (e) {
         /* the raw view below still works; the task simply doesn't advance */
       }
@@ -206,7 +214,7 @@ export default function ConnectScreen({ platform, campaign }) {
     // cards view; the user can still toggle "Show raw JSON" on demand.
     setShowRaw(false);
     setMode('results');
-  }, [platform, campaign]);
+  }, [platform, campaign, navigation]);
 
   const fetchReviews = useCallback(() => {
     setBusy(true);

@@ -7,15 +7,15 @@ import {
 let pass=0, fail=0;
 const ok=(c,m)=>{ if(c){pass++;console.log('  PASS '+m);} else {fail++;console.log('  FAIL '+m);} };
 
-console.log('=== 1. delivery year derivation (Amazon gives "5 June", no year) ===');
+console.log('=== 1. delivery year derivation — engine-independent (Hermes rejects Date.parse of these) ===');
 const d1=resolveDeliveryDate('5 June','2 June 2026');
-ok(d1===Date.parse('5 June 2026'), 'plain: "5 June" + order 2026 -> '+new Date(d1).toDateString());
+ok(d1===Date.UTC(2026,5,5), 'plain: "5 June" + order 2026 -> '+new Date(d1).toUTCString().slice(0,16));
 const d2=resolveDeliveryDate('3 January','28 December 2026');
-ok(d2===Date.parse('3 January 2027'), 'Dec->Jan rollover -> '+new Date(d2).toDateString());
-ok(resolveDeliveryDate('5 June 2026','2 June 2026')===Date.parse('5 June 2026'), 'explicit year passes through');
+ok(d2===Date.UTC(2027,0,3), 'Dec->Jan rollover -> '+new Date(d2).toUTCString().slice(0,16));
+ok(resolveDeliveryDate('5 June 2026','2 June 2026')===Date.UTC(2026,5,5), 'explicit year passes through');
 ok(resolveDeliveryDate('5 June',null)===null, 'no order anchor -> null (refuses to guess)');
 const dj=resolveDeliveryDate('5 January','1 January 2027');
-ok(dj===Date.parse('5 January 2027'), 'local/UTC year bug: order 1 Jan 2027 IST -> '+new Date(dj).toDateString());
+ok(dj===Date.UTC(2027,0,5), 'UTC year consistency: order 1 Jan 2027 -> '+new Date(dj).toUTCString().slice(0,16));
 
 console.log('\n=== 2. captured payload shape (synthetic fixture) ===');
 // Synthetic fixture mirroring the VERIFIED shape of a real capture. Real
@@ -29,10 +29,10 @@ ok(ev.order && ev.order.itemPaise===24900,'REFUNDABLE itemPaise = 24900 (249.00)
 ok(ev.order && ev.order.orderTotalPaise===24900,'orderTotalPaise kept for audit -> '+(ev.order&&ev.order.orderTotalPaise));
 ok(ev.order && ev.order.amount===undefined,'no `amount` field: nothing can grab the wrong number by habit');
 ok(ev.order && ev.order.source===SOURCES.ORDER_DETAILS,'source tagged order-details');
-ok(ev.delivery && ev.delivery.at===Date.parse('5 June 2026'),'delivery "5 June" resolved -> '+(ev.delivery&&new Date(ev.delivery.at).toDateString()));
+ok(ev.delivery && ev.delivery.at===Date.UTC(2026,5,5),'delivery "5 June" resolved -> '+(ev.delivery&&new Date(ev.delivery.at).toUTCString().slice(0,16)));
 ok(ev.review.published===true,'published true (permalink 200)');
 ok(ev.returned===false,'returned false (proven)');
-ok(ev.review.reviewDate===Date.parse('22 June 2026'),'reviewDate now REAL -> '+new Date(ev.review.reviewDate).toDateString());
+ok(ev.review.reviewDate===Date.UTC(2026,5,22),'reviewDate now REAL -> '+new Date(ev.review.reviewDate).toUTCString().slice(0,16));
 ok(ev.review.reviewDate>ev.order.date,'ANTI-REPLAY: review post-dates the order');
 
 console.log('\n=== 2b. merged order: item price, NOT the order total ===');
