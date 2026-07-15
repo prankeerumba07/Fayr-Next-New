@@ -22,7 +22,8 @@
 //      table the operator maintains, per category.
 
 import { toEpoch } from './extract.js';
-import { parseAmount, productScore } from './verify.js';
+import { productScore } from './verify.js';
+import { toPaise } from './money.js';
 
 export const DAY = 86400000;
 
@@ -155,9 +156,13 @@ export function readAmazonEvidence(raw, target) {
     // page failed entirely.
     published: review.published === true,
     verified: review.verified === true,
-    // NOT verified: Amazon's reviewdate selector returns "Reviewed in India "
-    // with the date truncated. Never present it as a date.
-    reviewDate: null,
+    // ANTI-REPLAY control: proves the review post-dates the order, which is what
+    // stops a claim on a product reviewed years ago. Verified 2026-07-15 (the
+    // selector was fixed to read textContent; the element's own text is
+    // truncated). Only ever a real date - the parser refuses a value with no
+    // 4-digit year, so a bare "Reviewed in India " can't pass as one.
+    reviewDate: toEpoch(review.reviewdate),
+    reviewDateSource: review.reviewdatesource || null,
   };
 
   // Gap 1: an empty detail page yields no ordersource. Report it as unreadable
@@ -183,10 +188,21 @@ export function readAmazonEvidence(raw, target) {
       id: review.orderid,
       date: toEpoch(review.orderdate),
       dateRaw: review.orderdate || null,
-      // orderamount is the ORDER total (two items of one order share it), not
-      // the item price. amountsource records which reader produced it.
-      amount: parseAmount(review.orderamount),
+      // REFUNDABLE figure. Campaigns pay a percentage of the ITEM, so this must
+      // be the item's own price line - never orderamount, which is the order
+      // TOTAL: it folds in shipping/fees/discounts and Amazon merges carts, so
+      // one order can bundle the campaign product with unrelated items. Proven:
+      // order 408-1509645-3524313 totals 1326.00 but its two items are 388.00
+      // and 938.00; refunding 90% of the total for the 388.00 item would pay
+      // ~3.4x. Integer paise, string-parsed - see money.js.
+      itemPaise: toPaise(review.itemamount),
+      // Audit only. Deliberately NOT called `amount` so nothing can reach for it
+      // by habit and pay out the wrong number.
+      orderTotalPaise: toPaise(review.orderamount),
       amountSource: review.amountsource || null,
+      // A walk that escaped the item row, or a row holding several amounts,
+      // means the item price is not trustworthy - surface it rather than pay it.
+      itemAmountAmbiguous: review.itemamountambiguous === true,
       product: review.name || null,
       source: SOURCES.ORDER_DETAILS,
     },

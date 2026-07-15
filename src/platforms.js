@@ -440,6 +440,18 @@ const amazon = {
                         || /\\brefund\\s+issued\\b/i.test(txt)
                         || /\\breturn\\s+complete[d]?\\b/i.test(txt);
                     }
+                    // ONE canonical amount shape for everything this script emits:
+                    // a plain decimal string, no rupee symbol, no thousands commas
+                    // ("388.00", "1326.00"). Previously itemamount carried the symbol
+                    // and orderamount did not - two shapes for one concept, which is
+                    // exactly what goes wrong when a paise ledger reads it. src/money.js
+                    // is the only thing that converts this to paise.
+                    function normAmount(v){
+                      if (v == null) { return null; }
+                      var s = String(v).replace(/[\\u20b9,\\s]/g, "");
+                      var m = s.match(/^\\d+(?:\\.\\d{1,2})?$/);
+                      return m ? m[0] : null;
+                    }
                     function readAmount(txt){
                       // Detail pages label it "Order Total" / "Grand Total"; the list
                       // card header just says "Total". Try the labelled forms first,
@@ -448,7 +460,7 @@ const amazon = {
                       var tot = txt.match(/(?:Order\\s+Total|Grand\\s+Total|Total)\\s*:?\\s*\\u20b9\\s?([\\d,]+(?:\\.\\d{2})?)/i);
                       var anyRs = txt.match(/\\u20b9\\s?([\\d,]+(?:\\.\\d{2})?)/);
                       return {
-                        orderamount: tot ? tot[1] : (anyRs ? anyRs[1] : null),
+                        orderamount: normAmount(tot ? tot[1] : (anyRs ? anyRs[1] : null)),
                         amountsource: tot ? "total-label" : (anyRs ? "first-rupee-token" : null)
                       };
                     }
@@ -498,7 +510,7 @@ const amazon = {
                           }
                         }
                         if (tokens.length) {
-                          prices[asin] = { price: tokens[0], level: level, tokenCount: tokens.length };
+                          prices[asin] = { price: normAmount(tokens[0]), level: level, tokenCount: tokens.length };
                         }
                         if (dbg.length < 4) {
                           dbg.push({
@@ -654,18 +666,33 @@ const amazon = {
                       }
                     });
 
-                    // CAMPAIGN FILTER. A task is about ONE product, so only that
-                    // product may ever be surfaced - a user who bought our air dopes
-                    // and a mixer grinder must not have the grinder leave the device.
-                    // Set window.__fayrTargetAsin before fetching to enable it. With
-                    // no target we return everything, which is CALIBRATION MODE and
-                    // must not be used in production: the diagnostics below carry
-                    // other orders' data.
+                    // CAMPAIGN FILTER — a PRIVACY boundary, not a convenience.
+                    //
+                    // A task is about ONE product. A user who buys our air dopes and
+                    // a mixer grinder must not have the grinder leave the device: not
+                    // in reviews, not in diagnostics, not as a stray order id.
+                    //
+                    // We must fetch other orders to FIND the campaign one (the ASIN
+                    // is only knowable after fetching each order's detail page), but
+                    // nothing about them may be emitted. Both values are injected by
+                    // ConnectScreen from the campaign; neither defaults open.
                     var targetAsin = (typeof window !== "undefined" && window.__fayrTargetAsin) || null;
-                    var surfaced = reviews;
-                    if (targetAsin) {
-                      surfaced = reviews.filter(function(r){ return r.asin === targetAsin; });
+                    var debug = (typeof window !== "undefined" && window.__fayrDebugCapture === true);
+
+                    // FAIL CLOSED. No campaign target and no explicit debug opt-in
+                    // means we do not know what we are allowed to surface - so we
+                    // surface NOTHING rather than defaulting to everything.
+                    if (!targetAsin && !debug) {
+                      return {
+                        error: "no_campaign_target",
+                        note: "No campaign ASIN was set, so nothing was returned. Production fetches must set window.__fayrTargetAsin. Set DEBUG_CAPTURE in src/config.js for an unfiltered diagnostic capture.",
+                        reviews: [], count: 0
+                      };
                     }
+
+                    var surfaced = targetAsin
+                      ? reviews.filter(function(r){ return r.asin === targetAsin; })
+                      : reviews; // debug-only path
 
                     // RAW SAMPLES (diagnostic only). The mapped review fields are
                     // a LOSSY view - notably no order amount is mapped at all, so
@@ -699,15 +726,23 @@ const amazon = {
                       // it parsed to, and the text it parsed from. This is what tells
                       // us whether the detail page is a usable source at all.
                       orderDetailProbe: detailDbg,
-                      // Campaign filter (see above). filteredOut proves the filter
-                      // SELECTED rather than merely returned nothing - an empty
-                      // result and a working filter look identical otherwise.
+                      // filteredOut proves the filter SELECTED rather than merely
+                      // returned nothing - an empty result and a working filter look
+                      // identical otherwise. DEBUG ONLY: it names other ASINs.
                       targetAsin: targetAsin,
                       filterApplied: !!targetAsin,
                       candidateAsins: reviews.map(function(r){ return r.asin; }),
                       filteredOut: targetAsin ? reviews.filter(function(r){ return r.asin !== targetAsin; }).map(function(r){ return r.asin; }) : []
                     };
-                    return { accountId: id, targetAsin: targetAsin, count: surfaced.length, reviews: surfaced, __amazonOrdersSample: sample };
+
+                    // EVERY diagnostic above is derived from the user's OTHER orders
+                    // - order ids, ASINs, prices, page text. None of it may ship in
+                    // production, so the whole sample is attached only under the
+                    // debug flag. Omitting the key entirely (rather than emptying it)
+                    // means there is no shape to accidentally leak through later.
+                    var out = { accountId: id, targetAsin: targetAsin, count: surfaced.length, reviews: surfaced };
+                    if (debug) { out.__amazonOrdersSample = sample; }
+                    return out;
                     });
                   }); })
                   .catch(function(e){ return { accountId: id, reviews: reviews, __amazonOrdersError: String((e && e.message) || e) }; });

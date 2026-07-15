@@ -17,20 +17,35 @@ ok(resolveDeliveryDate('5 June',null)===null, 'no order anchor -> null (refuses 
 const dj=resolveDeliveryDate('5 January','1 January 2027');
 ok(dj===Date.parse('5 January 2027'), 'local/UTC year bug: order 1 Jan 2027 IST -> '+new Date(dj).toDateString());
 
-console.log('\n=== 2. real captured payload ===');
-const raw=JSON.parse(readFileSync('/private/tmp/claude-501/-Users-prakashtamang-FAYR-Review-Verifier/6cd81486-5ed5-4775-b27f-a0b8e53d5f2b/scratchpad/captures6/fayr-amazon-1784116808818.json','utf8'));
-const ev=readAmazonEvidence(raw,{asin:'B0CDX8FTFY'});
+console.log('\n=== 2. captured payload shape (synthetic fixture) ===');
+// Synthetic fixture mirroring the VERIFIED shape of a real capture. Real
+// captures are gitignored (fayr-*.json) because they contain personal order
+// history, so they can't be committed; this keeps the test portable and CI-able.
+const raw=JSON.parse(readFileSync(new URL('./__fixtures__/amazon-capture.json',import.meta.url),'utf8'));
+const ev=readAmazonEvidence(raw,{asin:'B0TESTSOLO'});
 ok(ev.blocker===null,'no blocker on a good order');
-ok(ev.order && ev.order.id==='408-5094957-4481129','order id from real payload: '+(ev.order&&ev.order.id));
-ok(ev.order && ev.order.amount===249,'amount parsed 249.00 -> '+(ev.order&&ev.order.amount));
+ok(ev.order && ev.order.id==='111-1111111-1111111','order id from real payload: '+(ev.order&&ev.order.id));
+ok(ev.order && ev.order.itemPaise===24900,'REFUNDABLE itemPaise = 24900 (249.00) -> '+(ev.order&&ev.order.itemPaise));
+ok(ev.order && ev.order.orderTotalPaise===24900,'orderTotalPaise kept for audit -> '+(ev.order&&ev.order.orderTotalPaise));
+ok(ev.order && ev.order.amount===undefined,'no `amount` field: nothing can grab the wrong number by habit');
 ok(ev.order && ev.order.source===SOURCES.ORDER_DETAILS,'source tagged order-details');
 ok(ev.delivery && ev.delivery.at===Date.parse('5 June 2026'),'delivery "5 June" resolved -> '+(ev.delivery&&new Date(ev.delivery.at).toDateString()));
 ok(ev.review.published===true,'published true (permalink 200)');
 ok(ev.returned===false,'returned false (proven)');
-ok(ev.review.reviewDate===null,'reviewDate NOT surfaced (selector is broken) ');
+ok(ev.review.reviewDate===Date.parse('22 June 2026'),'reviewDate now REAL -> '+new Date(ev.review.reviewDate).toDateString());
+ok(ev.review.reviewDate>ev.order.date,'ANTI-REPLAY: review post-dates the order');
+
+console.log('\n=== 2b. merged order: item price, NOT the order total ===');
+const m1=readAmazonEvidence(raw,{asin:'B0TESTMERGA'});
+const m2=readAmazonEvidence(raw,{asin:'B0TESTMERGB'});
+ok(m1.order.itemPaise===38800,'B0TESTMERGA itemPaise 38800 (388.00) -> '+m1.order.itemPaise);
+ok(m2.order.itemPaise===93800,'B0TESTMERGB itemPaise 93800 (938.00) -> '+m2.order.itemPaise);
+ok(m1.order.orderTotalPaise===132600 && m2.order.orderTotalPaise===132600,'both share order total 132600');
+ok(m1.order.itemPaise!==m1.order.orderTotalPaise,'item != order total (the overpayment bug)');
+ok(m1.order.itemPaise+m2.order.itemPaise===m1.order.orderTotalPaise,'388+938 == 1326: items reconcile to the total');
 
 console.log('\n=== 3. full happy path ===');
-let t=createTask({id:'t1',asin:'B0CDX8FTFY',category:'grocery'});
+let t=createTask({id:'t1',asin:'B0TESTSOLO',category:'grocery'});
 const P=createPolicy({byCategory:{grocery:0}});
 ok(t.state===STATES.CLAIMED,'starts CLAIMED');
 t=transition(t,{type:'EVIDENCE',key:'e1',evidence:ev,at:1}).task;
@@ -73,20 +88,20 @@ ok(shouldRecheckVisibility(back,300+DAY,DAY)===true,'recheck due after interval'
 
 console.log('\n=== 7. gap 2: signinRedirect -> reconnect ===');
 const rawSignin={...raw,__amazonOrdersSample:{...raw.__amazonOrdersSample,orderDetailProbe:[{orderid:'x',signinRedirect:true}]}};
-const evS=readAmazonEvidence(rawSignin,{asin:'B0CDX8FTFY'});
+const evS=readAmazonEvidence(rawSignin,{asin:'B0TESTSOLO'});
 ok(evS.blocker===BLOCKERS.RECONNECT,'signin -> RECONNECT blocker');
-let ts=transition(createTask({id:'s',asin:'B0CDX8FTFY'}),{type:'EVIDENCE',key:'e',evidence:evS,at:1}).task;
+let ts=transition(createTask({id:'s',asin:'B0TESTSOLO'}),{type:'EVIDENCE',key:'e',evidence:evS,at:1}).task;
 ok(ts.state===STATES.CLAIMED && ts.blocker===BLOCKERS.RECONNECT,'task stalls, does not advance');
 ok(describe(ts,1,P).gaps[0].action==='reconnect','UI told to reconnect, not shown blanks');
 ok(describe(ts,1,P).order===null,'order is null (gap rendered, not an empty card)');
 
 console.log('\n=== 8. gap 1: empty detail page -> DKIM, never blanks ===');
 const rawEmpty={...raw,reviews:raw.reviews.map(r=>({...r,ordersource:undefined,orderid:undefined}))};
-const evE=readAmazonEvidence(rawEmpty,{asin:'B0CDX8FTFY'});
+const evE=readAmazonEvidence(rawEmpty,{asin:'B0TESTSOLO'});
 ok(evE.blocker===BLOCKERS.ORDER_UNREADABLE,'unreadable order detected');
 ok(evE.fallback===SOURCES.DKIM,'routes to DKIM');
 ok(evE.review && evE.review.published===true,'review facts still usable (permalink independent of orders)');
-const te=transition(createTask({id:'e',asin:'B0CDX8FTFY'}),{type:'EVIDENCE',key:'e',evidence:evE,at:1}).task;
+const te=transition(createTask({id:'e',asin:'B0TESTSOLO'}),{type:'EVIDENCE',key:'e',evidence:evE,at:1}).task;
 ok(te.order===null && describe(te,1,P).gaps.some(g=>g.action===SOURCES.DKIM),'UI shows DKIM gap, order stays null');
 
 console.log('\n=== 9. gap 3: policy table per category ===');

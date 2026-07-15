@@ -9,6 +9,7 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { extractItems } from './extract';
 import { restoreSession, persistSession } from './session';
+import { DEBUG_CAPTURE } from './config';
 
 function fmt(ms) {
   if (!ms) return null;
@@ -91,7 +92,11 @@ function ReviewCard({ item, color, platform }) {
 // cards are reliable. (Zepto/Blinkit/Instamart now have real parsers.)
 const DISCOVERY_PLATFORMS = ['meesho'];
 
-export default function ConnectScreen({ platform }) {
+// `campaign` carries the task's product: { asin }. Without it a fetch cannot
+// know which product it is allowed to surface, so it fails closed rather than
+// returning every order on the account (see platforms.js). Nothing passes a
+// campaign yet - that arrives with the campaign model.
+export default function ConnectScreen({ platform, campaign }) {
   const webRef = useRef(null);
   const [mode, setMode] = useState('web'); // 'web' | 'results'
   const [busy, setBusy] = useState(false);
@@ -184,8 +189,16 @@ export default function ConnectScreen({ platform }) {
   const fetchReviews = useCallback(() => {
     setBusy(true);
     setError(null);
-    webRef.current?.injectJavaScript(platform.fetchScript);
-  }, [platform]);
+    // The campaign's ASIN and the debug flag are injected in the SAME script as
+    // the fetch, not as a separate call, so the fetch can never run against a
+    // stale or unset target. Both fail closed: with no campaign ASIN and no
+    // debug opt-in the script returns error:"no_campaign_target" rather than
+    // surfacing every order the account has (see platforms.js).
+    const preamble =
+      `window.__fayrTargetAsin = ${JSON.stringify((campaign && campaign.asin) || null)};` +
+      `window.__fayrDebugCapture = ${JSON.stringify(DEBUG_CAPTURE === true)};`;
+    webRef.current?.injectJavaScript(`${preamble}\n${platform.fetchScript}`);
+  }, [platform, campaign]);
 
   const backToLogin = useCallback(() => {
     setMode('web');
