@@ -244,11 +244,15 @@ export default function ConnectScreen({ platform }) {
             onLoadEnd={saveSession}
             onNavigationStateChange={saveSession}
             javaScriptEnabled
-            // A desktop-ish UA tends to expose the same endpoints as captured.
+            // Per-platform override first (only Amazon sets one - it needs a
+            // desktop UA or amazon.in serves a mobile orders page whose DOM the
+            // parser can't read). Everything else keeps the previous behaviour:
+            // an Android UA on Android, and WKWebView's default on iOS.
             userAgent={
-              Platform.OS === 'android'
+              platform.userAgent ||
+              (Platform.OS === 'android'
                 ? 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36'
-                : undefined
+                : undefined)
             }
             // Opaque white so the WebView never shows through as a black/blank
             // flash while a heavy SPA (Zepto/Blinkit/Swiggy) is still loading.

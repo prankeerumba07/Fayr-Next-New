@@ -9,6 +9,20 @@
 const FK_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 FKUA/website/42/website/Desktop';
 
+// Opt-in, PER-PLATFORM WebView user agent (see the `userAgent` field below).
+// Deliberately not global: the other platforms' scripts were calibrated against
+// whatever their mobile pages return, so forcing a desktop UA everywhere could
+// silently change those payloads. Only set it where a real capture proves the
+// mobile page is the problem.
+//
+// Amazon needs it: with the default iPhone UA, amazon.in serves the MOBILE
+// orders page (`<html class="a-no-js a-touch a-mobile">`), whose DOM has none of
+// the `.order-card` / `.js-order-card` classes the orders parser looks for -
+// verified 2026-07-15, cardCount was 0 while the same HTML plainly contained
+// "Ordered on Friday, 5 June 2026" and "Delivered 5 June".
+const DESKTOP_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
+
 // Wraps a fetch-chain expression (must resolve to the payload we want to keep)
 // into a self-contained script that reports back to RN exactly once.
 function wrap(platform, chainExpr) {
@@ -85,6 +99,8 @@ const flipkart = {
               || /return|cancel/i.test(statusKey)
               || !!(reverse.latestReturnIdString && reverse.latestReturnIdString !== "")
               || !!promise.returnStatus;
+            var money = u.moneyDataBag || {};
+            var orderMoney = o.orderMoneyDataBag || {};
             var pid = meta.fsn || null;
             if (pid) {
               byPid[pid] = {
@@ -93,7 +109,15 @@ const flipkart = {
                 deliveryDate: promise.actualDeliveredDate || null,
                 statusKey: statusKey || null,
                 returned: returned,
-                returnStatus: returned ? (st.fkCancelled ? "CANCELLED" : "RETURNED") : (statusKey || null)
+                returnStatus: returned ? (st.fkCancelled ? "CANCELLED" : "RETURNED") : (statusKey || null),
+                // Money fields verified against a real capture (2026-07-15):
+                // the reviewed item's own price is moneyDataBag.itemSellingPrice
+                // and the order total is orderMoneyDataBag.amount. Do NOT use
+                // totalPayable / promisedPrice / revisedPrice - all three are 0
+                // in real data. Values are whole rupees, not paise.
+                itemAmount: money.itemSellingPrice != null ? money.itemSellingPrice : null,
+                itemListPrice: money.itemListingPrice != null ? money.itemListingPrice : null,
+                orderAmount: orderMoney.amount != null ? orderMoney.amount : null
               };
             }
           });
@@ -102,11 +126,16 @@ const flipkart = {
         var products = (revJson && revJson.RESPONSE && revJson.RESPONSE.product) || [];
         var reviews = products.map(function(p){
           var om = (p.pid && byPid[p.pid]) || null;
-          // Flipkart's own moderation status string for this review (exact
-          // values unknown until seen live — check "Show raw JSON" -> reviewstatus
-          // to calibrate this regex against your account's real data).
+          // Flipkart's moderation status, calibrated against a real capture
+          // (2026-07-15): the live value is exactly "approved" (lowercase).
+          // Compare EXACTLY - a /approve/ substring regex would also match
+          // "pending_approval" / "not_approved" and report a review nobody can
+          // see as publicly live, which under a public-visibility model pays out
+          // a refund for an unpublished review. Unknown values must fail CLOSED.
+          // Only "approved" has been observed live; if a review ever shows a
+          // different status, add it here deliberately rather than by pattern.
           var statusRaw = p.status || null;
-          var approvedGuess = statusRaw ? /publish|approve|active|live/i.test(String(statusRaw)) : null;
+          var isApproved = statusRaw ? String(statusRaw).trim().toLowerCase() === "approved" : null;
           return {
             productname: p.productTitle || null,
             reviewtitle: p.title || null,
@@ -116,13 +145,16 @@ const flipkart = {
             orderdate: om ? om.orderDate : null,
             deliverydate: om ? om.deliveryDate : null,
             orderid: om ? om.orderId : null,
+            orderamount: om ? om.orderAmount : null,
+            itemamount: om ? om.itemAmount : null,
+            itemlistprice: om ? om.itemListPrice : null,
             returned: om ? om.returned : null,
             returnstatus: om ? om.returnStatus : null,
             statuscode: om ? om.statusKey : null,
             verified: p.certifiedBuyer === true,
             reviewstatus: statusRaw,
-            approved: approvedGuess,
-            published: approvedGuess,
+            approved: isApproved,
+            published: isApproved,
             pid: p.pid || null,
             reviewid: p.id || null,
             imageurl: fixImg(p.dynamicImageUrl),
@@ -131,6 +163,54 @@ const flipkart = {
             producturl: p.pid ? ("https://www.flipkart.com/p/itm" + p.pid) : null
           };
         });
+
+        // RAW SAMPLES (diagnostic only). Everything above is a LOSSY mapping:
+        // a field we don't map is invisible in the export, so "absent from the
+        // capture" can't be told apart from "not exposed by Flipkart". Ship a
+        // bounded slice of the real payloads instead, so order amount and the
+        // review status vocabulary can be read off actual data rather than
+        // guessed. Bounded so the export stays small.
+        function slice(o, n){ try { var s = JSON.stringify(o); return s ? s.slice(0, n) : null; } catch(e){ return null; } }
+        var firstOrder = orders[0] || null;
+        var firstUnit = null;
+        if (firstOrder && firstOrder.units) {
+          var uk = Object.keys(firstOrder.units);
+          if (uk.length) { firstUnit = firstOrder.units[uk[0]]; }
+        }
+        // Every price/amount-looking leaf in the first order, with its path, so
+        // the order-total field can be located exactly.
+        var priceLike = [];
+        (function scanPrice(o, path, d){
+          if (o == null || d > 9 || priceLike.length >= 50) { return; }
+          if (typeof o !== "object") { return; }
+          for (var k in o) {
+            if (!Object.prototype.hasOwnProperty.call(o, k)) { continue; }
+            var v = o[k];
+            if (/price|amount|total|payable|mrp|paid|value/i.test(k) && (typeof v === "number" || typeof v === "string")) {
+              if (priceLike.length < 50) { priceLike.push(path + "." + k + " = " + String(v).slice(0, 24)); }
+            }
+            scanPrice(v, path + "." + k, d + 1);
+          }
+        })(firstOrder, "order", 0);
+
+        diag.rawSample = {
+          firstOrder: slice(firstOrder, 4000),
+          firstUnit: slice(firstUnit, 4000),
+          firstReviewProduct: slice(products[0], 2000),
+          orderKeys: firstOrder ? Object.keys(firstOrder) : null,
+          orderMetaDataKeys: (firstOrder && firstOrder.orderMetaData) ? Object.keys(firstOrder.orderMetaData) : null,
+          unitKeys: firstUnit ? Object.keys(firstUnit) : null,
+          unitMetaDataKeys: (firstUnit && firstUnit.metaData) ? Object.keys(firstUnit.metaData) : null,
+          reviewProductKeys: products[0] ? Object.keys(products[0]) : null,
+          // Distinct review status strings across every fetched review. Under a
+          // public-visibility model this vocabulary IS the verification signal,
+          // so it must come from real data, not the /publish|approve/ guess.
+          reviewStatusValues: products
+            .map(function(p){ return p.status; })
+            .filter(function(v, i, a){ return v != null && a.indexOf(v) === i; }),
+          orderCount: orders.length,
+          priceLikePaths: priceLike
+        };
 
         return { reviews: reviews, __diagnostic: diag };
       });
@@ -144,6 +224,9 @@ const amazon = {
   name: 'Amazon',
   color: '#FF9900',
   startUrl: 'https://www.amazon.in/',
+  // Force the desktop orders page so the order-card selectors below can match
+  // (see DESKTOP_UA). Amazon-only: no other platform sets this.
+  userAgent: DESKTOP_UA,
   hint: 'Log in to Amazon, then tap "Fetch my reviews".',
   // Two-step: resolve the logged-in account id (from the profile redirect URL,
   // falling back to scanning the HTML), then call getReviews. That endpoint
@@ -293,11 +376,26 @@ const amazon = {
                       }
                     });
 
+                    // RAW SAMPLES (diagnostic only). The mapped review fields are
+                    // a LOSSY view - notably no order amount is mapped at all, so
+                    // its absence from the export says nothing about whether
+                    // Amazon exposes it. Amazon's orders are HTML, so ship the
+                    // card's readable TEXT (far easier to locate amount/date in
+                    // than markup) plus every price-looking token, bounded.
+                    var firstCardText = cards[0]
+                      ? (cards[0].textContent || "").replace(/\\s+/g, " ").trim().slice(0, 1500)
+                      : null;
+                    var priceTokens = (html.match(/\\u20b9\\s?[\\d,]+(?:\\.\\d{2})?/g) || []);
+                    var uniqPrices = priceTokens.filter(function(v, i, a){ return a.indexOf(v) === i; }).slice(0, 25);
+                    var dateTokens = (html.match(/(?:Order placed|Ordered on|Delivered)\\s*[^<]{0,28}/gi) || []).slice(0, 10);
                     var sample = {
                       status: r.status, finalUrl: r.url, cardCount: cards.length,
                       asins: asins.slice(0, 15),
                       matchedAsins: Object.keys(byAsin),
-                      firstCardHtml: cards[0] ? cards[0].outerHTML.slice(0, 2500) : html.slice(0, 1500)
+                      firstCardHtml: cards[0] ? cards[0].outerHTML.slice(0, 2500) : html.slice(0, 1500),
+                      firstCardText: firstCardText,
+                      priceTokens: uniqPrices,
+                      dateTokens: dateTokens
                     };
                     return { accountId: id, count: reviews.length, reviews: reviews, __amazonOrdersSample: sample };
                   }); })
