@@ -342,13 +342,25 @@ const amazon = {
                     var asins = [], seenA = {};
                     asinMatches.forEach(function(a){ var m = a.match(/[A-Z0-9]{10}$/); if (m && !seenA[m[0]]) { seenA[m[0]] = 1; asins.push(m[0]); } });
 
-                    // Best-effort per-ASIN delivery/return join: Amazon's order
-                    // cards render human text like "Delivered <date>" and
-                    // "Return/Refund" inline, so scan each card's own text/links
-                    // rather than relying on exact class names (unverified until
-                    // seen live - refine the regexes below once real HTML is seen
-                    // via __amazonOrdersSample.firstCardHtml).
+                    // Per-ASIN order facts. Every regex below is calibrated against
+                    // a real desktop capture (2026-07-15) - see the notes on each.
+                    //
+                    // Amazon's order cards embed inline <script> tags, so reading
+                    // card.textContent raw pulls in MINIFIED JS. That is why the old
+                    // /return(ed)?/ test reported returned=true on every single
+                    // review: it was matching the JavaScript keyword "return".
+                    // Strip script/style/noscript from a clone before reading text.
+                    function cardText(card){
+                      var c = card.cloneNode(true);
+                      var junk = c.querySelectorAll('script, style, noscript');
+                      Array.prototype.forEach.call(junk, function(n){
+                        if (n.parentNode) { n.parentNode.removeChild(n); }
+                      });
+                      return (c.textContent || "").replace(/\\s+/g, " ").trim();
+                    }
+
                     var byAsin = {};
+                    var cardDbg = [];
                     Array.prototype.forEach.call(cards, function(card){
                       var linkEls = card.querySelectorAll('a[href*="/dp/"], a[href*="/product/"], a[href*="/gp/product/"]');
                       var cardAsins = [], seenCA = {};
@@ -356,23 +368,63 @@ const amazon = {
                         var m = (a.getAttribute('href') || '').match(/[A-Z0-9]{10}/);
                         if (m && !seenCA[m[0]]) { seenCA[m[0]] = 1; cardAsins.push(m[0]); }
                       });
-                      var txt = card.textContent || "";
-                      var delivMatch = txt.match(/Delivered\\s*(?:on)?\\s*([A-Za-z]+\\s+\\d{1,2}(?:,?\\s*\\d{4})?)/i);
-                      var returned = /return(ed)?|refund(ed)?|cancel(led)?/i.test(txt);
-                      cardAsins.forEach(function(asin){
-                        byAsin[asin] = {
-                          deliverydate: delivMatch ? delivMatch[1] : null,
-                          returned: returned,
-                          returnstatus: returned ? "RETURNED_OR_CANCELLED" : null
-                        };
-                      });
+                      var txt = cardText(card);
+
+                      // Amazon India renders dates DAY-first ("Delivered 5 June",
+                      // "Ordered on Friday, 5 June 2026"). The previous regex only
+                      // accepted MONTH-first ("Delivered June 5") and so never
+                      // matched a single card. Try day-first, then month-first.
+                      var dv = txt.match(/Delivered\\s*(?:on)?\\s*(\\d{1,2}\\s+[A-Za-z]{3,}(?:,?\\s*\\d{4})?)/i)
+                            || txt.match(/Delivered\\s*(?:on)?\\s*([A-Za-z]{3,}\\s+\\d{1,2}(?:,?\\s*\\d{4})?)/i);
+                      var od = txt.match(/Order(?:ed)?\\s*(?:placed|on)?\\s*(?:[A-Za-z]+,\\s*)?(\\d{1,2}\\s+[A-Za-z]{3,}(?:,?\\s*\\d{4})?)/i)
+                            || txt.match(/Order(?:ed)?\\s*(?:placed|on)?\\s*(?:[A-Za-z]+,\\s*)?([A-Za-z]{3,}\\s+\\d{1,2}(?:,?\\s*\\d{4})?)/i);
+
+                      // Return/cancel state. Match only the COMPLETED forms: every
+                      // card carries chrome like "Return window closed on 12 June"
+                      // and "Return items: Eligible through 12 Jun", which contain
+                      // "Return" but never "Returned"/"Refunded". Requiring the -ed
+                      // form excludes that chrome without depending on class names.
+                      var returned = /\\b(returned|refunded|cancelled|canceled)\\b/i.test(txt)
+                        || /\\brefund\\s+issued\\b/i.test(txt)
+                        || /\\breturn\\s+complete[d]?\\b/i.test(txt);
+
+                      // Order total. The card header reads "ORDER PLACED / TOTAL /
+                      // SHIP TO / ORDER #", so prefer the labelled Total; fall back
+                      // to the first rupee token on the card. amountSource records
+                      // which one fired so a wrong number is debuggable.
+                      var tot = txt.match(/Total\\s*\\u20b9\\s?([\\d,]+(?:\\.\\d{2})?)/i);
+                      var anyRs = txt.match(/\\u20b9\\s?([\\d,]+(?:\\.\\d{2})?)/);
+                      var amount = tot ? tot[1] : (anyRs ? anyRs[1] : null);
+
+                      // The order id is on the card element itself, e.g.
+                      // data-csa-c-slot-id="amzn1.yourorders.order-card.408-3245318-0807503"
+                      var slot = card.getAttribute('data-csa-c-slot-id') || "";
+                      var oid = slot.match(/(\\d{3}-\\d{7}-\\d{7})/) || txt.match(/\\b(\\d{3}-\\d{7}-\\d{7})\\b/);
+
+                      var facts = {
+                        orderid: oid ? oid[1] : null,
+                        orderdate: od ? od[1] : null,
+                        orderamount: amount,
+                        amountsource: tot ? "total-label" : (anyRs ? "first-rupee-token" : null),
+                        deliverydate: dv ? dv[1] : null,
+                        returned: returned,
+                        returnstatus: returned ? "RETURNED_OR_CANCELLED" : null
+                      };
+                      if (cardDbg.length < 3) {
+                        cardDbg.push({ asins: cardAsins, facts: facts, textHead: txt.slice(0, 260) });
+                      }
+                      cardAsins.forEach(function(asin){ byAsin[asin] = facts; });
                     });
                     reviews.forEach(function(r){
-                      var od = r.asin && byAsin[r.asin];
-                      if (od) {
-                        r.deliverydate = od.deliverydate;
-                        r.returned = od.returned;
-                        r.returnstatus = od.returnstatus;
+                      var of = r.asin && byAsin[r.asin];
+                      if (of) {
+                        r.orderid = of.orderid;
+                        r.orderdate = of.orderdate;
+                        r.orderamount = of.orderamount;
+                        r.amountsource = of.amountsource;
+                        r.deliverydate = of.deliverydate;
+                        r.returned = of.returned;
+                        r.returnstatus = of.returnstatus;
                       }
                     });
 
@@ -395,7 +447,11 @@ const amazon = {
                       firstCardHtml: cards[0] ? cards[0].outerHTML.slice(0, 2500) : html.slice(0, 1500),
                       firstCardText: firstCardText,
                       priceTokens: uniqPrices,
-                      dateTokens: dateTokens
+                      dateTokens: dateTokens,
+                      // Per-card parsed facts + the script-stripped text they came
+                      // from, so a wrong order amount / return flag can be traced to
+                      // the exact text it was read out of instead of re-guessing.
+                      cardSamples: cardDbg
                     };
                     return { accountId: id, count: reviews.length, reviews: reviews, __amazonOrdersSample: sample };
                   }); })
