@@ -1,8 +1,10 @@
 # fayr — review-validation POC
 
-Expo Go app. User connects a Flipkart / Amazon / Myntra account (logs in inside
-the platform's own web page), and the app fetches their submitted reviews /
-orders and shows product name, order/review date, and rating/review content.
+Expo **custom dev build** app (not Expo Go — the native cookie module that
+persists login isn't available there). User connects a Flipkart / Amazon /
+Myntra account (logs in inside the platform's own web page), and the app fetches
+their submitted reviews / orders and shows product name, order/review date, and
+rating/review content.
 
 ## How it works
 
@@ -22,17 +24,19 @@ orders and shows product name, order/review date, and rating/review content.
 |----------|----------|-------|
 | Flipkart | `1.rome.api.flipkart.com/api/3/reviews/completed/product` | Reviews the user has submitted |
 | Amazon   | `www.amazon.in/shop/profile/<accountId>/getReviews` (account id resolved from `/gp/profile`) | Public-profile reviews |
+| Amazon   | `www.amazon.in/gp/your-account/order-details?orderID=<id>` — ids harvested from the order list's `data-csa-c-slot-id` attribute | Order id / date / amount / delivery status. **Requires the desktop UA** (`platform.userAgent`, Amazon-only): with the default iPhone UA amazon.in serves a mobile orders page the parser can't read. The order *list* itself is not parseable — its cards are script-only shells — but the attribute-borne ids survive, and the per-order detail page is server-rendered |
 | Myntra   | `.../fetchOrdersApi/getOrders` + `.../reviewApi/fetchReview` | Orders + best-effort review content |
 
 ## Run
 
 ```bash
 cd fayr
-npx expo start
+npx expo run:ios
 ```
 
-Scan the QR with **Expo Go** on Android. (iOS Expo Go blocks arbitrary WebView
-domains less predictably; Android is the reliable target for this POC.)
+Builds and launches the dev client on the **iOS simulator** — the target this is
+developed against. `npx expo start` alone is not enough: the dev build has native
+modules Expo Go doesn't carry.
 
 ## Known POC limitations
 
