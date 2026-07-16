@@ -36,6 +36,9 @@ yarn-error.*
 # captured marketplace responses (contain real personal order history)
 fayr-*.json
 
+# generated web-preview bundle
+web-preview/bundle.js
+
 # typescript
 *.tsbuildinfo
 

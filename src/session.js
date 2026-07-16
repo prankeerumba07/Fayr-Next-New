@@ -90,18 +90,37 @@ export async function restoreSession(platformKey, url) {
   }
 }
 
-// Explicit logout: forget the stored session and clear live cookies.
+// Explicit logout: forget the stored session and clear live cookies for this
+// platform's origin. Returns the number of cookies cleared (best-effort).
+//
+// clearByName needs a specific cookie NAME - the previous `clearByName(url,
+// undefined, ...)` cleared nothing. Enumerate the platform's cookies first, then
+// clear each by name so we wipe THIS marketplace without logging out the others.
 export async function clearSession(platformKey, url) {
-  if (!sessionPersistenceAvailable) return;
+  if (!sessionPersistenceAvailable) return 0;
   try {
     await SecureStore.deleteItemAsync(keyFor(platformKey));
   } catch (e) {
     /* ignore */
   }
+  if (!url) {
+    try { await CookieManager.clearAll(true); } catch (e) { /* ignore */ }
+    return 0;
+  }
+  let cleared = 0;
   try {
-    if (url) await CookieManager.clearByName(url, undefined, true);
-    else await CookieManager.clearAll(true);
+    const cookies = await CookieManager.get(url, true); // useWebKit
+    for (const name of Object.keys(cookies || {})) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await CookieManager.clearByName(url, name, true);
+        cleared += 1;
+      } catch (e) {
+        /* skip this cookie */
+      }
+    }
   } catch (e) {
     /* ignore */
   }
+  return cleared;
 }

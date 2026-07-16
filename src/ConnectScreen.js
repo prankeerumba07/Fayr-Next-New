@@ -8,7 +8,7 @@ import { WebView } from 'react-native-webview';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { extractItems } from './extract';
-import { restoreSession, persistSession } from './session';
+import { restoreSession, persistSession, clearSession } from './session';
 import { DEBUG_CAPTURE } from './config';
 import { readAmazonEvidence } from './taskflow';
 import { dispatch } from './taskStore';
@@ -245,6 +245,31 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
     setShowRaw(false);
   }, []);
 
+  // DEV-ONLY: wipe this marketplace's session so a different account can log in
+  // without hunting for the site's logout link. Clears localStorage/sessionStorage
+  // for the current origin (injected JS), the native WebKit cookies for this
+  // platform's domain, and the persisted Keychain snapshot, then reloads the
+  // now-logged-out page. Scoped to THIS platform - other logins are untouched.
+  const clearPlatformSession = useCallback(async () => {
+    try {
+      webRef.current?.injectJavaScript('try{localStorage.clear();sessionStorage.clear();}catch(e){}; true;');
+    } catch (e) { /* ignore */ }
+    // Hold off the debounced auto-save so the reload can't re-persist the
+    // session we're wiping.
+    lastSaveRef.current = Date.now() + 5000;
+    let cleared = 0;
+    try { cleared = await clearSession(platform.key, platform.startUrl); } catch (e) { /* ignore */ }
+    setMode('web');
+    setItems([]);
+    setRaw(null);
+    setError(null);
+    try { webRef.current?.reload?.(); } catch (e) { /* ignore */ }
+    Alert.alert(
+      'Session cleared',
+      `${platform.name}: ${cleared} cookie(s) and local storage wiped. Log in with another account.`
+    );
+  }, [platform]);
+
   const downloadRawJson = useCallback(async () => {
     if (!raw) return;
     try {
@@ -310,7 +335,15 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
             // Opaque white so the WebView never shows through as a black/blank
             // flash while a heavy SPA (Zepto/Blinkit/Swiggy) is still loading.
             style={{ flex: 1, backgroundColor: '#fff' }}
-            containerStyle={{ backgroundColor: '#fff' }}
+            // Explicit scroll enable — Fabric (new arch) doesn't always apply the
+            // iOS default, and being explicit is harmless if it was already on.
+            scrollEnabled
+            nestedScrollEnabled
+            // containerStyle REPLACES the library default { flex: 1, overflow:
+            // 'hidden' }. Both matter: flex:1 sizes the container; overflow:
+            // 'hidden' is what makes the page scroll WITHIN it instead of
+            // overflowing past its bounds — without it, no platform scrolled.
+            containerStyle={{ flex: 1, overflow: 'hidden', backgroundColor: '#fff' }}
             renderLoading={() => (
               <View style={styles.webLoading}>
                 <ActivityIndicator size="large" color={platform.color} />
@@ -337,15 +370,24 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
               is still the default (devShowAll starts false). */}
           {/* eslint-disable-next-line no-undef */}
           {__DEV__ ? (
-            <TouchableOpacity
-              style={[styles.devToggle, devShowAll && styles.devToggleOn]}
-              onPress={() => setDevShowAll((v) => !v)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.devToggleText, devShowAll && styles.devToggleTextOn]}>
-                {devShowAll ? '● ' : '○ '}Show all my reviews (dev){devShowAll ? ' — filter OFF' : ''}
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.devRow}>
+              <TouchableOpacity
+                style={[styles.devToggle, devShowAll && styles.devToggleOn]}
+                onPress={() => setDevShowAll((v) => !v)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.devToggleText, devShowAll && styles.devToggleTextOn]}>
+                  {devShowAll ? '● ' : '○ '}Show all my reviews (dev){devShowAll ? ' — filter OFF' : ''}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.devClear}
+                onPress={clearPlatformSession}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.devClearText}>Clear session for {platform.name} (dev)</Text>
+              </TouchableOpacity>
+            </View>
           ) : null}
       </View>
       {mode === 'results' ? (
@@ -444,10 +486,13 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
-  devToggle: { marginTop: 8, paddingVertical: 8, alignItems: 'center' },
+  devRow: { marginTop: 4 },
+  devToggle: { marginTop: 4, paddingVertical: 8, alignItems: 'center' },
   devToggleOn: { backgroundColor: '#fff4f4', borderRadius: 8 },
   devToggleText: { fontSize: 12, color: '#999', fontWeight: '600' },
   devToggleTextOn: { color: '#b3261e' },
+  devClear: { marginTop: 2, paddingVertical: 8, alignItems: 'center' },
+  devClearText: { fontSize: 12, color: '#b3261e', fontWeight: '600', textDecorationLine: 'underline' },
   fetchBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
   resultsHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

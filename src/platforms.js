@@ -690,9 +690,14 @@ const amazon = {
                       };
                     }
 
-                    var surfaced = targetAsin
+                    // Filter to the campaign product ONLY when we are not in
+                    // debug/unfiltered mode. debug (the dev "Show all" toggle or
+                    // DEBUG_CAPTURE) must win even when a campaign targetAsin is
+                    // also set - otherwise the toggle silently does nothing,
+                    // because a campaign always sets targetAsin. This was the bug.
+                    var surfaced = (targetAsin && !debug)
                       ? reviews.filter(function(r){ return r.asin === targetAsin; })
-                      : reviews; // debug-only path
+                      : reviews;
 
                     // RAW SAMPLES (diagnostic only). The mapped review fields are
                     // a LOSSY view - notably no order amount is mapped at all, so
@@ -730,9 +735,9 @@ const amazon = {
                       // returned nothing - an empty result and a working filter look
                       // identical otherwise. DEBUG ONLY: it names other ASINs.
                       targetAsin: targetAsin,
-                      filterApplied: !!targetAsin,
+                      filterApplied: !!(targetAsin && !debug),
                       candidateAsins: reviews.map(function(r){ return r.asin; }),
-                      filteredOut: targetAsin ? reviews.filter(function(r){ return r.asin !== targetAsin; }).map(function(r){ return r.asin; }) : []
+                      filteredOut: (targetAsin && !debug) ? reviews.filter(function(r){ return r.asin !== targetAsin; }).map(function(r){ return r.asin; }) : []
                     };
 
                     // EVERY diagnostic above is derived from the user's OTHER orders
@@ -840,6 +845,10 @@ const myntra = {
     'myntra',
     `
     (function(){
+      // Diagnostic-only raw sample (locates the per-item PAID price field, which
+      // is not the same as mrp). Gated on the dev "Show all" flag so it never
+      // ships in a normal fetch - same discipline as the Amazon script.
+      var debug = (typeof window !== "undefined" && window.__fayrDebugCapture === true);
       var H = {
         "accept": "application/json",
         "authorization": "Basic bW9iaWxlfm1vYmlsZTptb2JpbGU=",
@@ -940,10 +949,44 @@ const myntra = {
                     });
                   });
 
+                // Locate the per-item PAID price. norm maps p.price.mrp only,
+                // which is the LIST price - the actual paid figure lives on a
+                // differently-named leaf. Scan the first raw item for every
+                // price-like leaf WITH ITS PATH so the paid field can be picked
+                // out exactly, the way Flipkart's itemSellingPrice was.
+                var sample = null;
+                if (debug) {
+                  var firstItem = items[0] || null;
+                  var priceLike = [];
+                  (function scan(o, path, d){
+                    if (o == null || d > 9 || priceLike.length >= 60) { return; }
+                    if (typeof o !== "object") { return; }
+                    for (var k in o) {
+                      if (!Object.prototype.hasOwnProperty.call(o, k)) { continue; }
+                      var v = o[k];
+                      if (/price|amount|total|payable|mrp|paid|value|sell|discount/i.test(k) && (typeof v === "number" || typeof v === "string")) {
+                        priceLike.push(path + "." + k + " = " + v);
+                      }
+                      if (v && typeof v === "object") { scan(v, path + "." + k, d + 1); }
+                    }
+                  })(firstItem, "item", 0);
+                  var slice = null;
+                  try { slice = firstItem ? JSON.stringify(firstItem).slice(0, 3500) : null; } catch (e) { slice = null; }
+                  sample = {
+                    priceLike: priceLike,
+                    itemKeys: firstItem ? Object.keys(firstItem) : [],
+                    productKeys: (firstItem && firstItem.product) ? Object.keys(firstItem.product) : [],
+                    productPriceKeys: (firstItem && firstItem.product && firstItem.product.price) ? Object.keys(firstItem.product.price) : [],
+                    firstItemSlice: slice
+                  };
+                }
+
                 return {
                   totalOrders: orders && orders.totalOrders,
                   reviewedCount: reviewed.length,
-                  orders: reviewed
+                  orders: reviewed,
+                  ordersReturnedFromApi: items.length,
+                  __sample: sample
                 };
               });
             })
