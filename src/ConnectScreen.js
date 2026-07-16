@@ -107,6 +107,9 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
   const [error, setError] = useState(null);
   const [showRaw, setShowRaw] = useState(false);
   const [target, setTarget] = useState(''); // the product the review task is for
+  // DEV-ONLY: bypass the campaign filter for the next fetch. Starts OFF, so the
+  // filtered production path is always the default. Inert unless DEV_TOOLS.
+  const [devShowAll, setDevShowAll] = useState(false);
   // Restore any saved login cookies BEFORE the WebView creates its store, so a
   // returning user is already signed in. Persist again when leaving.
   const [sessionReady, setSessionReady] = useState(false);
@@ -224,11 +227,18 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
     // stale or unset target. Both fail closed: with no campaign ASIN and no
     // debug opt-in the script returns error:"no_campaign_target" rather than
     // surfacing every order the account has (see platforms.js).
+    // The unfiltered path is opened ONLY by: the committed DEBUG_CAPTURE flag,
+    // or the dev toggle - and the dev toggle is itself gated on DEV_TOOLS, which
+    // is a literal false in production. So in a shipped build this expression can
+    // only ever be `DEBUG_CAPTURE === true` (default false); the campaign filter
+    // stays the default and the production path is untouched by any of this.
+    // eslint-disable-next-line no-undef
+    const unfiltered = DEBUG_CAPTURE === true || (__DEV__ && devShowAll);
     const preamble =
       `window.__fayrTargetAsin = ${JSON.stringify((campaign && campaign.asin) || null)};` +
-      `window.__fayrDebugCapture = ${JSON.stringify(DEBUG_CAPTURE === true)};`;
+      `window.__fayrDebugCapture = ${JSON.stringify(unfiltered === true)};`;
     webRef.current?.injectJavaScript(`${preamble}\n${platform.fetchScript}`);
-  }, [platform, campaign]);
+  }, [platform, campaign, devShowAll]);
 
   const backToLogin = useCallback(() => {
     setMode('web');
@@ -321,6 +331,22 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
               <Text style={styles.fetchBtnText}>Fetch my reviews</Text>
             )}
           </TouchableOpacity>
+          {/* DEV ONLY. DEV_TOOLS is a literal false in a production build, so
+              this whole control is dead-code-eliminated and cannot be reached.
+              It only bypasses the campaign filter for the NEXT fetch; the filter
+              is still the default (devShowAll starts false). */}
+          {/* eslint-disable-next-line no-undef */}
+          {__DEV__ ? (
+            <TouchableOpacity
+              style={[styles.devToggle, devShowAll && styles.devToggleOn]}
+              onPress={() => setDevShowAll((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.devToggleText, devShowAll && styles.devToggleTextOn]}>
+                {devShowAll ? '● ' : '○ '}Show all my reviews (dev){devShowAll ? ' — filter OFF' : ''}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
       </View>
       {mode === 'results' ? (
         <View style={styles.resultsWrap}>
@@ -418,6 +444,10 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
+  devToggle: { marginTop: 8, paddingVertical: 8, alignItems: 'center' },
+  devToggleOn: { backgroundColor: '#fff4f4', borderRadius: 8 },
+  devToggleText: { fontSize: 12, color: '#999', fontWeight: '600' },
+  devToggleTextOn: { color: '#b3261e' },
   fetchBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
   resultsHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
