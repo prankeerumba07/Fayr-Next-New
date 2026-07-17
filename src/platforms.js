@@ -41,6 +41,10 @@ true;`;
 const flipkart = {
   key: 'flipkart',
   name: 'Flipkart',
+  // Cookie names that prove a logged-in session (see the auth-storage map).
+  // restoreSession uses these to tell "logged out, restore it" from "a DIFFERENT
+  // account is live, leave it alone" - it never blocks a legitimate restore.
+  authCookies: ['at', 'rt'],
   color: '#2874F0',
   startUrl: 'https://www.flipkart.com/',
   hint: 'Log in to Flipkart (OTP), then tap "Fetch my reviews".',
@@ -222,6 +226,7 @@ const flipkart = {
 const amazon = {
   key: 'amazon',
   name: 'Amazon',
+  authCookies: ['at-acbin'],
   color: '#FF9900',
   startUrl: 'https://www.amazon.in/',
   // Force the desktop orders page so the order-card selectors below can match
@@ -835,6 +840,7 @@ true;`;
 const myntra = {
   key: 'myntra',
   name: 'Myntra',
+  authCookies: ['at', 'rt'],
   color: '#FF3F6C',
   startUrl: 'https://www.myntra.com/my/orders',
   beforeLoadScript: MYNTRA_HOOK,
@@ -1345,6 +1351,10 @@ function discoveryFetchScript(platformKey, displayName) {
 const meesho = {
   key: 'meesho',
   name: 'Meesho',
+  // Auth cookie not confirmed (web login is blocked by an order_block
+  // experiment). Empty -> restore always runs (persistence guaranteed); the
+  // different-account guard just can't engage until a name is confirmed.
+  authCookies: [],
   color: '#620E62',
   // Open straight on the orders page so a single "Fetch my reviews" tap works
   // with no navigation: the fetch reads the authenticated orders.json + each
@@ -1573,6 +1583,7 @@ const meesho = {
 const instamart = {
   key: 'instamart',
   name: 'Instamart',
+  authCookies: ['_session_tid', 'tid'],
   color: '#FC8019',
   // Open on the Swiggy account page - the capture shows the DASH order list
   // (/mapi/order/dash) loads here - so it's captured without the user navigating.
@@ -1709,6 +1720,7 @@ const instamart = {
 const blinkit = {
   key: 'blinkit',
   name: 'Blinkit',
+  authCookies: ['gr_1_accessToken'],
   color: '#0C831F',
   startUrl: 'https://blinkit.com/account/orders',
   // Keep the interceptor: Blinkit's order data comes back as server-driven
@@ -1893,6 +1905,9 @@ const blinkit = {
 const zepto = {
   key: 'zepto',
   name: 'Zepto',
+  // ~20 cookies; primary auth name not yet pinned down. Empty -> restore always
+  // runs (persistence guaranteed) until the auth cookie is confirmed.
+  authCookies: [],
   color: '#8025C8',
   // Open straight on Order History so the list (with per-order star ratings)
   // loads and is captured - the user shouldn't have to navigate or open orders.

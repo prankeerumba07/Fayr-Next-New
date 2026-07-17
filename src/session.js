@@ -47,22 +47,78 @@ export async function persistSession(platformKey, url) {
   }
 }
 
+// Pure decision behind restoreSession, extracted so all three product paths can
+// be unit-tested without the native cookie module. Given the saved snapshot, the
+// current live cookies, and the platform's auth cookie names, it returns whether
+// to SKIP (a different account is live) and which snapshot cookies to SET.
+//   snapshot / live: { name: { name, value, domain, path, expires, ... } }
+export function restorePlan(snapshot, live, authCookies, now) {
+  const snap = snapshot || {};
+  const liveMap = live || {};
+  const at = now == null ? Date.now() : now;
+  const names = Array.isArray(authCookies) ? authCookies : [];
+
+  // A different account is live ONLY if an auth cookie's live value conflicts
+  // with the snapshot's. Name overlap alone (tracking/session cookies) does NOT
+  // count - that was the bug that blocked legitimate restores.
+  const differentAccountLive = names.some((n) => {
+    const liveVal = liveMap[n] && liveMap[n].value;
+    const snapVal = snap[n] && snap[n].value;
+    return liveVal && snapVal && liveVal !== snapVal;
+  });
+  if (differentAccountLive) return { skip: true, toSet: [] };
+
+  const toSet = [];
+  for (const name of Object.keys(snap)) {
+    const c = snap[name] || {};
+    if (!c.name || c.value == null) continue;
+    // Don't downgrade a cookie already live with a value (e.g. a freshly-rotated
+    // session id); only fill in what's missing/empty.
+    if (liveMap[name] && liveMap[name].value) continue;
+    // Drop clearly-expired cookies so we don't resurrect a dead session.
+    if (c.expires) {
+      const t = Date.parse(c.expires);
+      if (!isNaN(t) && t <= at) continue;
+    }
+    toSet.push(name);
+  }
+  return { skip: false, toSet };
+}
+
 // Restore previously-saved cookies into the WebView cookie store before load.
-export async function restoreSession(platformKey, url) {
+//
+// Login persistence across navigation AND across app launches is a core product
+// guarantee: a user links a marketplace once and must NEVER be asked to log in
+// again. Leaving a screen unmounts the WebView (which clears/partly clears its
+// cookie store) and persistSession saves a snapshot; returning remounts and THIS
+// re-injects that snapshot. So restore must almost always run.
+//
+// The ONE thing it must not do is overwrite a genuinely DIFFERENT live account
+// (the rare account-switch), which would silently point the fetch at the wrong
+// account - a verification-integrity bug. We tell the two apart by AUTH COOKIE
+// IDENTITY, not by mere name overlap:
+//   - a different account is live ONLY IF an auth cookie (authCookies, per
+//     platform) is present live with a value that CONFLICTS with the snapshot;
+//     in that case, leave the live session alone.
+//   - otherwise (logged out, partial store, or same account) RESTORE - filling
+//     in the snapshot's cookies without downgrading any that are already live.
+// persistSession keeps the snapshot pointed at the currently-live account, so it
+// self-heals after one save.
+export async function restoreSession(platformKey, url, authCookies) {
   if (!sessionPersistenceAvailable || !url) return false;
   try {
     const saved = await SecureStore.getItemAsync(keyFor(platformKey));
     if (!saved) return false;
     const cookies = JSON.parse(saved);
+
+    let live = {};
+    try { live = (await CookieManager.get(url, true)) || {}; } catch (e) { live = {}; }
+    const plan = restorePlan(cookies, live, authCookies);
+    if (plan.skip) return false;
+
     let restored = 0;
-    for (const name of Object.keys(cookies)) {
+    for (const name of plan.toSet) {
       const c = cookies[name] || {};
-      if (!c.name || c.value == null) continue;
-      // Drop clearly-expired cookies so we don't resurrect a dead session.
-      if (c.expires) {
-        const t = Date.parse(c.expires);
-        if (!isNaN(t) && t <= Date.now()) continue;
-      }
       try {
         // eslint-disable-next-line no-await-in-loop
         await CookieManager.set(
@@ -90,14 +146,67 @@ export async function restoreSession(platformKey, url) {
   }
 }
 
-// Explicit logout: forget the stored session and clear live cookies for this
-// platform's origin. Returns the number of cookies cleared (best-effort).
+// Clear a platform's cookies from ONE of iOS's two cookie stores.
 //
-// clearByName needs a specific cookie NAME - the previous `clearByName(url,
-// undefined, ...)` cleared nothing. Enumerate the platform's cookies first, then
-// clear each by name so we wipe THIS marketplace without logging out the others.
+// Two things bite here, both proven by reading the simulator's cookie jar:
+//  1. Auth cookies live on the DOTTED PARENT domain (`.flipkart.com`,
+//     `.myntra.com`) while the WebView host is `www.<site>`. clearByName keys
+//     deletion on the URL host and misses them. Fix: overwrite each cookie with
+//     an already-EXPIRED one on the cookie's OWN domain/path.
+//  2. There are TWO stores - WKHTTPCookieStore (useWebKit:true) and the classic
+//     NSHTTPCookieStorage (useWebKit:false, the on-disk .binarycookies). With
+//     `sharedCookiesEnabled` the WebView re-syncs NSHTTPCookieStorage -> WebView
+//     on every load, so clearing only WebKit gets instantly undone. Must clear
+//     BOTH stores. This function does one; clearSession does both.
+async function clearCookieStore(url, useWebKit) {
+  const PAST = new Date(0).toISOString(); // 1970 -> immediately expired
+  let found = 0;
+  const domains = new Set();
+  try {
+    const cookies = await CookieManager.get(url, useWebKit);
+    const names = Object.keys(cookies || {});
+    found = names.length;
+    for (const name of names) {
+      const c = cookies[name] || {};
+      if (c.domain) domains.add(c.domain);
+      // Try clearByName against BOTH the page url and a url built from the
+      // cookie's own registrable domain (dot stripped) - e.g. clearByName on
+      // https://flipkart.com can match a `.flipkart.com` cookie that the www
+      // host never did. The expired-set is best-effort (WebKit ignores an
+      // already-expired setCookie, so it can't be relied on alone).
+      const bare = c.domain ? `https://${String(c.domain).replace(/^\./, '')}/` : url;
+      for (const u of (bare === url ? [url] : [url, bare])) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await CookieManager.set(u, {
+            name, value: '', domain: c.domain, path: c.path || '/',
+            expires: PAST, secure: c.secure, httpOnly: c.httpOnly,
+          }, useWebKit);
+        } catch (e) { /* ignore */ }
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await CookieManager.clearByName(u, name, useWebKit);
+        } catch (e) { /* ignore */ }
+      }
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  let remaining = found;
+  try {
+    const after = await CookieManager.get(url, useWebKit);
+    remaining = Object.keys(after || {}).length;
+  } catch (e) {
+    /* ignore */
+  }
+  return { found, remaining, domains: Array.from(domains) };
+}
+
+// Explicit logout: forget the stored session and clear live cookies for this
+// platform in BOTH iOS cookie stores. Returns { found, cleared, remaining,
+// domains, webkit, shared } so the caller can SHOW whether it worked.
 export async function clearSession(platformKey, url) {
-  if (!sessionPersistenceAvailable) return 0;
+  if (!sessionPersistenceAvailable) return { found: 0, cleared: 0, remaining: 0, domains: [] };
   try {
     await SecureStore.deleteItemAsync(keyFor(platformKey));
   } catch (e) {
@@ -105,22 +214,31 @@ export async function clearSession(platformKey, url) {
   }
   if (!url) {
     try { await CookieManager.clearAll(true); } catch (e) { /* ignore */ }
-    return 0;
+    try { await CookieManager.clearAll(false); } catch (e) { /* ignore */ }
+    return { found: 0, cleared: 0, remaining: 0, domains: [] };
   }
-  let cleared = 0;
-  try {
-    const cookies = await CookieManager.get(url, true); // useWebKit
-    for (const name of Object.keys(cookies || {})) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await CookieManager.clearByName(url, name, true);
-        cleared += 1;
-      } catch (e) {
-        /* skip this cookie */
-      }
-    }
-  } catch (e) {
-    /* ignore */
+  const webkit = await clearCookieStore(url, true);
+  const shared = await clearCookieStore(url, false); // NSHTTPCookieStorage (.binarycookies)
+  const found = webkit.found + shared.found;
+  let remaining = webkit.remaining + shared.remaining;
+  const domains = Array.from(new Set([...webkit.domains, ...shared.domains]));
+
+  // GUARANTEE: if the targeted per-cookie pass couldn't remove everything (the
+  // lib's per-cookie delete is unreliable for dotted-domain cookies), fall back
+  // to clearAll on BOTH stores. This DOES log out every marketplace, not just
+  // this one - the only reliable primitive - so it's a fallback, not the default.
+  let fellBack = false;
+  if (remaining > 0) {
+    fellBack = true;
+    try { await CookieManager.clearAll(true); } catch (e) { /* ignore */ }
+    try { await CookieManager.clearAll(false); } catch (e) { /* ignore */ }
+    let wkLeft = 0; let nsLeft = 0;
+    try { wkLeft = Object.keys((await CookieManager.get(url, true)) || {}).length; } catch (e) { /* ignore */ }
+    try { nsLeft = Object.keys((await CookieManager.get(url, false)) || {}).length; } catch (e) { /* ignore */ }
+    webkit.remaining = wkLeft;
+    shared.remaining = nsLeft;
+    remaining = wkLeft + nsLeft;
   }
-  return cleared;
+
+  return { found, cleared: Math.max(0, found - remaining), remaining, domains, webkit, shared, fellBack };
 }

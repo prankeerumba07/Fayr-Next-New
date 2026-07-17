@@ -115,7 +115,7 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
   const [sessionReady, setSessionReady] = useState(false);
   useEffect(() => {
     let alive = true;
-    restoreSession(platform.key, platform.startUrl).finally(() => {
+    restoreSession(platform.key, platform.startUrl, platform.authCookies).finally(() => {
       if (alive) setSessionReady(true);
     });
     return () => {
@@ -164,6 +164,17 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
     } catch (e) {
       setError('Could not parse response from page.');
       setMode('results');
+      return;
+    }
+    // DEV: a session-clear probe reporting what localStorage held (e.g. Myntra
+    // urt/uidx) before it was wiped. Not a fetch result - report and stop.
+    if (msg && msg.__fayrClear) {
+      Alert.alert(
+        `localStorage @ ${msg.origin || '?'}`,
+        msg.error
+          ? `error: ${msg.error}`
+          : `${msg.localCount || 0} key(s)${msg.localKeys && msg.localKeys.length ? `:\n${msg.localKeys.join(', ')}` : ''}`
+      );
       return;
     }
     if (!msg.ok) {
@@ -246,27 +257,49 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
   }, []);
 
   // DEV-ONLY: wipe this marketplace's session so a different account can log in
-  // without hunting for the site's logout link. Clears localStorage/sessionStorage
-  // for the current origin (injected JS), the native WebKit cookies for this
-  // platform's domain, and the persisted Keychain snapshot, then reloads the
-  // now-logged-out page. Scoped to THIS platform - other logins are untouched.
+  // without hunting for the site's logout link. Clears: (1) localStorage /
+  // sessionStorage / IndexedDB for the current origin - reporting the keys back
+  // first, since some platforms (Myntra urt/uidx) keep auth there too; (2) the
+  // WebKit cookies, expiring each on its OWN domain so dotted-parent auth cookies
+  // (.flipkart.com / .myntra.com) are actually removed, not just the www host;
+  // (3) the persisted Keychain snapshot. Then reloads the logged-out page.
   const clearPlatformSession = useCallback(async () => {
-    try {
-      webRef.current?.injectJavaScript('try{localStorage.clear();sessionStorage.clear();}catch(e){}; true;');
-    } catch (e) { /* ignore */ }
-    // Hold off the debounced auto-save so the reload can't re-persist the
-    // session we're wiping.
+    const wipeLocal = `(function(){
+      try {
+        var keys = Object.keys(localStorage);
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+          __fayrClear: true, origin: location.origin, localCount: keys.length, localKeys: keys.slice(0, 40)
+        }));
+        localStorage.clear(); sessionStorage.clear();
+        if (window.indexedDB && indexedDB.databases) {
+          indexedDB.databases().then(function(dbs){ (dbs || []).forEach(function(d){ try { indexedDB.deleteDatabase(d.name); } catch (e) {} }); });
+        }
+      } catch (e) {
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ __fayrClear: true, error: String((e && e.message) || e) }));
+      }
+      true;
+    })();`;
+    try { webRef.current?.injectJavaScript(wipeLocal); } catch (e) { /* ignore */ }
+    // Hold off the debounced auto-save so the reload can't re-persist the session.
     lastSaveRef.current = Date.now() + 5000;
-    let cleared = 0;
-    try { cleared = await clearSession(platform.key, platform.startUrl); } catch (e) { /* ignore */ }
+    let res = { found: 0, cleared: 0, remaining: 0, domains: [] };
+    try { res = await clearSession(platform.key, platform.startUrl); } catch (e) { /* ignore */ }
     setMode('web');
     setItems([]);
     setRaw(null);
     setError(null);
     try { webRef.current?.reload?.(); } catch (e) { /* ignore */ }
     Alert.alert(
-      'Session cleared',
-      `${platform.name}: ${cleared} cookie(s) and local storage wiped. Log in with another account.`
+      'Session clear',
+      `${platform.name}\n`
+        + `total: found ${res.found}, cleared ${res.cleared}, remaining ${res.remaining}\n`
+        + (res.webkit ? `webkit: ${res.webkit.found}→${res.webkit.remaining}\n` : '')
+        + (res.shared ? `shared: ${res.shared.found}→${res.shared.remaining}\n` : '')
+        + (res.domains && res.domains.length ? `domains: ${res.domains.join(', ')}\n` : '')
+        + (res.fellBack ? 'FELL BACK to full clearAll (ALL platforms logged out).\n' : '')
+        + (res.remaining > 0
+          ? 'Some cookies STILL survived — tell me.'
+          : 'Cookies cleared; reloading logged-out.')
     );
   }, [platform]);
 
