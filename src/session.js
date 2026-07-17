@@ -29,12 +29,20 @@ try {
   CookieManager = null;
 }
 
-let FS = null;
+// expo-file-system's File/Paths. Defensive require (Node-safe for the unit
+// tests, no-ops in Expo Go). Interop-robust: Metro may expose the named exports
+// on the module or under .default - grab whichever is there, so `File`/`Paths`
+// are never undefined at runtime (which silently no-op'd every save).
+let FileCtor = null;
+let PathsObj = null;
 try {
   // eslint-disable-next-line global-require
-  FS = require('expo-file-system');
+  const FS = require('expo-file-system');
+  FileCtor = FS.File || (FS.default && FS.default.File) || null;
+  PathsObj = FS.Paths || (FS.default && FS.default.Paths) || null;
 } catch (e) {
-  FS = null;
+  FileCtor = null;
+  PathsObj = null;
 }
 
 // Legacy only: old snapshots may still live in SecureStore (pre-2026-07-18).
@@ -47,14 +55,14 @@ try {
   SecureStore = null;
 }
 
-export const sessionPersistenceAvailable = !!(CookieManager && FS);
+export const sessionPersistenceAvailable = !!(CookieManager && FileCtor && PathsObj);
 
 function keyFor(platformKey) {
   return `fayr_session_${String(platformKey).replace(/[^A-Za-z0-9._-]/g, '_')}`;
 }
 
 function fileFor(platformKey) {
-  return new FS.File(FS.Paths.document, `${keyFor(platformKey)}.json`);
+  return new FileCtor(PathsObj.document, `${keyFor(platformKey)}.json`);
 }
 
 function readSnapshot(platformKey) {
