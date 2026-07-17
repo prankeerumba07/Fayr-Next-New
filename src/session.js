@@ -1,14 +1,25 @@
-// On-device session persistence: save the WebView's cookies for a platform to
-// the device Keychain/Keystore after login and restore them before the next
-// load, so the user logs in once and stays signed in across app launches until
-// the cookie truly expires. No server is involved - the session never leaves
-// the device.
+// On-device session persistence: save the WebView's cookies for a platform
+// after login and restore them before the next load, so the user logs in once
+// and stays signed in across navigation and app launches until they log out.
+// No server is involved - the session never leaves the device.
+//
+// STORAGE: a JSON file in the app sandbox (Paths.document), NOT SecureStore.
+// SecureStore has a 2048-byte per-item limit and a real marketplace snapshot is
+// 3-9KB (Myntra: ~45 cookies incl. large Akamai tokens), so every save silently
+// failed - verified 2026-07-18 by reading the simulator keychain: ZERO fayr
+// items despite persist firing on every load/unmount. The whole persist/restore
+// backbone was dead; Flipkart/Amazon merely coasted on WebKit's own cookie
+// persistence, and Myntra (whose login needs a short-lived user_session cookie
+// that WebKit drops) logged out on every return.
+// Security: this is the SAME protection level as WebKit's own cookie store -
+// these identical tokens already sit in plaintext in the same sandbox
+// (Library/Cookies/*.binarycookies). Revisit (chunked keychain, encryption at
+// rest) before production; for the device-only tool, parity is honest.
 //
 // Requires a custom dev client (npx expo prebuild + a dev build): the native
 // cookie module isn't in Expo Go, and the httpOnly auth cookie can't be read
-// from injected JS. Both native modules are loaded DEFENSIVELY: if either is
-// missing (e.g. still running in plain Expo Go), every function no-ops instead
-// of crashing, so the app keeps working - it just won't persist the session.
+// from injected JS. Modules are loaded DEFENSIVELY: if one is missing, every
+// function no-ops instead of crashing - the app just won't persist the session.
 
 let CookieManager = null;
 try {
@@ -18,6 +29,16 @@ try {
   CookieManager = null;
 }
 
+let FS = null;
+try {
+  // eslint-disable-next-line global-require
+  FS = require('expo-file-system');
+} catch (e) {
+  FS = null;
+}
+
+// Legacy only: old snapshots may still live in SecureStore (pre-2026-07-18).
+// Read-fallback + cleanup; never written to any more.
 let SecureStore = null;
 try {
   // eslint-disable-next-line global-require
@@ -26,23 +47,51 @@ try {
   SecureStore = null;
 }
 
-export const sessionPersistenceAvailable = !!(CookieManager && SecureStore);
+export const sessionPersistenceAvailable = !!(CookieManager && FS);
 
-// SecureStore keys allow [A-Za-z0-9._-]; keep the platform key clean.
 function keyFor(platformKey) {
   return `fayr_session_${String(platformKey).replace(/[^A-Za-z0-9._-]/g, '_')}`;
 }
 
-// Persist the current cookies for this platform's origin.
+function fileFor(platformKey) {
+  return new FS.File(FS.Paths.document, `${keyFor(platformKey)}.json`);
+}
+
+function readSnapshot(platformKey) {
+  try {
+    const f = fileFor(platformKey);
+    if (f.exists) return JSON.parse(f.textSync());
+  } catch (e) {
+    /* corrupt/unreadable -> treat as absent */
+  }
+  return null;
+}
+
+// Persist the current cookies for this platform's origin. Captures the FULL
+// live map - including session-scoped cookies like Myntra's user_session, which
+// is exactly what WebKit won't persist and therefore what makes this file the
+// difference between "stays logged in" and "asks for the number again".
 export async function persistSession(platformKey, url) {
   if (!sessionPersistenceAvailable || !url) return false;
   try {
     const cookies = await CookieManager.get(url, true); // useWebKit on iOS
     const names = cookies ? Object.keys(cookies) : [];
     if (!names.length) return false;
-    await SecureStore.setItemAsync(keyFor(platformKey), JSON.stringify(cookies));
+    const json = JSON.stringify(cookies);
+    const f = fileFor(platformKey);
+    f.create({ overwrite: true });
+    f.write(json);
+    // eslint-disable-next-line no-undef
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      // Diagnosis breadcrumb: `log show --predicate 'process == "fayr"'`
+      console.log(`[fayr-session] saved ${platformKey}: ${names.length} cookies, ${json.length}B`);
+    }
     return true;
   } catch (e) {
+    // eslint-disable-next-line no-undef
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(`[fayr-session] SAVE FAILED ${platformKey}: ${String((e && e.message) || e)}`);
+    }
     return false;
   }
 }
@@ -94,9 +143,15 @@ export function restorePlan(snapshot, live, now) {
 export async function restoreSession(platformKey, url) {
   if (!sessionPersistenceAvailable || !url) return false;
   try {
-    const saved = await SecureStore.getItemAsync(keyFor(platformKey));
-    if (!saved) return false;
-    const cookies = JSON.parse(saved);
+    let cookies = readSnapshot(platformKey);
+    // Legacy fallback: a pre-file-storage snapshot in SecureStore (if any).
+    if (!cookies && SecureStore) {
+      try {
+        const saved = await SecureStore.getItemAsync(keyFor(platformKey));
+        if (saved) cookies = JSON.parse(saved);
+      } catch (e) { /* ignore */ }
+    }
+    if (!cookies) return false;
 
     let live = {};
     try { live = (await CookieManager.get(url, true)) || {}; } catch (e) { live = {}; }
@@ -125,6 +180,10 @@ export async function restoreSession(platformKey, url) {
       } catch (e) {
         /* skip this cookie */
       }
+    }
+    // eslint-disable-next-line no-undef
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(`[fayr-session] restore ${platformKey}: filled ${restored}/${toSet.length} missing cookie(s)`);
     }
     return restored > 0;
   } catch (e) {
@@ -193,11 +252,15 @@ async function clearCookieStore(url, useWebKit) {
 // domains, webkit, shared } so the caller can SHOW whether it worked.
 export async function clearSession(platformKey, url) {
   if (!sessionPersistenceAvailable) return { found: 0, cleared: 0, remaining: 0, domains: [] };
+  // Forget the saved snapshot (file + any legacy SecureStore item), so restore
+  // can't re-inject the account we're logging out of.
   try {
-    await SecureStore.deleteItemAsync(keyFor(platformKey));
-  } catch (e) {
-    /* ignore */
-  }
+    const f = fileFor(platformKey);
+    if (f.exists) f.delete();
+  } catch (e) { /* ignore */ }
+  try {
+    if (SecureStore) await SecureStore.deleteItemAsync(keyFor(platformKey));
+  } catch (e) { /* ignore */ }
   if (!url) {
     try { await CookieManager.clearAll(true); } catch (e) { /* ignore */ }
     try { await CookieManager.clearAll(false); } catch (e) { /* ignore */ }
