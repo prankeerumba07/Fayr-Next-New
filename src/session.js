@@ -47,64 +47,51 @@ export async function persistSession(platformKey, url) {
   }
 }
 
-// Pure decision behind restoreSession, extracted so all three product paths can
-// be unit-tested without the native cookie module. Given the saved snapshot, the
-// current live cookies, and the platform's auth cookie names, it returns whether
-// to SKIP (a different account is live) and which snapshot cookies to SET.
+// Pure decision behind restoreSession, extracted so every path can be
+// unit-tested without the native cookie module. FILL-MISSING ONLY: return the
+// snapshot cookies the live store LACKS (or has empty). It never overwrites a
+// cookie already live and never skips wholesale. Platform-agnostic - no auth
+// cookie names, no value comparison - and it satisfies all three guarantees:
+//   - return / relaunch with a cleared or partial store -> the missing session
+//     cookies get filled -> stays logged in (persistence, EVERY marketplace);
+//   - a genuinely DIFFERENT account already live -> its cookies are present, so
+//     they are never overwritten -> that account is preserved (switch works);
+//   - same account already live -> nothing to fill (no-op).
+// The earlier value-comparison "different account" skip is exactly what logged
+// Myntra out on return: a rotated / anonymous auth-cookie value read as "a
+// different account is live" and blocked the legitimate restore.
 //   snapshot / live: { name: { name, value, domain, path, expires, ... } }
-export function restorePlan(snapshot, live, authCookies, now) {
+export function restorePlan(snapshot, live, now) {
   const snap = snapshot || {};
   const liveMap = live || {};
   const at = now == null ? Date.now() : now;
-  const names = Array.isArray(authCookies) ? authCookies : [];
-
-  // A different account is live ONLY if an auth cookie's live value conflicts
-  // with the snapshot's. Name overlap alone (tracking/session cookies) does NOT
-  // count - that was the bug that blocked legitimate restores.
-  const differentAccountLive = names.some((n) => {
-    const liveVal = liveMap[n] && liveMap[n].value;
-    const snapVal = snap[n] && snap[n].value;
-    return liveVal && snapVal && liveVal !== snapVal;
-  });
-  if (differentAccountLive) return { skip: true, toSet: [] };
-
   const toSet = [];
   for (const name of Object.keys(snap)) {
     const c = snap[name] || {};
     if (!c.name || c.value == null) continue;
-    // Don't downgrade a cookie already live with a value (e.g. a freshly-rotated
-    // session id); only fill in what's missing/empty.
+    // Never overwrite a cookie already live with a value. This is what preserves
+    // a live login - the same account, a freshly-rotated token, OR a different
+    // account the user just switched to.
     if (liveMap[name] && liveMap[name].value) continue;
-    // Drop clearly-expired cookies so we don't resurrect a dead session.
+    // Don't resurrect a clearly-expired cookie.
     if (c.expires) {
       const t = Date.parse(c.expires);
       if (!isNaN(t) && t <= at) continue;
     }
     toSet.push(name);
   }
-  return { skip: false, toSet };
+  return { toSet };
 }
 
 // Restore previously-saved cookies into the WebView cookie store before load.
 //
 // Login persistence across navigation AND across app launches is a core product
 // guarantee: a user links a marketplace once and must NEVER be asked to log in
-// again. Leaving a screen unmounts the WebView (which clears/partly clears its
+// again. Leaving a screen unmounts the WebView (clearing/partly clearing its
 // cookie store) and persistSession saves a snapshot; returning remounts and THIS
-// re-injects that snapshot. So restore must almost always run.
-//
-// The ONE thing it must not do is overwrite a genuinely DIFFERENT live account
-// (the rare account-switch), which would silently point the fetch at the wrong
-// account - a verification-integrity bug. We tell the two apart by AUTH COOKIE
-// IDENTITY, not by mere name overlap:
-//   - a different account is live ONLY IF an auth cookie (authCookies, per
-//     platform) is present live with a value that CONFLICTS with the snapshot;
-//     in that case, leave the live session alone.
-//   - otherwise (logged out, partial store, or same account) RESTORE - filling
-//     in the snapshot's cookies without downgrading any that are already live.
-// persistSession keeps the snapshot pointed at the currently-live account, so it
-// self-heals after one save.
-export async function restoreSession(platformKey, url, authCookies) {
+// fills back whatever the store is missing. See restorePlan for why fill-missing
+// gives persistence AND account-switch safety without any per-platform tuning.
+export async function restoreSession(platformKey, url) {
   if (!sessionPersistenceAvailable || !url) return false;
   try {
     const saved = await SecureStore.getItemAsync(keyFor(platformKey));
@@ -113,11 +100,10 @@ export async function restoreSession(platformKey, url, authCookies) {
 
     let live = {};
     try { live = (await CookieManager.get(url, true)) || {}; } catch (e) { live = {}; }
-    const plan = restorePlan(cookies, live, authCookies);
-    if (plan.skip) return false;
+    const { toSet } = restorePlan(cookies, live);
 
     let restored = 0;
-    for (const name of plan.toSet) {
+    for (const name of toSet) {
       const c = cookies[name] || {};
       try {
         // eslint-disable-next-line no-await-in-loop

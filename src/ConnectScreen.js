@@ -115,7 +115,7 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
   const [sessionReady, setSessionReady] = useState(false);
   useEffect(() => {
     let alive = true;
-    restoreSession(platform.key, platform.startUrl, platform.authCookies).finally(() => {
+    restoreSession(platform.key, platform.startUrl).finally(() => {
       if (alive) setSessionReady(true);
     });
     return () => {
