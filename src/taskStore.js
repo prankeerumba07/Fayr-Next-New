@@ -1,4 +1,4 @@
-// The single task, persisted across launches.
+// The tasks - one per campaign - persisted across launches.
 //
 // Device-only for now. The authoritative task will live in the NestJS service:
 // this device copy is forgeable and must never be the thing that moves money.
@@ -11,93 +11,104 @@
 
 import { File, Paths } from 'expo-file-system';
 import { createTask, transition, STATES } from './taskflow';
-import { CAMPAIGN } from './campaign';
+import { CAMPAIGNS, campaignById } from './campaign';
 
-const FILE = 'fayr-task-v1.json';
+// Bumped from v1 (single task) to v2 (campaignId -> task map). Old files are
+// ignored, not migrated - a demo task half-restored into a new shape is exactly
+// the "looks like data but isn't" state the flow is built to avoid.
+const FILE = 'fayr-tasks-v2.json';
 
-let task = null;
-let listeners = [];
+let tasks = {};       // campaignId -> frozen task
+let listeners = [];   // fns(campaignId, task)
 
 function file() {
   return new File(Paths.document, FILE);
 }
 
-function notify() {
+function notify(id) {
   listeners.forEach((fn) => {
-    try { fn(task); } catch (e) { /* a bad listener must not break the store */ }
+    try { fn(id, tasks[id]); } catch (e) { /* a bad listener must not break the store */ }
   });
 }
 
+// subscribe((campaignId, task) => …). Screens filter to the campaign they show.
 export function subscribe(fn) {
   listeners.push(fn);
   return () => { listeners = listeners.filter((l) => l !== fn); };
 }
 
-export function getTask() {
-  return task;
+export function getTask(campaignId) {
+  return tasks[campaignId] || null;
 }
 
-function fresh() {
+export function getTasks() {
+  return tasks;
+}
+
+function freshFor(c) {
   return createTask({
-    id: 'task_demo_1',
-    platform: CAMPAIGN.marketplace,
-    campaignId: CAMPAIGN.id,
-    asin: CAMPAIGN.asin,
-    product: CAMPAIGN.productName,
-    category: CAMPAIGN.category,
+    id: 'task_' + c.id,
+    platform: c.marketplace,
+    campaignId: c.id,
+    asin: c.asin || null,
+    product: c.productName,
+    category: c.category,
   });
 }
 
-// Restore, or start a fresh CLAIMED task. A task whose file is corrupt or from
-// an older shape is discarded rather than migrated - it is a demo task, and
-// half-restoring one would produce exactly the "looks like data but isn't"
-// state the flow is built to avoid.
+// Restore each campaign's task, or start a fresh CLAIMED one. A task whose
+// stored shape is corrupt or stale is discarded rather than migrated.
 export function load() {
+  let stored = {};
   try {
     const f = file();
     if (f.exists) {
       const parsed = JSON.parse(f.textSync());
-      if (parsed && parsed.id && parsed.state && STATES[parsed.state]) {
-        task = Object.freeze(parsed);
-        notify();
-        return task;
-      }
+      if (parsed && typeof parsed === 'object') stored = parsed;
     }
   } catch (e) {
-    /* fall through to a fresh task */
+    /* fall through to fresh tasks */
   }
-  task = fresh();
+  tasks = {};
+  CAMPAIGNS.forEach((c) => {
+    const s = stored[c.id];
+    tasks[c.id] = (s && s.id && s.state && STATES[s.state]) ? Object.freeze(s) : freshFor(c);
+  });
   save();
-  notify();
-  return task;
+  CAMPAIGNS.forEach((c) => notify(c.id));
+  return tasks;
 }
 
 function save() {
   try {
     const f = file();
     f.create({ overwrite: true });
-    f.write(JSON.stringify(task));
+    f.write(JSON.stringify(tasks));
   } catch (e) {
-    /* persistence is best-effort; the in-memory task is still usable */
+    /* persistence is best-effort; the in-memory tasks are still usable */
   }
 }
 
-// The ONLY way the task changes. Every mutation goes through taskflow's
+// The ONLY way a task changes. Every mutation goes through taskflow's
 // transition() so the atomic/idempotent guarantees hold here too.
-export function dispatch(event) {
-  if (!task) load();
-  const res = transition(task, event);
-  if (res.task !== task) {
-    task = res.task;
+export function dispatch(campaignId, event) {
+  if (!Object.keys(tasks).length) load();
+  const cur = tasks[campaignId];
+  if (!cur) return { task: null, changed: false, reason: `unknown campaign ${campaignId}` };
+  const res = transition(cur, event);
+  if (res.task !== cur) {
+    tasks[campaignId] = res.task;
     save();
-    notify();
+    notify(campaignId);
   }
   return res;
 }
 
-export function reset() {
-  task = fresh();
+export function reset(campaignId) {
+  const c = campaignById(campaignId);
+  if (!c) return null;
+  tasks[campaignId] = freshFor(c);
   save();
-  notify();
-  return task;
+  notify(campaignId);
+  return tasks[campaignId];
 }

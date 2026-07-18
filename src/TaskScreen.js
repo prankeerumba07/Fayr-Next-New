@@ -10,13 +10,14 @@ import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CAMPAIGN } from './campaign';
+import { CAMPAIGNS, campaignById } from './campaign';
+import { PLATFORMS } from './platforms';
 import { STATES, BLOCKERS, describe, createPolicy, shouldRecheckVisibility } from './taskflow';
 import { getTask, subscribe, load, dispatch, reset } from './taskStore';
 import { percentOfPaise, formatPaise } from './money';
 
 const POLICY = createPolicy();
-const AMAZON = '#FF9900';
+const FALLBACK_COLOR = '#FF9900';
 
 function fmtDate(ms) {
   if (ms == null) return null;
@@ -51,16 +52,23 @@ function Row({ label, value, missing, hint }) {
 
 const STEPS = [STATES.CLAIMED, STATES.PURCHASED, STATES.DELIVERED, STATES.REVIEWED, STATES.HOLDING, STATES.REFUNDED];
 
-export default function TaskScreen({ navigation }) {
-  const [task, setTask] = useState(getTask());
+export default function TaskScreen({ navigation, route }) {
+  const campaignId = (route && route.params && route.params.campaignId) || CAMPAIGNS[0].id;
+  const campaign = campaignById(campaignId) || CAMPAIGNS[0];
+  const platform = PLATFORMS[campaign.marketplace];
+  const color = (platform && platform.color) || FALLBACK_COLOR;
+  const platformName = platform ? platform.name : campaign.marketplace;
+
+  const [task, setTask] = useState(getTask(campaignId));
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    const un = subscribe(setTask);
-    if (!getTask()) load();
-    else setTask(getTask());
+    // Only react to updates for THIS campaign's task.
+    const un = subscribe((id, t) => { if (id === campaignId) setTask(t); });
+    if (!getTask(campaignId)) load();
+    setTask(getTask(campaignId));
     return un;
-  }, []);
+  }, [campaignId]);
 
   // Drives the countdown, and is where a real build would run the HOLDING
   // visibility re-check. Deliberately NOT doing that here: the check must be a
@@ -73,9 +81,9 @@ export default function TaskScreen({ navigation }) {
   }, []);
 
   const act = useCallback((event) => {
-    const res = dispatch(event);
+    const res = dispatch(campaignId, event);
     if (res.rejected) Alert.alert('Not yet', res.reason);
-  }, []);
+  }, [campaignId]);
 
   if (!task) {
     return <SafeAreaView style={styles.container}><Text style={styles.muted}>Loading…</Text></SafeAreaView>;
@@ -83,21 +91,23 @@ export default function TaskScreen({ navigation }) {
 
   const view = describe(task, now, POLICY);
   const itemPaise = task.order ? task.order.itemPaise : null;
-  const refundPaise = itemPaise != null ? percentOfPaise(itemPaise, CAMPAIGN.percent) : null;
+  const refundPaise = itemPaise != null ? percentOfPaise(itemPaise, campaign.percent) : null;
   const stepIndex = STEPS.indexOf(task.state);
+  const idLabel = campaign.asin || campaign.pid || campaign.styleId || null;
+  const match = task.order && task.order.match;
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-        <Text style={styles.h1}>{CAMPAIGN.productName}</Text>
+        <Text style={styles.h1}>{campaign.productName}</Text>
         <Text style={styles.muted}>
-          {CAMPAIGN.percent}% refund · {CAMPAIGN.marketplace} · {CAMPAIGN.asin}
+          {campaign.percent}% refund · {platformName}{idLabel ? ` · ${idLabel}` : ` · ₹${campaign.amount}`}
         </Text>
 
         <View style={styles.pipeline}>
           {STEPS.map((s, i) => (
             <View key={s} style={styles.pipeStep}>
-              <View style={[styles.dot, i <= stepIndex && { backgroundColor: AMAZON }]} />
+              <View style={[styles.dot, i <= stepIndex && { backgroundColor: color }]} />
               <Text style={[styles.pipeLabel, i === stepIndex && styles.pipeLabelActive]}>{s}</Text>
             </View>
           ))}
@@ -114,8 +124,19 @@ export default function TaskScreen({ navigation }) {
         <View style={styles.card}>
           {task.order ? (
             <>
+              <Row label="Product" value={task.order.product} missing="Name not read from the order" />
               <Row label="Order ID" value={task.order.id} />
               <Row label="Order date" value={fmtDate(task.order.date)} />
+              {match && match.amountOk === false ? (
+                <Text style={styles.warn}>
+                  Paid price differs from the campaign (₹{campaign.amount}) — confirm this is the right product/variant before continuing.
+                </Text>
+              ) : null}
+              {match && match.ambiguous ? (
+                <Text style={styles.warn}>
+                  More than one order matched this product — make sure this is the one for this task.
+                </Text>
+              ) : null}
               <Row
                 label="Item price"
                 value={itemPaise != null ? `₹${formatPaise(itemPaise)}` : null}
@@ -167,11 +188,11 @@ export default function TaskScreen({ navigation }) {
         </View>
 
         <TouchableOpacity
-          style={styles.btn}
-          onPress={() => navigation.navigate('amazon')}
+          style={[styles.btn, { backgroundColor: color }]}
+          onPress={() => navigation.navigate(campaign.marketplace, { campaignId })}
         >
           <Text style={styles.btnText}>
-            {task.order ? 'Re-check on Amazon' : "I've completed the purchase"}
+            {task.order ? `Re-check on ${platformName}` : "I've completed the purchase"}
           </Text>
         </TouchableOpacity>
 
@@ -207,7 +228,7 @@ export default function TaskScreen({ navigation }) {
           </TouchableOpacity>
         ) : null}
 
-        <TouchableOpacity onPress={() => reset()} style={styles.resetBtn}>
+        <TouchableOpacity onPress={() => reset(campaignId)} style={styles.resetBtn}>
           <Text style={styles.resetText}>Reset task (dev)</Text>
         </TouchableOpacity>
 
@@ -246,7 +267,7 @@ const styles = StyleSheet.create({
   gap: { backgroundColor: '#fff4f4', borderWidth: 1, borderColor: '#f3caca', borderRadius: 10, padding: 12, marginTop: 14 },
   gapTitle: { fontSize: 13, color: '#7a1f1a', lineHeight: 18 },
   gapAction: { fontSize: 12, color: '#b3261e', fontWeight: '700', marginTop: 6 },
-  btn: { backgroundColor: AMAZON, borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginTop: 12 },
+  btn: { backgroundColor: FALLBACK_COLOR, borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginTop: 12 },
   btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   btnGhost: { backgroundColor: '#f2f2f2' },
   btnGhostText: { color: '#1a1a1a', fontSize: 14, fontWeight: '600' },

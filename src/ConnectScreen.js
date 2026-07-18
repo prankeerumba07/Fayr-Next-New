@@ -10,8 +10,14 @@ import * as Sharing from 'expo-sharing';
 import { extractItems } from './extract';
 import { restoreSession, persistSession, clearSession } from './session';
 import { DEBUG_CAPTURE } from './config';
-import { readAmazonEvidence } from './taskflow';
+import { readEvidence } from './taskflow';
 import { dispatch } from './taskStore';
+
+// Platforms whose fetch payload feeds the task flow. Amazon reads a review's
+// order (HTML scrape); Flipkart/Myntra are order-first (their JSON order API),
+// so a purchase advances the task before any review exists. Others are still in
+// discovery mode (no reverse-engineered order endpoint yet - see platforms.js).
+const READER_PLATFORMS = { amazon: true, flipkart: true, myntra: true };
 
 function fmt(ms) {
   if (!ms) return null;
@@ -190,14 +196,24 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
     // debounce - this snapshot matters more than any navigation one.
     persistSession(platform.key, platform.startUrl);
 
-    // Feed the task flow. readAmazonEvidence decides what the payload actually
-    // proves - including that it proves nothing (signin redirect, unreadable
-    // order) - and transition() decides whether that advances the task. Neither
-    // is this screen's business, which is why nothing is interpreted here.
-    if (campaign && platform.key === 'amazon') {
+    // Feed the task flow. readEvidence (per platform) decides what the payload
+    // actually proves - including that it proves nothing (signin redirect,
+    // unreadable order, not-purchased-yet) - and transition() decides whether
+    // that advances the task. Neither is this screen's business, which is why
+    // nothing is interpreted here. Amazon is review-anchored (HTML scrape);
+    // Flipkart/Myntra are order-first (their JSON order API), so a purchase
+    // advances the task before any review exists.
+    if (campaign && READER_PLATFORMS[platform.key]) {
       try {
-        const evidence = readAmazonEvidence(msg.raw, { asin: campaign.asin });
-        dispatch({
+        const evidence = readEvidence(platform.key, msg.raw, {
+          asin: campaign.asin || null,
+          pid: campaign.pid || null,
+          styleId: campaign.styleId || null,
+          product: campaign.productName || null,
+          amount: campaign.amount != null ? campaign.amount : null,
+          reviewId: campaign.reviewId || null,
+        });
+        dispatch(campaign.id, {
           type: 'EVIDENCE',
           // Keyed by what the evidence IS, so re-tapping Fetch on an unchanged
           // order is a no-op rather than another history entry.
@@ -211,7 +227,7 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
         // Navigate AFTER dispatch so the screen renders the new state, not the
         // old one.
         if (navigation && typeof navigation.navigate === 'function') {
-          navigation.navigate('Task');
+          navigation.navigate('Task', { campaignId: campaign.id });
         }
       } catch (e) {
         /* the raw view below still works; the task simply doesn't advance */
@@ -245,8 +261,18 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
     // stays the default and the production path is untouched by any of this.
     // eslint-disable-next-line no-undef
     const unfiltered = DEBUG_CAPTURE === true || (__DEV__ && devShowAll);
+    // A Fayr campaign has no marketplace product id (the user searches and buys
+    // the product themselves), so Flipkart/Myntra match on NAME + AMOUNT - both
+    // are on the campaign page. The id pins (asin/pid/styleId) are injected too
+    // but are normally null; they're used only when a prior fetch already
+    // discovered the marketplace id, to pin the match exactly. All target-filter
+    // fail-closed: with neither a name nor an id, no order is surfaced.
     const preamble =
+      `window.__fayrTargetName = ${JSON.stringify((campaign && campaign.productName) || null)};` +
+      `window.__fayrTargetAmount = ${JSON.stringify((campaign && campaign.amount != null ? campaign.amount : null))};` +
       `window.__fayrTargetAsin = ${JSON.stringify((campaign && campaign.asin) || null)};` +
+      `window.__fayrTargetPid = ${JSON.stringify((campaign && campaign.pid) || null)};` +
+      `window.__fayrTargetStyleId = ${JSON.stringify((campaign && campaign.styleId) || null)};` +
       `window.__fayrDebugCapture = ${JSON.stringify(unfiltered === true)};`;
     webRef.current?.injectJavaScript(`${preamble}\n${platform.fetchScript}`);
   }, [platform, campaign, devShowAll]);

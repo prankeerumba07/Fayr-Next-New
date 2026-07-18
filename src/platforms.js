@@ -106,8 +106,17 @@ const flipkart = {
             var money = u.moneyDataBag || {};
             var orderMoney = o.orderMoneyDataBag || {};
             var pid = meta.fsn || null;
+            // Product NAME from the order unit - needed to match the campaign
+            // (which carries a name, not a pid). Field name is unverified for the
+            // order unit, so try the likely spots; orderProbe.nameAvailable
+            // reports whether any order actually yielded one (if not, a capture
+            // round is needed to find the right field).
+            var pName = meta.title || meta.productTitle || meta.name
+              || u.title || (u.productInfo && u.productInfo.title) || null;
             if (pid) {
               byPid[pid] = {
+                pid: pid,
+                productName: pName,
                 orderDate: md.orderDate || null,
                 orderId: md.orderId || null,
                 deliveryDate: promise.actualDeliveredDate || null,
@@ -216,7 +225,78 @@ const flipkart = {
           priceLikePaths: priceLike
         };
 
-        return { reviews: reviews, __diagnostic: diag };
+        // ORDER-FIRST surfacing (privacy-filtered). The campaign product's own
+        // order, matched by NAME + AMOUNT (a Fayr campaign has no marketplace
+        // product id - the user searches and buys it themselves), so the PURCHASE
+        // is detectable before any review exists. This is what auto-advances the
+        // task and removes the "upload a screenshot of your order/delivery" step.
+        // Matching runs HERE, in the page, so only the matched order leaves; the
+        // account's other purchases never do. If a pid was already discovered on a
+        // prior fetch it's used as a fast exact pin. The matcher is a port of
+        // matchOrderByNameAmount in src/verify.js - keep them in sync.
+        var targetName = (typeof window !== "undefined" && window.__fayrTargetName) || null;
+        var targetAmount = (typeof window !== "undefined" && window.__fayrTargetAmount) || null;
+        var targetPid = (typeof window !== "undefined" && window.__fayrTargetPid) || null;
+        var cands = Object.keys(byPid).map(function(k){ return byPid[k]; });
+        var nameAvailable = cands.some(function(c){ return c.productName; });
+
+        function fkNrm(s){ return String(s==null?"":s).toLowerCase().replace(/[^a-z0-9]+/g," ").trim(); }
+        function fkScore(exp, cand){
+          var e=fkNrm(exp), c=fkNrm(cand);
+          if(!e||!c) return 0;
+          if(c.indexOf(e)>=0||e.indexOf(c)>=0) return 1;
+          var toks=e.split(" ").filter(function(w){return w.length>2;});
+          if(!toks.length) return 0;
+          var h=0; toks.forEach(function(w){ if(c.indexOf(w)>=0) h++; });
+          return h/toks.length;
+        }
+        var match = { order:null, matchScore:0, amountOk:null, ambiguous:false, candidateCount:0 };
+        if (targetPid && byPid[targetPid]) {
+          match = { order: byPid[targetPid], matchScore: 1, amountOk: null, ambiguous: false, candidateCount: 1 };
+        } else if (targetName) {
+          var wantAmt = (targetAmount!=null) ? Number(targetAmount) : null;
+          var kept = [];
+          cands.forEach(function(c){
+            var s = fkScore(targetName, c.productName);
+            if (s < 0.6) return;
+            var amt = (c.itemAmount!=null) ? Number(c.itemAmount) : null;
+            var amountOk = null;
+            if (wantAmt!=null && amt!=null) { amountOk = Math.abs(wantAmt-amt) <= Math.max(2, wantAmt*0.05); }
+            kept.push({ order:c, score:s, amountOk:amountOk });
+          });
+          kept.sort(function(a,b){
+            var aa=a.amountOk===true?1:0, ba=b.amountOk===true?1:0;
+            if(aa!==ba) return ba-aa;
+            return b.score-a.score;
+          });
+          if (kept.length) {
+            var best = kept[0];
+            var near = kept.filter(function(k){ return k.score>=best.score-0.15 && k.amountOk!==false; });
+            match = { order: best.order, matchScore: best.score, amountOk: best.amountOk, ambiguous: near.length>=2, candidateCount: kept.length };
+          }
+        }
+        var m = match.order;
+        var order = m ? {
+          pid: m.pid, productName: m.productName,
+          orderId: m.orderId, orderDate: m.orderDate, deliveryDate: m.deliveryDate,
+          itemAmount: m.itemAmount, orderAmount: m.orderAmount,
+          returned: m.returned, returnStatus: m.returnStatus, statusKey: m.statusKey
+        } : null;
+        // The matched product's review, if one exists yet (later payout phase).
+        var targetReview = (m && m.pid) ? (reviews.filter(function(r){ return r.pid === m.pid; })[0] || null) : null;
+        var orderProbe = {
+          ordersFetched: ordRes.ok === true,
+          authFailed: ordRes.status === 401 || ordRes.status === 403,
+          ordersCount: orders.length,
+          nameAvailable: nameAvailable,
+          targetFound: !!m,
+          matchScore: match.matchScore,
+          amountOk: match.amountOk,
+          ambiguous: match.ambiguous,
+          candidateCount: match.candidateCount
+        };
+
+        return { order: order, review: targetReview, orderProbe: orderProbe, reviews: reviews, __diagnostic: diag };
       });
     })()
   `
@@ -987,7 +1067,59 @@ const myntra = {
                   };
                 }
 
+                // ORDER-FIRST surfacing (privacy-filtered). The campaign
+                // product's order, matched by NAME (a Fayr campaign has no
+                // styleId - the user searches and buys it themselves), so the
+                // PURCHASE is detectable before any review exists. Myntra orders
+                // DO carry the product name (p.name), so name-matching is solid;
+                // AMOUNT is skipped here because the per-item PAID price isn't
+                // located yet (getOrders exposes mrp = list price only - see the
+                // __sample probe). norm holds every order; only the matched one
+                // leaves. If a styleId was discovered on a prior fetch it pins
+                // the match exactly. Port of matchOrderByNameAmount (verify.js).
+                var targetStyleId = (typeof window !== "undefined" && window.__fayrTargetStyleId) || null;
+                var targetName = (typeof window !== "undefined" && window.__fayrTargetName) || null;
+                function myNrm(s){ return String(s==null?"":s).toLowerCase().replace(/[^a-z0-9]+/g," ").trim(); }
+                function myScore(exp, cand){
+                  var e=myNrm(exp), c=myNrm(cand);
+                  if(!e||!c) return 0;
+                  if(c.indexOf(e)>=0||e.indexOf(c)>=0) return 1;
+                  var toks=e.split(" ").filter(function(w){return w.length>2;});
+                  if(!toks.length) return 0;
+                  var h=0; toks.forEach(function(w){ if(c.indexOf(w)>=0) h++; });
+                  return h/toks.length;
+                }
+                var matched = null, matchScore = 0, ambiguous = false, candidateCount = 0;
+                if (targetStyleId) {
+                  matched = norm.filter(function(o){ return String(o.styleid) === String(targetStyleId); })[0] || null;
+                  if (matched) { matchScore = 1; candidateCount = 1; }
+                } else if (targetName) {
+                  var kept = norm.map(function(o){ return { order:o, score: myScore(targetName, o.name) }; })
+                                 .filter(function(k){ return k.score >= 0.6; })
+                                 .sort(function(a,b){ return b.score - a.score; });
+                  candidateCount = kept.length;
+                  if (kept.length) {
+                    matched = kept[0].order; matchScore = kept[0].score;
+                    ambiguous = kept.filter(function(k){ return k.score >= kept[0].score - 0.15; }).length >= 2;
+                  }
+                }
+                var mReview = matched
+                  ? (reviewed.filter(function(o){ return String(o.styleid) === String(matched.styleid); })[0] || null)
+                  : null;
+                var orderProbe = {
+                  ordersFetched: true, authFailed: false, ordersCount: items.length,
+                  nameAvailable: norm.some(function(o){ return o.name; }),
+                  targetFound: !!matched,
+                  matchScore: matchScore,
+                  amountOk: null,
+                  ambiguous: ambiguous,
+                  candidateCount: candidateCount
+                };
+
                 return {
+                  order: matched,
+                  review: mReview,
+                  orderProbe: orderProbe,
                   totalOrders: orders && orders.totalOrders,
                   reviewedCount: reviewed.length,
                   orders: reviewed,

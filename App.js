@@ -8,17 +8,16 @@ import HomeScreen from './src/HomeScreen';
 import ConnectScreen from './src/ConnectScreen';
 import TaskScreen from './src/TaskScreen';
 import { PLATFORM_LIST } from './src/platforms';
-import { CAMPAIGN } from './src/campaign';
+import { campaignForMarketplace } from './src/campaign';
 import { load as loadTask } from './src/taskStore';
 
 const Stack = createNativeStackNavigator();
 
-// The campaign is passed ONLY to the marketplace it belongs to. Every other
-// platform gets no campaign and therefore fails closed on fetch
-// (error:"no_campaign_target") rather than dumping the account's orders - see
-// platforms.js. That is deliberate: the demo campaign is Amazon-only.
+// Each platform gets ONLY its own campaign. A marketplace with no campaign gets
+// undefined and therefore fails closed on fetch (no name/id target -> no order
+// surfaced) rather than dumping the account's orders - see platforms.js.
 function makeConnectScreen(platform) {
-  const campaign = platform.key === CAMPAIGN.marketplace ? CAMPAIGN : undefined;
+  const campaign = campaignForMarketplace(platform.key) || undefined;
   // Forward navigation/route through: ConnectScreen returns to the Task screen
   // once evidence is dispatched, so the fetch result is never a dead end.
   return function Screen(props) {

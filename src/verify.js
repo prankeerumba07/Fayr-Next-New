@@ -54,6 +54,88 @@ function idMatch(expected, actual) {
   return a.includes(e) || e.includes(a);
 }
 
+// Match a campaign against the account's order history by NAME + AMOUNT.
+//
+// A Fayr campaign knows only the product NAME and the expected AMOUNT - the user
+// lands on the marketplace home page, searches, and buys the product themselves,
+// so there is no product id to register up front. So:
+//   - NAME is the primary key. The campaign name is short ("boAt Airdopes 141");
+//     the marketplace title is long and verbose. productScore checks how many of
+//     the campaign's tokens appear in the order's title, which is exactly the
+//     right direction for that shape.
+//   - AMOUNT corroborates and catches a cheaper look-alike/variant. It is a
+//     SECONDARY signal, not a hard gate, because marketplace prices drift: a
+//     small difference is tolerated, a large one flags the match for the user.
+//
+// Returns the single best candidate plus the flags the human-confirm step needs.
+// It never silently commits: a shaky or ambiguous match is surfaced so the "is
+// this your order?" screen can warn instead of auto-verifying the wrong order.
+//
+// The WebView scripts (src/platforms.js) run a compact PORT of this same
+// algorithm so that only the matched order leaves the page (data minimisation);
+// keep the two in sync. This copy is the tested spec.
+export function matchOrderByNameAmount(target, orders, opts) {
+  const o = opts || {};
+  const nameThreshold = o.nameThreshold != null ? o.nameThreshold : 0.6;
+  // Tolerance = an absolute floor OR a percentage, whichever is larger, so it
+  // survives small price drift without waving through a different-priced variant.
+  const absTol = o.absTolerance != null ? o.absTolerance : 2;    // ₹2
+  const pctTol = o.pctTolerance != null ? o.pctTolerance : 0.05; // 5%
+  const wantName = target && target.product;
+  const wantAmt = parseAmount(target && target.amount);
+
+  const kept = [];
+  for (const it of orders || []) {
+    const name = it && (it.product || it.name || it.title || it.productName);
+    const score = productScore(wantName, name);
+    if (score < nameThreshold) continue;
+    // Amount from the item's PAID price only - never a list price (mrp), which
+    // would compare paid-vs-list and wrongly read as a mismatch.
+    const amt = parseAmount(
+      it.itemAmount != null ? it.itemAmount : it.amount != null ? it.amount : null
+    );
+    let amountOk = null;
+    if (wantAmt != null && amt != null) {
+      amountOk = Math.abs(wantAmt - amt) <= Math.max(absTol, wantAmt * pctTol);
+    }
+    kept.push({ order: it, score, amount: amt, amountOk });
+  }
+  if (!kept.length) {
+    return { order: null, score: 0, amount: null, amountOk: null, ambiguous: false, candidateCount: 0 };
+  }
+
+  // Prefer amount-confirmed candidates; then highest name score; then most
+  // recent. So a right-priced match always beats a same-name wrong-priced one.
+  kept.sort((a, b) => {
+    const aAmt = a.amountOk === true ? 1 : 0;
+    const bAmt = b.amountOk === true ? 1 : 0;
+    if (aAmt !== bAmt) return bAmt - aAmt;
+    if (b.score !== a.score) return b.score - a.score;
+    return (orderRecency(b.order) || 0) - (orderRecency(a.order) || 0);
+  });
+  const best = kept[0];
+  // Ambiguous = 2+ candidates we genuinely can't separate on the strong signals
+  // (near-equal name AND not amount-rejected). The caller must route ambiguity to
+  // the human rather than auto-confirm.
+  const near = kept.filter((k) => k.score >= best.score - 0.15 && k.amountOk !== false);
+  return {
+    order: best.order,
+    score: best.score,
+    amount: best.amount,
+    amountOk: best.amountOk,
+    ambiguous: near.length >= 2,
+    candidateCount: kept.length,
+  };
+}
+
+function orderRecency(it) {
+  if (!it) return null;
+  const v = it.orderDate != null ? it.orderDate
+    : it.createdon != null ? it.createdon
+    : it.createdOn != null ? it.createdOn : null;
+  return toEpoch(v);
+}
+
 // Pick the scraped item that best corresponds to the expected product/order.
 export function bestMatch(expected, items) {
   let best = null;

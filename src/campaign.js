@@ -1,22 +1,67 @@
-// ONE hardcoded campaign. Stands in for the campaign model until the backend
-// exists - it is the minimum needed to make a fetch legal, because platforms.js
-// fails closed without a campaign ASIN (see config.js DEBUG_CAPTURE).
+// The campaigns. Stands in for the campaign model until the backend exists.
 //
-// The ASIN below is deliberately an item from a MERGED order: Amazon put it in
-// a single order totalling 1326.00 alongside another product. That makes the
-// refund maths visible in the running app - a percentage of the ITEM (388.00)
-// rather than of the order total. Swap `asin` for any product the connected
-// account has actually reviewed.
+// A real Fayr campaign carries NO marketplace product id: the user reads the
+// campaign, is dropped on the marketplace HOME page, searches the product
+// themselves and buys it. So the only keys we have to find the order in their
+// history are the two things printed on the campaign page: the product NAME and
+// the expected AMOUNT (see src/verify.js matchOrderByNameAmount). Amazon is the
+// exception - its order list is walled, so that one still matches on ASIN.
+//
+// ── TO TEST FLIPKART / MYNTRA ON-DEVICE ──────────────────────────────────────
+// Set FLIPKART_TEST and MYNTRA_TEST below to a product you have ACTUALLY BOUGHT
+// on that account. Use the product's name as it reads in your order history and
+// the price you paid (whole rupees). Then reload the app, open that marketplace,
+// log in, and tap "Fetch". The tool should find that order by name (+amount) and
+// show it on the task screen for you to confirm - no screenshot.
+// ─────────────────────────────────────────────────────────────────────────────
 
-export const CAMPAIGN = Object.freeze({
-  id: 'camp_demo_1',
-  marketplace: 'amazon',
-  // Item from the merged order: item line 388.00 of a 1326.00 order total.
-  asin: 'B0FTYW51JV',
-  productName: 'SR 2 PES Plastic Self-Adhesive Wall-Mount Bathroom Shelf',
-  // Percent of the ITEM price refunded. Integer - percentOfPaise rejects floats.
-  percent: 90,
-  // Drives the return-window hold via the policy table in taskflow.js. Not a
-  // fetched fact: no marketplace exposes a return window, so this is ours.
-  category: 'furniture',
-});
+// EDIT THESE TWO to match a real past order on each account:
+const FLIPKART_TEST = {
+  productName: 'boAt Airdopes 141', // ← the product name as in your Flipkart orders
+  amount: 1299,                      // ← the price you paid (₹, whole rupees)
+};
+const MYNTRA_TEST = {
+  productName: 'Roadster Men Shirt', // ← the product name as in your Myntra orders
+  amount: 799,                       // ← paid price (Myntra amount isn't checked yet; name is)
+};
+
+export const CAMPAIGNS = Object.freeze([
+  {
+    id: 'camp_amazon_1',
+    marketplace: 'amazon',
+    // Item from a MERGED order (item line 388.00 of a 1326.00 order total), so
+    // the refund maths - a % of the ITEM, not the order total - stays visible.
+    asin: 'B0FTYW51JV',
+    productName: 'SR 2 PES Plastic Self-Adhesive Wall-Mount Bathroom Shelf',
+    amount: 388,
+    percent: 90,
+    category: 'furniture',
+  },
+  {
+    id: 'camp_flipkart_1',
+    marketplace: 'flipkart',
+    productName: FLIPKART_TEST.productName,
+    amount: FLIPKART_TEST.amount,
+    percent: 80,
+    category: 'electronics',
+  },
+  {
+    id: 'camp_myntra_1',
+    marketplace: 'myntra',
+    productName: MYNTRA_TEST.productName,
+    amount: MYNTRA_TEST.amount,
+    percent: 70,
+    category: 'apparel',
+  },
+]);
+
+export function campaignById(id) {
+  return CAMPAIGNS.find((c) => c.id === id) || null;
+}
+
+export function campaignForMarketplace(key) {
+  return CAMPAIGNS.find((c) => c.marketplace === key) || null;
+}
+
+// Back-compat alias: some older single-task code paths still import CAMPAIGN.
+export const CAMPAIGN = CAMPAIGNS[0];

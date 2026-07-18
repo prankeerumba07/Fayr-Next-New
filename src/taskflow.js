@@ -56,7 +56,8 @@ export const BLOCKERS = {
 
 // Where a fact came from. Never let an unsourced value into the flow.
 export const SOURCES = {
-  ORDER_DETAILS: 'order-details', // verified
+  ORDER_DETAILS: 'order-details', // Amazon: scraped from the HTML detail page (verified)
+  ORDER_HISTORY: 'order-history', // Flipkart/Myntra: their authenticated JSON order API
   DKIM: 'dkim',                   // fallback for gap 1
   MANUAL: 'manual',               // last resort, user-entered
 };
@@ -255,6 +256,174 @@ function pickReview(reviews, target) {
     return best;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// ORDER-FIRST readers: Flipkart and Myntra.
+//
+// Amazon's order data is scraped from HTML detail pages and is anchored to a
+// review (readAmazonEvidence picks a review first, then joins order facts). The
+// product's whole flow, though, starts at PURCHASE - which happens BEFORE any
+// review exists. These two platforms expose a structured, authenticated JSON
+// order API, so we can surface the campaign product's order the moment it lands
+// in the account's order history, with NO review yet. That order evidence is
+// what advances CLAIMED -> PURCHASED -> DELIVERED automatically, replacing the
+// "upload a screenshot of your order / your delivery" step entirely. The review
+// permalink check (the payout signal) still comes later, unchanged.
+//
+// Both consume a payload the platform script emits target-filtered (only the
+// campaign product's order ever leaves the WebView - see platforms.js):
+//   { order: <matched order|null>, review: <matched review|null>,
+//     orderProbe: { ordersFetched, authFailed, ordersCount, targetFound } }
+
+// Not-a-failure: no order yet just means the user hasn't bought it (or it hasn't
+// posted to their order history). The task stays CLAIMED and the UI waits - it
+// does NOT block. A blocker is reserved for a genuine read failure.
+function orderApiMiss(probe, platformName, reviewFacts) {
+  const fetched = probe && probe.ordersFetched === true;
+  return {
+    blocker: null,
+    reason: fetched
+      ? `This product isn't in your ${platformName} orders yet.`
+      : `Couldn't read your ${platformName} orders.`,
+    review: reviewFacts || null,
+    order: null,
+    delivery: null,
+    returned: null,
+    probe: probe || null,
+  };
+}
+
+export function readFlipkartEvidence(raw, target) {
+  const t = target || {};
+  const probe = (raw && raw.orderProbe) || {};
+  if (probe.authFailed === true) {
+    return { blocker: BLOCKERS.RECONNECT, reason: 'Flipkart asked you to sign in again to read your orders.', review: null, order: null, delivery: null, returned: null };
+  }
+  const review = (raw && raw.review) || null;
+  const reviewFacts = review ? {
+    reviewId: review.reviewid || null,
+    asin: null,
+    product: review.productname || t.product || null,
+    rating: review.rating != null ? Number(review.rating) : null,
+    // VERIFIED: the reviews fetch resolves this from Flipkart's own moderation
+    // status ("approved") - see platforms.js. Here it is passed through only.
+    published: review.published === true,
+    verified: review.verified === true,
+    reviewDate: toEpoch(review.reviewdate),
+    reviewDateSource: review.reviewdate ? 'flipkart-api' : null,
+  } : null;
+
+  const order = (raw && raw.order) || null;
+  if (!order) return orderApiMiss(probe, 'Flipkart', reviewFacts);
+
+  return {
+    blocker: null,
+    review: reviewFacts,
+    order: {
+      id: order.orderId || null,
+      date: toEpoch(order.orderDate),
+      dateRaw: order.orderDate == null ? null : String(order.orderDate),
+      // REFUNDABLE figure. Flipkart exposes the item's OWN paid price
+      // (moneyDataBag.itemSellingPrice), verified 2026-07-15 - never orderAmount,
+      // which is the order total and can bundle unrelated items. Whole rupees.
+      itemPaise: toPaise(order.itemAmount),
+      orderTotalPaise: toPaise(order.orderAmount),
+      amountSource: order.itemAmount != null ? 'flipkart-itemSellingPrice' : null,
+      itemAmountAmbiguous: false,
+      product: order.productName || (review && review.productname) || t.product || null,
+      // How this order was matched to the campaign (name + amount, no id). The
+      // "is this your order?" screen shows this so a weak/ambiguous/amount-off
+      // match is confirmed carefully rather than trusted blindly.
+      match: matchInfo(probe),
+      source: SOURCES.ORDER_HISTORY,
+    },
+    delivery: order.deliveryDate == null ? null : {
+      at: toEpoch(order.deliveryDate),
+      raw: String(order.deliveryDate),
+      source: SOURCES.ORDER_HISTORY,
+    },
+    returned: order.returned === true,
+  };
+}
+
+// The confidence of a name+amount match, passed through from the WebView matcher
+// so the human-confirm step can warn. score: 0..1 name overlap; amountOk: true /
+// false / null(no amount to check); ambiguous: 2+ near-equal candidates.
+function matchInfo(probe) {
+  const p = probe || {};
+  return {
+    score: p.matchScore != null ? p.matchScore : null,
+    amountOk: p.amountOk != null ? p.amountOk : null,
+    ambiguous: p.ambiguous === true,
+    candidateCount: p.candidateCount != null ? p.candidateCount : null,
+  };
+}
+
+export function readMyntraEvidence(raw, target) {
+  const t = target || {};
+  const probe = (raw && raw.orderProbe) || {};
+  if (probe.authFailed === true) {
+    return { blocker: BLOCKERS.RECONNECT, reason: 'Myntra asked you to sign in again to read your orders.', review: null, order: null, delivery: null, returned: null };
+  }
+  const review = (raw && raw.review) || null;
+  const order = (raw && raw.order) || null;
+  const reviewFacts = review ? {
+    reviewId: review.reviewid || null,
+    asin: null,
+    product: review.name || t.product || null,
+    rating: review.rating != null ? Number(review.rating) : null,
+    published: review.published === true,
+    // A Myntra review can only exist on a styleId the account actually bought
+    // (the ratings API is keyed off the user's own orders), so a present review
+    // is inherently a verified purchase.
+    verified: true,
+    reviewDate: toEpoch(review.reviewedon),
+    reviewDateSource: review.reviewedon ? 'myntra-api' : null,
+  } : null;
+
+  if (!order) return orderApiMiss(probe, 'Myntra', reviewFacts);
+
+  return {
+    blocker: null,
+    review: reviewFacts,
+    order: {
+      id: order.orderid || null,
+      date: toEpoch(order.createdon),
+      dateRaw: order.createdon == null ? null : String(order.createdon),
+      // Myntra's per-item PAID price is NOT located yet: getOrders exposes `mrp`
+      // (the LIST price, >= paid), so emitting it as the refundable figure would
+      // over-refund. itemPaise stays null - the purchase and delivery still
+      // verify; only the refund amount waits on the paid-price capture (the
+      // __sample probe in platforms.js). Degrade honestly, never guess money.
+      itemPaise: null,
+      orderTotalPaise: null,
+      mrpPaise: toPaise(order.mrp),
+      amountSource: 'mrp_only_needs_capture',
+      itemAmountAmbiguous: true,
+      product: order.name || t.product || null,
+      match: matchInfo(probe),
+      source: SOURCES.ORDER_HISTORY,
+    },
+    delivery: order.deliverydate == null ? null : {
+      at: toEpoch(order.deliverydate),
+      raw: String(order.deliverydate),
+      source: SOURCES.ORDER_HISTORY,
+    },
+    returned: order.returned === true,
+  };
+}
+
+// One entry point: pick the reader for the platform. ConnectScreen calls this
+// so a new platform is a one-line addition here, not a branch in the screen.
+export function readEvidence(platform, raw, target) {
+  switch (String(platform || '').toLowerCase()) {
+    case 'amazon': return readAmazonEvidence(raw, target);
+    case 'flipkart': return readFlipkartEvidence(raw, target);
+    case 'myntra': return readMyntraEvidence(raw, target);
+    default:
+      return { blocker: null, reason: `Order reading isn't wired for ${platform} yet.`, review: null, order: null, delivery: null, returned: null };
+  }
 }
 
 // ---------------------------------------------------------------------------
