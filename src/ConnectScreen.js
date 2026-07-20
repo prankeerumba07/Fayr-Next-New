@@ -15,9 +15,14 @@ import { dispatch } from './taskStore';
 
 // Platforms whose fetch payload feeds the task flow. Amazon reads a review's
 // order (HTML scrape); Flipkart/Myntra are order-first (their JSON order API),
-// so a purchase advances the task before any review exists. Others are still in
-// discovery mode (no reverse-engineered order endpoint yet - see platforms.js).
-const READER_PLATFORMS = { amazon: true, flipkart: true, myntra: true };
+// so a purchase advances the task before any review exists. Zepto/Blinkit/
+// Instamart are also order-first: they parse the order list the discovery hook
+// captured, and readEvidence matches the campaign product by name+amount on-
+// device (see taskflow.js). Meesho stays in discovery mode (no reliable schema).
+const READER_PLATFORMS = {
+  amazon: true, flipkart: true, myntra: true,
+  zepto: true, blinkit: true, instamart: true,
+};
 
 // Marketplaces whose OWN in-page logout is broken or missing in the WebView, so
 // Fayr shows its own "Log out" button. The rest (Amazon/Flipkart/Myntra/Meesho/

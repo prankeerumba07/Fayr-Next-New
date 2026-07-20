@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CAMPAIGNS, campaignById } from './campaign';
@@ -124,9 +124,19 @@ export default function TaskScreen({ navigation, route }) {
         <View style={styles.card}>
           {task.order ? (
             <>
+              {task.order.image ? (
+                <Image
+                  source={{ uri: task.order.image }}
+                  style={styles.orderImage}
+                  resizeMode="contain"
+                />
+              ) : null}
               <Row label="Product" value={task.order.product} missing="Name not read from the order" />
               <Row label="Order ID" value={task.order.id} />
               <Row label="Order date" value={fmtDate(task.order.date)} />
+              {task.order.statusText ? (
+                <Row label="Order status" value={String(task.order.statusText)} />
+              ) : null}
               {match && match.amountOk === false ? (
                 <Text style={styles.warn}>
                   Paid price differs from the campaign (₹{campaign.amount}) — confirm this is the right product/variant before continuing.
@@ -137,19 +147,30 @@ export default function TaskScreen({ navigation, route }) {
                   More than one order matched this product — make sure this is the one for this task.
                 </Text>
               ) : null}
-              <Row
-                label="Item price"
-                value={itemPaise != null ? `₹${formatPaise(itemPaise)}` : null}
-                missing="Couldn't read the item price"
-                hint="refund can't be computed"
-              />
-              {task.order.orderTotalPaise != null && task.order.orderTotalPaise !== itemPaise ? (
-                // Show the contrast explicitly: the refund is a % of the ITEM,
-                // not of an order total that may bundle unrelated products.
-                <Text style={styles.contrast}>
-                  Order total ₹{formatPaise(task.order.orderTotalPaise)} — includes other items; refund uses the item price only
-                </Text>
-              ) : null}
+              {itemPaise != null ? (
+                <>
+                  <Row label="Item price" value={`₹${formatPaise(itemPaise)}`} />
+                  {task.order.orderTotalPaise != null && task.order.orderTotalPaise !== itemPaise ? (
+                    // Show the contrast explicitly: the refund is a % of the ITEM,
+                    // not of an order total that may bundle unrelated products.
+                    <Text style={styles.contrast}>
+                      Order total ₹{formatPaise(task.order.orderTotalPaise)} — includes other items; refund uses the item price only
+                    </Text>
+                  ) : null}
+                </>
+              ) : task.order.orderTotalPaise != null ? (
+                // Quick-commerce (and Myntra): web exposes only the ORDER TOTAL,
+                // not a per-item price. Show it plainly as the order amount; the
+                // Refund section states the per-item price is still needed.
+                <Row label="Order amount" value={`₹${formatPaise(task.order.orderTotalPaise)}`} />
+              ) : (
+                <Row
+                  label="Item price"
+                  value={null}
+                  missing="Couldn't read the item price"
+                  hint="refund can't be computed"
+                />
+              )}
               {task.order.itemAmountAmbiguous ? (
                 <Text style={styles.warn}>Item price was ambiguous — needs manual review before refund</Text>
               ) : null}
@@ -252,6 +273,7 @@ const styles = StyleSheet.create({
   pipeLabel: { fontSize: 8, color: '#bbb', textAlign: 'center' },
   pipeLabelActive: { color: '#1a1a1a', fontWeight: '700' },
   card: { borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e2e2', borderRadius: 12, padding: 14 },
+  orderImage: { width: '100%', height: 140, borderRadius: 10, backgroundColor: '#f6f6f6', marginBottom: 10 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 5 },
   rowLabel: { fontSize: 13, color: '#777', flex: 1 },
   rowValue: { fontSize: 13, color: '#1a1a1a', fontWeight: '600', flex: 1.4, textAlign: 'right' },

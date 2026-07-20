@@ -154,6 +154,95 @@ console.log('\n=== Dispatcher: readEvidence routes by platform ===');
   ok(readEvidence('meesho', {}, {}).order == null, 'unwired platform -> honest null, no crash');
 }
 
+// --- Quick-commerce (Zepto/Blinkit/Instamart): flat reviews[], each entry
+//     carries the order facts; the campaign product is matched by name+amount
+//     on-device (readQuickCommerceEvidence, via readEvidence). Shaped exactly as
+//     the platforms.js scripts emit them (epoch-ms dates, rupee amounts).
+const zeptoPayload = {
+  source: 'captured',
+  reviews: [
+    { productname: 'Amul Gold Milk 500 ml', rating: 5, orderdate: ordered, deliverydate: delivered,
+      orderid: 'ZEP-1001', returned: false, returnstatus: 'DELIVERED', statuscode: 'DELIVERED',
+      orderrated: true, imageurl: 'https://cdn.zeptonow.com/x/milk.png', amount: 604.5 },
+    { productname: 'Lays Chips', rating: null, orderdate: ordered, deliverydate: delivered,
+      orderid: 'ZEP-1002', returned: false, statuscode: 'DELIVERED', orderrated: false, imageurl: null, amount: 40 },
+  ],
+};
+const blinkitPayload = {
+  source: 'captured-layout',
+  reviews: [
+    { productname: 'Amul Butter 500 g', rating: null, orderdate: ordered, deliverydate: delivered,
+      orderid: 'BLK-77', returned: false, statuscode: 'DELIVERED', orderrated: true,
+      imageurl: 'https://cdn.grofers.com/product/butter.jpg', amount: 275 },
+  ],
+};
+const instamartPayload = {
+  source: 'captured-mapi',
+  reviews: [
+    // NOTE: no `amount` and no image - Instamart web exposes neither.
+    { productname: 'Maggi 2-Minute Noodles', rating: null, orderdate: ordered, deliverydate: delivered,
+      orderid: 'SW-55', returned: false, statuscode: 'DELIVERED', orderrated: true, imageurl: null },
+  ],
+};
+
+console.log('\n=== Zepto: rated order matched by name+amount -> DELIVERED, image/amount/status surfaced ===');
+{
+  const ev = readEvidence('zepto', zeptoPayload, { product: 'Amul Gold Milk', amount: 604.5 });
+  ok(ev.blocker == null && ev.order && ev.order.id === 'ZEP-1001', 'matched the right order by name (not the Lays entry)');
+  ok(ev.order.itemPaise === null, 'itemPaise null - no per-item price on quick-commerce web (no over-refund)');
+  ok(ev.order.orderTotalPaise === 60450, 'order total 604.5 -> 60450 paise (fractional rupees handled via string)');
+  ok(ev.order.image === 'https://cdn.zeptonow.com/x/milk.png', 'product image surfaced');
+  ok(ev.order.statusText === 'DELIVERED', 'order status surfaced');
+  ok(ev.order.match && ev.order.match.amountOk === true, 'amount corroborated the name match');
+  ok(ev.order.source === SOURCES.ORDER_HISTORY, 'sourced to the order-history API');
+  ok(ev.review && ev.review.published === true, 'rated order -> the review signal these platforms expose');
+  ok(ev.delivery && ev.delivery.at === delivered, 'delivery date surfaced');
+  let t = createTask({ id: 't_zep', platform: 'zepto' });
+  t = transition(t, evEvent(ev)).task;
+  ok(t.state === STATES.DELIVERED, 'purchase + delivery -> DELIVERED (order-first, no screenshot)');
+}
+
+console.log('\n=== Blinkit: order total shown as the order amount; rated -> published ===');
+{
+  const ev = readEvidence('blinkit', blinkitPayload, { product: 'Amul Butter', amount: 275 });
+  ok(ev.order.id === 'BLK-77', 'matched the Blinkit order');
+  ok(ev.order.orderTotalPaise === 27500, 'order amount 275 -> 27500 paise');
+  ok(ev.order.image === 'https://cdn.grofers.com/product/butter.jpg', 'blinkit product image surfaced');
+  ok(ev.review && ev.review.published === true, 'rated order -> published');
+}
+
+console.log('\n=== Instamart: advances even though web exposes no amount or image (honest nulls) ===');
+{
+  const ev = readEvidence('instamart', instamartPayload, { product: 'Maggi Noodles' });
+  ok(ev.order.id === 'SW-55', 'matched the Instamart order by name');
+  ok(ev.order.orderTotalPaise === null && ev.order.amountSource === null, 'no amount exposed -> honest null, not a fake 0');
+  ok(ev.order.image === null, 'no image exposed -> honest null');
+  let t = createTask({ id: 't_ins', platform: 'instamart' });
+  t = transition(t, evEvent(ev)).task;
+  ok(t.state === STATES.DELIVERED, 'still advances to DELIVERED on order + delivery');
+}
+
+console.log('\n=== Quick-commerce: product not in captured orders -> waiting, no blocker ===');
+{
+  const ev = readEvidence('zepto', { source: 'captured', reviews: [{ productname: 'Something Else', orderid: 'ZEP-9', orderdate: ordered, amount: 100 }] }, { product: 'Amul Gold Milk', amount: 604.5 });
+  ok(ev.blocker == null && ev.order == null, 'no match -> no blocker (still just waiting for the purchase)');
+  ok(/isn't in your Zepto orders yet/.test(ev.reason), 'reason: not in your orders yet');
+}
+
+console.log('\n=== Quick-commerce: nothing captured at all -> could not read, still no hard blocker ===');
+{
+  const ev = readEvidence('blinkit', { source: 'captured-layout', reviews: [] }, { product: 'Amul Butter' });
+  ok(ev.blocker == null && ev.order == null, 'no orders captured -> no blocker');
+  ok(/Couldn't read your Blinkit orders/.test(ev.reason), "reason: couldn't read the orders");
+}
+
+console.log('\n=== Dispatcher: quick-commerce platforms are routed ===');
+{
+  ok(readEvidence('zepto', zeptoPayload, { product: 'Amul Gold Milk' }).order.id === 'ZEP-1001', 'zepto -> quick-commerce reader');
+  ok(readEvidence('blinkit', blinkitPayload, { product: 'Amul Butter' }).order.id === 'BLK-77', 'blinkit -> quick-commerce reader');
+  ok(readEvidence('instamart', instamartPayload, { product: 'Maggi Noodles' }).order.id === 'SW-55', 'instamart -> quick-commerce reader');
+}
+
 console.log('\n=== Idempotency: re-fetching the same order is a no-op, not a second advance ===');
 {
   const ev = readFlipkartEvidence(fkPaid, { product: 'boAt Airdopes 141', amount: 388 });

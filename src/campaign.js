@@ -15,7 +15,7 @@
 // show it on the task screen for you to confirm - no screenshot.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// EDIT THESE TWO to match a real past order on each account:
+// EDIT THESE to match a real past order on each account:
 const FLIPKART_TEST = {
   productName: 'boAt Airdopes 141', // ← the product name as in your Flipkart orders
   amount: 1299,                      // ← the price you paid (₹, whole rupees)
@@ -23,6 +23,21 @@ const FLIPKART_TEST = {
 const MYNTRA_TEST = {
   productName: 'Roadster Men Shirt', // ← the product name as in your Myntra orders
   amount: 799,                       // ← paid price (Myntra amount isn't checked yet; name is)
+};
+// Quick-commerce (Zepto/Blinkit/Instamart). The amount here is matched against
+// the ORDER TOTAL (these platforms don't expose a per-item price on web), so use
+// the total you paid for that order. Name is the primary key.
+const ZEPTO_TEST = {
+  productName: 'Amul Gold Milk',  // ← a product name as it reads in your Zepto orders
+  amount: null,                    // ← the order total (₹) if you want the amount check; else null
+};
+const BLINKIT_TEST = {
+  productName: 'Amul Butter',      // ← a product name as it reads in your Blinkit orders
+  amount: null,
+};
+const INSTAMART_TEST = {
+  productName: 'Maggi Noodles',    // ← a product name as it reads in your Instamart orders
+  amount: null,                    // ← Instamart web doesn't expose the amount; name only
 };
 
 export const CAMPAIGNS = Object.freeze([
@@ -52,6 +67,30 @@ export const CAMPAIGNS = Object.freeze([
     amount: MYNTRA_TEST.amount,
     percent: 70,
     category: 'apparel',
+  },
+  {
+    id: 'camp_zepto_1',
+    marketplace: 'zepto',
+    productName: ZEPTO_TEST.productName,
+    amount: ZEPTO_TEST.amount,
+    percent: 50,
+    category: 'grocery',
+  },
+  {
+    id: 'camp_blinkit_1',
+    marketplace: 'blinkit',
+    productName: BLINKIT_TEST.productName,
+    amount: BLINKIT_TEST.amount,
+    percent: 50,
+    category: 'grocery',
+  },
+  {
+    id: 'camp_instamart_1',
+    marketplace: 'instamart',
+    productName: INSTAMART_TEST.productName,
+    amount: INSTAMART_TEST.amount,
+    percent: 50,
+    category: 'grocery',
   },
 ]);
 

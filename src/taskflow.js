@@ -22,7 +22,7 @@
 //      table the operator maintains, per category.
 
 import { toEpoch } from './extract.js';
-import { productScore } from './verify.js';
+import { productScore, matchOrderByNameAmount } from './verify.js';
 import { toPaise } from './money.js';
 
 export const DAY = 86400000;
@@ -414,6 +414,111 @@ export function readMyntraEvidence(raw, target) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// QUICK-COMMERCE order-first reader: Zepto, Blinkit, Instamart.
+//
+// These three parse their order data out of the authenticated API responses the
+// discovery hook captured while you browsed Orders (see platforms.js), and emit
+// a FLAT reviews[] - one entry per product, each already carrying the order
+// facts (orderid, orderdate, deliverydate, amount, image, returned, status).
+//
+// Unlike Amazon/Flipkart/Myntra the campaign match can't run inside the WebView
+// (those scripts emit EVERY order so the ConnectScreen list can show them all),
+// so we match the campaign product HERE, on-device, by NAME + AMOUNT - the same
+// matchOrderByNameAmount the others use - and surface only that one order.
+//
+// HONEST LIMITS (degrade, never guess):
+//   - The amount these expose is the ORDER TOTAL, not the item's own paid price
+//     (quick-commerce web doesn't break it out). So it's stored as
+//     orderTotalPaise for display; itemPaise stays null and the refund maths
+//     waits on a per-item price - exactly like Myntra.
+//   - "Rated" is per-ORDER (one star for the whole delivery) and there is no
+//     public per-product review permalink to re-check, so a rated order is the
+//     only review signal these platforms give.
+//   - Instamart web exposes neither an order amount nor a product image; those
+//     render as honest gaps, not blanks.
+function readQuickCommerceEvidence(raw, target, platformName) {
+  const t = target || {};
+  const reviews = (raw && raw.reviews) || [];
+
+  // Candidates in the shape matchOrderByNameAmount expects, each keeping a
+  // back-reference to the full review entry so we can read the order facts off
+  // the winner.
+  const candidates = reviews.map((r) => ({
+    product: r.productname || null,
+    amount: r.amount != null ? r.amount : null,
+    orderDate: r.orderdate != null ? r.orderdate : null,
+    _r: r,
+  }));
+
+  const m = t.product
+    ? matchOrderByNameAmount({ product: t.product, amount: t.amount }, candidates)
+    : { order: null, score: 0, amountOk: null, ambiguous: false, candidateCount: 0 };
+  const picked = m.order && m.order._r ? m.order._r : null;
+
+  if (!picked) {
+    // Not a hard failure. Either the purchase isn't in the captured orders yet,
+    // or nothing was captured (Orders list not loaded / not logged in). Mirror
+    // orderApiMiss so the task WAITS rather than blocks.
+    return {
+      blocker: null,
+      reason: reviews.length
+        ? `This product isn't in your ${platformName} orders yet.`
+        : `Couldn't read your ${platformName} orders — open the Orders list, then Fetch.`,
+      review: null, order: null, delivery: null, returned: null,
+    };
+  }
+
+  const rated = picked.orderrated === true || picked.rating != null;
+  const reviewFacts = rated ? {
+    reviewId: null,
+    asin: null,
+    product: picked.productname || t.product || null,
+    rating: picked.rating != null ? Number(picked.rating) : null,
+    // Quick-commerce has no public per-product review permalink to fetch, so the
+    // order's own rating marker is the visibility signal these platforms expose.
+    published: true,
+    verified: true,
+    reviewDate: null,
+    reviewDateSource: `${platformName.toLowerCase()}-order-rating`,
+  } : null;
+
+  return {
+    blocker: null,
+    review: reviewFacts,
+    order: {
+      id: picked.orderid || null,
+      date: toEpoch(picked.orderdate),
+      dateRaw: picked.orderdate == null ? null : String(picked.orderdate),
+      // No per-item price on quick-commerce web -> itemPaise null, refund waits.
+      itemPaise: null,
+      // ORDER TOTAL (rupees, possibly fractional). Pass as a STRING: toPaise
+      // rejects non-integer numbers on purpose, and the string path handles the
+      // paise fraction correctly.
+      orderTotalPaise: picked.amount == null ? null : toPaise(String(picked.amount)),
+      amountSource: picked.amount != null ? `${platformName.toLowerCase()}-order-total` : null,
+      itemAmountAmbiguous: true,
+      product: picked.productname || t.product || null,
+      // Extra order-detail fields the quick-commerce scripts already carry.
+      image: picked.imageurl || null,
+      statusText: picked.statuscode || picked.returnstatus || null,
+      match: {
+        score: m.score != null ? m.score : null,
+        amountOk: m.amountOk != null ? m.amountOk : null,
+        ambiguous: m.ambiguous === true,
+        candidateCount: m.candidateCount != null ? m.candidateCount : null,
+      },
+      source: SOURCES.ORDER_HISTORY,
+    },
+    delivery: picked.deliverydate == null ? null : {
+      at: toEpoch(picked.deliverydate),
+      raw: String(picked.deliverydate),
+      source: SOURCES.ORDER_HISTORY,
+    },
+    returned: picked.returned === true,
+  };
+}
+
 // One entry point: pick the reader for the platform. ConnectScreen calls this
 // so a new platform is a one-line addition here, not a branch in the screen.
 export function readEvidence(platform, raw, target) {
@@ -421,6 +526,9 @@ export function readEvidence(platform, raw, target) {
     case 'amazon': return readAmazonEvidence(raw, target);
     case 'flipkart': return readFlipkartEvidence(raw, target);
     case 'myntra': return readMyntraEvidence(raw, target);
+    case 'zepto': return readQuickCommerceEvidence(raw, target, 'Zepto');
+    case 'blinkit': return readQuickCommerceEvidence(raw, target, 'Blinkit');
+    case 'instamart': return readQuickCommerceEvidence(raw, target, 'Instamart');
     default:
       return { blocker: null, reason: `Order reading isn't wired for ${platform} yet.`, review: null, order: null, delivery: null, returned: null };
   }
