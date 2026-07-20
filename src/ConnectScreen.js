@@ -8,7 +8,7 @@ import { WebView } from 'react-native-webview';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { extractItems } from './extract';
-import { restoreSession, persistSession, clearSession } from './session';
+import { restoreSession, persistSession, logoutPlatform } from './session';
 import { DEBUG_CAPTURE } from './config';
 import { readEvidence } from './taskflow';
 import { dispatch } from './taskStore';
@@ -18,6 +18,11 @@ import { dispatch } from './taskStore';
 // so a purchase advances the task before any review exists. Others are still in
 // discovery mode (no reverse-engineered order endpoint yet - see platforms.js).
 const READER_PLATFORMS = { amazon: true, flipkart: true, myntra: true };
+
+// Marketplaces whose OWN in-page logout is broken or missing in the WebView, so
+// Fayr shows its own "Log out" button. The rest (Amazon/Flipkart/Myntra/Meesho/
+// Blinkit) have a working logout in their account menu, so we don't add one there.
+const LOGOUT_PLATFORMS = { zepto: true, instamart: true };
 
 function fmt(ms) {
   if (!ms) return null;
@@ -142,6 +147,21 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
     lastSaveRef.current = now;
     persistSession(platform.key, platform.startUrl);
   }, [platform]);
+
+  // The URL the WebView is actually on. Marketplaces redirect (Zepto's
+  // zepto.com -> zeptonow.com, Swiggy's subdomains), and the AUTH cookies live on
+  // the redirected domain - which a start-URL-only clear never sees. Logout uses
+  // this so it clears the real domain.
+  const currentUrlRef = useRef(platform.startUrl);
+  const onNav = useCallback((navState) => {
+    if (navState && navState.url) currentUrlRef.current = navState.url;
+    saveSession();
+  }, [saveSession]);
+  const onLoadEnd = useCallback((e) => {
+    const u = e && e.nativeEvent && e.nativeEvent.url;
+    if (u) currentUrlRef.current = u;
+    saveSession();
+  }, [saveSession]);
 
   // When a target product is set, show only its review(s) - this is the
   // "fetch only the correct product" behaviour the background flow needs.
@@ -289,45 +309,62 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
   // WebKit cookies, expiring each on its OWN domain so dotted-parent auth cookies
   // (.flipkart.com / .myntra.com) are actually removed, not just the www host;
   // (3) the persisted Keychain snapshot. Then reloads the logged-out page.
-  const clearPlatformSession = useCallback(async () => {
-    const wipeLocal = `(function(){
+  // Log out of THIS marketplace. Only shown where the marketplace's own logout
+  // doesn't work in the WebView (Zepto, Instamart - see LOGOUT_PLATFORMS). Wipes
+  // the live page's localStorage (Zepto's Zustand blob, Instamart's
+  // swiggy_auth_headers) and expires this platform's cookies on BOTH its start
+  // domain and the domain it actually redirected to (currentUrlRef) - which is
+  // what the old start-URL-only clear missed. Other marketplaces are untouched.
+  const logoutThisPlatform = useCallback(async () => {
+    // Block auto-save so nothing re-persists the session we're about to clear.
+    lastSaveRef.current = Date.now() + 8000;
+    // STEP 1 — cookies. clearAll BOTH stores (awaited) so the dotted-domain auth
+    // cookie (.swiggy.com) is actually gone before the page reloads. The earlier
+    // targeted clear left it in NSHTTPCookieStorage, which then re-synced into the
+    // WebView on reload - which is why "logged out" kept coming back logged in.
+    let res = { ok: false };
+    try {
+      const urls = Array.from(new Set([platform.startUrl, currentUrlRef.current].filter(Boolean)));
+      res = await logoutPlatform(platform.key, urls);
+    } catch (e) { /* ignore */ }
+    // STEP 2 — the page's OWN storage + reload, in ONE script so the wipe
+    // provably completes before the reload re-reads it. Swiggy keeps its bearer
+    // token in localStorage (auth_headers / user_info / swiggy_user_info) and
+    // Zepto keeps a Zustand blob there; a cookie-only clear leaves the page able
+    // to re-authenticate. localStorage/sessionStorage are cleared synchronously,
+    // THEN we navigate to the start URL - by which point the cookies (step 1) are
+    // already gone, so the fresh load has nothing to restore the session from.
+    const wipeAndReload = `(function(){
+      try { localStorage.clear(); sessionStorage.clear(); } catch (e) {}
       try {
-        var keys = Object.keys(localStorage);
-        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-          __fayrClear: true, origin: location.origin, localCount: keys.length, localKeys: keys.slice(0, 40)
-        }));
-        localStorage.clear(); sessionStorage.clear();
         if (window.indexedDB && indexedDB.databases) {
           indexedDB.databases().then(function(dbs){ (dbs || []).forEach(function(d){ try { indexedDB.deleteDatabase(d.name); } catch (e) {} }); });
         }
-      } catch (e) {
-        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ __fayrClear: true, error: String((e && e.message) || e) }));
-      }
+      } catch (e) {}
+      try { location.replace(${JSON.stringify(platform.startUrl)}); } catch (e) { try { location.reload(); } catch (e2) {} }
       true;
     })();`;
-    try { webRef.current?.injectJavaScript(wipeLocal); } catch (e) { /* ignore */ }
-    // Hold off the debounced auto-save so the reload can't re-persist the session.
-    lastSaveRef.current = Date.now() + 5000;
-    let res = { found: 0, cleared: 0, remaining: 0, domains: [] };
-    try { res = await clearSession(platform.key, platform.startUrl); } catch (e) { /* ignore */ }
+    try { webRef.current?.injectJavaScript(wipeAndReload); } catch (e) { /* ignore */ }
     setMode('web');
-    setItems([]);
-    setRaw(null);
-    setError(null);
-    try { webRef.current?.reload?.(); } catch (e) { /* ignore */ }
+    setItems([]); setRaw(null); setError(null);
     Alert.alert(
-      'Session clear',
-      `${platform.name}\n`
-        + `total: found ${res.found}, cleared ${res.cleared}, remaining ${res.remaining}\n`
-        + (res.webkit ? `webkit: ${res.webkit.found}→${res.webkit.remaining}\n` : '')
-        + (res.shared ? `shared: ${res.shared.found}→${res.shared.remaining}\n` : '')
-        + (res.domains && res.domains.length ? `domains: ${res.domains.join(', ')}\n` : '')
-        + (res.fellBack ? 'FELL BACK to full clearAll (ALL platforms logged out).\n' : '')
-        + (res.remaining > 0
-          ? 'Some cookies STILL survived — tell me.'
-          : 'Cookies cleared; reloading logged-out.')
+      res.ok ? `Logged out of ${platform.name}` : 'Could not log out',
+      res.ok
+        ? 'Signed out on this device — the page reloaded logged out. Log in with a different mobile number.'
+        : 'The session could not be fully cleared. Close and reopen the app, then try again.',
     );
   }, [platform]);
+
+  const confirmLogout = useCallback(() => {
+    Alert.alert(
+      `Log out of ${platform.name}?`,
+      'This signs you out on this device so you can log in with a different mobile number.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Log out', style: 'destructive', onPress: () => { logoutThisPlatform(); } },
+      ],
+    );
+  }, [platform, logoutThisPlatform]);
 
   const downloadRawJson = useCallback(async () => {
     if (!raw) return;
@@ -378,8 +415,8 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
             // navigation change, so an SPA login that never triggers a full
             // page load is still captured (no-op unless the native cookie
             // module is present).
-            onLoadEnd={saveSession}
-            onNavigationStateChange={saveSession}
+            onLoadEnd={onLoadEnd}
+            onNavigationStateChange={onNav}
             javaScriptEnabled
             // Per-platform override first (only Amazon sets one - it needs a
             // desktop UA or amazon.in serves a mobile orders page whose DOM the
@@ -428,6 +465,18 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
               It only bypasses the campaign filter for the NEXT fetch; the filter
               is still the default (devShowAll starts false). */}
           {/* eslint-disable-next-line no-undef */}
+          {/* Real feature (not dev-only): a marketplace-independent logout so a
+              user can switch accounts even when the marketplace's own logout is
+              broken/absent in the WebView (Instamart, Zepto). */}
+          {LOGOUT_PLATFORMS[platform.key] ? (
+            <TouchableOpacity
+              style={styles.logoutBtn}
+              onPress={confirmLogout}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.logoutBtnText}>Log out of {platform.name}</Text>
+            </TouchableOpacity>
+          ) : null}
           {__DEV__ ? (
             <View style={styles.devRow}>
               <TouchableOpacity
@@ -438,13 +487,6 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
                 <Text style={[styles.devToggleText, devShowAll && styles.devToggleTextOn]}>
                   {devShowAll ? '● ' : '○ '}Show all my reviews (dev){devShowAll ? ' — filter OFF' : ''}
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.devClear}
-                onPress={clearPlatformSession}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.devClearText}>Clear session for {platform.name} (dev)</Text>
               </TouchableOpacity>
             </View>
           ) : null}
@@ -553,6 +595,11 @@ const styles = StyleSheet.create({
   devClear: { marginTop: 2, paddingVertical: 8, alignItems: 'center' },
   devClearText: { fontSize: 12, color: '#b3261e', fontWeight: '600', textDecorationLine: 'underline' },
   fetchBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
+  logoutBtn: {
+    marginHorizontal: 14, marginBottom: 6, paddingVertical: 12, alignItems: 'center',
+    borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e0b3b3', backgroundColor: '#fff6f6',
+  },
+  logoutBtnText: { fontSize: 13, color: '#b3261e', fontWeight: '700' },
   resultsHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth,

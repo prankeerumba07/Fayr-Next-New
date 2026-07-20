@@ -1854,6 +1854,16 @@ const blinkit = {
   name: 'Blinkit',
   authCookies: ['gr_1_accessToken'],
   color: '#0C831F',
+  // Land DIRECTLY on Order History (like Zepto/Instamart) so the list loads and
+  // the discovery hook captures order_history without the user navigating.
+  //
+  // CAVEAT (do not "fix" by reverting to home): Blinkit gates the account area
+  // behind a delivery-location selection. If this deep link ever shows a blank
+  // page with only a "Location" header, the saved delivery location was CLEARED
+  // (e.g. by a session wipe / clearSession) - not a code bug. Open blinkit.com
+  // home ONCE and set the delivery address; it persists in WebKit storage
+  // (localStorage/cookies) across relaunches, and Order History then opens
+  // directly again. (Zepto/Instamart don't hard-gate the deep link the same way.)
   startUrl: 'https://blinkit.com/account/orders',
   // Keep the interceptor: Blinkit's order data comes back as server-driven
   // "layout" widget trees (v1/layout/order_history + order_details). Those
@@ -1861,7 +1871,7 @@ const blinkit = {
   // re-fetching them blind we parse the real authenticated responses the hook
   // already captured while you browsed Account -> Orders.
   beforeLoadScript: discoveryHook(),
-  hint: 'Log in if asked and let your Orders list load, then tap "Fetch my reviews". (No need to open individual orders.)',
+  hint: 'Let your Orders list load, then tap "Fetch my reviews". (No need to open individual orders.)',
   // Blinkit's WEB order_history layout gives full order facts (id, date, amount,
   // products, delivered/returned) but in our sample carried no star rating. A
   // rating, if the web surfaces one, appears on the order_DETAILS page - so we

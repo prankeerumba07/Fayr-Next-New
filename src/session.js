@@ -24,7 +24,13 @@
 let CookieManager = null;
 try {
   // eslint-disable-next-line global-require
-  CookieManager = require('@react-native-cookies/cookies').default;
+  const mod = require('@react-native-cookies/cookies');
+  // The package exports a CommonJS object (`module.exports = { get, set,
+  // clearAll, ... }`) with NO `.default`. Reading `.default` gave `undefined`,
+  // so CookieManager was dead the whole time - every cookie op silently no-op'd
+  // and login only survived via WebKit's own native persistence. Grab `.default`
+  // if a bundler ever adds one, else the module object itself.
+  CookieManager = mod ? (mod.default || mod) : null;
 } catch (e) {
   CookieManager = null;
 }
@@ -35,14 +41,17 @@ try {
 // are never undefined at runtime (which silently no-op'd every save).
 let FileCtor = null;
 let PathsObj = null;
+let DirectoryCtor = null;
 try {
   // eslint-disable-next-line global-require
   const FS = require('expo-file-system');
   FileCtor = FS.File || (FS.default && FS.default.File) || null;
   PathsObj = FS.Paths || (FS.default && FS.default.Paths) || null;
+  DirectoryCtor = FS.Directory || (FS.default && FS.default.Directory) || null;
 } catch (e) {
   FileCtor = null;
   PathsObj = null;
+  DirectoryCtor = null;
 }
 
 // Legacy only: old snapshots may still live in SecureStore (pre-2026-07-18).
@@ -298,4 +307,100 @@ export async function clearSession(platformKey, url) {
   }
 
   return { found, cleared: Math.max(0, found - remaining), remaining, domains, webkit, shared, fellBack };
+}
+
+// RELIABLE LOGOUT primitive: nuke ALL cookies in BOTH iOS stores.
+//
+// A url-scoped clear (clearSession above) can't log out platforms whose auth
+// cookies sit on a domain the WebView's start URL never sees - e.g. Zepto's real
+// domain is zeptonow.com, not the zepto.com startUrl, and Instamart/Swiggy spread
+// auth across subdomains. clearAll ignores domain entirely, so it always removes
+// them. Other platforms' LIVE cookies go too, but they self-heal: their saved
+// snapshot re-injects on next open (fill-missing restore) - UNLESS we also forget
+// that platform's snapshot (see forgetSnapshot), which is how a single-platform
+// logout stays logged out while the rest come back.
+export async function clearAllCookies() {
+  if (!CookieManager) return false;
+  let ok = false;
+  try { await CookieManager.clearAll(true); ok = true; } catch (e) { /* ignore */ }
+  try { await CookieManager.clearAll(false); ok = true; } catch (e) { /* ignore */ }
+  return ok;
+}
+
+// Forget ONE platform's saved session so restore can't bring it back after a
+// cookie wipe. This is what makes clearAllCookies() a *targeted* logout: the
+// platform whose snapshot we forget stays out; everyone else restores.
+export async function forgetSnapshot(platformKey) {
+  try { const f = fileFor(platformKey); if (f && f.exists) f.delete(); } catch (e) { /* ignore */ }
+  try { if (SecureStore) await SecureStore.deleteItemAsync(keyFor(platformKey)); } catch (e) { /* ignore */ }
+}
+
+// Targeted logout for ONE platform: forget its snapshot, then expire its cookies
+// in BOTH iOS stores for EACH given url. Pass both the start URL and the WebView's
+// CURRENT url - a marketplace that redirects (Zepto's zepto.com -> zeptonow.com,
+// Swiggy's subdomains) keeps its auth cookies on the redirected domain, which a
+// start-URL-only clear never sees. Only this platform's cookies go; others are
+// untouched. Requires CookieManager (now correctly resolved - see the require).
+export async function logoutPlatform(platformKey, urls) {
+  // Forget this platform's saved snapshot FIRST, so nothing (a later fill-missing
+  // restore) can re-inject the account we're logging out of after the wipe.
+  await forgetSnapshot(platformKey);
+  if (!CookieManager) return { ok: false, cleared: 0, remaining: 0 };
+  const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
+
+  // Count what's live first, so we can report how many were actually removed.
+  async function countCookies() {
+    let n = 0;
+    for (const u of list) {
+      for (const useWebKit of [true, false]) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          n += Object.keys((await CookieManager.get(u, useWebKit)) || {}).length;
+        } catch (e) { /* ignore */ }
+      }
+    }
+    return n;
+  }
+  const before = await countCookies();
+
+  // DETERMINISTIC LOGOUT. The earlier targeted per-cookie delete
+  // (clearCookieStore) is UNRELIABLE for cookies on the dotted PARENT domain
+  // (.swiggy.com / .zeptonow.com) - and worse, after it runs CookieManager.get()
+  // briefly reports those cookies as GONE while they still sit in
+  // NSHTTPCookieStorage (the on-disk .binarycookies). So a "remaining === 0"
+  // check passed, the fallback never fired, and sharedCookiesEnabled re-synced
+  // the cookie back into the WebView on reload -> still logged in. Proven by
+  // reading the simulator's cookie jar: `.swiggy.com` cookies survived every
+  // targeted logout. clearAll on BOTH stores is the ONLY primitive that reliably
+  // removes a dotted-domain cookie, so for a logout we do it UNCONDITIONALLY
+  // rather than gating it on an unreliable count. It drops every marketplace's
+  // LIVE cookies too, but they self-heal (fill-missing restore re-injects each
+  // one's snapshot on next open); this platform's snapshot is already forgotten,
+  // so it is the only one that stays logged out.
+  try { await CookieManager.clearAll(true); } catch (e) { /* ignore */ }
+  try { await CookieManager.clearAll(false); } catch (e) { /* ignore */ }
+
+  const remaining = await countCookies();
+  // Honest result: cookies were actually cleared iff none remain for these urls.
+  return { ok: remaining === 0, cleared: Math.max(0, before - remaining), remaining };
+}
+
+// Forget EVERY saved session (the "force log out of all" fallback). Best-effort:
+// if the Directory API isn't present it degrades to a no-op, and the caller has
+// still cleared cookies + the current platform's snapshot.
+export async function forgetAllSnapshots() {
+  try {
+    if (!DirectoryCtor || !PathsObj) return false;
+    const dir = new DirectoryCtor(PathsObj.document);
+    const entries = (dir && typeof dir.list === 'function') ? dir.list() : [];
+    for (const entry of entries) {
+      const name = entry && entry.name ? entry.name : '';
+      if (/^fayr_session_.*\.json$/.test(name) && typeof entry.delete === 'function') {
+        try { entry.delete(); } catch (e) { /* ignore */ }
+      }
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
