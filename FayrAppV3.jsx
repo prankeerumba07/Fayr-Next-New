@@ -1360,15 +1360,18 @@ function RedirectScreen({ go, c, afterRedirect }) {
 }
 function LinkAccount({ go, c, linked, linkAccount }) {
   const m = MARKETPLACES[c.marketplace];
-  const [connecting, setConnecting] = useState(false);
-  const [step, setStep] = useState(0); // simulated verify steps
-  const doLink = () => {
-    if (connecting) return;
-    setConnecting(true);
-    setStep(1);
-    setTimeout(() => setStep(2), 900);
-    setTimeout(() => { linkAccount(c.marketplace); go("redirect"); }, 1900);
-  };
+  const url = marketplaceHome(c.marketplace);
+  // REAL connection, browser-adapted. The native app connects by loading the
+  // marketplace in an in-app WebView (react-native-webview) and capturing the
+  // logged-in session cookie — that native module can't run on the web, so this
+  // prototype opens the SAME marketplace in a browser tab where the user actually
+  // logs in, then returns to continue. window.open fires straight off the click
+  // gesture, so it is NOT popup-blocked (the old code never opened anything — it
+  // only ran a fake "confirming…" timer, which is why nothing happened).
+  const [phase, setPhase] = useState("intro"); // intro | opened
+  const openMarketplace = () => { try { window.open(url, "_blank", "noopener,noreferrer"); } catch (e) {} };
+  const connect = () => { openMarketplace(); setPhase("opened"); };
+  const finishConnect = () => { linkAccount(c.marketplace); go("redirect"); };
   const points = [
     ["🛡️", "Protects your refunds", `Makes sure only you can claim refunds against your ${m.name} purchases — no one else can.`],
     ["🤝", "Keeps campaigns fair", "Confirms one real person per claim, so bots and duplicates don't take the slots."],
@@ -1376,15 +1379,18 @@ function LinkAccount({ go, c, linked, linkAccount }) {
   ];
   return (
     <Screen>
-      <TopBar title="Quick confirmation" onBack={() => go("detail")} />
+      <TopBar title="Connect your account" onBack={() => go("detail")} />
       <div className="fayr-scroll" style={{ flex: 1, overflowY: "auto", padding: "4px 22px 22px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 4 }}>
           <BrandLogo mid={c.marketplace} size={54} />
           <div>
-            <h1 style={{ ...hTitle, fontSize: 22 }}>Confirm it's your<br />{m.name} account</h1>
+            <h1 style={{ ...hTitle, fontSize: 22 }}>Connect your<br />{m.name} account</h1>
           </div>
         </div>
-        <p style={{ ...hSub, marginTop: 12 }}>You'll shop on {m.name} in a second. We just confirm the account you buy from is <b style={{ color: C.ink2 }}>yours</b> — the one using your fayr number or email. That's it.</p>
+        {/* Mandatory-step banner: this is the required gate before the purchase
+            journey — the user cannot reach the marketplace without connecting. */}
+        <div style={{ marginTop: 12, display: "inline-flex", alignItems: "center", gap: 7, background: "#FFF3D6", border: "1px solid #EAD79A", borderRadius: 100, padding: "5px 12px", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 11.5, color: "#8a6d10" }}>🔒 Required before you can buy</div>
+        <p style={{ ...hSub, marginTop: 12 }}>Before you shop on {m.name}, connect the account you'll buy from — the one using your fayr number or email. This is a <b style={{ color: C.ink2 }}>one-time, required step</b>; you can't continue to the purchase without it.</p>
 
         {/* prominent reassurance banner — what we DON'T do */}
         <div style={{ marginTop: 16, background: "linear-gradient(135deg,#EAF2FF,#F3F8FF)", border: "1px solid #CBE0FF", borderRadius: 16, padding: "13px 15px" }}>
@@ -1407,19 +1413,34 @@ function LinkAccount({ go, c, linked, linkAccount }) {
             </div>
           ))}
         </div>
-        {connecting && (
-          <div style={{ marginTop: 14, background: "#fff", borderRadius: 12, padding: "11px 13px", fontFamily: "ui-monospace, monospace", fontSize: 11, color: C.sub, lineHeight: 1.7 }}>
-            → matching your {m.name} account…<br />
-            {step >= 1 && <>→ confirming it's you…<br /></>}
-            {step >= 2 && <span style={{ color: C.greenDeep, fontWeight: 700 }}>✓ confirmed — it's your account</span>}
+        {phase === "opened" && (
+          <div style={{ marginTop: 14, background: "#F1FAEC", border: "1px solid #CDE9BE", borderRadius: 12, padding: "12px 14px" }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: C.greenDeep, marginBottom: 4 }}>✓ {m.name} opened in a new tab</div>
+            <div style={{ fontFamily: FONT_BODY, fontWeight: 500, fontSize: 11.5, color: C.sub, lineHeight: 1.5 }}>
+              Log in to {m.name} there with your fayr mobile number (sign in if it asks). Once you're logged in, come back and tap <b style={{ color: C.ink2 }}>I've logged in — continue</b>.
+            </div>
           </div>
         )}
       </div>
       <div style={{ padding: "10px 20px 20px" }}>
-        <Pill onClick={doLink} disabled={connecting} color={m.color} text={m.inkOn}>
-          {connecting ? "CONFIRMING…" : `CONFIRM & CONTINUE`}
-        </Pill>
-        <TextBtn onClick={() => go("detail")}>Not now — back to campaign</TextBtn>
+        {phase === "intro" ? (
+          <Pill onClick={connect} color={m.color} text={m.inkOn}>
+            CONNECT MY {m.name.toUpperCase()} ACCOUNT →
+          </Pill>
+        ) : (
+          <>
+            <Pill onClick={finishConnect} color="linear-gradient(to bottom,#2E9E00,#1D7400)">
+              I'VE LOGGED IN — CONTINUE →
+            </Pill>
+            <TextBtn onClick={openMarketplace}>Didn't open? Open {m.name} again</TextBtn>
+          </>
+        )}
+        {/* MANDATORY: no "skip / not now" here. Connecting (open the marketplace,
+            log in, continue) is the only way forward. The back arrow (top-left)
+            just cancels back to the campaign — it never reaches checkout. */}
+        <div style={{ textAlign: "center", marginTop: 9, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 10.5, color: C.sub, lineHeight: 1.4 }}>
+          Connecting your {m.name} account is required to continue your purchase.
+        </div>
       </div>
     </Screen>
   );
