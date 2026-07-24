@@ -16,6 +16,15 @@ export const envSchema = z.object({
     .default('development'),
   // Coerce because process.env values are always strings.
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  // Postgres connection string. Required — the service is useless without a DB,
+  // so a missing/malformed URL must stop the boot with a clear message rather
+  // than surfacing as a cryptic connection error on the first query.
+  DATABASE_URL: z
+    .string()
+    .min(1, 'DATABASE_URL is required')
+    .refine((v) => /^postgres(ql)?:\/\//i.test(v), {
+      message: 'DATABASE_URL must be a postgres:// connection string',
+    }),
 });
 
 export type Env = z.infer<typeof envSchema>;

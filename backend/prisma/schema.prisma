@@ -1,0 +1,88 @@
+// Fayr backend — Prisma schema (PostgreSQL).
+//
+// Phase 0 defines only the AUTH FOUNDATION: users, OTP challenges, and refresh
+// tokens. The domain tables (campaigns, tasks, the double-entry wallet ledger,
+// payouts) arrive in Phase 1 — added here as new models + migrations, never by
+// editing a migration that has already been applied.
+//
+// Conventions:
+//   - UUID primary keys (opaque, non-enumerable — safe to expose in URLs/tokens).
+//   - snake_case table names via @@map, so the SQL reads naturally.
+//   - Secrets (OTP codes, refresh tokens) are stored ONLY as hashes — a DB leak
+//     must never reveal a usable credential.
+//   - Money will be BigInt paise (integer), never a float. (Lands in Phase 1.)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A Fayr user. Authentication is mobile-number-only (E.164). Profile and
+/// fraud-anchor fields (name, PAN, UPI/bank for dedup) are added in later phases.
+model User {
+  id        String     @id @default(uuid()) @db.Uuid
+  mobile    String     @unique // E.164, e.g. +919876543210
+  status    UserStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  otpChallenges OtpChallenge[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+}
+
+/// A one-time-password challenge for login/registration.
+/// The 6-digit code is NEVER stored in plaintext — only a hash — so a database
+/// leak cannot reveal a live code. Rows are short-lived and single-use
+/// (consumedAt), with an attempt counter that lets the service throttle brute
+/// force and stop reuse.
+model OtpChallenge {
+  id         String     @id @default(uuid()) @db.Uuid
+  mobile     String // target number (a User may or may not exist yet)
+  codeHash   String // hash of the 6-digit code — never the code itself
+  purpose    OtpPurpose @default(LOGIN)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int        @default(0)
+  createdAt  DateTime   @default(now())
+
+  userId String? @db.Uuid
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([mobile, createdAt])
+  @@map("otp_challenges")
+}
+
+enum OtpPurpose {
+  LOGIN
+}
+
+/// A refresh token in the JWT rotation scheme.
+/// Only a HASH of the opaque token is stored, so the database never holds a
+/// usable token. Rotation revokes the old row (revokedAt) and issues a new one;
+/// revokedAt + expiresAt gate validity. Device metadata supports a future
+/// "your active sessions" screen and targeted revocation.
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  userAgent String?
+  ip        String?
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
