@@ -1,4 +1,9 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -14,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 @Controller('health')
 export class HealthController {
   private readonly startedAt = Date.now();
+  private readonly logger = new Logger(HealthController.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -39,12 +45,16 @@ export class HealthController {
       await this.prisma.$queryRaw`SELECT 1`;
       return { status: 'ready', db: 'up', timestamp: new Date().toISOString() };
     } catch (err) {
-      // 503, with a reason — never an unhandled 500. The load balancer reads the
-      // status code; the reason helps whoever is on call.
+      // Log the REAL cause server-side for whoever is on call...
+      this.logger.error(
+        `Readiness check failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      // ...but return a GENERIC reason to the caller. A probe response must not
+      // leak infra details (DB host/port, driver internals). 503, never a 500.
       throw new ServiceUnavailableException({
         status: 'not_ready',
         db: 'down',
-        reason: err instanceof Error ? err.message : 'database unreachable',
+        reason: 'database unreachable',
       });
     }
   }
