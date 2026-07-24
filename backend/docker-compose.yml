@@ -1,0 +1,28 @@
+# Local dev PostgreSQL. Used from step 0.2 (migrations) onward.
+#   Start:  docker compose up -d
+#   Stop:   docker compose down          (keeps data)
+#   Reset:  docker compose down -v       (deletes the volume — wipes the DB)
+#
+# Requires Docker Desktop. Credentials here are LOCAL-DEV ONLY and match the
+# DATABASE_URL in .env.example; production uses managed Postgres + real secrets.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: fayr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fayr
+      POSTGRES_PASSWORD: fayr
+      POSTGRES_DB: fayr_dev
+    ports:
+      - '5432:5432'
+    volumes:
+      - fayr-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fayr -d fayr_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  fayr-pgdata:
