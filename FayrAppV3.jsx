@@ -5,17 +5,23 @@ import * as bridge from "./src/bridge.js";
 import { formatPaise } from "./src/money.js";
 
 // ── Real backend wiring (auth) ───────────────────────────────────────────────
-// This prototype talks to the actual NestJS auth API under backend/. By default
-// the backend is assumed to run on the SAME host that served this page, on port
-// 3000 — so loading the prototype from http://localhost:8000 hits localhost:3000,
-// and loading it from your laptop's LAN address (e.g. http://192.0.0.2:8000 on a
-// phone) hits 192.0.0.2:3000, with nothing to configure. Override explicitly by
-// setting `window.FAYR_API_BASE` before the app loads.
-const API_BASE =
-  (typeof window !== "undefined" && window.FAYR_API_BASE) ||
-  (typeof window !== "undefined" && window.location && window.location.hostname
-    ? `${window.location.protocol}//${window.location.hostname}:3000`
-    : "http://localhost:3000");
+// This prototype talks to the actual NestJS auth API under backend/. The base URL
+// is resolved in priority order:
+//   1. window.FAYR_API_BASE, if set — explicit override.
+//   2. Page served on a STANDARD port (443/80/none) → it came through a tunnel or
+//      reverse proxy that also routes the API, so the backend is SAME-ORIGIN.
+//      (e.g. a Cloudflare quick tunnel for demoing on a phone over LTE.)
+//   3. Otherwise the page came straight from the static preview server (e.g.
+//      :8000), so the backend is the same host on :3000 — covers localhost and a
+//      LAN address (phone on the same hotspot) with zero config.
+function resolveApiBase() {
+  if (typeof window === "undefined" || !window.location) return "http://localhost:3000";
+  if (window.FAYR_API_BASE) return window.FAYR_API_BASE;
+  const { protocol, hostname, port, origin } = window.location;
+  if (!port || port === "80" || port === "443") return origin; // tunnel / reverse proxy
+  return `${protocol}//${hostname}:3000`; // direct static server (localhost / LAN)
+}
+const API_BASE = resolveApiBase();
 
 // A 10-digit Indian mobile → E.164 (+91…), the exact shape the backend validates.
 const toE164 = (p) => "+91" + String(p || "").replace(/\D/g, "").slice(-10);
