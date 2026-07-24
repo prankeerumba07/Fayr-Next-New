@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
@@ -6,6 +6,18 @@ import type { Env } from './config/env.validation';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
+
+  // Validate and shape every request body against its DTO before it reaches a
+  // handler. `whitelist` strips unknown properties, `forbidNonWhitelisted`
+  // rejects them outright, and `transform` produces real DTO instances — so a
+  // handler never sees an unvalidated or unexpected shape.
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
 
   // Run onModuleDestroy / onApplicationShutdown hooks on SIGTERM/SIGINT, so the
   // process drains cleanly (DB pools, timers) instead of being hard-killed —

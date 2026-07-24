@@ -4,6 +4,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -16,6 +17,10 @@ import { PrismaService } from '../prisma/prisma.service';
  *                       503 (not a crash) when it isn't, so a load balancer can
  *                       route away until it recovers.
  */
+// Health probes are polled continuously by infra from a small set of IPs —
+// rate-limiting them would starve the very checks that keep the service in
+// rotation. Exempt the whole controller from the global throttler.
+@SkipThrottle()
 @Controller('health')
 export class HealthController {
   private readonly startedAt = Date.now();

@@ -25,6 +25,21 @@ export const envSchema = z.object({
     .refine((v) => /^postgres(ql)?:\/\//i.test(v), {
       message: 'DATABASE_URL must be a postgres:// connection string',
     }),
+
+  // --- Authentication (step 0.3) -------------------------------------------
+  // Signing secret for JWT access tokens. Security-sensitive → REQUIRED with no
+  // default: a forgeable token is a full account takeover, so the process must
+  // refuse to boot without a real secret rather than fall back to a known one.
+  // 32-char minimum keeps the HMAC key from being trivially brute-forced.
+  JWT_ACCESS_SECRET: z
+    .string()
+    .min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
+  // Access-token lifetime. Short by design (see refresh rotation): a leaked
+  // access token is only useful for this window. `ms`-style string for @nestjs/jwt.
+  JWT_ACCESS_TTL: z.string().min(1).default('15m'),
+  // Refresh-token lifetime in days. Long-lived but revocable and rotated on every
+  // use, so a stolen refresh token is caught by reuse detection.
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 });
 
 export type Env = z.infer<typeof envSchema>;
