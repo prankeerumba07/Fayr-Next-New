@@ -44,10 +44,16 @@ async function bootstrap(): Promise<void> {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  await app.listen(port);
+  // Bind to 0.0.0.0 (all interfaces), not just loopback, so other devices on the
+  // same network — e.g. a phone on the same hotspot — can reach the API, not only
+  // the laptop itself.
+  await app.listen(port, '0.0.0.0');
   app
     .get(Logger)
-    .log(`Fayr backend listening on http://localhost:${port}`, 'Bootstrap');
+    .log(
+      `Fayr backend listening on http://0.0.0.0:${port} (reachable at http://<this-machine-lan-ip>:${port})`,
+      'Bootstrap',
+    );
 }
 
 // Any failure to boot must exit non-zero and loud, never a silent half-start

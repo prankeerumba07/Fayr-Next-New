@@ -5,11 +5,17 @@ import * as bridge from "./src/bridge.js";
 import { formatPaise } from "./src/money.js";
 
 // ── Real backend wiring (auth) ───────────────────────────────────────────────
-// This prototype talks to the actual NestJS auth API under backend/. Override the
-// base URL by setting `window.FAYR_API_BASE` before the app loads.
+// This prototype talks to the actual NestJS auth API under backend/. By default
+// the backend is assumed to run on the SAME host that served this page, on port
+// 3000 — so loading the prototype from http://localhost:8000 hits localhost:3000,
+// and loading it from your laptop's LAN address (e.g. http://192.0.0.2:8000 on a
+// phone) hits 192.0.0.2:3000, with nothing to configure. Override explicitly by
+// setting `window.FAYR_API_BASE` before the app loads.
 const API_BASE =
   (typeof window !== "undefined" && window.FAYR_API_BASE) ||
-  "http://localhost:3000";
+  (typeof window !== "undefined" && window.location && window.location.hostname
+    ? `${window.location.protocol}//${window.location.hostname}:3000`
+    : "http://localhost:3000");
 
 // A 10-digit Indian mobile → E.164 (+91…), the exact shape the backend validates.
 const toE164 = (p) => "+91" + String(p || "").replace(/\D/g, "").slice(-10);

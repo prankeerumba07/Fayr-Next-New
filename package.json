@@ -24,7 +24,7 @@
     "web": "expo start --web",
     "test": "node src/taskflow.test.mjs && node src/bridge.test.mjs && node src/taskstatus-wiring.test.mjs && node src/session.test.mjs && node src/match.test.mjs && node src/evidence.test.mjs",
     "web:preview:build": "esbuild web-preview/entry.jsx --bundle --outfile=web-preview/bundle.js --format=iife",
-    "web:preview": "npm run web:preview:build && python3 -m http.server 8000 --directory web-preview"
+    "web:preview": "npm run web:preview:build && python3 -m http.server 8000 --bind 0.0.0.0 --directory web-preview"
   },
   "devDependencies": {
     "esbuild": "0.28.1",
