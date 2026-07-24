@@ -19,11 +19,14 @@ import type { Env } from '../config/env.validation';
  *    through pino-pretty for readability.
  */
 export function buildLoggerOptions(config: ConfigService<Env, true>): Params {
-  const isProd = config.get('NODE_ENV', { infer: true }) === 'production';
+  const nodeEnv = config.get('NODE_ENV', { infer: true });
+  const isProd = nodeEnv === 'production';
+  const isDev = nodeEnv === 'development';
 
   return {
     pinoHttp: {
-      level: isProd ? 'info' : 'debug',
+      // Quiet during tests; verbose in dev; production stays at info.
+      level: isProd ? 'info' : isDev ? 'debug' : 'silent',
 
       genReqId: (req: IncomingMessage, res: ServerResponse): string => {
         const incoming = req.headers['x-request-id'];
@@ -52,12 +55,15 @@ export function buildLoggerOptions(config: ConfigService<Env, true>): Params {
         remove: true,
       },
 
-      transport: isProd
-        ? undefined
-        : {
+      // Pretty output only in dev. In prod/test the transport is left undefined
+      // (plain JSON to stdout) — and crucially, no pino-pretty worker thread is
+      // spawned, which keeps Jest free of lingering open handles.
+      transport: isDev
+        ? {
             target: 'pino-pretty',
             options: { singleLine: true, translateTime: 'SYS:standard' },
-          },
+          }
+        : undefined,
     },
   };
 }

@@ -110,9 +110,9 @@ describe('AuthService', () => {
     it('rejects when there is no pending challenge', async () => {
       const { service, prisma } = build();
       prisma.otpChallenge.findFirst.mockResolvedValue(null);
-      await expect(
-        service.verifyOtp(MOBILE, '123456'),
-      ).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(service.verifyOtp(MOBILE, '123456')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
     });
 
     it('rejects an expired challenge', async () => {
@@ -124,9 +124,9 @@ describe('AuthService', () => {
         attempts: 0,
         consumedAt: null,
       });
-      await expect(
-        service.verifyOtp(MOBILE, '123456'),
-      ).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(service.verifyOtp(MOBILE, '123456')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
     });
 
     it('locks after too many attempts', async () => {
@@ -138,9 +138,9 @@ describe('AuthService', () => {
         attempts: OTP_MAX_ATTEMPTS,
         consumedAt: null,
       });
-      await expect(
-        service.verifyOtp(MOBILE, '123456'),
-      ).rejects.toThrow('Too many attempts');
+      await expect(service.verifyOtp(MOBILE, '123456')).rejects.toThrow(
+        'Too many attempts',
+      );
     });
 
     it('increments attempts and rejects on a wrong code', async () => {
@@ -153,9 +153,9 @@ describe('AuthService', () => {
         consumedAt: null,
       });
 
-      await expect(
-        service.verifyOtp(MOBILE, '222222'),
-      ).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(service.verifyOtp(MOBILE, '222222')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
 
       expect(prisma.otpChallenge.update).toHaveBeenCalledWith({
         where: { id: 'c1' },
@@ -209,9 +209,9 @@ describe('AuthService', () => {
         status: 'BLOCKED',
       });
 
-      await expect(
-        service.verifyOtp(MOBILE, '123456'),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.verifyOtp(MOBILE, '123456')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
 
       // The correct code is burned even for a blocked account, so it can't be
       // retried, and no token is issued.

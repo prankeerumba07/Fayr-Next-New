@@ -63,7 +63,10 @@ describe('TokenService', () => {
   describe('issueTokens', () => {
     it('stores only the HASH of the refresh token, never the plaintext', async () => {
       const { service, prisma } = build();
-      const result = await service.issueTokens({ id: 'u1', mobile: '+919876543210' });
+      const result = await service.issueTokens({
+        id: 'u1',
+        mobile: '+919876543210',
+      });
 
       expect(result.accessToken).toBe('signed.access.jwt');
       expect(result.tokenType).toBe('Bearer');
@@ -162,9 +165,9 @@ describe('TokenService', () => {
         expiresAt: future(),
         user: { id: 'u1', mobile: '+919876543210', status: 'BLOCKED' },
       });
-      await expect(
-        service.rotateRefreshToken('token'),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.rotateRefreshToken('token')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
     });
 
     it('treats a lost rotation race as reuse and revokes all sessions', async () => {

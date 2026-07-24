@@ -36,7 +36,13 @@ import { PrismaModule } from './prisma/prisma.module';
       inject: [ConfigService],
       useFactory: buildLoggerOptions,
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60_000, limit: 60 }],
+      // Rate limiting is disabled only under NODE_ENV=test, so the functional
+      // e2e suite isn't throttled by cumulative requests. Every real environment
+      // (development, production) always enforces it.
+      skipIf: () => process.env.NODE_ENV === 'test',
+    }),
     PrismaModule,
     HealthModule,
     AuthModule,

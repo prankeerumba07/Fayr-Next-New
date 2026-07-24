@@ -50,10 +50,7 @@ describe('AllExceptionsFilter', () => {
     const res = makeRes();
     filter.catch(
       new BadRequestException(['mobile must be E.164']),
-      makeHost(
-        { id: 'req-1', url: '/auth/otp/request', method: 'POST' },
-        res,
-      ),
+      makeHost({ id: 'req-1', url: '/auth/otp/request', method: 'POST' }, res),
     );
 
     expect(res.statusCode).toBe(400);

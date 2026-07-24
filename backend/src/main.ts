@@ -1,8 +1,9 @@
-import { Logger as NestLogger, ValidationPipe } from '@nestjs/common';
+import { Logger as NestLogger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { configureApp } from './app.setup';
 import type { Env } from './config/env.validation';
 
 async function bootstrap(): Promise<void> {
@@ -14,17 +15,9 @@ async function bootstrap(): Promise<void> {
   // line is structured and carries the request id.
   app.useLogger(app.get(Logger));
 
-  // Validate and shape every request body against its DTO before it reaches a
-  // handler. `whitelist` strips unknown properties, `forbidNonWhitelisted`
-  // rejects them outright, and `transform` produces real DTO instances — so a
-  // handler never sees an unvalidated or unexpected shape.
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  // Global request validation/shaping — shared with the e2e tests so both run
+  // the identical pipeline (see app.setup.ts).
+  configureApp(app);
 
   // Run onModuleDestroy / onApplicationShutdown hooks on SIGTERM/SIGINT, so the
   // process drains cleanly (DB pools, timers) instead of being hard-killed —
