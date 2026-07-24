@@ -1,0 +1,24 @@
+# Rebuilt inside the image — never copy the host's versions.
+node_modules
+dist
+coverage
+
+# Secrets must never enter the build context or image.
+.env
+.env.*
+
+# Dev-only / not needed to build or run.
+test
+.github
+*.md
+.prettierrc
+.prettierignore
+eslint.config.mjs
+jest.config.js
+docker-compose.yml
+Dockerfile
+.dockerignore
+.git
+.gitignore
+.DS_Store
+*.log

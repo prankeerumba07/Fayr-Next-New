@@ -81,3 +81,12 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Guards the production Dockerfile — a broken image (e.g. a missing runtime
+  # system lib) fails here instead of at deploy time.
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build -t fayr-backend:ci ./backend
