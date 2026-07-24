@@ -3,6 +3,6 @@
 // real app is React Native under src/. esbuild bundles this to bundle.js.
 import React from "react";
 import { createRoot } from "react-dom/client";
-import FayrApp from "../FayrAppV3.jsx";
+import FayrApp from "../fayr-design.browser.jsx";
 
 createRoot(document.getElementById("root")).render(<FayrApp />);
