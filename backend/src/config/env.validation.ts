@@ -40,6 +40,12 @@ export const envSchema = z.object({
   // Refresh-token lifetime in days. Long-lived but revocable and rotated on every
   // use, so a stolen refresh token is caught by reuse detection.
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+
+  // Comma-separated allowlist of browser origins permitted via CORS (e.g. the
+  // web prototype at http://localhost:8000). In non-production an empty value
+  // reflects the request origin for local convenience; in production an empty
+  // value means NO cross-origin access — set it explicitly per deploy.
+  CORS_ORIGINS: z.string().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;

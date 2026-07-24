@@ -4,6 +4,48 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import * as bridge from "./src/bridge.js";
 import { formatPaise } from "./src/money.js";
 
+// ── Real backend wiring (auth) ───────────────────────────────────────────────
+// This prototype talks to the actual NestJS auth API under backend/. Override the
+// base URL by setting `window.FAYR_API_BASE` before the app loads.
+const API_BASE =
+  (typeof window !== "undefined" && window.FAYR_API_BASE) ||
+  "http://localhost:3000";
+
+// A 10-digit Indian mobile → E.164 (+91…), the exact shape the backend validates.
+const toE164 = (p) => "+91" + String(p || "").replace(/\D/g, "").slice(-10);
+
+async function apiPost(path, body) {
+  let res;
+  try {
+    res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // Backend not running / network / CORS — one friendly, actionable message.
+    const e = new Error(`Can't reach the Fayr server at ${API_BASE}. Is the backend running?`);
+    e.kind = "network";
+    throw e;
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* no / empty body */ }
+  if (!res.ok) {
+    const msg = data && (Array.isArray(data.message) ? data.message[0] : data.message);
+    const e = new Error(msg || `Request failed (${res.status})`);
+    e.status = res.status;
+    e.data = data;
+    throw e;
+  }
+  return data;
+}
+
+// The two endpoints the login flow uses. verify → { accessToken, refreshToken, user }.
+const authApi = {
+  requestOtp: (phone) => apiPost("/auth/otp/request", { mobile: toE164(phone) }),
+  verifyOtp: (phone, code) => apiPost("/auth/otp/verify", { mobile: toE164(phone), code }),
+};
+
 // Display only: integer paise -> "1,240.00". The wallet is stored in INTEGER
 // PAISE (per CLAUDE.md: append-only ledger, never floats). Formatting happens
 // HERE, at the edge, and never round-trips through a float — formatPaise is
@@ -412,8 +454,22 @@ function TruecallerSheet({ go, setName, setPhone, setTcName }) {
 function PhoneEntry({ go, phone, setPhone }) {
   const [num, setNum] = useState(phone || "");
   const [touchedInvalid, setTouchedInvalid] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState("");
   const valid = num.length === 10 && /^[6-9]/.test(num);
-  const send = () => { if (!valid) { setTouchedInvalid(true); return; } setPhone(num); go("otp"); };
+  const send = async () => {
+    if (!valid) { setTouchedInvalid(true); return; }
+    setErr(""); setSending(true);
+    try {
+      await authApi.requestOtp(num); // real POST /auth/otp/request
+      setPhone(num);
+      go("otp");
+    } catch (e) {
+      setErr(e.message || "Couldn't send the code. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  };
   return (
     <Screen>
       <TopBar title="Enter your number" onBack={() => go("authlanding")} />
@@ -436,36 +492,46 @@ function PhoneEntry({ go, phone, setPhone }) {
           </div>
           {touchedInvalid && !valid && <p style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12, color: C.red, marginTop: 8 }}>Please enter a valid 10-digit mobile number.</p>}
         </div>
+        {err && <p style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12.5, color: C.red, marginTop: 12 }}>{err}</p>}
         <div style={{ flex: 1 }} />
-        <Pill onClick={send} disabled={!valid} color={valid ? C.ink : "#cfcfcf"}>SEND OTP</Pill>
-        <p style={{ fontFamily: FONT_BODY, fontSize: 11, color: "#a9aa9c", textAlign: "center", marginTop: 10 }}>Button enables when the number is valid.</p>
+        <Pill onClick={send} disabled={!valid || sending} color={valid && !sending ? C.ink : "#cfcfcf"}>{sending ? "SENDING…" : "SEND OTP"}</Pill>
+        <p style={{ fontFamily: FONT_BODY, fontSize: 11, color: "#a9aa9c", textAlign: "center", marginTop: 10 }}>We'll text a 6-digit code to this number.</p>
       </div>
     </Screen>
   );
 }
-function Otp({ go, phone }) {
-  const N = 4;
+function Otp({ go, phone, onVerified }) {
+  const N = 6;
   const [code, setCode] = useState(Array(N).fill(""));
   const refs = useRef(Array.from({ length: N }, () => React.createRef()));
-  const [secs, setSecs] = useState(23);
+  const [secs, setSecs] = useState(60);
   const [fails, setFails] = useState(0);
   const [shake, setShake] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const shown = "+91 " + (phone || "7980952792").replace(/(\d{5})(\d{5})/, "$1 $2");
   useEffect(() => {
     refs.current[0].current && refs.current[0].current.focus();
     const t = setInterval(() => setSecs((s) => (s > 0 ? s - 1 : 0)), 1000);
     return () => clearInterval(t);
   }, []);
-  const submit = (full) => {
-    // demo rule: code "0000" simulates a wrong code; anything else passes
-    if (full === "0000") {
-      const f = fails + 1;
-      setFails(f); setShake(true); setTimeout(() => setShake(false), 300);
-      setCode(Array(N).fill("")); refs.current[0].current.focus();
-      if (f >= 5) go("otplocked");
-      return;
+  const submit = async (full) => {
+    if (busy || full.length !== N) return;
+    setBusy(true); setErr("");
+    try {
+      const res = await authApi.verifyOtp(phone, full); // real POST /auth/otp/verify
+      onVerified && onVerified(res);                     // stash the real session
+      go("setupintro");
+    } catch (e) {
+      setBusy(false);
+      if (e.status === 403) { go("blocked"); return; }   // backend: account blocked
+      const f = fails + 1; setFails(f);
+      setShake(true); setTimeout(() => setShake(false), 300);
+      setCode(Array(N).fill("")); refs.current[0].current && refs.current[0].current.focus();
+      // the backend locks the challenge after 5 wrong tries
+      if (/too many/i.test(e.message || "") || f >= 5) { go("otplocked"); return; }
+      setErr(e.message || "That code didn't match.");
     }
-    go("setupintro");
   };
   const set = (i, v) => {
     v = v.replace(/\D/g, "").slice(-1);
@@ -477,25 +543,25 @@ function Otp({ go, phone }) {
     <Screen>
       <TopBar title="Verify OTP" onBack={() => go("phone")} />
       <div style={{ padding: "6px 26px 26px", flex: 1, display: "flex", flexDirection: "column" }}>
-        <h1 style={hTitle}>Enter the 4-digit code</h1>
+        <h1 style={hTitle}>Enter the 6-digit code</h1>
         <p style={hSub}>Sent to <b style={{ color: C.ink2 }}>{shown}</b> · <span onClick={() => go("phone")} style={{ color: C.green, fontWeight: 700, cursor: "pointer" }}>Wrong number? Edit</span></p>
-        <div style={{ display: "flex", gap: 12, marginTop: 26, animation: shake ? "fayr-shake .3s ease" : "none" }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 26, animation: shake ? "fayr-shake .3s ease" : "none" }}>
           {code.map((v, i) => (
             <input key={i} ref={refs.current[i]} value={v} inputMode="numeric"
               onChange={(e) => set(i, e.target.value)}
               onKeyDown={(e) => e.key === "Backspace" && !v && i > 0 && refs.current[i - 1].current.focus()}
-              style={{ width: 56, height: 62, textAlign: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 25, color: C.ink2, borderRadius: 15, border: `1.5px solid ${fails > 0 && !v ? C.red : v ? C.green : C.line}`, background: "#fff", outline: "none", transition: "border-color .2s" }} />
+              style={{ flex: 1, minWidth: 0, height: 58, padding: 0, textAlign: "center", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 22, color: C.ink2, borderRadius: 13, border: `1.5px solid ${fails > 0 && !v ? C.red : v ? C.green : C.line}`, background: "#fff", outline: "none", transition: "border-color .2s" }} />
           ))}
         </div>
-        {fails > 0
-          ? <p style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12.5, color: C.red, marginTop: 14 }}>That code didn't match. {5 - fails} attempts left.</p>
-          : <p style={{ fontFamily: "ui-monospace, monospace", fontSize: 11.5, color: "#a9aa9c", marginTop: 14 }}>Auto-reading SMS…</p>}
+        {err
+          ? <p style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12.5, color: C.red, marginTop: 14 }}>{err}{fails > 0 ? ` · ${Math.max(0, 5 - fails)} attempts left` : ""}</p>
+          : <p style={{ fontFamily: "ui-monospace, monospace", fontSize: 11.5, color: "#a9aa9c", marginTop: 14 }}>Enter the 6-digit code sent to your number.</p>}
         <p style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.sub, marginTop: 10 }}>
-          {secs > 0 ? <>Resend OTP in <b style={{ color: C.ink2 }}>00:{String(secs).padStart(2, "0")}</b></> : <span onClick={() => setSecs(23)} style={{ color: C.green, fontWeight: 700, cursor: "pointer" }}>Resend OTP</span>}
+          {secs > 0 ? <>Resend code in <b style={{ color: C.ink2 }}>00:{String(secs).padStart(2, "0")}</b></> : <span onClick={async () => { try { await authApi.requestOtp(phone); setErr(""); setSecs(60); } catch (e) { setErr(e.message || "Couldn't resend the code."); } }} style={{ color: C.green, fontWeight: 700, cursor: "pointer" }}>Resend code</span>}
         </p>
-        <p style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: "#b9baa9", marginTop: 8 }}>Demo: enter 0000 to see the fail ladder; anything else verifies.</p>
+        <p style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: "#b9baa9", marginTop: 8 }}>Dev build: your 6-digit code is printed in the backend server console.</p>
         <div style={{ flex: 1 }} />
-        <Pill onClick={() => submit(code.join(""))} disabled={!code.every((x) => x)} color={code.every((x) => x) ? C.ink : "#cfcfcf"}>VERIFY</Pill>
+        <Pill onClick={() => submit(code.join(""))} disabled={!code.every((x) => x) || busy} color={code.every((x) => x) && !busy ? C.ink : "#cfcfcf"}>{busy ? "VERIFYING…" : "VERIFY"}</Pill>
       </div>
     </Screen>
   );
@@ -3154,6 +3220,7 @@ export default function FayrApp() {
   const [tcName, setTcName] = useState(""); // full verified name from Truecaller, for onboarding pre-fill
   const [phone, setPhone] = useState("");
   const [authVia, setAuthVia] = useState("phone");
+  const [session, setSession] = useState(null); // real backend session from /auth/otp/verify: { accessToken, refreshToken, user }
   const [profile, setProfile] = useState({});
   // Ticket economy (your spec): start 15 · claim costs 5 (deducted immediately) ·
   // expired claim → 5 returned · purchase made → 5 consumed permanently ·
@@ -3303,7 +3370,7 @@ export default function FayrApp() {
     authlanding: <AuthLanding go={go} setAuthVia={setAuthVia} />,
     truecaller: <TruecallerSheet go={go} setName={setName} setPhone={setPhone} setTcName={setTcName} />,
     phone: <PhoneEntry go={go} phone={phone} setPhone={setPhone} />,
-    otp: <Otp go={go} phone={phone} />,
+    otp: <Otp go={go} phone={phone} onVerified={(res) => setSession(res)} />,
     otplocked: <OtpLocked go={go} />,
     blocked: <Blocked go={go} />,
     newdevice: <NewDevice go={go} />,

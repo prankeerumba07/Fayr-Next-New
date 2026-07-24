@@ -29,6 +29,21 @@ async function bootstrap(): Promise<void> {
   const config = app.get(ConfigService<Env, true>);
   const port = config.get('PORT', { infer: true });
 
+  // CORS for browser clients (the web prototype, a future web app). An explicit
+  // allowlist wins everywhere; with none set, non-production reflects the request
+  // origin for local convenience, while production stays closed (no cross-origin).
+  const allowlist = config
+    .get('CORS_ORIGINS', { infer: true })
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  const isProd = config.get('NODE_ENV', { infer: true }) === 'production';
+  app.enableCors({
+    origin: allowlist.length > 0 ? allowlist : !isProd,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
   await app.listen(port);
   app
     .get(Logger)
