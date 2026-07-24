@@ -1,11 +1,18 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger as NestLogger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import type { Env } from './config/env.validation';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // `bufferLogs` holds early framework logs until the pino logger is installed,
+  // so even boot-time messages come out structured (and in the right order).
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+
+  // Route ALL logging — framework internals included — through pino, so every
+  // line is structured and carries the request id.
+  app.useLogger(app.get(Logger));
 
   // Validate and shape every request body against its DTO before it reaches a
   // handler. `whitelist` strips unknown properties, `forbidNonWhitelisted`
@@ -30,13 +37,17 @@ async function bootstrap(): Promise<void> {
   const port = config.get('PORT', { infer: true });
 
   await app.listen(port);
-  Logger.log(`Fayr backend listening on http://localhost:${port}`, 'Bootstrap');
+  app
+    .get(Logger)
+    .log(`Fayr backend listening on http://localhost:${port}`, 'Bootstrap');
 }
 
 // Any failure to boot must exit non-zero and loud, never a silent half-start
 // that a health check would then report as "down" with no reason in the logs.
+// This runs before/around the pino logger is available, so use the plain Nest
+// logger here as a last-resort channel.
 bootstrap().catch((err) => {
-  Logger.error(
+  NestLogger.error(
     `Fatal error during bootstrap: ${err instanceof Error ? err.message : String(err)}`,
     err instanceof Error ? err.stack : undefined,
     'Bootstrap',
