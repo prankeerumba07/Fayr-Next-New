@@ -1,14 +1,20 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AuthModule } from './auth/auth.module';
+import { CampaignModule } from './campaigns/campaign.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { buildLoggerOptions } from './logging/pino-logger.config';
 import { PrismaModule } from './prisma/prisma.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
+import { TaskModule } from './tasks/task.module';
+import { TicketModule } from './tickets/ticket.module';
+import { WalletModule } from './wallet/wallet.module';
 
 /**
  * The application root. Feature modules are registered here as we build them.
@@ -36,6 +42,7 @@ import { PrismaModule } from './prisma/prisma.module';
       inject: [ConfigService],
       useFactory: buildLoggerOptions,
     }),
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: 60_000, limit: 60 }],
       // Rate limiting is disabled only under NODE_ENV=test, so the functional
@@ -46,6 +53,11 @@ import { PrismaModule } from './prisma/prisma.module';
     PrismaModule,
     HealthModule,
     AuthModule,
+    WalletModule,
+    TicketModule,
+    CampaignModule,
+    TaskModule,
+    SchedulerModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
