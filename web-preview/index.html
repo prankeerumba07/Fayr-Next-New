@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Fayr prototype — web preview</title>
     <style>html,body{margin:0;background:#E9EBDD}</style>
-    <!-- 3D product hero used by the new design (<model-viewer>). Custom elements
+    <!-- 3D product hero used by the new design (<model-viewer>). Self-hosted from
+         web-preview/vendor so it needs no external CDN or login. Custom elements
          upgrade on load, so render order doesn't matter. -->
-    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+    <script type="module" src="./vendor/model-viewer.min.js"></script>
   </head>
   <body>
     <div id="root"></div>

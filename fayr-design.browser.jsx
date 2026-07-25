@@ -1744,7 +1744,7 @@ const FAQS = [
 // here until a real per-product .glb is supplied via c.model. It is a genuine
 // 3D model rendered by <model-viewer> (neutral-env lighting + reflections),
 // not a flat image.
-const HERO_MODEL = "https://api.getlayers.ai/storage/v1/object/public/public/assets/soda-14ff8a788d/deit_soda2.glb";
+const HERO_MODEL = "./models/hero-soda.glb"; // self-hosted in web-preview/ (decoded from Draco → plain glTF); no external/login-gated fetch
 
 function Detail({ go, c, enrolled, claimed, claim, buyNow, linked }) {
   // Campaign detail as a premium product reveal. The product is a REAL 3D model
