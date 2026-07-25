@@ -9,6 +9,7 @@ import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { buildLoggerOptions } from './logging/pino-logger.config';
 import { PrismaModule } from './prisma/prisma.module';
+import { WalletModule } from './wallet/wallet.module';
 
 /**
  * The application root. Feature modules are registered here as we build them.
@@ -46,6 +47,7 @@ import { PrismaModule } from './prisma/prisma.module';
     PrismaModule,
     HealthModule,
     AuthModule,
+    WalletModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
