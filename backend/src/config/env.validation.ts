@@ -46,6 +46,11 @@ export const envSchema = z.object({
   // reflects the request origin for local convenience; in production an empty
   // value means NO cross-origin access — set it explicitly per deploy.
   CORS_ORIGINS: z.string().default(''),
+
+  // --- Task loop (step 1.5) -------------------------------------------------
+  // How long a claim may sit before purchase before it expires and returns the
+  // user's tickets. Operator policy, not a fetched fact.
+  CLAIM_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
 });
 
 export type Env = z.infer<typeof envSchema>;

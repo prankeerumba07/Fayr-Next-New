@@ -10,6 +10,7 @@ import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { buildLoggerOptions } from './logging/pino-logger.config';
 import { PrismaModule } from './prisma/prisma.module';
+import { TaskModule } from './tasks/task.module';
 import { TicketModule } from './tickets/ticket.module';
 import { WalletModule } from './wallet/wallet.module';
 
@@ -52,6 +53,7 @@ import { WalletModule } from './wallet/wallet.module';
     WalletModule,
     TicketModule,
     CampaignModule,
+    TaskModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
