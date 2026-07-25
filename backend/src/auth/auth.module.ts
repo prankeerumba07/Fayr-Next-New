@@ -27,7 +27,9 @@ import { TokenService } from './token.service';
     { provide: SMS_SENDER, useClass: DevSmsSender },
   ],
   // Exported so later feature modules can guard their routes and (rarely) mint
-  // or revoke tokens.
-  exports: [JwtAuthGuard, TokenService],
+  // or revoke tokens. JwtModule is re-exported too, so JwtAuthGuard's own
+  // dependency (JwtService) resolves wherever a downstream module imports
+  // AuthModule to use the guard.
+  exports: [JwtAuthGuard, TokenService, JwtModule],
 })
 export class AuthModule {}

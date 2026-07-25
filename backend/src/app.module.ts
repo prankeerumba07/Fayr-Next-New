@@ -4,6 +4,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AuthModule } from './auth/auth.module';
+import { CampaignModule } from './campaigns/campaign.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
@@ -50,6 +51,7 @@ import { WalletModule } from './wallet/wallet.module';
     AuthModule,
     WalletModule,
     TicketModule,
+    CampaignModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
