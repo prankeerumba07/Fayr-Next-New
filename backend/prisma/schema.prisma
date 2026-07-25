@@ -1,16 +1,19 @@
 // Fayr backend — Prisma schema (PostgreSQL).
 //
-// Phase 0 defines only the AUTH FOUNDATION: users, OTP challenges, and refresh
-// tokens. The domain tables (campaigns, tasks, the double-entry wallet ledger,
-// payouts) arrive in Phase 1 — added here as new models + migrations, never by
-// editing a migration that has already been applied.
+// Phase 0 defined the AUTH FOUNDATION: users, OTP challenges, refresh tokens.
+// Phase 1 (this schema) adds the DOMAIN: campaigns, tasks (the persisted state
+// machine), the append-only double-entry wallet ledger, and the ticket ledger —
+// added as NEW models + a new migration, never by editing an applied migration.
 //
 // Conventions:
 //   - UUID primary keys (opaque, non-enumerable — safe to expose in URLs/tokens).
 //   - snake_case table names via @@map, so the SQL reads naturally.
 //   - Secrets (OTP codes, refresh tokens) are stored ONLY as hashes — a DB leak
 //     must never reveal a usable credential.
-//   - Money will be BigInt paise (integer), never a float. (Lands in Phase 1.)
+//   - Money is BigInt paise (integer), never a float, never a mutated running
+//     balance. A balance is always SUM() over append-only ledger legs.
+//   - Ledgers (wallet, tickets) are APPEND-ONLY: a posted row is never updated
+//     or deleted (no @updatedAt on those models). Corrections are new entries.
 
 generator client {
   provider = "prisma-client-js"
@@ -26,12 +29,20 @@ datasource db {
 model User {
   id        String     @id @default(uuid()) @db.Uuid
   mobile    String     @unique // E.164, e.g. +919876543210
+  // Human-friendly public identifier shown in the app (e.g. FAYR-100001). It is
+  // DISPLAY-ONLY: the DB fills it from a sequence, and NO endpoint ever accepts
+  // it as a lookup input — id (UUID) and mobile stay the only lookup keys. The
+  // sequence starts at an offset so the value never reveals signup order/count.
+  displayId String     @unique @default(dbgenerated("('FAYR-'::text || lpad((nextval('user_display_seq'::regclass))::text, 6, '0'::text))"))
   status    UserStatus @default(ACTIVE)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  otpChallenges OtpChallenge[]
-  refreshTokens RefreshToken[]
+  otpChallenges  OtpChallenge[]
+  refreshTokens  RefreshToken[]
+  tasks          Task[]
+  ticketEntries  TicketEntry[]
+  walletAccounts WalletAccount[]
 
   @@map("users")
 }
@@ -85,4 +96,268 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+// ===========================================================================
+// PHASE 1 — DOMAIN
+// ===========================================================================
+
+/// A marketplace Fayr operates on. Amazon is the only one used in Phase 1; the
+/// rest are modelled now so campaigns/tasks never need an enum-widening
+/// migration later. Launch order is Amazon first, Flipkart fast-follow.
+enum Platform {
+  AMAZON
+  FLIPKART
+  MEESHO
+  MYNTRA
+  BLINKIT
+  ZEPTO
+  INSTAMART
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+/// The forward money-progression states of a task. REFUNDED is terminal.
+/// Expiry/cancellation is modelled ORTHOGONALLY (closedAt/closeReason), so these
+/// six remain exactly the proven progression in src/taskflow.js — the ranking
+/// logic of the ported transition() must not be disturbed by lifecycle closure.
+enum TaskState {
+  CLAIMED
+  PURCHASED
+  DELIVERED
+  REVIEWED
+  HOLDING
+  REFUNDED
+}
+
+enum WalletAccountKind {
+  USER // one per user — their refundable balance
+  HOUSE // system funding account (the other leg of a refund)
+  PAYOUT // system clearing account for withdrawals
+}
+
+enum LedgerKind {
+  REFUND
+  WITHDRAWAL
+  ADJUSTMENT
+}
+
+enum TicketReason {
+  SIGNUP_GRANT // +15 on registration
+  CLAIM // -5 when a campaign is claimed
+  EXPIRY_RETURN // +5 back if the claim expires with no purchase
+  COMPLETION_RETURN // +10 after full completion + withdrawal
+  ADJUSTMENT // manual correction (append-only, never edits a prior row)
+}
+
+/// A review-and-refund task template an operator publishes. Claiming a campaign
+/// spawns a Task. Read-only in Phase 1 (seeded in 1.4); admin CRUD is a later
+/// phase. Money fields are integer paise.
+model Campaign {
+  id       String         @id @default(uuid()) @db.Uuid
+  platform Platform       @default(AMAZON)
+  status   CampaignStatus @default(ACTIVE)
+
+  title       String
+  productName String
+  category    String? // drives the return-window policy (see taskflow policy table)
+
+  /// Expected product price in integer paise — used ON-DEVICE to match the order
+  /// by name + amount (campaigns carry no marketplace product id). Never a float.
+  productPricePaise BigInt
+
+  /// Payout policy. The refundable figure is computed at refund time from the
+  /// VERIFIED item price; these bound it: min(itemPaise * payoutPercent/100, cap).
+  payoutPercent  Int     @default(100)
+  payoutCapPaise BigInt?
+
+  ticketCost       Int  @default(5) // tickets consumed to claim
+  returnWindowDays Int? // optional per-campaign override of the category policy
+  minRating        Int? // minimum star rating the review must carry, if set
+  totalSlots       Int? // max total claims; null = unlimited
+
+  asin       String? // Amazon target (optional — matching is name+amount)
+  productUrl String?
+  imageUrl   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks Task[]
+
+  @@index([platform, status])
+  @@map("campaigns")
+}
+
+/// A user's claim on a campaign — the persisted state-machine instance. The
+/// authoritative transition() (ported from src/taskflow.js in 1.5) reads/writes
+/// this row. Fields the DB must query or constrain are promoted to columns; the
+/// exact nested evidence the pure functions emit lives in `evidence` (JSONB), so
+/// transition() can hydrate and run unchanged.
+model Task {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaignId String   @db.Uuid
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+
+  platform Platform
+  state    TaskState @default(CLAIMED)
+  /// Frozen at claim from the campaign, so a later campaign edit can never move a
+  /// live task's return window.
+  category String?
+
+  // Match target (opaque to the pure machine; discrete here for querying).
+  targetAsin     String?
+  targetProduct  String?
+  targetReviewId String?
+
+  // Promoted, queryable projections of `evidence` (kept in sync on every write):
+  returned        Boolean? // TRI-STATE: null = unknown, which the refund gate treats differently from false
+  itemPaise       BigInt? // the VERIFIED refundable item price (never the order total)
+  deliveredAt     DateTime?
+  reviewPublished Boolean?
+  windowEndsAt    DateTime? // delivery + return window; anchors the hold AND the 1.6 scheduler
+  claimExpiresAt  DateTime? // deadline to purchase; past it with no purchase -> tickets returned
+
+  blocker       String? // why the task can't advance (BLOCKERS in taskflow)
+  blockerReason String?
+
+  closedAt    DateTime? // terminal bookkeeping (refunded / expired / cancelled)
+  closeReason String?
+
+  /// The canonical nested evidence (order/review/delivery/target) exactly as the
+  /// pure functions produce it.
+  evidence Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events           TaskEvent[]
+  visibilityChecks VisibilityCheck[]
+
+  @@index([userId, state])
+  @@index([campaignId])
+  @@index([state, windowEndsAt]) // scheduler: holds whose return window has ended
+  @@index([state, claimExpiresAt]) // scheduler: claims that expired unpurchased
+  @@map("tasks")
+}
+
+/// Append-only log of every transition applied to a task — the audit history AND
+/// the idempotency guarantee. The unique (taskId, idempotencyKey) makes replays
+/// of the same event fail at the DATABASE, not just an in-memory `applied` check
+/// (nulls are distinct in Postgres, so keyless events are never deduped).
+model TaskEvent {
+  id     String @id @default(uuid()) @db.Uuid
+  taskId String @db.Uuid
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  type           String // event type (EVIDENCE, START_HOLD, RELEASE_REFUND, ...)
+  fromState      TaskState
+  toState        TaskState
+  reason         String?
+  idempotencyKey String? // the event `key`; unique per task when present
+  payload        Json? // the event data, for audit/replay
+  createdAt      DateTime  @default(now())
+
+  @@unique([taskId, idempotencyKey])
+  @@index([taskId, createdAt])
+  @@map("task_events")
+}
+
+/// Append-only audit trail of the HOLDING clawback re-checks (loophole 3, built
+/// in 1.6). Each row records whether the review was still publicly visible at
+/// `checkedAt`. A review that vanished mid-hold must be provable after the fact —
+/// never a boolean that silently flipped.
+model VisibilityCheck {
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @db.Uuid
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  published Boolean
+  checkedAt DateTime @default(now())
+  source    String? // how visibility was determined (e.g. review permalink fetch)
+
+  @@index([taskId, checkedAt])
+  @@map("visibility_checks")
+}
+
+/// A ledger account. One USER account per user holds their refundable balance;
+/// the system HOUSE (funding) and PAYOUT (withdrawal clearing) accounts are
+/// singletons. Balance is SUM(amountPaise) over the account's entries — never a
+/// stored mutable number. Append-only: an account gains entries, never edits.
+model WalletAccount {
+  id     String            @id @default(uuid()) @db.Uuid
+  kind   WalletAccountKind
+  userId String?           @db.Uuid
+  user   User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  entries WalletEntry[]
+
+  /// One account per (user, kind). The migration upgrades this to NULLS NOT
+  /// DISTINCT so the system accounts (userId = null) are also enforced as
+  /// singletons at the database level, not just by convention.
+  @@unique([userId, kind])
+  @@map("wallet_accounts")
+}
+
+/// One economic event, grouping the balanced legs that sum to zero. The unique
+/// idempotencyKey makes posting safe under retries — a refund can never
+/// double-post. referenceType/referenceId link it to its cause (e.g. a task).
+model LedgerTransaction {
+  id             String     @id @default(uuid()) @db.Uuid
+  kind           LedgerKind
+  idempotencyKey String     @unique
+  referenceType  String?
+  referenceId    String?
+  memo           String?
+  createdAt      DateTime   @default(now())
+
+  entries WalletEntry[]
+
+  @@index([referenceType, referenceId])
+  @@map("ledger_transactions")
+}
+
+/// An append-only ledger leg: a signed paise amount posted to one account within
+/// one transaction. NEVER updated or deleted (note the absence of @updatedAt).
+/// Positive credits the account, negative debits it; a transaction's legs always
+/// sum to zero (debits == credits). Enforced by the 1.2 service + a DB guard.
+model WalletEntry {
+  id            String            @id @default(uuid()) @db.Uuid
+  transactionId String            @db.Uuid
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  accountId     String            @db.Uuid
+  account       WalletAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  amountPaise   BigInt
+  createdAt     DateTime          @default(now())
+
+  @@index([accountId])
+  @@index([transactionId])
+  @@map("wallet_entries")
+}
+
+/// Append-only ticket ledger. Tickets are COUNTS, not money, so they are kept
+/// separate from the paise wallet. Balance is SUM(delta). `balanceAfter` is
+/// captured under a row lock for audit; the optional unique idempotencyKey makes
+/// each lifecycle posting safe under retries.
+model TicketEntry {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  delta          Int // +15 grant, -5 claim, +5 expiry-return, +10 completion
+  reason         TicketReason
+  taskId         String?      @db.Uuid
+  balanceAfter   Int // running balance captured at post time, for audit
+  idempotencyKey String?      @unique
+  createdAt      DateTime     @default(now())
+
+  @@index([userId, createdAt])
+  @@map("ticket_entries")
 }
