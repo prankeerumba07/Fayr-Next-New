@@ -19,6 +19,13 @@ export interface EvidenceReview {
   verified?: boolean;
   reviewDate?: number | null;
   reviewDateSource?: string | null;
+  /**
+   * The PUBLIC review permalink. The on-device layer captured it; the backend
+   * re-fetches it server-side during HOLDING (1.6) to independently confirm the
+   * review is still live — the payout signal it can verify without the user's
+   * marketplace session.
+   */
+  permalink?: string | null;
 }
 
 export interface EvidenceOrder {

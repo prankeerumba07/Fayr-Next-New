@@ -51,6 +51,27 @@ export const envSchema = z.object({
   // How long a claim may sit before purchase before it expires and returns the
   // user's tickets. Operator policy, not a fetched fact.
   CLAIM_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+
+  // --- Scheduler (step 1.6) -------------------------------------------------
+  // The maintenance cron: re-checks review visibility during HOLDING, auto-
+  // releases eligible refunds, and expires unpurchased claims. Disabled under
+  // NODE_ENV=test regardless (tests drive the tick directly). A single instance
+  // runs each tick — guarded by a Postgres advisory lock — so it's safe to leave
+  // enabled on every replica.
+  SCHEDULER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // Standard 5-field cron. Default: hourly. A review hold lasts days, so this
+  // cadence is ample; tighten per deploy if needed.
+  SCHEDULER_CRON: z.string().min(1).default('0 * * * *'),
+  // Per-request timeout (ms) for the server-side review-permalink fetch.
+  VISIBILITY_FETCH_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(60000)
+    .default(10000),
 });
 
 export type Env = z.infer<typeof envSchema>;

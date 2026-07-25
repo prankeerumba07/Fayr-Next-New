@@ -31,6 +31,7 @@ class EvidenceReviewDto {
   @IsOptional() @IsBoolean() verified?: boolean;
   @IsOptional() @IsInt() reviewDate?: number; // epoch ms
   @IsOptional() @IsString() reviewDateSource?: string;
+  @IsOptional() @IsString() permalink?: string;
 }
 
 class EvidenceOrderDto {
@@ -102,6 +103,7 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
           verified: dto.review.verified,
           reviewDate: dto.review.reviewDate ?? null,
           reviewDateSource: dto.review.reviewDateSource ?? null,
+          permalink: dto.review.permalink ?? null,
         }
       : null,
     order: dto.order

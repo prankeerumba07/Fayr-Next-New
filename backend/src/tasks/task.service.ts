@@ -30,6 +30,12 @@ import {
 
 type Tx = Prisma.TransactionClient;
 
+/** The outcome of a release attempt — lets the endpoint 409 while the scheduler skips. */
+type ReleaseOutcome =
+  | { status: 'released' | 'already'; task: TaskResponse }
+  | { status: 'ineligible'; reasons: string[] }
+  | { status: 'amount-unknown' };
+
 /**
  * The authoritative owner of task state + the money/ticket effects around it.
  *
@@ -187,62 +193,110 @@ export class TaskService {
   async releaseRefund(userId: string, taskId: string): Promise<TaskResponse> {
     return this.prisma.$transaction(async (tx) => {
       const { row, campaign } = await this.lockOwned(tx, userId, taskId);
-      const task = toEngineTask(row, await this.loadAppliedKeys(tx, taskId));
-
-      if (task.state === STATES.REFUNDED) {
-        return toTaskResponse(row, campaign); // already released
+      const outcome = await this.attemptRelease(tx, row, campaign, Date.now());
+      switch (outcome.status) {
+        case 'released':
+        case 'already':
+          return outcome.task;
+        case 'amount-unknown':
+          throw new ConflictException(
+            'Order amount is unknown, cannot compute the refund',
+          );
+        case 'ineligible':
+          throw new ConflictException(outcome.reasons.join('; '));
       }
-
-      const policy = policyForWindowDays(campaign.returnWindowDays);
-      const now = Date.now();
-      const elig = refundEligibility(task, now, policy);
-      if (!elig.eligible) {
-        throw new ConflictException(elig.reasons.join('; '));
-      }
-
-      const itemPaise = task.order?.itemPaise ?? null;
-      if (itemPaise == null) {
-        throw new ConflictException(
-          'Order amount is unknown, cannot compute the refund',
-        );
-      }
-      const refundPaise = computeRefundPaise(
-        itemPaise,
-        campaign.payoutPercent,
-        campaign.payoutCapPaise,
-      );
-
-      const event: EngineEvent = {
-        type: 'RELEASE_REFUND',
-        at: now,
-        policy,
-        key: `release:${taskId}`,
-      };
-      const result = transition(task, event);
-      if (result.rejected) {
-        throw new ConflictException(result.reason ?? 'not eligible for refund');
-      }
-
-      await this.wallet.postRefund(
-        {
-          userId,
-          amountPaise: refundPaise,
-          idempotencyKey: `refund:${taskId}`,
-          referenceType: 'task',
-          referenceId: taskId,
-        },
-        tx,
-      );
-      await this.persist(tx, task, result, event, campaign, {
-        at: now,
-        reason: 'refunded',
-      });
-
-      const updated = await tx.task.findUniqueOrThrow({
-        where: { id: taskId },
-      });
-      return toTaskResponse(updated, campaign);
+      throw new Error('unreachable release outcome');
     });
+  }
+
+  /**
+   * System-driven release for the 1.6 scheduler: same eligibility gate as the
+   * endpoint, but returns null instead of throwing when the task isn't eligible
+   * (so the scheduler skips it silently) and is not scoped to a user.
+   */
+  autoRelease(
+    taskId: string,
+    now: number = Date.now(),
+  ): Promise<TaskResponse | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM tasks WHERE id = ${taskId}::uuid FOR UPDATE`;
+      if (locked.length === 0) return null;
+      const row = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
+      const campaign = await tx.campaign.findUniqueOrThrow({
+        where: { id: row.campaignId },
+      });
+      const outcome = await this.attemptRelease(tx, row, campaign, now);
+      return outcome.status === 'released' || outcome.status === 'already'
+        ? outcome.task
+        : null;
+    });
+  }
+
+  /**
+   * The shared release core: run the refund gate, and on success post the wallet
+   * refund (HOUSE → USER) and move the task to REFUNDED — all on the caller's tx.
+   * Returns a discriminated outcome so the endpoint can raise a precise 409 while
+   * the scheduler can skip quietly.
+   */
+  private async attemptRelease(
+    tx: Tx,
+    row: Task,
+    campaign: Campaign,
+    now: number,
+  ): Promise<ReleaseOutcome> {
+    const task = toEngineTask(row, await this.loadAppliedKeys(tx, row.id));
+    if (task.state === STATES.REFUNDED) {
+      return { status: 'already', task: toTaskResponse(row, campaign) };
+    }
+
+    const policy = policyForWindowDays(campaign.returnWindowDays);
+    const elig = refundEligibility(task, now, policy);
+    if (!elig.eligible) {
+      return { status: 'ineligible', reasons: elig.reasons };
+    }
+
+    const itemPaise = task.order?.itemPaise ?? null;
+    if (itemPaise == null) {
+      return { status: 'amount-unknown' };
+    }
+    const refundPaise = computeRefundPaise(
+      itemPaise,
+      campaign.payoutPercent,
+      campaign.payoutCapPaise,
+    );
+
+    const event: EngineEvent = {
+      type: 'RELEASE_REFUND',
+      at: now,
+      policy,
+      key: `release:${row.id}`,
+    };
+    const result = transition(task, event);
+    if (result.rejected) {
+      return {
+        status: 'ineligible',
+        reasons: [result.reason ?? 'not eligible'],
+      };
+    }
+
+    await this.wallet.postRefund(
+      {
+        userId: row.userId,
+        amountPaise: refundPaise,
+        idempotencyKey: `refund:${row.id}`,
+        referenceType: 'task',
+        referenceId: row.id,
+      },
+      tx,
+    );
+    await this.persist(tx, task, result, event, campaign, {
+      at: now,
+      reason: 'refunded',
+    });
+
+    const updated = await tx.task.findUniqueOrThrow({ where: { id: row.id } });
+    return { status: 'released', task: toTaskResponse(updated, campaign) };
   }
 
   /**
@@ -290,6 +344,24 @@ export class TaskService {
       });
       return toTaskResponse(updated, campaign);
     });
+  }
+
+  /**
+   * HOLDING tasks the 1.6 scheduler should re-check, each with the review
+   * permalink to fetch (null if the evidence never carried one). Ordered by the
+   * soonest window end so the most time-sensitive holds are processed first.
+   */
+  async holdingTasksForRecheck(): Promise<
+    { id: string; permalink: string | null }[]
+  > {
+    const rows = await this.prisma.task.findMany({
+      where: { state: 'HOLDING', closedAt: null },
+      orderBy: { windowEndsAt: 'asc' },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      permalink: toEngineTask(row, []).review?.permalink ?? null,
+    }));
   }
 
   /**
