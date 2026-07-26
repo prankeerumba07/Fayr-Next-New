@@ -72,6 +72,27 @@ export const envSchema = z.object({
     .min(1000)
     .max(60000)
     .default(10000),
+
+  // --- Staff / Admin (step 2.1) ---------------------------------------------
+  // Signing secret for STAFF access tokens. DISTINCT from JWT_ACCESS_SECRET on
+  // purpose: a user token and a staff token live in separate trust domains, so
+  // one can never be verified as the other. Security-sensitive → REQUIRED, no
+  // default, 32-char minimum — same bar as the user access secret.
+  STAFF_JWT_SECRET: z
+    .string()
+    .min(32, 'STAFF_JWT_SECRET must be at least 32 characters'),
+  // Staff access-token lifetime. Longer than the user access token (no refresh
+  // rotation on the staff side — staff simply re-login when it expires), but
+  // still bounded so a leaked staff token doesn't live forever. `ms`-style string.
+  STAFF_JWT_TTL: z.string().min(1).default('8h'),
+  // Optional bootstrap admin: if BOTH are set, an ADMIN staff account is created
+  // on boot when absent (idempotent — never overwrites an existing one). Leave
+  // unset in environments that provision staff another way.
+  STAFF_BOOTSTRAP_EMAIL: z.string().email().optional(),
+  STAFF_BOOTSTRAP_PASSWORD: z
+    .string()
+    .min(12, 'STAFF_BOOTSTRAP_PASSWORD must be at least 12 characters')
+    .optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
