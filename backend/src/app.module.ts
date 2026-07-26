@@ -4,6 +4,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
+import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { CampaignModule } from './campaigns/campaign.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
@@ -12,6 +13,7 @@ import { HealthModule } from './health/health.module';
 import { buildLoggerOptions } from './logging/pino-logger.config';
 import { PrismaModule } from './prisma/prisma.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { SupportModule } from './support/support.module';
 import { TaskModule } from './tasks/task.module';
 import { TicketModule } from './tickets/ticket.module';
 import { WalletModule } from './wallet/wallet.module';
@@ -58,6 +60,8 @@ import { WalletModule } from './wallet/wallet.module';
     CampaignModule,
     TaskModule,
     SchedulerModule,
+    AdminModule,
+    SupportModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

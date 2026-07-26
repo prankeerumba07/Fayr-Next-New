@@ -38,11 +38,12 @@ model User {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  otpChallenges  OtpChallenge[]
-  refreshTokens  RefreshToken[]
-  tasks          Task[]
-  ticketEntries  TicketEntry[]
-  walletAccounts WalletAccount[]
+  otpChallenges    OtpChallenge[]
+  refreshTokens    RefreshToken[]
+  tasks            Task[]
+  ticketEntries    TicketEntry[]
+  walletAccounts   WalletAccount[]
+  supportQuestions SupportQuestion[]
 
   @@map("users")
 }
@@ -360,4 +361,109 @@ model TicketEntry {
 
   @@index([userId, createdAt])
   @@map("ticket_entries")
+}
+
+// ===========================================================================
+// PHASE 2 — STAFF / ADMIN
+// ===========================================================================
+//
+// A staff identity system WALLED OFF from the user app. Staff authenticate with
+// email + password (argon2-hashed) and carry tokens signed with a SEPARATE
+// secret (STAFF_JWT_SECRET), so a user access token can never be verified as a
+// staff token and vice-versa — the isolation is cryptographic, not a role flag
+// on the shared user token. RBAC (StaffRole) gates what each staff member can do.
+
+enum StaffRole {
+  SUPPORT // day-to-day: read user views, answer questions
+  ADMIN // everything, including managing staff accounts
+}
+
+enum StaffStatus {
+  ACTIVE
+  DISABLED // login refused; kept (never deleted) so the audit trail stays intact
+}
+
+/// A back-office staff account. Distinct from User in every way: email+password
+/// (not mobile-OTP), its own JWT trust domain, and a role. The password is stored
+/// ONLY as an argon2 hash — a DB leak must never reveal a usable credential.
+model StaffUser {
+  id           String      @id @default(uuid()) @db.Uuid
+  email        String      @unique // stored normalized (trimmed + lowercased)
+  passwordHash String // argon2 hash — never the password itself
+  name         String
+  role         StaffRole   @default(SUPPORT)
+  status       StaffStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  auditLogs      AdminAuditLog[]
+  supportReplies SupportReply[]
+
+  @@map("staff_users")
+}
+
+/// Append-only audit trail of staff actions — who did what, and (when relevant)
+/// which Fayr user it concerned. This data is financial + PII, so access and
+/// mutations are recorded here. `targetUserId` is a bare uuid, NOT a foreign key:
+/// the audit trail must outlive user deletion, never cascade or null with it.
+model AdminAuditLog {
+  id          String    @id @default(uuid()) @db.Uuid
+  staffUserId String    @db.Uuid
+  staffUser   StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Restrict)
+
+  action       String // e.g. STAFF_LOGIN, USER_VIEW, QUESTION_REPLY
+  targetUserId String? @db.Uuid // the Fayr user this action concerned, if any
+  metadata     Json? // action-specific context (never secrets)
+  createdAt    DateTime @default(now())
+
+  @@index([staffUserId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@map("admin_audit_log")
+}
+
+/// A support question a user raises from the app, and the thread of replies on
+/// it. Users submit and can follow up; staff answer from the back office. Status
+/// tracks who's waiting: OPEN needs staff, ANSWERED is with the user, CLOSED is
+/// resolved. A user follow-up re-OPENs; a staff reply ANSWERs.
+model SupportQuestion {
+  id      String         @id @default(uuid()) @db.Uuid
+  userId  String         @db.Uuid
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject String
+  body    String
+  status  QuestionStatus @default(OPEN)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  replies SupportReply[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("support_questions")
+}
+
+enum QuestionStatus {
+  OPEN // awaiting a staff answer
+  ANSWERED // staff replied; with the user
+  CLOSED // resolved
+}
+
+/// One message in a question's thread. Authorship is inferred from staffUserId:
+/// null = the question's own user replied; set = a staff member replied. (No FK
+/// to the user side — that's always the question's owner.)
+model SupportReply {
+  id         String          @id @default(uuid()) @db.Uuid
+  questionId String          @db.Uuid
+  question   SupportQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  body       String
+
+  staffUserId String?    @db.Uuid
+  staffUser   StaffUser? @relation(fields: [staffUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([questionId, createdAt])
+  @@map("support_replies")
 }

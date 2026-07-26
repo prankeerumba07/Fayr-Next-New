@@ -13,6 +13,16 @@ import { LedgerError, type PostInput } from './wallet.types';
 /** A posted transaction with its legs attached. */
 export type PostedTransaction = LedgerTransaction & { entries: WalletEntry[] };
 
+/** One leg on a user's account, carrying its parent transaction for context. */
+export type UserWalletEntry = WalletEntry & { transaction: LedgerTransaction };
+
+/** A read-only view of a user's wallet: balance + every leg on their USER account. */
+export interface UserWalletStatement {
+  accountId: string | null;
+  balancePaise: bigint;
+  entries: UserWalletEntry[];
+}
+
 /**
  * A Prisma client that may be the shared one OR an interactive-transaction
  * client. Passing a `tx` lets a caller compose a wallet post into a LARGER
@@ -82,6 +92,27 @@ export class WalletService {
       where: { userId_kind: { userId, kind: 'USER' } },
     });
     return account ? this.getBalance(account.id, tx) : 0n;
+  }
+
+  /**
+   * A user's wallet statement: their refundable balance plus every leg on their
+   * USER account (each with its parent transaction, so the staff view can show
+   * kind/memo/reference), newest first. Read-only — never posts. If the user has
+   * no account yet, balance is 0 and entries are empty.
+   */
+  async getUserStatement(userId: string): Promise<UserWalletStatement> {
+    const account = await this.prisma.walletAccount.findUnique({
+      where: { userId_kind: { userId, kind: 'USER' } },
+    });
+    if (!account) return { accountId: null, balancePaise: 0n, entries: [] };
+
+    const entries = await this.prisma.walletEntry.findMany({
+      where: { accountId: account.id },
+      include: { transaction: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const balancePaise = entries.reduce((sum, e) => sum + e.amountPaise, 0n);
+    return { accountId: account.id, balancePaise, entries };
   }
 
   /**

@@ -48,6 +48,17 @@ export class TicketService {
     return agg._sum.delta ?? 0;
   }
 
+  /**
+   * A user's full ticket ledger, newest first. Read-only — the table is
+   * append-only, so this never mutates. Used by the staff unified user view (2.2).
+   */
+  listEntries(userId: string): Promise<TicketEntry[]> {
+    return this.prisma.ticketEntry.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   /** The one-time +15 signup grant. Idempotent per user. */
   grantSignup(userId: string, tx?: Db): Promise<TicketEntry> {
     return this.post(
