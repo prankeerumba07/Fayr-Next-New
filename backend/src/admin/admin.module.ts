@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { TaskModule } from '../tasks/task.module';
 import { TicketModule } from '../tickets/ticket.module';
 import { WalletModule } from '../wallet/wallet.module';
+import { AdminAuditController } from './admin-audit.controller';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminAuditService } from './admin-audit.service';
 import { AdminUsersController } from './admin-users.controller';
@@ -27,7 +28,11 @@ import { StaffTokenService } from './staff-token.service';
  */
 @Module({
   imports: [JwtModule.register({}), TicketModule, WalletModule, TaskModule],
-  controllers: [AdminAuthController, AdminUsersController],
+  controllers: [
+    AdminAuthController,
+    AdminUsersController,
+    AdminAuditController,
+  ],
   providers: [
     StaffTokenService,
     StaffAuthService,
