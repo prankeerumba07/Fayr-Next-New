@@ -1,7 +1,12 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { TaskModule } from '../tasks/task.module';
+import { TicketModule } from '../tickets/ticket.module';
+import { WalletModule } from '../wallet/wallet.module';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminAuditService } from './admin-audit.service';
+import { AdminUsersController } from './admin-users.controller';
+import { AdminUsersService } from './admin-users.service';
 import { RolesGuard } from './guards/roles.guard';
 import { StaffAuthGuard } from './guards/staff-auth.guard';
 import { StaffAuthService } from './staff-auth.service';
@@ -21,12 +26,13 @@ import { StaffTokenService } from './staff-token.service';
  * routes and write the audit trail without re-wiring the auth stack.
  */
 @Module({
-  imports: [JwtModule.register({})],
-  controllers: [AdminAuthController],
+  imports: [JwtModule.register({}), TicketModule, WalletModule, TaskModule],
+  controllers: [AdminAuthController, AdminUsersController],
   providers: [
     StaffTokenService,
     StaffAuthService,
     AdminAuditService,
+    AdminUsersService,
     StaffBootstrapService,
     StaffAuthGuard,
     RolesGuard,

@@ -14,6 +14,8 @@ export const STAFF_PASSWORD_MIN_LENGTH = 12;
 /** Audit-log action tags. Kept as constants so reads/writes agree on the string. */
 export const AUDIT_ACTIONS = {
   STAFF_LOGIN: 'STAFF_LOGIN',
+  USER_SEARCH: 'USER_SEARCH',
+  USER_VIEW: 'USER_VIEW',
 } as const;
 
 /**
