@@ -13,6 +13,7 @@ import { HealthModule } from './health/health.module';
 import { buildLoggerOptions } from './logging/pino-logger.config';
 import { PrismaModule } from './prisma/prisma.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { SupportModule } from './support/support.module';
 import { TaskModule } from './tasks/task.module';
 import { TicketModule } from './tickets/ticket.module';
 import { WalletModule } from './wallet/wallet.module';
@@ -60,6 +61,7 @@ import { WalletModule } from './wallet/wallet.module';
     TaskModule,
     SchedulerModule,
     AdminModule,
+    SupportModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

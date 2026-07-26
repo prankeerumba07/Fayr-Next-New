@@ -1,10 +1,16 @@
 import type {
   LedgerKind,
+  SupportQuestion,
+  SupportReply,
   TicketEntry,
   TicketReason,
   User,
   UserStatus,
 } from '@prisma/client';
+import {
+  toQuestionResponse,
+  type QuestionResponse,
+} from '../support/support.response';
 import type { TaskResponse } from '../tasks/task.response';
 import type {
   UserWalletEntry,
@@ -53,13 +59,14 @@ export interface WalletEntryResponse {
   createdAt: string;
 }
 
-/** The full unified view: profile + ledgers + task/campaign history + withdrawals. */
+/** The full unified view: profile + ledgers + task history + withdrawals + questions. */
 export interface UserViewResponse {
   profile: UserProfile;
   tickets: { balance: number; entries: TicketEntryResponse[] };
   wallet: { balancePaise: string; entries: WalletEntryResponse[] };
   withdrawals: WalletEntryResponse[];
   tasks: TaskResponse[];
+  questions: QuestionResponse[];
 }
 
 export function toUserProfile(u: User): UserProfile {
@@ -116,6 +123,7 @@ export function toUserView(input: {
   ticketEntries: TicketEntry[];
   statement: UserWalletStatement;
   tasks: TaskResponse[];
+  questions: (SupportQuestion & { replies: SupportReply[] })[];
 }): UserViewResponse {
   const walletEntries = input.statement.entries.map(toWalletEntry);
   return {
@@ -132,5 +140,6 @@ export function toUserView(input: {
     // surfaced as their own section. Empty until the withdrawal flow lands.
     withdrawals: walletEntries.filter((e) => e.kind === 'WITHDRAWAL'),
     tasks: input.tasks,
+    questions: input.questions.map(toQuestionResponse),
   };
 }

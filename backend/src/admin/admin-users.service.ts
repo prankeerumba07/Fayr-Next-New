@@ -71,12 +71,26 @@ export class AdminUsersService {
 
     if (!user) throw new NotFoundException('User not found');
 
-    const [ticketBalance, ticketEntries, statement, tasks] = await Promise.all([
-      this.tickets.getBalance(userId),
-      this.tickets.listEntries(userId),
-      this.wallet.getUserStatement(userId),
-      this.tasks.listForUser(userId),
-    ]);
-    return toUserView({ user, ticketBalance, ticketEntries, statement, tasks });
+    const [ticketBalance, ticketEntries, statement, tasks, questions] =
+      await Promise.all([
+        this.tickets.getBalance(userId),
+        this.tickets.listEntries(userId),
+        this.wallet.getUserStatement(userId),
+        this.tasks.listForUser(userId),
+        // Read questions directly (no dependency on SupportModule → no cycle).
+        this.prisma.supportQuestion.findMany({
+          where: { userId },
+          include: { replies: { orderBy: { createdAt: 'asc' } } },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
+    return toUserView({
+      user,
+      ticketBalance,
+      ticketEntries,
+      statement,
+      tasks,
+      questions,
+    });
   }
 }

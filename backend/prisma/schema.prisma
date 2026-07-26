@@ -38,11 +38,12 @@ model User {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  otpChallenges  OtpChallenge[]
-  refreshTokens  RefreshToken[]
-  tasks          Task[]
-  ticketEntries  TicketEntry[]
-  walletAccounts WalletAccount[]
+  otpChallenges    OtpChallenge[]
+  refreshTokens    RefreshToken[]
+  tasks            Task[]
+  ticketEntries    TicketEntry[]
+  walletAccounts   WalletAccount[]
+  supportQuestions SupportQuestion[]
 
   @@map("users")
 }
@@ -396,7 +397,8 @@ model StaffUser {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
-  auditLogs AdminAuditLog[]
+  auditLogs      AdminAuditLog[]
+  supportReplies SupportReply[]
 
   @@map("staff_users")
 }
@@ -418,4 +420,50 @@ model AdminAuditLog {
   @@index([staffUserId, createdAt])
   @@index([targetUserId, createdAt])
   @@map("admin_audit_log")
+}
+
+/// A support question a user raises from the app, and the thread of replies on
+/// it. Users submit and can follow up; staff answer from the back office. Status
+/// tracks who's waiting: OPEN needs staff, ANSWERED is with the user, CLOSED is
+/// resolved. A user follow-up re-OPENs; a staff reply ANSWERs.
+model SupportQuestion {
+  id      String         @id @default(uuid()) @db.Uuid
+  userId  String         @db.Uuid
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject String
+  body    String
+  status  QuestionStatus @default(OPEN)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  replies SupportReply[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("support_questions")
+}
+
+enum QuestionStatus {
+  OPEN // awaiting a staff answer
+  ANSWERED // staff replied; with the user
+  CLOSED // resolved
+}
+
+/// One message in a question's thread. Authorship is inferred from staffUserId:
+/// null = the question's own user replied; set = a staff member replied. (No FK
+/// to the user side — that's always the question's owner.)
+model SupportReply {
+  id         String          @id @default(uuid()) @db.Uuid
+  questionId String          @db.Uuid
+  question   SupportQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  body       String
+
+  staffUserId String?    @db.Uuid
+  staffUser   StaffUser? @relation(fields: [staffUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([questionId, createdAt])
+  @@map("support_replies")
 }

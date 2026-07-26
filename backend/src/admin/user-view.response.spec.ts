@@ -87,6 +87,7 @@ describe('toUserView', () => {
       ticketEntries,
       statement,
       tasks: [],
+      questions: [],
     });
 
     expect(v.profile.mobile).toBe('+919876543210');
