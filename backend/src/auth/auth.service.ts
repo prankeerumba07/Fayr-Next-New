@@ -10,6 +10,7 @@ import {
 import * as argon2 from 'argon2';
 import { randomInt } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { TicketService } from '../tickets/ticket.service';
 import {
   OTP_LENGTH,
   OTP_MAX_ATTEMPTS,
@@ -40,6 +41,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
+    private readonly tickets: TicketService,
     @Inject(SMS_SENDER) private readonly sms: SmsSender,
   ) {}
 
@@ -144,6 +146,17 @@ export class AuthService {
 
     if (user.status === 'BLOCKED') {
       throw new ForbiddenException('Account is blocked');
+    }
+
+    // Grant the one-time signup tickets (per CLAUDE.md: users start with 15).
+    // Idempotent per user, so it lands exactly once (first login) and re-logins
+    // are no-ops. Never let a ticket hiccup block authentication.
+    try {
+      await this.tickets.grantSignup(user.id);
+    } catch (err) {
+      this.logger.error(
+        `signup ticket grant failed for ${user.id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     const issued = await this.tokens.issueTokens(user, meta);

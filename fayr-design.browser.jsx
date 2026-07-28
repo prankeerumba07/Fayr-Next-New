@@ -68,6 +68,134 @@ function rupees(paise) {
   return (neg ? "-" : "") + grouped + "." + body.slice(dot + 1);
 }
 
+// ── Authenticated backend calls ──────────────────────────────────────────────
+// Login stores the access token here; every authed call attaches it as a Bearer.
+// One module-level slot keeps the token out of every call site.
+let AUTH_TOKEN = null;
+const setAuthToken = (t) => { AUTH_TOKEN = t || null; };
+
+async function apiAuth(method, path, body) {
+  if (!AUTH_TOKEN) { const e = new Error("Not signed in"); e.status = 401; throw e; }
+  let res;
+  try {
+    res = await fetch(API_BASE + path, {
+      method,
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + AUTH_TOKEN },
+      body: body == null ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    const e = new Error(`Can't reach the Fayr server at ${API_BASE}. Is the backend running?`);
+    e.kind = "network"; throw e;
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* empty body */ }
+  if (!res.ok) {
+    const msg = data && (Array.isArray(data.message) ? data.message[0] : data.message);
+    const e = new Error(msg || `Request failed (${res.status})`);
+    e.status = res.status; e.data = data; throw e;
+  }
+  return data;
+}
+const apiGet = (path) => apiAuth("GET", path);
+const apiPostAuth = (path, body) => apiAuth("POST", path, body);
+
+// The real backend endpoints the campaign / task / wallet screens use.
+const backendApi = {
+  listCampaigns: () => apiGet("/campaigns"),
+  claim: (campaignId) => apiPostAuth("/tasks", { campaignId }),
+  listTasks: () => apiGet("/tasks"),
+  getTask: (id) => apiGet("/tasks/" + id),
+  wallet: () => apiGet("/me/wallet"),
+  // Demo-only: walk a task to REFUNDED through the REAL endpoints, with synthetic
+  // evidence and a back-dated delivery so the return window is already closed. On
+  // device this same evidence is produced by the real scraper (ConnectScreen).
+  submitEvidence: (id, ev) => apiPostAuth("/tasks/" + id + "/evidence", ev),
+  markReviewed: (id) => apiPostAuth("/tasks/" + id + "/reviewed"),
+  startHold: (id) => apiPostAuth("/tasks/" + id + "/start-hold"),
+  releaseRefund: (id) => apiPostAuth("/tasks/" + id + "/release-refund"),
+};
+
+// ── Backend ⇄ prototype mapping ──────────────────────────────────────────────
+// The prototype card is far richer than the backend campaign. The backend is the
+// source of truth for id / product / price / percent / tickets; the visual-only
+// fields (theme, heroBg, rail, ribbon) are derived or defaulted so the existing
+// UI renders unchanged.
+const PLATFORM_KEY = { AMAZON: "amazon", FLIPKART: "flipkart", MEESHO: "meesho", MYNTRA: "myntra", BLINKIT: "blinkit", ZEPTO: "zepto", INSTAMART: "instamart" };
+const CATEGORY_THEME = { electronics: "toothpaste", apparel: "bodywash", home: "umbrella", grocery: "oil" };
+const REAL_RAILS = ["featured", "trending", "new", "recommended", "popular"];
+const HERO_BGS = ["#EFE4FA", "#FBF3D9", "#E3EEFB", "#FAE7EE", "#EAF3DC"];
+
+function refundRupeesFromCampaign(cp) {
+  const price = Number(cp.productPricePaise);
+  const pct = Number(cp.payoutPercent);
+  let paise = Math.floor((price * pct) / 100);
+  if (cp.payoutCapPaise != null) paise = Math.min(paise, Number(cp.payoutCapPaise));
+  return Math.floor(paise / 100); // whole rupees, for the maxBack display
+}
+
+function mapCampaign(cp, i) {
+  return {
+    id: cp.id, // backend UUID — the claim target
+    product: cp.productName,
+    short: cp.productName,
+    marketplace: PLATFORM_KEY[cp.platform] || "amazon",
+    theme: CATEGORY_THEME[cp.category] || "oil",
+    pct: cp.payoutPercent,
+    maxBack: refundRupeesFromCampaign(cp),
+    examplePay: Math.round(Number(cp.productPricePaise) / 100),
+    pricePaise: Number(cp.productPricePaise), // for simulate evidence
+    tickets: cp.ticketCost,
+    seats: cp.totalSlots || 200,
+    filled: 0,
+    joined: 0,
+    slots: cp.totalSlots || 40,
+    days: cp.returnWindowDays || 7,
+    ribbon: i === 0 ? "RECOMMENDED" : "",
+    heroBg: HERO_BGS[i % HERO_BGS.length],
+    state: "open",
+    variant: cp.category || "",
+    rail: REAL_RAILS[i % REAL_RAILS.length],
+    asin: cp.asin || null,
+    category: cp.category || null,
+    productName: cp.productName,
+  };
+}
+
+// A backend TaskResponse carries `.refund` and `.campaign`; a client bridge task
+// does not — so the whole app can tell them apart and treat each correctly.
+function isBackendTask(t) {
+  return !!(t && typeof t === "object" && t.refund !== undefined && t.campaign !== undefined);
+}
+
+// Real backend task state -> the prototype's step integer (mirrors bridge.stateToStep).
+function backendStateToStep(state, eligible) {
+  switch (state) {
+    case "CLAIMED": return 1;
+    case "PURCHASED": return 3;
+    case "DELIVERED": return 4;
+    case "REVIEWED": return 5;
+    case "HOLDING": return eligible ? 7 : 6;
+    case "REFUNDED": return 9;
+    default: return 1;
+  }
+}
+
+// A backend TaskResponse -> the same shape bridge.view() returns, so TaskStatus
+// renders REAL state with no other change.
+function backendTaskView(t, c) {
+  const eligible = !!(t.refund && t.refund.eligible);
+  const paise = t.refund && t.refund.amountPaise != null ? Number(t.refund.amountPaise) : null;
+  return {
+    step: backendStateToStep(t.state, eligible),
+    state: t.state,
+    refundPaise: paise,
+    refundRupees: paise != null ? Math.floor(paise / 100) : (c && c.maxBack != null ? c.maxBack : null),
+    refundDisplay: paise != null ? rupees(paise) : (c && c.maxBack != null ? c.maxBack + ".00" : null),
+    eligible,
+    order: t.order || null,
+  };
+}
+
 /* ============================================================================
    FAYR — v3 · built from "User Flows 1–20" + "Wireframes 1–7" PDFs
    ----------------------------------------------------------------------------
@@ -2812,13 +2940,15 @@ function ReturnWindow({ go, c, advance }) {
    TASK STATUS — refund timeline (reference: Task status screenshot)
    Reached from My Products (tap a product) or the claimed campaign page.
    ========================================================================== */
-function TaskStatus({ go, c, enrolled, rewards, onAction, finalize, task, taskDispatch }) {
+function TaskStatus({ go, c, enrolled, rewards, onAction, finalize, task, taskDispatch, simulate }) {
   const e = enrolled[c.id] || { step: 1 };
   const m = MARKETPLACES[c.marketplace];
-  // REAL state machine when a task exists (every fresh claim gets one). The
-  // seeded demo campaigns that never went through claim() have no task and keep
-  // their static legacy step, so the demo tour still works.
-  const v = task ? bridge.view(task, c, Date.now()) : null;
+  // REAL state machine when a task exists. A backend task (from POST/GET /tasks)
+  // is mapped to the same view shape as the client bridge, so this timeline
+  // renders real state either way; seeded demo campaigns with no task keep their
+  // static legacy step.
+  const backed = isBackendTask(task);
+  const v = task ? (backed ? backendTaskView(task, c) : bridge.view(task, c, Date.now())) : null;
   const step = v ? v.step : (e.step || 1);
   // The refund shown is the verified per-item figure (₹404.10, exact). The wallet
   // still credits WHOLE rupees on the legacy creditReward path until the paise-
@@ -2874,7 +3004,7 @@ function TaskStatus({ go, c, enrolled, rewards, onAction, finalize, task, taskDi
   // whose window has closed becomes eligible on its own. No-op without a real
   // task (the seeded demos keep their static step and their old animation).
   useEffect(() => {
-    if (task && task.state === "REVIEWED") {
+    if (task && !backed && task.state === "REVIEWED") {
       taskDispatch(c.id, bridge.events.startHold(Date.now()));
     }
   }, [task && task.state]);
@@ -2920,6 +3050,18 @@ function TaskStatus({ go, c, enrolled, rewards, onAction, finalize, task, taskDi
 
       {/* timeline */}
       <div className="fayr-scroll" style={{ flex: 1, overflowY: "auto", padding: "16px 16px 22px" }}>
+        {/* Demo control: real backend task not yet refunded → let the tester jump
+            the whole verification on the backend and watch the wallet update. */}
+        {backed && task.state !== "REFUNDED" && (
+          <button onClick={() => simulate && simulate(c)} style={{ width: "100%", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#fff", border: "1.5px dashed #C9B8F5", borderRadius: 14, padding: "12px", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: "#7926D9", cursor: "pointer", boxShadow: "0 4px 12px rgba(123,97,255,.10)" }}>
+            ⚡ Simulate verification (demo) → refund
+          </button>
+        )}
+        {backed && task.state === "REFUNDED" && (
+          <div style={{ marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#E7F6E0", border: "1px solid #9FD97F", borderRadius: 14, padding: "12px", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13, color: "#2E8B0F" }}>
+            ✅ Refund released — check your wallet
+          </div>
+        )}
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 16, color: C.ink, margin: "0 0 4px", paddingLeft: 2 }}>Refund Timeline</div>
         <div style={{ fontFamily: FONT_BODY, fontWeight: 500, fontSize: 11.5, color: "#9a9b8c", margin: "0 0 16px", paddingLeft: 2 }}>Updates automatically as your refund progresses</div>
 
@@ -2964,14 +3106,18 @@ function TaskStatus({ go, c, enrolled, rewards, onAction, finalize, task, taskDi
                       {!stg.refundChip && st === "pending" && <StatusPill kind="pending" />}
                       {stg.refundChip === "confirmed" && st === "pending" && <StatusPill kind="pending" />}
                     </div>
-                    {/* active action button (only for stages that need the user) */}
-                    {st === "active" && stg.action && (
+                    {/* active action button (only for stages that need the user).
+                        For a REAL backend task the sole control is the demo
+                        "Simulate verification" button below — the per-stage
+                        actions (which drive the on-device journey) are hidden so
+                        they can't desync from the backend. */}
+                    {st === "active" && stg.action && !backed && (
                       <button onClick={() => {
                         if (stg.action === "withdraw") {
                           // Release is the money move: the machine only lets it
                           // through if still eligible at click time (window closed,
                           // review public, not returned). Then to the payout screen.
-                          if (task) taskDispatch(c.id, bridge.events.release(Date.now()));
+                          if (task && !backed) taskDispatch(c.id, bridge.events.release(Date.now()));
                           go("withdraw");
                         } else doAction(stg.action);
                       }} style={{ width: "100%", marginTop: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "linear-gradient(to bottom,#2FA00E,#1F8106)", color: "#fff", border: "none", borderRadius: 12, padding: "11px", fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, cursor: "pointer", boxShadow: "0 6px 14px rgba(33,130,0,.28)" }}>
@@ -3939,12 +4085,85 @@ function FayrApp() {
   // the source of truth behind TaskStatus; the legacy `enrolled[id].step` is now
   // DERIVED from it (bridge.stateToStep) for every screen that still reads a step.
   const [tasks, setTasks] = useState({});
+  // Bumped after CAMPAIGNS is repopulated from GET /campaigns, to force a re-render
+  // of every screen that reads the (now real) module-level campaign list.
+  const [, setCampaignsVersion] = useState(0);
   const trackPending = (c) => setRewards((r) => r[c.id] ? r : { ...r, [c.id]: { amount: c.maxBack, status: "pending" } });
   const confirmReward = (c) => setRewards((r) => ({ ...r, [c.id]: { amount: (r[c.id] && r[c.id].amount) || c.maxBack, status: "confirmed" } }));
+
+  // ── Real backend state (campaigns · tasks · balances) ──────────────────────
+  // Pull the user's real ticket + wallet balances and reflect them in the two
+  // legacy fields the screens already read (wallet = integer paise, tickets.balance).
+  const refreshWallet = () => backendApi.wallet().then((w) => {
+    if (!w) return;
+    setWallet(Number(w.walletBalancePaise) || 0);
+    setTickets((t) => ({ ...t, balance: w.ticketBalance }));
+  }).catch(() => {});
+  // Real tasks -> the per-campaign task map + the derived legacy `enrolled[id].step`
+  // that the whole timeline UI reads.
+  const hydrateTasks = (tks) => {
+    const tmap = {}, emap = {}, cmap = {};
+    for (const t of tks || []) {
+      const cid = t.campaign && t.campaign.id;
+      if (!cid) continue;
+      tmap[cid] = t;
+      emap[cid] = { step: backendStateToStep(t.state, t.refund && t.refund.eligible), stepLabel: "auto" };
+      cmap[cid] = { at: Date.now() };
+    }
+    setTasks(tmap); setEnrolled(emap); setClaimed(cmap);
+  };
+  const loadBackendState = async () => {
+    try {
+      const camps = await backendApi.listCampaigns().catch(() => null);
+      if (Array.isArray(camps) && camps.length) {
+        // Swap the design-time mock array's CONTENTS for real campaigns in place
+        // (keeps every closure/import reference valid), then force a re-render.
+        CAMPAIGNS.length = 0;
+        camps.forEach((cp, i) => CAMPAIGNS.push(mapCampaign(cp, i)));
+        setActive(CAMPAIGNS[0]);
+        // Drop the mock enrolment seeds now that the data is real.
+        setEnrolled({}); setClaimed({}); setTasks({});
+        setCampaignsVersion((v) => v + 1);
+      }
+      await refreshWallet();
+      const tks = await backendApi.listTasks().catch(() => null);
+      if (Array.isArray(tks) && tks.length) hydrateTasks(tks);
+    } catch { /* keep the design-time mock as a graceful fallback */ }
+  };
+  // When a real session lands (OTP verified), publish the token and pull real data.
+  useEffect(() => {
+    setAuthToken(session && session.accessToken);
+    if (session && session.accessToken) loadBackendState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session && session.accessToken]);
+
+  // Demo: walk a claimed task to REFUNDED through the REAL endpoints, then refresh
+  // the wallet so the balance visibly updates. Synthetic evidence, real state
+  // machine — the same transition()s the device would run, with a back-dated
+  // delivery so the return window is already closed.
+  const simulateRefund = async (c) => {
+    const t = tasks[c.id];
+    if (!t || !isBackendTask(t) || t.state === "REFUNDED") return;
+    const id = t.id;
+    const past = Date.now() - 60 * 864e5;
+    const itemPaise = String(c.pricePaise != null ? c.pricePaise : Math.round(Number(c.examplePay || 0) * 100));
+    try {
+      await backendApi.submitEvidence(id, { order: { id: "SIM-" + id, itemPaise, source: "order-details" }, returned: false }).catch(() => {});
+      await backendApi.submitEvidence(id, { delivery: { at: past, source: "order-details" }, review: { published: true, product: c.product } }).catch(() => {});
+      await backendApi.markReviewed(id).catch(() => {});
+      await backendApi.startHold(id).catch(() => {});
+      const refunded = await backendApi.releaseRefund(id);
+      setTasks((prev) => ({ ...prev, [c.id]: refunded }));
+      setEnrolled((e) => ({ ...e, [c.id]: { step: backendStateToStep(refunded.state, refunded.refund && refunded.refund.eligible), stepLabel: "auto" } }));
+      await refreshWallet();
+    } catch (err) { console.warn("[fayr] simulate failed:", err && err.message); }
+  };
 
   const go = useCallback((s) => setScreen(s), []);
   const openCampaign = (c) => {
     setActive(c);
+    // A campaign with a real task → open its live Task Status timeline.
+    if (tasks[c.id]) return go("taskstatus");
     // A claimed campaign already past purchase → open its Task Status timeline
     if (enrolled[c.id] && (enrolled[c.id].step || 1) >= 2) return go("taskstatus");
     // "How it works" video shows once — on the first campaign the user ever opens.
@@ -3954,17 +4173,23 @@ function FayrApp() {
   const openDetail = (c) => { setActive(c); go("detail"); };
   const openProof = (c) => { setActive(c); go("proofprimer"); };
   const openTaskStatus = (c) => { setActive(c); go("taskstatus"); };
-  // Claim → slot reserved sheet; enrollment machine starts at step 1 (buy)
-  const claim = (c) => {
+  // Claim → the REAL backend claim: POST /tasks {campaignId}. The backend deducts
+  // tickets and creates the task (the authoritative state machine); we then open
+  // its live progress. Insufficient tickets come back as a 409.
+  const claim = async (c) => {
     setActive(c);
-    setClaimed((x) => x[c.id] ? x : { ...x, [c.id]: { at: Date.now() } });
-    setEnrolled((e) => e[c.id] ? e : { ...e, [c.id]: { step: 1, stepLabel: "buy the product" } });
-    // A fresh claim gets a real CLAIMED task, so its whole journey runs on the
-    // state machine rather than the timer.
-    setTasks((t) => t[c.id] ? t : { ...t, [c.id]: bridge.taskForCampaign(c) });
-    // deduct 5 tickets immediately, and remember they're held by this pre-purchase claim
-    setTickets((t) => t.held[c.id] ? t : { balance: t.balance - TICKET_COST, held: { ...t.held, [c.id]: TICKET_COST } });
-    go("claimedsheet");
+    if (tasks[c.id] && isBackendTask(tasks[c.id])) return go("taskstatus"); // already claimed
+    try {
+      const task = await backendApi.claim(c.id);
+      setTasks((t) => ({ ...t, [c.id]: task }));
+      setClaimed((x) => ({ ...x, [c.id]: { at: Date.now() } }));
+      setEnrolled((e) => ({ ...e, [c.id]: { step: backendStateToStep(task.state, task.refund && task.refund.eligible), stepLabel: "auto" } }));
+      refreshWallet(); // tickets just went down
+      go("taskstatus");
+    } catch (err) {
+      if (err && err.status === 409) go("insufficient");
+      else { console.warn("[fayr] claim failed:", err && err.message); setNetState("error"); go("home"); }
+    }
   };
   // Claim expired before purchase → return the 5 held tickets
   const expireClaim = (c) => {
@@ -3991,7 +4216,7 @@ function FayrApp() {
   // and the refund release.
   const taskDispatch = (id, event) => setTasks((prev) => {
     const cur = prev[id];
-    if (!cur) return prev;
+    if (!cur || isBackendTask(cur)) return prev; // real tasks advance via the backend, not the client bridge
     const res = bridge.apply(cur, event);
     return res.task === cur ? prev : { ...prev, [id]: res.task };
   });
@@ -4001,6 +4226,7 @@ function FayrApp() {
   // the demo can reach a refund without waiting real days. Cumulative + idempotent
   // (event keys are fixed), so any entry path converges on the same task.
   const driveTaskToStep = (id, step) => setTasks((prev) => {
+    if (prev[id] && isBackendTask(prev[id])) return prev; // real tasks are driven by the backend
     const cc = CAMPAIGNS.find((x) => x.id === id);
     if (!cc) return prev;
     let t = prev[id] || bridge.taskForCampaign(cc);
@@ -4068,6 +4294,7 @@ function FayrApp() {
     claimedsheet: <ClaimedSheet go={go} c={active} buyNow={buyNow} />,
     redirect: <RedirectScreen go={go} c={active} afterRedirect={afterRedirect} />,
     confirm: <ConfirmJoin go={go} c={active} tickets={tickets} commit={commit} />,
+    insufficient: <InsufficientSheet go={go} c={active} tickets={tickets} onClose={() => go("home")} />,
     linkaccount: <LinkAccount go={go} c={active} linked={linked} linkAccount={(mid) => setLinked((l) => ({ ...l, [mid]: { at: Date.now() } }))} />,
     seatlost: <SeatLost go={go} />,
     enrollfailed: <EnrollFailed go={go} retry={() => go("confirm")} />,
@@ -4084,7 +4311,7 @@ function FayrApp() {
     orderverified: <OrderVerified go={go} c={active} rewards={rewards} />,
     imagesuploaded: <ImagesUploaded go={go} c={active} />,
     taskstatus: <TaskStatus go={go} c={active} enrolled={enrolled} rewards={rewards} confirmReward={confirmReward}
-      task={tasks[active.id]} taskDispatch={taskDispatch}
+      task={tasks[active.id]} taskDispatch={taskDispatch} simulate={simulateRefund}
       finalize={(cc, reach) => { const target = reach || 7; if (target >= 8) confirmReward(cc); advance(cc.id, target, "auto", target >= 9 ? { done: true, earned: cc.maxBack } : {}); }}
       onAction={(a, cc) => { setActive(cc); if (a === "order") go("proofprimer"); else if (a === "delivery") go(gmail.connected ? "deliverycheck" : "deliveryupload"); else if (a === "review") go("reviewguide"); }} />,
     deliverycheck: <DeliveryCheck go={go} c={active} gmail={gmail} advance={advance} />,

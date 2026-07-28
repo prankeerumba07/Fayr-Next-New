@@ -11,6 +11,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { buildLoggerOptions } from './logging/pino-logger.config';
+import { MeModule } from './me/me.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { SupportModule } from './support/support.module';
@@ -62,6 +63,7 @@ import { WalletModule } from './wallet/wallet.module';
     SchedulerModule,
     AdminModule,
     SupportModule,
+    MeModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { TicketModule } from '../tickets/ticket.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -18,7 +19,7 @@ import { TokenService } from './token.service';
  * provider for production is a one-line change here and nowhere else.
  */
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), TicketModule],
   controllers: [AuthController],
   providers: [
     AuthService,
