@@ -51,6 +51,9 @@ const toE164 = (p) => "+91" + String(p || "").replace(/\D/g, "").slice(-10);
 const authApi = {
   requestOtp: (phone) => apiPost("/auth/otp/request", { mobile: toE164(phone) }),
   verifyOtp: (phone, code) => apiPost("/auth/otp/verify", { mobile: toE164(phone), code }),
+  // Revoke the refresh token server-side (idempotent). Best-effort on logout —
+  // the local session is cleared regardless of the network result.
+  logout: (refreshToken) => apiPost("/auth/logout", { refreshToken }),
 };
 
 // Display only: integer paise -> "1,240.00". The wallet is stored in INTEGER
@@ -661,7 +664,7 @@ function Otp({ go, phone, onVerified }) {
   const N = 6;
   const [code, setCode] = useState(Array(N).fill(""));
   const refs = useRef(Array.from({ length: N }, () => React.createRef()));
-  const [secs, setSecs] = useState(60);
+  const [secs, setSecs] = useState(30); // matches backend OTP_RESEND_COOLDOWN_SECONDS
   const [fails, setFails] = useState(0);
   const [shake, setShake] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -714,7 +717,7 @@ function Otp({ go, phone, onVerified }) {
           ? <p style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12.5, color: C.red, marginTop: 14 }}>{err}{fails > 0 ? ` · ${Math.max(0, 5 - fails)} attempts left` : ""}</p>
           : <p style={{ fontFamily: "ui-monospace, monospace", fontSize: 11.5, color: "#a9aa9c", marginTop: 14 }}>Enter the 6-digit code sent to your number.</p>}
         <p style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.sub, marginTop: 10 }}>
-          {secs > 0 ? <>Resend code in <b style={{ color: C.ink2 }}>00:{String(secs).padStart(2, "0")}</b></> : <span onClick={async () => { try { await authApi.requestOtp(phone); setErr(""); setSecs(60); } catch (e) { setErr(e.message || "Couldn't resend the code."); } }} style={{ color: C.green, fontWeight: 700, cursor: "pointer" }}>Resend code</span>}
+          {secs > 0 ? <>Resend code in <b style={{ color: C.ink2 }}>00:{String(secs).padStart(2, "0")}</b></> : <span onClick={async () => { try { const r = await authApi.requestOtp(phone); setErr(""); setSecs((r && r.resendInSeconds) || 30); } catch (e) { setErr(e.message || "Couldn't resend the code."); } }} style={{ color: C.green, fontWeight: 700, cursor: "pointer" }}>Resend code</span>}
         </p>
         <p style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: "#b9baa9", marginTop: 8 }}>Dev build: your 6-digit code is printed in the backend server console.</p>
         <div style={{ flex: 1 }} />
@@ -3871,7 +3874,9 @@ function Tickets({ go, tickets }) {
     </Screen>
   );
 }
-function Profile({ go, name, phone, gmail, emailVerified, openEmailConnect }) {
+function Profile({ go, name, phone, gmail, emailVerified, openEmailConnect, onLogout }) {
+  const [signingOut, setSigningOut] = useState(false);
+  const doLogout = async () => { if (signingOut) return; setSigningOut(true); try { await (onLogout && onLogout()); } finally { setSigningOut(false); } };
   const inboxSub = gmail.connected ? "Gmail connected · auto-verifying orders · disconnect anytime"
     : emailVerified ? "Email verified · connect Gmail for automatic order verification"
     : "Gmail order-email scanning · disconnect anytime";
@@ -3926,6 +3931,10 @@ function Profile({ go, name, phone, gmail, emailVerified, openEmailConnect }) {
             <span style={{ color: "#c2c3b3" }}>›</span>
           </div>
         ))}
+        <button onClick={doLogout} disabled={signingOut}
+          style={{ width: "100%", marginTop: 6, background: "#fff", border: `1.5px solid ${C.red}`, borderRadius: 14, padding: "14px 16px", fontFamily: FONT_BODY, fontWeight: 800, fontSize: 14, color: C.red, cursor: signingOut ? "default" : "pointer", opacity: signingOut ? 0.6 : 1 }}>
+          {signingOut ? "Logging out…" : "Log out"}
+        </button>
       </div>
       <BottomNav tab="profile" go={go} />
     </Screen>
@@ -4160,6 +4169,22 @@ function FayrApp() {
   };
 
   const go = useCallback((s) => setScreen(s), []);
+  // Sign out: revoke the refresh token server-side (best-effort — POST /auth/logout
+  // is idempotent), drop the in-memory session + bearer token, and clear every
+  // user-derived slice so nothing leaks into the next login, then return to the
+  // phone-login screen.
+  const logout = useCallback(async () => {
+    const rt = session && session.refreshToken;
+    try { if (rt) await authApi.logout(rt); } catch { /* local sign-out proceeds regardless */ }
+    setAuthToken(null);
+    setSession(null);
+    setTasks({}); setEnrolled({}); setClaimed({});
+    setTickets({ balance: 15, held: {} });
+    setWallet(0);
+    setProfile({}); setPhone(""); setName("Prakash");
+    setGmail({ connected: false }); setEmail(""); setEmailVerified(false);
+    go("phone");
+  }, [session, go]);
   const openCampaign = (c) => {
     setActive(c);
     // A campaign with a real task → open its live Task Status timeline.
@@ -4332,7 +4357,7 @@ function FayrApp() {
     earnings: <Earnings go={go} wallet={wallet} history={history} rewards={rewards} />,
     withdraw: <Withdraw go={go} onWithdrawn={() => { Object.keys(enrolled).forEach((id) => { const cc = CAMPAIGNS.find((x) => x.id === id); if (cc && (enrolled[id].step || 1) >= 9) rewardCompletionTickets(cc); }); }} />,
     tickets: <Tickets go={go} tickets={tickets} />,
-    profile: <Profile go={go} name={name} phone={phone} gmail={gmail} emailVerified={emailVerified} openEmailConnect={() => { setEmailReturnTo("profile"); go("emailconnect"); }} />,
+    profile: <Profile go={go} name={name} phone={phone} gmail={gmail} emailVerified={emailVerified} openEmailConnect={() => { setEmailReturnTo("profile"); go("emailconnect"); }} onLogout={logout} />,
     verifier: <VerifierDemo go={go} />,
   };
 

@@ -97,7 +97,7 @@ describe('Auth + health (e2e)', () => {
         .send({ mobile })
         .expect(200);
 
-      expect(res.body).toEqual({ expiresInSeconds: 300, resendInSeconds: 60 });
+      expect(res.body).toEqual({ expiresInSeconds: 300, resendInSeconds: 30 });
       expect(sms.last(mobile)).toMatch(/^\d{6}$/);
     });
 
