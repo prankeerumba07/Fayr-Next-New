@@ -48,16 +48,22 @@ function makeSms() {
   return { sendOtp: jest.fn().mockResolvedValue(undefined) };
 }
 
+function makeTickets() {
+  return { grantSignup: jest.fn().mockResolvedValue({}) };
+}
+
 function build() {
   const prisma = makePrisma();
   const tokens = makeTokens();
+  const tickets = makeTickets();
   const sms = makeSms();
   const service = new AuthService(
     prisma as never,
     tokens as never,
+    tickets as never,
     sms as never,
   );
-  return { service, prisma, tokens, sms };
+  return { service, prisma, tokens, tickets, sms };
 }
 
 const future = () => new Date(Date.now() + 60_000);

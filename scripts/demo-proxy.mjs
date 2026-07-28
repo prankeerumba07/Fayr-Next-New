@@ -1,8 +1,8 @@
 // Single-origin reverse proxy for the shareable demo tunnel.
 //
 // Serves the whole app on ONE port so a single tunnel can expose it:
-//   /auth/*, /health   -> backend            (http://127.0.0.1:3000)
-//   everything else     -> prototype static   (http://127.0.0.1:8000)
+//   /auth,/health,/campaigns,/tasks,/me -> backend  (http://127.0.0.1:3000)
+//   everything else                     -> prototype static (http://127.0.0.1:8000)
 //
 // Because the page and the API share one origin through the tunnel, there is no
 // CORS and no mixed-content to worry about. Dependency-free (node:http only).
@@ -13,7 +13,7 @@ import http from 'node:http';
 const PORT = Number(process.env.PROXY_PORT || 8080);
 const BACKEND = { host: '127.0.0.1', port: Number(process.env.BACKEND_PORT || 3000) };
 const STATIC = { host: '127.0.0.1', port: Number(process.env.STATIC_PORT || 8000) };
-const API_PREFIXES = ['/auth', '/health'];
+const API_PREFIXES = ['/auth', '/health', '/campaigns', '/tasks', '/me'];
 
 const isApi = (url) =>
   API_PREFIXES.some(
