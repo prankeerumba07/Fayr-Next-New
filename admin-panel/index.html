@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Fayr · Support Panel</title>
+  <style>
+    /* ── Theme tokens ─────────────────────────────────────────────────────── */
+    :root {
+      --bg: #f5f6f8;
+      --surface: #ffffff;
+      --surface-2: #eef0f4;
+      --border: #e0e3ea;
+      --text: #191c22;
+      --muted: #697084;
+      --accent: #3b5bdb;
+      --accent-fg: #ffffff;
+      --ok: #2f9e44;
+      --warn: #d9820b;
+      --bad: #e03131;
+      --info: #3b5bdb;
+      --neutral: #7a8194;
+      --shadow: 0 1px 2px rgba(20,24,33,.05), 0 4px 16px rgba(20,24,33,.06);
+      --mono: ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace;
+      --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1116;
+        --surface: #161a20;
+        --surface-2: #1e232b;
+        --border: #2a303a;
+        --text: #e6e8ec;
+        --muted: #98a1b0;
+        --accent: #5c7cfa;
+        --accent-fg: #0e1116;
+        --ok: #51cf66;
+        --warn: #ffa94d;
+        --bad: #ff6b6b;
+        --info: #74a0ff;
+        --neutral: #8b93a4;
+        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; cursor: pointer; }
+    a:hover { text-decoration: underline; }
+    button { font-family: inherit; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .mono { font-family: var(--mono); }
+    .num { font-variant-numeric: tabular-nums; }
+    .muted { color: var(--muted); }
+
+    /* ── Buttons / inputs ─────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--text); border-radius: 8px; padding: 8px 14px;
+      font-size: 14px; font-weight: 600; cursor: pointer; transition: background .12s, border-color .12s;
+    }
+    .btn:hover { background: var(--surface-2); }
+    .btn:disabled { opacity: .55; cursor: default; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    .btn-primary:hover { filter: brightness(1.06); background: var(--accent); }
+    .btn-sm { padding: 5px 10px; font-size: 13px; border-radius: 7px; }
+    .btn-ghost { background: transparent; border-color: transparent; }
+    .btn-ghost:hover { background: var(--surface-2); }
+    input[type=text], input[type=email], input[type=password], textarea {
+      width: 100%; font-family: inherit; font-size: 14px;
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+    }
+    input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+    textarea { resize: vertical; min-height: 60px; }
+    label.field { display: block; margin-bottom: 12px; }
+    label.field > span { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .04em; }
+
+    /* ── Pills ────────────────────────────────────────────────────────────── */
+    .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: .03em; white-space: nowrap; }
+    .pill-ok      { color: var(--ok);      background: color-mix(in srgb, var(--ok) 15%, transparent); }
+    .pill-warn    { color: var(--warn);    background: color-mix(in srgb, var(--warn) 16%, transparent); }
+    .pill-bad     { color: var(--bad);     background: color-mix(in srgb, var(--bad) 15%, transparent); }
+    .pill-info    { color: var(--info);    background: color-mix(in srgb, var(--info) 15%, transparent); }
+    .pill-neutral { color: var(--neutral); background: color-mix(in srgb, var(--neutral) 16%, transparent); }
+
+    /* ── Layout ───────────────────────────────────────────────────────────── */
+    header.top {
+      position: sticky; top: 0; z-index: 5;
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 22px; background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { font-weight: 800; letter-spacing: -.01em; font-size: 16px; }
+    .brand .dot { color: var(--accent); }
+    .spacer { flex: 1; }
+    .who { text-align: right; line-height: 1.25; }
+    .who .email { font-weight: 600; }
+    .tabs { display: flex; gap: 4px; padding: 10px 22px 0; }
+    .tab { padding: 8px 14px; border-radius: 8px 8px 0 0; font-weight: 600; color: var(--muted); cursor: pointer; border: 1px solid transparent; border-bottom: none; }
+    .tab.active { color: var(--text); background: var(--surface); border-color: var(--border); }
+    main { max-width: 1000px; margin: 0 auto; padding: 20px 22px 80px; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 16px; }
+    .card > h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+    .kv .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+    .kv .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
+
+    table.ledger { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.ledger th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+    table.ledger td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    table.ledger tr:last-child td { border-bottom: none; }
+    .amt-pos { color: var(--ok); }
+    .amt-neg { color: var(--bad); }
+    .table-wrap { overflow-x: auto; }
+
+    .task { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface-2); }
+    .task:last-child { margin-bottom: 0; }
+    .task .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .task .title { font-weight: 700; }
+    .task .meta { color: var(--muted); font-size: 12.5px; margin-top: 4px; display: flex; gap: 14px; flex-wrap: wrap; }
+
+    .thread { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; background: var(--surface-2); }
+    .thread:last-child { margin-bottom: 0; }
+    .thread .subj { font-weight: 700; font-size: 15px; }
+    .thread .op { margin: 8px 0 12px; white-space: pre-wrap; }
+    .reply { border-left: 3px solid var(--border); padding: 4px 0 4px 12px; margin: 8px 0; white-space: pre-wrap; }
+    .reply.staff { border-left-color: var(--accent); }
+    .reply .by { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+    .reply.staff .by { color: var(--accent); }
+    .composer { margin-top: 12px; }
+    .composer .row { justify-content: flex-end; margin-top: 8px; }
+
+    .flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 500; }
+    .flash-err { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+    .flash-info { color: var(--info); background: color-mix(in srgb, var(--info) 12%, transparent); border: 1px solid color-mix(in srgb, var(--info) 28%, transparent); }
+    .empty { color: var(--muted); font-style: italic; padding: 6px 0; }
+
+    /* ── Login ────────────────────────────────────────────────────────────── */
+    .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .login-card { width: 100%; max-width: 380px; }
+    .login-card .brand { font-size: 22px; margin-bottom: 4px; }
+    .login-card .sub { color: var(--muted); margin-bottom: 20px; }
+    .apibase { font-size: 12px; color: var(--muted); margin-top: 16px; word-break: break-all; }
+    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+  (function () {
+    "use strict";
+
+    // ── API base resolution ────────────────────────────────────────────────
+    // Priority: ?api= override → saved override → same-origin (served through a
+    // proxy/tunnel on a standard port) → same host on :3000 (local static serve).
+    function resolveApiBase() {
+      var p = new URLSearchParams(location.search);
+      var q = p.get("api");
+      if (q) return q.replace(/\/$/, "");
+      var saved = sessionStorage.getItem("fayr_admin_apibase");
+      if (saved) return saved;
+      if (location.protocol === "file:") return "http://localhost:3000";
+      var port = location.port;
+      if (!port || port === "80" || port === "443") return location.origin;
+      return location.protocol + "//" + location.hostname + ":3000";
+    }
+    var API_BASE = resolveApiBase();
+
+    // ── Session state ───────────────────────────────────────────────────────
+    var SS = "fayr_admin_";
+    var state = {
+      token: sessionStorage.getItem(SS + "token") || null,
+      staff: JSON.parse(sessionStorage.getItem(SS + "staff") || "null"),
+      view: "login",       // login | app
+      screen: "queue",     // queue | search | user
+      flash: null,
+      queue: { loading: false, error: null, items: null },
+      search: { mobile: "", loading: false, error: null, notFound: false, result: null },
+      user: { loading: false, error: null, data: null, from: "search" }
+    };
+    function saveSession() {
+      if (state.token) sessionStorage.setItem(SS + "token", state.token);
+      else sessionStorage.removeItem(SS + "token");
+      if (state.staff) sessionStorage.setItem(SS + "staff", JSON.stringify(state.staff));
+      else sessionStorage.removeItem(SS + "staff");
+    }
+
+    // ── HTTP ────────────────────────────────────────────────────────────────
+    function ApiError(status, message) { this.status = status; this.message = message; }
+    async function api(method, path, body, opts) {
+      opts = opts || {};
+      var init = { method: method, headers: {} };
+      if (state.token) init.headers["Authorization"] = "Bearer " + state.token;
+      if (body !== undefined) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(body); }
+      var res;
+      try { res = await fetch(API_BASE + path, init); }
+      catch (e) { throw new ApiError(0, "Can’t reach the Fayr server at " + API_BASE + ". Is the backend running?"); }
+      if (res.status === 401 && !opts.noAuthRedirect) {
+        logout("Your session expired — please sign in again.");
+        throw new ApiError(401, "Unauthorized");
+      }
+      var txt = await res.text(), data = null;
+      if (txt) { try { data = JSON.parse(txt); } catch (e) { data = txt; } }
+      if (!res.ok) {
+        var m = (data && data.message) || (typeof data === "string" && data) || ("Request failed (" + res.status + ")");
+        throw new ApiError(res.status, Array.isArray(m) ? m.join(", ") : m);
+      }
+      return data;
+    }
+
+    // ── DOM helper (children are text nodes unless already elements → XSS-safe) ─
+    function h(tag, attrs) {
+      var e = document.createElement(tag);
+      if (attrs) {
+        for (var k in attrs) {
+          var v = attrs[k];
+          if (v == null || v === false) continue;
+          if (k === "class") e.className = v;
+          else if (k === "text") e.textContent = v;
+          else if (k === "dataset") { for (var d in v) e.dataset[d] = v[d]; }
+          else if (k.slice(0, 2) === "on" && typeof v === "function") e.addEventListener(k.slice(2).toLowerCase(), v);
+          else e.setAttribute(k, v);
+        }
+      }
+      for (var i = 2; i < arguments.length; i++) {
+        var kids = arguments[i];
+        if (!Array.isArray(kids)) kids = [kids];
+        for (var j = 0; j < kids.length; j++) {
+          var c = kids[j];
+          if (c == null || c === false) continue;
+          e.appendChild((typeof c === "string" || typeof c === "number") ? document.createTextNode(String(c)) : c);
+        }
+      }
+      return e;
+    }
+
+    // ── Formatting ────────────────────────────────────────────────────────────
+    function rupees(paiseStr) {
+      if (paiseStr == null) return "—";
+      var paise = Number(paiseStr);
+      if (!isFinite(paise)) return "—";
+      return (paise / 100).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
+    }
+    function fmtDate(iso) {
+      if (!iso) return "—";
+      return new Date(iso).toLocaleString("en-IN", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    function fmtDay(iso) {
+      if (!iso) return "—";
+      return new Date(iso).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" });
+    }
+    var TASK_PILL = { CLAIMED: "info", PURCHASED: "info", DELIVERED: "info", REVIEWED: "info", HOLDING: "warn", REFUNDED: "ok", EXPIRED: "neutral", CLOSED: "neutral", REJECTED: "bad", CANCELLED: "neutral" };
+    var Q_PILL = { OPEN: "warn", ANSWERED: "info", CLOSED: "neutral" };
+    var USER_PILL = { ACTIVE: "ok", BLOCKED: "bad" };
+    function pill(txt, kind) { return h("span", { class: "pill pill-" + (kind || "neutral"), text: txt }); }
+
+    // ── Auth actions ──────────────────────────────────────────────────────────
+    async function doLogin(email, password) {
+      var data = await api("POST", "/admin/auth/login", { email: email, password: password }, { noAuthRedirect: true });
+      state.token = data.accessToken;
+      state.staff = data.staff;
+      state.view = "app";
+      state.screen = "queue";
+      state.flash = null;
+      saveSession();
+      render();
+      loadQueue();
+    }
+    function logout(msg) {
+      state.token = null; state.staff = null;
+      state.view = "login"; state.flash = msg || null;
+      state.queue = { loading: false, error: null, items: null };
+      state.search = { mobile: "", loading: false, error: null, notFound: false, result: null };
+      state.user = { loading: false, error: null, data: null, from: "search" };
+      saveSession();
+      render();
+    }
+
+    // ── Data loads ────────────────────────────────────────────────────────────
+    async function loadQueue() {
+      state.queue.loading = true; state.queue.error = null; render();
+      try { state.queue.items = await api("GET", "/admin/questions?status=OPEN"); }
+      catch (e) { state.queue.error = e.message; }
+      state.queue.loading = false; render();
+    }
+    function normalizeMobile(raw) {
+      var s = (raw || "").trim().replace(/[\s-]/g, "");
+      if (!s) return "";
+      if (s[0] === "+") return s;
+      if (/^\d{10}$/.test(s)) return "+91" + s;
+      if (/^91\d{10}$/.test(s)) return "+" + s;
+      if (/^0\d{10}$/.test(s)) return "+91" + s.slice(1);
+      return s;
+    }
+    async function doSearch(raw) {
+      var mobile = normalizeMobile(raw);
+      state.search = { mobile: mobile, loading: true, error: null, notFound: false, result: null };
+      render();
+      try {
+        state.search.result = await api("GET", "/admin/users/search?mobile=" + encodeURIComponent(mobile));
+      } catch (e) {
+        if (e.status === 404) state.search.notFound = true;
+        else state.search.error = e.message;
+      }
+      state.search.loading = false; render();
+    }
+    async function loadUser(id, from) {
+      state.user = { loading: true, error: null, data: null, from: from || "search" };
+      state.screen = "user"; render();
+      try { state.user.data = await api("GET", "/admin/users/" + id); }
+      catch (e) { state.user.error = e.message; }
+      state.user.loading = false; render();
+    }
+
+    // Replace a question in whatever list currently holds it, then re-render.
+    function replaceQuestion(updated) {
+      if (state.queue.items) {
+        for (var i = 0; i < state.queue.items.length; i++)
+          if (state.queue.items[i].id === updated.id) state.queue.items[i] = updated;
+      }
+      if (state.user.data && state.user.data.questions) {
+        for (var j = 0; j < state.user.data.questions.length; j++)
+          if (state.user.data.questions[j].id === updated.id) state.user.data.questions[j] = updated;
+      }
+      render();
+    }
+
+    // ── Views ─────────────────────────────────────────────────────────────────
+    function LoginView() {
+      var emailIn = h("input", { type: "email", autocomplete: "username", placeholder: "you@fayr.app", value: "" });
+      var passIn = h("input", { type: "password", autocomplete: "current-password", placeholder: "••••••••••••" });
+      var errBox = h("div");
+      var btn = h("button", { class: "btn btn-primary", type: "submit" }, "Sign in");
+
+      async function submit(ev) {
+        ev.preventDefault();
+        errBox.textContent = "";
+        var email = emailIn.value.trim(), pass = passIn.value;
+        if (!email || !pass) { errBox.appendChild(h("div", { class: "flash flash-err" }, "Enter your email and password.")); return; }
+        btn.disabled = true; btn.textContent = ""; btn.appendChild(h("span", { class: "spin" })); btn.appendChild(document.createTextNode(" Signing in…"));
+        try { await doLogin(email, pass); }
+        catch (e) {
+          var msg = e.status === 401 ? "Invalid email or password." : e.message;
+          errBox.appendChild(h("div", { class: "flash flash-err" }, msg));
+          btn.disabled = false; btn.textContent = "Sign in";
+        }
+      }
+
+      var form = h("form", { onsubmit: submit },
+        h("div", { class: "brand" }, "Fayr ", h("span", { class: "dot" }, "·"), " Support"),
+        h("div", { class: "sub" }, "Staff sign-in"),
+        state.flash ? h("div", { class: "flash flash-info" }, state.flash) : null,
+        errBox,
+        h("label", { class: "field" }, h("span", null, "Email"), emailIn),
+        h("label", { class: "field" }, h("span", null, "Password"), passIn),
+        btn,
+        h("div", { class: "apibase" }, "API: " + API_BASE)
+      );
+      return h("div", { class: "login-wrap" }, h("div", { class: "card login-card" }, form));
+    }
+
+    function Header() {
+      return h("header", { class: "top" },
+        h("div", { class: "brand" }, "Fayr ", h("span", { class: "dot" }, "·"), " Support"),
+        h("div", { class: "spacer" }),
+        h("div", { class: "who" },
+          h("div", { class: "email" }, state.staff ? state.staff.email : ""),
+          h("div", { class: "muted", style: "font-size:12px" }, state.staff ? state.staff.role : "")),
+        h("button", { class: "btn btn-sm btn-ghost", onclick: function () { logout(); } }, "Log out")
+      );
+    }
+
+    function Tabs() {
+      function tab(id, label) {
+        return h("div", {
+          class: "tab" + (state.screen === id ? " active" : ""),
+          role: "button", tabindex: "0",
+          onclick: function () { switchTab(id); },
+          onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(id); } }
+        }, label);
+      }
+      return h("div", { class: "tabs" }, tab("queue", "Open questions"), tab("search", "Search user"));
+    }
+    function switchTab(id) {
+      state.screen = id; render();
+      if (id === "queue" && state.queue.items === null && !state.queue.loading) loadQueue();
+    }
+
+    function QueueScreen() {
+      var body;
+      if (state.queue.loading && !state.queue.items) body = h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading…");
+      else if (state.queue.error) body = h("div", { class: "flash flash-err" }, state.queue.error);
+      else if (!state.queue.items || state.queue.items.length === 0) body = h("div", { class: "empty" }, "No open questions. 🎉");
+      else body = h("div", null, state.queue.items.map(function (q) { return ThreadCard(q, { withUser: true }); }));
+
+      return h("div", null,
+        h("div", { class: "row", style: "justify-content:space-between;margin-bottom:14px" },
+          h("h2", { style: "margin:0;font-size:18px" }, "Open questions",
+            state.queue.items ? h("span", { class: "muted", style: "font-weight:500;font-size:14px" }, "  " + state.queue.items.length) : null),
+          h("button", { class: "btn btn-sm", onclick: loadQueue }, "Refresh")),
+        body);
+    }
+
+    function SearchScreen() {
+      var input = h("input", { type: "text", placeholder: "Mobile number, e.g. 9876543210 or +919876543210", value: state.search.mobile || "" });
+      function go(ev) { if (ev) ev.preventDefault(); if (input.value.trim()) doSearch(input.value); }
+      var form = h("form", { onsubmit: go },
+        h("label", { class: "field" }, h("span", null, "Find a user by mobile"),
+          h("div", { class: "row" },
+            h("div", { style: "flex:1;min-width:220px" }, input),
+            h("button", { class: "btn btn-primary", type: "submit" }, "Search"))));
+
+      var result = h("div");
+      if (state.search.loading) result.appendChild(h("div", { class: "muted" }, h("span", { class: "spin" }), " Searching…"));
+      else if (state.search.error) result.appendChild(h("div", { class: "flash flash-err" }, state.search.error));
+      else if (state.search.notFound) result.appendChild(h("div", { class: "empty" }, "No user found with mobile ", h("span", { class: "mono" }, state.search.mobile), "."));
+      else if (state.search.result) result.appendChild(SummaryCard(state.search.result));
+
+      return h("div", null, h("div", { class: "card" }, form), result);
+    }
+
+    function SummaryCard(u) {
+      return h("div", { class: "card" },
+        h("div", { class: "row", style: "justify-content:space-between" },
+          h("div", null,
+            h("div", { class: "row" }, h("span", { class: "mono", style: "font-weight:700;font-size:16px" }, u.mobile), pill(u.status, USER_PILL[u.status])),
+            h("div", { class: "muted mono", style: "margin-top:2px" }, u.displayId, "  ·  joined ", fmtDay(u.createdAt))),
+          h("button", { class: "btn btn-primary", onclick: function () { loadUser(u.id, "search"); } }, "View full activity →")),
+        h("div", { class: "grid-2", style: "margin-top:14px" },
+          KV("Tickets", String(u.ticketBalance)),
+          KV("Wallet", rupees(u.walletBalancePaise)),
+          KV("Tasks", String(u.taskCount))));
+    }
+    function KV(k, v) { return h("div", { class: "kv" }, h("div", { class: "k" }, k), h("div", { class: "v num" }, v)); }
+
+    function UserScreen() {
+      var back = h("button", { class: "btn btn-sm btn-ghost", onclick: function () { state.screen = state.user.from; render(); } }, "← Back");
+      if (state.user.loading) return h("div", null, back, h("div", { class: "muted", style: "margin-top:14px" }, h("span", { class: "spin" }), " Loading activity…"));
+      if (state.user.error) return h("div", null, back, h("div", { class: "flash flash-err", style: "margin-top:14px" }, state.user.error));
+      var d = state.user.data;
+      if (!d) return h("div", null, back);
+      var p = d.profile;
+
+      return h("div", null,
+        h("div", { style: "margin-bottom:14px" }, back),
+        // Profile
+        h("div", { class: "card" },
+          h("div", { class: "row", style: "justify-content:space-between" },
+            h("div", null,
+              h("div", { class: "row" }, h("span", { class: "mono", style: "font-weight:800;font-size:18px" }, p.mobile), pill(p.status, USER_PILL[p.status])),
+              h("div", { class: "muted mono", style: "margin-top:3px" }, p.displayId, "  ·  joined ", fmtDay(p.createdAt))),
+            h("div", { class: "row" },
+              KV("Tickets", String(d.tickets.balance)),
+              KV("Wallet", rupees(d.wallet.balancePaise))))),
+        // Tasks
+        h("div", { class: "card" }, h("h3", null, "Tasks", h("span", { class: "muted" }, String(d.tasks.length))), TasksBlock(d.tasks)),
+        // Wallet
+        h("div", { class: "card" }, h("h3", null, "Wallet ledger", h("span", { class: "muted" }, rupees(d.wallet.balancePaise))), WalletTable(d.wallet.entries)),
+        // Withdrawals
+        h("div", { class: "card" }, h("h3", null, "Withdrawals", h("span", { class: "muted" }, String(d.withdrawals.length))), WalletTable(d.withdrawals)),
+        // Tickets
+        h("div", { class: "card" }, h("h3", null, "Ticket ledger", h("span", { class: "muted" }, String(d.tickets.balance))), TicketTable(d.tickets.entries)),
+        // Questions
+        h("div", { class: "card" }, h("h3", null, "Support questions", h("span", { class: "muted" }, String(d.questions.length))),
+          d.questions.length === 0 ? h("div", { class: "empty" }, "No questions raised.")
+            : h("div", null, d.questions.map(function (q) { return ThreadCard(q, { withUser: false }); }))));
+    }
+
+    function TasksBlock(tasks) {
+      if (!tasks || tasks.length === 0) return h("div", { class: "empty" }, "No tasks.");
+      return h("div", null, tasks.map(function (t) {
+        var c = t.campaign || {};
+        var refund = t.refund || {};
+        return h("div", { class: "task" },
+          h("div", { class: "head" },
+            h("span", { class: "title" }, c.title || c.productName || "Task"),
+            pill(t.state, TASK_PILL[t.state]),
+            c.platform ? h("span", { class: "muted", style: "font-size:12.5px" }, c.platform) : null,
+            h("div", { class: "spacer" }),
+            refund.eligible ? pill("REFUND READY", "ok") : null),
+          h("div", { class: "meta" },
+            h("span", null, "Refund: ", h("span", { class: "num" }, rupees(refund.amountPaise))),
+            t.windowEndsAt ? h("span", null, "Window ends ", fmtDay(t.windowEndsAt)) : null,
+            h("span", null, "Created ", fmtDay(t.createdAt))),
+          (!refund.eligible && refund.reasons && refund.reasons.length)
+            ? h("div", { class: "muted", style: "font-size:12.5px;margin-top:6px" }, "Not eligible: " + refund.reasons.join("; "))
+            : null);
+      }));
+    }
+
+    function WalletTable(entries) {
+      if (!entries || entries.length === 0) return h("div", { class: "empty" }, "No entries.");
+      var rows = entries.map(function (e) {
+        var paise = Number(e.amountPaise);
+        var cls = paise < 0 ? "amt-neg" : (paise > 0 ? "amt-pos" : "");
+        return h("tr", null,
+          h("td", { class: "num " + cls, style: "font-weight:700;white-space:nowrap" }, rupees(e.amountPaise)),
+          h("td", null, pill(e.kind, "neutral")),
+          h("td", null, e.memo || h("span", { class: "muted" }, "—")),
+          h("td", { class: "muted", style: "white-space:nowrap" }, fmtDate(e.createdAt)));
+      });
+      return h("div", { class: "table-wrap" }, h("table", { class: "ledger" },
+        h("thead", null, h("tr", null, h("th", null, "Amount"), h("th", null, "Kind"), h("th", null, "Memo"), h("th", null, "When"))),
+        h("tbody", null, rows)));
+    }
+
+    function TicketTable(entries) {
+      if (!entries || entries.length === 0) return h("div", { class: "empty" }, "No entries.");
+      var rows = entries.map(function (e) {
+        var cls = e.delta < 0 ? "amt-neg" : (e.delta > 0 ? "amt-pos" : "");
+        return h("tr", null,
+          h("td", { class: "num " + cls, style: "font-weight:700" }, (e.delta > 0 ? "+" : "") + e.delta),
+          h("td", { class: "num" }, String(e.balanceAfter)),
+          h("td", null, pill(e.reason, "neutral")),
+          h("td", { class: "muted", style: "white-space:nowrap" }, fmtDate(e.createdAt)));
+      });
+      return h("div", { class: "table-wrap" }, h("table", { class: "ledger" },
+        h("thead", null, h("tr", null, h("th", null, "Δ"), h("th", null, "Balance"), h("th", null, "Reason"), h("th", null, "When"))),
+        h("tbody", null, rows)));
+    }
+
+    // Reusable question thread with reply + close. Used in the queue (withUser)
+    // and inside a user's activity.
+    function ThreadCard(q, o) {
+      o = o || {};
+      var replies = (q.replies || []).map(function (r) {
+        return h("div", { class: "reply " + (r.author === "staff" ? "staff" : "user") },
+          h("div", { class: "by" }, r.author === "staff" ? "Staff" : "User", " · ", fmtDate(r.createdAt)),
+          h("div", null, r.body));
+      });
+
+      var ta = h("textarea", { placeholder: "Write a reply to the user…" });
+      var msg = h("div");
+      var sendBtn = h("button", { class: "btn btn-primary btn-sm", type: "submit" }, "Send reply");
+      var closeBtn = q.status !== "CLOSED"
+        ? h("button", { class: "btn btn-sm", type: "button", onclick: onClose }, "Close question")
+        : null;
+
+      async function onSend(ev) {
+        ev.preventDefault();
+        msg.textContent = "";
+        var body = ta.value.trim();
+        if (!body) { msg.appendChild(h("div", { class: "flash flash-err" }, "Reply can’t be empty.")); return; }
+        sendBtn.disabled = true; if (closeBtn) closeBtn.disabled = true;
+        try {
+          var updated = await api("POST", "/admin/questions/" + q.id + "/reply", { body: body });
+          ta.value = "";
+          replaceQuestion(updated);
+        } catch (e) {
+          msg.appendChild(h("div", { class: "flash flash-err" }, e.message));
+          sendBtn.disabled = false; if (closeBtn) closeBtn.disabled = false;
+        }
+      }
+      async function onClose() {
+        closeBtn.disabled = true; sendBtn.disabled = true;
+        try { var updated = await api("POST", "/admin/questions/" + q.id + "/close"); replaceQuestion(updated); }
+        catch (e) { msg.appendChild(h("div", { class: "flash flash-err" }, e.message)); closeBtn.disabled = false; sendBtn.disabled = false; }
+      }
+
+      var composer = q.status === "CLOSED"
+        ? h("div", { class: "muted", style: "margin-top:10px;font-style:italic" }, "This question is closed.")
+        : h("form", { class: "composer", onsubmit: onSend }, ta, msg, h("div", { class: "row" }, closeBtn, sendBtn));
+
+      return h("div", { class: "thread" },
+        h("div", { class: "row", style: "justify-content:space-between" },
+          h("div", { class: "subj" }, q.subject),
+          pill(q.status, Q_PILL[q.status])),
+        o.withUser && q.user ? h("div", { class: "muted mono", style: "margin-top:3px;font-size:12.5px" },
+          q.user.mobile, " · ", q.user.displayId, "  ",
+          h("a", { onclick: function () { loadUser(q.user.id, "queue"); } }, "view activity →")) : null,
+        h("div", { class: "op" }, q.body),
+        replies.length ? h("div", null, replies) : h("div", { class: "muted", style: "font-size:12.5px" }, "No replies yet."),
+        composer);
+    }
+
+    function AppView() {
+      var content;
+      if (state.screen === "queue") content = QueueScreen();
+      else if (state.screen === "search") content = SearchScreen();
+      else if (state.screen === "user") content = UserScreen();
+      return h("div", null, Header(),
+        state.screen !== "user" ? Tabs() : null,
+        h("main", null, content));
+    }
+
+    // ── Mount / boot ────────────────────────────────────────────────────────
+    function render() {
+      var root = document.getElementById("root");
+      root.textContent = "";
+      root.appendChild(state.view === "login" ? LoginView() : AppView());
+    }
+    async function boot() {
+      if (state.token) {
+        try {
+          var me = await api("GET", "/admin/auth/me");
+          state.staff = me; state.view = "app"; state.screen = "queue"; saveSession();
+          render(); loadQueue(); return;
+        } catch (e) { /* 401 already routed to logout(); other errors fall through */ }
+      }
+      state.view = "login"; render();
+    }
+    boot();
+  })();
+  </script>
+</body>
+</html>
