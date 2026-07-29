@@ -75,6 +75,8 @@
     .btn-sm { padding: 5px 10px; font-size: 13px; border-radius: 7px; }
     .btn-ghost { background: transparent; border-color: transparent; }
     .btn-ghost:hover { background: var(--surface-2); }
+    .btn-danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }
+    .btn-danger:hover { background: color-mix(in srgb, var(--bad) 12%, transparent); }
     input[type=text], input[type=email], input[type=password], textarea {
       width: 100%; font-family: inherit; font-size: 14px;
       background: var(--surface); color: var(--text);
@@ -186,8 +188,9 @@
       token: sessionStorage.getItem(SS + "token") || null,
       staff: JSON.parse(sessionStorage.getItem(SS + "staff") || "null"),
       view: "login",       // login | app
-      screen: "queue",     // queue | search | user
+      screen: "withdrawals", // withdrawals | queue | search | user
       flash: null,
+      withdrawals: { loading: false, error: null, items: null, filter: "REQUESTED" },
       queue: { loading: false, error: null, items: null },
       search: { mobile: "", loading: false, error: null, notFound: false, result: null },
       user: { loading: false, error: null, data: null, from: "search" }
@@ -266,6 +269,7 @@
     var TASK_PILL = { CLAIMED: "info", PURCHASED: "info", DELIVERED: "info", REVIEWED: "info", HOLDING: "warn", REFUNDED: "ok", EXPIRED: "neutral", CLOSED: "neutral", REJECTED: "bad", CANCELLED: "neutral" };
     var Q_PILL = { OPEN: "warn", ANSWERED: "info", CLOSED: "neutral" };
     var USER_PILL = { ACTIVE: "ok", BLOCKED: "bad" };
+    var WD_PILL = { REQUESTED: "warn", APPROVED: "info", PAID: "ok", REJECTED: "bad", FAILED: "bad" };
     function pill(txt, kind) { return h("span", { class: "pill pill-" + (kind || "neutral"), text: txt }); }
 
     // ── Auth actions ──────────────────────────────────────────────────────────
@@ -274,15 +278,16 @@
       state.token = data.accessToken;
       state.staff = data.staff;
       state.view = "app";
-      state.screen = "queue";
+      state.screen = "withdrawals";
       state.flash = null;
       saveSession();
       render();
-      loadQueue();
+      loadWithdrawals();
     }
     function logout(msg) {
       state.token = null; state.staff = null;
       state.view = "login"; state.flash = msg || null;
+      state.withdrawals = { loading: false, error: null, items: null, filter: "REQUESTED" };
       state.queue = { loading: false, error: null, items: null };
       state.search = { mobile: "", loading: false, error: null, notFound: false, result: null };
       state.user = { loading: false, error: null, data: null, from: "search" };
@@ -296,6 +301,15 @@
       try { state.queue.items = await api("GET", "/admin/questions?status=OPEN"); }
       catch (e) { state.queue.error = e.message; }
       state.queue.loading = false; render();
+    }
+    async function loadWithdrawals() {
+      state.withdrawals.loading = true; state.withdrawals.error = null; render();
+      try {
+        var f = state.withdrawals.filter;
+        var qs = (f && f !== "ALL") ? "?status=" + encodeURIComponent(f) : "";
+        state.withdrawals.items = await api("GET", "/admin/withdrawals" + qs);
+      } catch (e) { state.withdrawals.error = e.message; }
+      state.withdrawals.loading = false; render();
     }
     function normalizeMobile(raw) {
       var s = (raw || "").trim().replace(/[\s-]/g, "");
@@ -335,6 +349,18 @@
       if (state.user.data && state.user.data.questions) {
         for (var j = 0; j < state.user.data.questions.length; j++)
           if (state.user.data.questions[j].id === updated.id) state.user.data.questions[j] = updated;
+      }
+      render();
+    }
+
+    // Merge an action result back into the withdrawals list. The approve/reject/
+    // mark-paid responses omit the user + payoutMethod context the list row shows,
+    // so we merge onto the existing row rather than replacing it wholesale.
+    function replaceWithdrawal(updated) {
+      if (state.withdrawals.items) {
+        for (var i = 0; i < state.withdrawals.items.length; i++)
+          if (state.withdrawals.items[i].id === updated.id)
+            state.withdrawals.items[i] = Object.assign({}, state.withdrawals.items[i], updated);
       }
       render();
     }
@@ -393,11 +419,109 @@
           onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(id); } }
         }, label);
       }
-      return h("div", { class: "tabs" }, tab("queue", "Open questions"), tab("search", "Search user"));
+      return h("div", { class: "tabs" }, tab("withdrawals", "Withdrawals"), tab("queue", "Open questions"), tab("search", "Search user"));
     }
     function switchTab(id) {
       state.screen = id; render();
       if (id === "queue" && state.queue.items === null && !state.queue.loading) loadQueue();
+      if (id === "withdrawals" && state.withdrawals.items === null && !state.withdrawals.loading) loadWithdrawals();
+    }
+
+    function WithdrawalsScreen() {
+      var FILTERS = [["REQUESTED", "Pending"], ["APPROVED", "Approved"], ["PAID", "Paid"], ["REJECTED", "Rejected"], ["FAILED", "Failed"], ["ALL", "All"]];
+      var chips = h("div", { class: "row", style: "gap:6px;flex-wrap:wrap" }, FILTERS.map(function (f) {
+        var active = state.withdrawals.filter === f[0];
+        return h("button", { class: "btn btn-sm" + (active ? " btn-primary" : ""), onclick: function () {
+          if (state.withdrawals.filter === f[0]) return;
+          state.withdrawals.filter = f[0]; state.withdrawals.items = null; loadWithdrawals();
+        } }, f[1]);
+      }));
+
+      var body;
+      if (state.withdrawals.loading && !state.withdrawals.items) body = h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading…");
+      else if (state.withdrawals.error) body = h("div", { class: "flash flash-err" }, state.withdrawals.error);
+      else if (!state.withdrawals.items || state.withdrawals.items.length === 0) body = h("div", { class: "empty" }, "No withdrawals in this view.");
+      else body = h("div", null, state.withdrawals.items.map(function (w) { return WithdrawalCard(w); }));
+
+      return h("div", null,
+        h("div", { class: "row", style: "justify-content:space-between;margin-bottom:12px" },
+          h("h2", { style: "margin:0;font-size:18px" }, "Withdrawals",
+            state.withdrawals.items ? h("span", { class: "muted", style: "font-weight:500;font-size:14px" }, "  " + state.withdrawals.items.length) : null),
+          h("button", { class: "btn btn-sm", onclick: function () { loadWithdrawals(); } }, "Refresh")),
+        h("div", { style: "margin-bottom:14px" }, chips),
+        body);
+    }
+
+    // One withdrawal row with the destination, who raised it, and the staff actions
+    // allowed by its status: REQUESTED → Approve / Reject; APPROVED → Mark paid /
+    // Reject / Mark failed; terminal states show no actions. Reject / mark-failed
+    // reverse the reserved funds back to the user; mark-paid records the UTR.
+    function WithdrawalCard(w) {
+      var panel = h("div");
+      var busy = false;
+      function setPanel(node) { panel.textContent = ""; if (node) panel.appendChild(node); }
+
+      async function post(path, body) {
+        if (busy) return; busy = true;
+        setPanel(h("div", { class: "muted", style: "margin-top:10px" }, h("span", { class: "spin" }), " Working…"));
+        try {
+          var updated = await api("POST", "/admin/withdrawals/" + w.id + path, body);
+          replaceWithdrawal(updated); // merges context + re-renders (this card is rebuilt fresh)
+        } catch (e) {
+          busy = false;
+          setPanel(h("div", { class: "flash flash-err", style: "margin-top:10px" }, e.message));
+        }
+      }
+      // Reveal a one-field confirm form (reject reason / paid UTR / fail reason).
+      function reveal(labelText, placeholder, submitLabel, danger, path, bodyKey) {
+        var input = h("input", { type: "text", placeholder: placeholder });
+        var err = h("div");
+        var form = h("form", { style: "margin-top:12px", onsubmit: function (ev) {
+          ev.preventDefault();
+          var v = input.value.trim();
+          if (!v) { err.textContent = ""; err.appendChild(h("div", { class: "flash flash-err" }, "This can’t be empty.")); input.focus(); return; }
+          var body = {}; body[bodyKey] = v; post(path, body);
+        } },
+          h("label", { class: "field" }, h("span", null, labelText),
+            h("div", { class: "row" },
+              h("div", { style: "flex:1;min-width:200px" }, input),
+              h("button", { class: "btn btn-sm " + (danger ? "btn-danger" : "btn-primary"), type: "submit" }, submitLabel),
+              h("button", { class: "btn btn-sm btn-ghost", type: "button", onclick: function () { setPanel(null); } }, "Cancel"))),
+          err);
+        setPanel(form); input.focus();
+      }
+
+      var actions = [];
+      if (w.status === "REQUESTED") {
+        actions.push(h("button", { class: "btn btn-sm btn-primary", onclick: function () { post("/approve"); } }, "Approve"));
+        actions.push(h("button", { class: "btn btn-sm btn-danger", onclick: function () { reveal("Reason for rejection (the user sees this)", "e.g. payout name doesn’t match the account holder", "Reject & refund", true, "/reject", "reason"); } }, "Reject"));
+      } else if (w.status === "APPROVED") {
+        actions.push(h("button", { class: "btn btn-sm btn-primary", onclick: function () { reveal("Bank UTR / reference number", "e.g. 123456789012", "Mark paid", false, "/mark-paid", "utr"); } }, "Mark paid"));
+        actions.push(h("button", { class: "btn btn-sm btn-danger", onclick: function () { reveal("Reason for rejection (the user sees this)", "why it’s being rejected", "Reject & refund", true, "/reject", "reason"); } }, "Reject"));
+        actions.push(h("button", { class: "btn btn-sm", onclick: function () { reveal("Reason the payout failed", "e.g. bank returned the transfer", "Mark failed & refund", true, "/mark-failed", "reason"); } }, "Mark failed"));
+      }
+
+      var pm = w.payoutMethod || {};
+      var u = w.user || {};
+      return h("div", { class: "card" },
+        h("div", { class: "row", style: "justify-content:space-between;align-items:flex-start" },
+          h("div", null,
+            h("div", { class: "row" },
+              h("span", { style: "font-weight:800;font-size:18px" }, rupees(w.amountPaise)),
+              pill(w.status, WD_PILL[w.status] || "neutral")),
+            h("div", { class: "muted mono", style: "margin-top:3px;font-size:12.5px" },
+              (u.mobile || "—"), "  ·  ", (u.displayId || ""),
+              u.id ? h("a", { style: "margin-left:8px", onclick: function () { loadUser(u.id, "withdrawals"); } }, "view activity →") : null)),
+          h("div", { style: "text-align:right;white-space:nowrap" },
+            h("div", { class: "muted", style: "font-size:11.5px" }, "Requested"),
+            h("div", { style: "font-size:12.5px" }, fmtDate(w.requestedAt)))),
+        h("div", { class: "row", style: "margin-top:12px;gap:18px;flex-wrap:wrap" },
+          h("div", null, h("span", { class: "muted", style: "font-size:12px" }, "Pay to  "),
+            pill(pm.type || "—", "info"), " ", h("span", { class: "mono" }, pm.label || "—")),
+          w.utr ? h("div", null, h("span", { class: "muted", style: "font-size:12px" }, "UTR  "), h("span", { class: "mono" }, w.utr)) : null,
+          w.failureReason ? h("div", { class: "muted", style: "font-size:12.5px" }, "Reason: " + w.failureReason) : null),
+        actions.length ? h("div", { class: "row", style: "margin-top:12px;gap:8px;flex-wrap:wrap" }, actions) : null,
+        panel);
     }
 
     function QueueScreen() {
@@ -589,7 +713,8 @@
 
     function AppView() {
       var content;
-      if (state.screen === "queue") content = QueueScreen();
+      if (state.screen === "withdrawals") content = WithdrawalsScreen();
+      else if (state.screen === "queue") content = QueueScreen();
       else if (state.screen === "search") content = SearchScreen();
       else if (state.screen === "user") content = UserScreen();
       return h("div", null, Header(),
@@ -607,8 +732,8 @@
       if (state.token) {
         try {
           var me = await api("GET", "/admin/auth/me");
-          state.staff = me; state.view = "app"; state.screen = "queue"; saveSession();
-          render(); loadQueue(); return;
+          state.staff = me; state.view = "app"; state.screen = "withdrawals"; saveSession();
+          render(); loadWithdrawals(); return;
         } catch (e) { /* 401 already routed to logout(); other errors fall through */ }
       }
       state.view = "login"; render();
