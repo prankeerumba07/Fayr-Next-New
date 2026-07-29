@@ -18,6 +18,7 @@ import { SupportModule } from './support/support.module';
 import { TaskModule } from './tasks/task.module';
 import { TicketModule } from './tickets/ticket.module';
 import { WalletModule } from './wallet/wallet.module';
+import { WithdrawalModule } from './withdrawals/withdrawal.module';
 
 /**
  * The application root. Feature modules are registered here as we build them.
@@ -64,6 +65,7 @@ import { WalletModule } from './wallet/wallet.module';
     AdminModule,
     SupportModule,
     MeModule,
+    WithdrawalModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
