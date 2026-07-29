@@ -113,6 +113,12 @@ const backendApi = {
   markReviewed: (id) => apiPostAuth("/tasks/" + id + "/reviewed"),
   startHold: (id) => apiPostAuth("/tasks/" + id + "/start-hold"),
   releaseRefund: (id) => apiPostAuth("/tasks/" + id + "/release-refund"),
+  // Withdrawal / cash-out (Phase 3). Money crosses the wire as a paise STRING.
+  listPayoutMethods: () => apiGet("/me/payout-methods"),
+  addPayoutMethod: (body) => apiPostAuth("/me/payout-methods", body),
+  requestWithdrawal: (amountPaise, payoutMethodId) =>
+    apiPostAuth("/withdrawals", { amountPaise: String(amountPaise), payoutMethodId }),
+  listWithdrawals: () => apiGet("/withdrawals"),
 };
 
 // ── Backend ⇄ prototype mapping ──────────────────────────────────────────────
@@ -3734,12 +3740,16 @@ function Insights({ go }) {
     </Screen>
   );
 }
-function Earnings({ go, wallet, history, rewards }) {
-  // derive pending / withdrawable from reward ledger + demo values
-  const pending = Object.values(rewards || {}).filter((r) => r.status === "pending").reduce((s, r) => s + r.amount, 0);
-  const withdrawable = 25.5;
-  const paid = 50.2;
-  const allTime = 1250;
+function Earnings({ go, wallet }) {
+  // Real figures: withdrawable = the refundable wallet balance; paid/pending come
+  // from the user's real withdrawals (GET /withdrawals).
+  const [wds, setWds] = useState([]);
+  useEffect(() => { backendApi.listWithdrawals().then((w) => setWds(w || [])).catch(() => setWds([])); }, []);
+  const sumR = (arr) => arr.reduce((s, w) => s + Number(w.amountPaise), 0) / 100;
+  const withdrawable = (Number(wallet) || 0) / 100;
+  const paid = sumR(wds.filter((w) => w.status === "PAID"));
+  const pending = sumR(wds.filter((w) => w.status === "REQUESTED" || w.status === "APPROVED"));
+  const allTime = withdrawable + paid + pending;
   return (
     <Screen noPad bg="#FBFBEF">
       {/* yellow header */}
@@ -3798,46 +3808,100 @@ function Earnings({ go, wallet, history, rewards }) {
     </Screen>
   );
 }
-function Withdraw({ go, onWithdrawn }) {
-  const [step, setStep] = useState(0); // 0 kyc intro, 1 method, 2 done
+// Real cash-out (Phase 3). Talks to the backend: add a payout method (UPI + PAN),
+// then request a withdrawal — funds are RESERVED server-side (the wallet balance
+// drops immediately) and the payout is disbursed by ops. The +10 completion
+// tickets land when ops marks it paid (not faked here).
+function Withdraw({ go, wallet, refreshWallet }) {
+  const [methods, setMethods] = useState(null); // null = loading, [] = none yet
+  const [upi, setUpi] = useState("");
+  const [pan, setPan] = useState("");
+  const [amount, setAmount] = useState(""); // whole rupees, as a string
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState(null); // the created withdrawal
+
+  const balPaise = Number(wallet) || 0;
+  useEffect(() => {
+    backendApi.listPayoutMethods().then((m) => setMethods(m || [])).catch(() => setMethods([]));
+  }, []);
+  useEffect(() => { if (amount === "" && balPaise > 0) setAmount(String(Math.floor(balPaise / 100))); }, [balPaise]);
+
+  const inputStyle = { width: "100%", boxSizing: "border-box", background: C.cream, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "12px 13px", fontFamily: "ui-monospace, monospace", fontSize: 13.5, color: C.ink2, outline: "none" };
+
+  const addMethod = async () => {
+    setErr("");
+    if (!upi.trim() || !pan.trim()) { setErr("Enter both a UPI ID and your PAN."); return; }
+    setBusy(true);
+    try {
+      const m = await backendApi.addPayoutMethod({ type: "UPI", upiId: upi.trim(), pan: pan.trim().toUpperCase() });
+      setMethods((ms) => [m, ...(ms || [])]);
+      setUpi(""); setPan("");
+    } catch (e) { setErr(e.message || "Couldn't add that payout method."); }
+    setBusy(false);
+  };
+  const submit = async () => {
+    setErr("");
+    const paise = Math.round(Number(amount) * 100);
+    if (!(paise > 0)) { setErr("Enter an amount to withdraw."); return; }
+    if (paise > balPaise) { setErr("That's more than your withdrawable balance."); return; }
+    setBusy(true);
+    try {
+      const w = await backendApi.requestWithdrawal(paise, methods[0].id);
+      setDone(w);
+      await refreshWallet();
+    } catch (e) { setErr(e.message || "Withdrawal failed."); }
+    setBusy(false);
+  };
+
+  const hasMethod = Array.isArray(methods) && methods.length > 0;
+
   return (
     <Screen>
       <TopBar title="Withdraw" onBack={() => go("earnings")} />
       <div className="fayr-scroll" style={{ flex: 1, overflowY: "auto", padding: "4px 20px 20px" }}>
-        {step === 0 && (
-          <>
-            <h1 style={{ ...hTitle, fontSize: 23 }}>One-time KYC first</h1>
-            <p style={hSub}>PAN/Aadhaar + a quick liveness check. Money-out is guarded so your earnings stay yours.</p>
-            <CardBox style={{ marginTop: 16 }}>
-              {[["🪪", "PAN or Aadhaar", "Doc guidance shown if a submission is rejected"], ["🤳", "Liveness check", "10 seconds, on-device"], ["📊", "Progress tracker", "Provider down? Progress is saved"]].map(([i, t, s]) => (
-                <div key={t} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "8px 0" }}>
-                  <span style={{ fontSize: 20 }}>{i}</span>
-                  <div><div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.ink2 }}>{t}</div><div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.sub, marginTop: 2 }}>{s}</div></div>
-                </div>
-              ))}
-            </CardBox>
-          </>
-        )}
-        {step === 1 && (
-          <>
-            <h1 style={{ ...hTitle, fontSize: 23 }}>Add a payout method</h1>
-            <p style={hSub}>Penny-drop name match against your KYC — a verified badge appears when it clears. New methods get a cooling period + change alert (takeover tripwire).</p>
-            <CardBox style={{ marginTop: 16 }}>
-              <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 12, color: C.sub, marginBottom: 6 }}>UPI ID</div>
-              <input placeholder="name@bank" style={{ width: "100%", boxSizing: "border-box", background: C.cream, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "12px 13px", fontFamily: "ui-monospace, monospace", fontSize: 13.5, color: C.ink2, outline: "none" }} />
-            </CardBox>
-          </>
-        )}
-        {step === 2 && (
+        {done ? (
           <div style={{ paddingTop: 30 }}>
-            <MilestoneCelebration tone="gold" icon="🏦" eyebrow="Payment processed" title="Refund on its way"
-              chip="✓ UTR saved in history"
-              sub="Your refund is heading to your bank. You can verify the UTR anytime — if a payout ever fails, it returns to your wallet automatically." />
+            <MilestoneCelebration tone="gold" icon="🏦" eyebrow="Withdrawal requested" title={"₹" + rupees(Number(done.amountPaise)) + " on its way"}
+              chip="⏳ Pending payout"
+              sub="Your cash-out is reserved and queued for payout. If a payout ever fails it returns to your wallet automatically. Your +10 completion tickets are credited once the payout is confirmed." />
           </div>
+        ) : methods === null ? (
+          <p style={{ ...hSub, marginTop: 20 }}>Loading…</p>
+        ) : (
+          <>
+            <h1 style={{ ...hTitle, fontSize: 23 }}>Cash out your refunds</h1>
+            <p style={hSub}>Withdrawable balance: <b style={{ color: C.ink2 }}>₹{rupees(balPaise)}</b>. Minimum withdrawal is ₹100.</p>
+
+            {!hasMethod ? (
+              <CardBox style={{ marginTop: 16 }}>
+                <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 12, color: C.sub, marginBottom: 6 }}>UPI ID</div>
+                <input value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="name@bank" style={inputStyle} />
+                <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 12, color: C.sub, margin: "12px 0 6px" }}>PAN (fraud anchor)</div>
+                <input value={pan} onChange={(e) => setPan(e.target.value.toUpperCase())} placeholder="ABCDE1234F" maxLength={10} style={inputStyle} />
+              </CardBox>
+            ) : (
+              <CardBox style={{ marginTop: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 18 }}>✅</span>
+                  <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 13, color: C.ink2 }}>Paying to {methods[0].label}</div>
+                </div>
+                <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 12, color: C.sub, marginBottom: 6 }}>Amount (₹)</div>
+                <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" placeholder="0" style={inputStyle} />
+              </CardBox>
+            )}
+            {err && <p style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12.5, color: C.red, marginTop: 12 }}>{err}</p>}
+          </>
         )}
       </div>
       <div style={{ padding: "10px 20px 20px" }}>
-        {step < 2 ? <Pill onClick={() => { if (step === 1) onWithdrawn && onWithdrawn(); setStep(step + 1); }}>{step === 0 ? "START KYC (DEMO)" : "CONFIRM WITHDRAWAL"}</Pill> : <Pill onClick={() => go("earnings")}>DONE</Pill>}
+        {done ? (
+          <Pill onClick={() => go("earnings")}>DONE</Pill>
+        ) : methods === null ? null : !hasMethod ? (
+          <Pill onClick={addMethod} disabled={busy} color={busy ? "#cfcfcf" : C.ink}>{busy ? "ADDING…" : "ADD PAYOUT METHOD"}</Pill>
+        ) : (
+          <Pill onClick={submit} disabled={busy || balPaise <= 0} color={busy || balPaise <= 0 ? "#cfcfcf" : C.ink}>{busy ? "REQUESTING…" : "WITHDRAW ₹" + (amount || "0")}</Pill>
+        )}
       </div>
     </Screen>
   );
@@ -4329,8 +4393,8 @@ function FayrApp() {
     notifcenter: <NotificationCenter go={go} campaigns={CAMPAIGNS} enrolled={enrolled} onClose={() => { setNotifsRead(true); go("home"); }} />,
     campaigns: <MyProducts go={go} enrolled={enrolled} claimed={claimed} openProof={openProof} cardDismissed={notifCardDismissed} dismissCard={() => setNotifCardDismissed(true)} continueStep={continueStep} openTaskStatus={openTaskStatus} />,
     insights: <Insights go={go} />,
-    earnings: <Earnings go={go} wallet={wallet} history={history} rewards={rewards} />,
-    withdraw: <Withdraw go={go} onWithdrawn={() => { Object.keys(enrolled).forEach((id) => { const cc = CAMPAIGNS.find((x) => x.id === id); if (cc && (enrolled[id].step || 1) >= 9) rewardCompletionTickets(cc); }); }} />,
+    earnings: <Earnings go={go} wallet={wallet} />,
+    withdraw: <Withdraw go={go} wallet={wallet} refreshWallet={refreshWallet} />,
     tickets: <Tickets go={go} tickets={tickets} />,
     profile: <Profile go={go} name={name} phone={phone} gmail={gmail} emailVerified={emailVerified} openEmailConnect={() => { setEmailReturnTo("profile"); go("emailconnect"); }} />,
     verifier: <VerifierDemo go={go} />,
