@@ -35,6 +35,9 @@ model User {
   // sequence starts at an offset so the value never reveals signup order/count.
   displayId String     @unique @default(dbgenerated("('FAYR-'::text || lpad((nextval('user_display_seq'::regclass))::text, 6, '0'::text))"))
   status    UserStatus @default(ACTIVE)
+  // PAN anchor (fraud loophole 1): at most one account per PAN. Nullable until the
+  // user first cashes out; @unique makes the one-user-per-PAN rule a DB invariant.
+  pan       String?    @unique
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -44,6 +47,8 @@ model User {
   ticketEntries    TicketEntry[]
   walletAccounts   WalletAccount[]
   supportQuestions SupportQuestion[]
+  payoutMethods    PayoutMethod[]
+  withdrawals      Withdrawal[]
 
   @@map("users")
 }
@@ -154,6 +159,28 @@ enum TicketReason {
   EXPIRY_RETURN // +5 back if the claim expires with no purchase
   COMPLETION_RETURN // +10 after full completion + withdrawal
   ADJUSTMENT // manual correction (append-only, never edits a prior row)
+}
+
+enum PayoutMethodType {
+  UPI // a UPI VPA, e.g. name@bank
+  BANK // an account number + IFSC
+}
+
+enum PayoutMethodStatus {
+  ACTIVE
+  DISABLED // replaced/removed by the user; kept (never deleted) for audit
+}
+
+/// Withdrawal lifecycle. Funds are RESERVED at request (debited USER -> PAYOUT),
+/// so the available balance can't be double-withdrawn; a REJECTED/FAILED request
+/// reverses that leg back to the user. PAID records the external disbursement UTR
+/// and triggers the +10 completion grant.
+enum WithdrawalStatus {
+  REQUESTED // created by the user; funds reserved into the PAYOUT clearing account
+  APPROVED // staff approved; awaiting disbursement
+  PAID // disbursed externally (UTR recorded); completion tickets granted
+  REJECTED // staff rejected; reserved funds reversed to the user
+  FAILED // disbursement failed; reserved funds reversed to the user
 }
 
 /// A review-and-refund task template an operator publishes. Claiming a campaign
@@ -364,6 +391,70 @@ model TicketEntry {
 }
 
 // ===========================================================================
+// PHASE 3 — WITHDRAWAL / PAYOUT
+// ===========================================================================
+
+/// A user's cash-out destination (UPI or bank). Cross-user dedup and PAN
+/// anchoring (fraud loophole 1) are enforced by the service, not raw uniqueness,
+/// so the SAME user may re-add an instrument while a DIFFERENT user is refused.
+/// Instrument fields are stored as-is for the dev build; at-rest encryption is a
+/// later hardening step.
+model PayoutMethod {
+  id     String           @id @default(uuid()) @db.Uuid
+  userId String           @db.Uuid
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type   PayoutMethodType
+
+  upiId       String? // set when type = UPI
+  bankAccount String? // set when type = BANK
+  ifsc        String? // set when type = BANK
+  accountName String? // set when type = BANK
+
+  status    PayoutMethodStatus @default(ACTIVE)
+  createdAt DateTime           @default(now())
+
+  withdrawals Withdrawal[]
+
+  @@index([userId])
+  @@index([upiId])
+  @@index([bankAccount, ifsc])
+  @@map("payout_methods")
+}
+
+/// A cash-out request. Money moves out of the user's wallet at REQUEST time
+/// (reserveTxn: USER -> PAYOUT, kind WITHDRAWAL); a REJECTED/FAILED request posts
+/// a reversalTxn (PAYOUT -> USER, kind ADJUSTMENT). PAID is the external
+/// disbursement being confirmed (utr) — it moves no ledger money (the funds
+/// already left the user) and grants the +10 completion tickets.
+model Withdrawal {
+  id             String           @id @default(uuid()) @db.Uuid
+  userId         String           @db.Uuid
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payoutMethodId String           @db.Uuid
+  payoutMethod   PayoutMethod     @relation(fields: [payoutMethodId], references: [id], onDelete: Restrict)
+  amountPaise    BigInt
+  status         WithdrawalStatus @default(REQUESTED)
+
+  // Ledger links (the balanced transactions this withdrawal produced).
+  reserveTxnId  String? @db.Uuid
+  reversalTxnId String? @db.Uuid
+
+  utr           String? // external disbursement reference, recorded on PAID
+  failureReason String? // why a REJECTED/FAILED withdrawal was refused
+
+  // The staff member who decided it. A bare uuid (no FK), like AdminAuditLog's
+  // target — the record must outlive any staff-account change.
+  decidedByStaffId String?   @db.Uuid
+  requestedAt      DateTime  @default(now())
+  decidedAt        DateTime?
+  updatedAt        DateTime  @updatedAt
+
+  @@index([userId, requestedAt])
+  @@index([status])
+  @@map("withdrawals")
+}
+
+// ===========================================================================
 // PHASE 2 — STAFF / ADMIN
 // ===========================================================================
 //
@@ -413,7 +504,7 @@ model AdminAuditLog {
   staffUser   StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Restrict)
 
   action       String // e.g. STAFF_LOGIN, USER_VIEW, QUESTION_REPLY
-  targetUserId String? @db.Uuid // the Fayr user this action concerned, if any
+  targetUserId String?  @db.Uuid // the Fayr user this action concerned, if any
   metadata     Json? // action-specific context (never secrets)
   createdAt    DateTime @default(now())
 

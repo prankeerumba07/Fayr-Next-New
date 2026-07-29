@@ -190,6 +190,88 @@ export class WalletService {
     );
   }
 
+  /**
+   * RESERVE a withdrawal: move the user's funds out of their refundable balance
+   * into the PAYOUT clearing account, so the amount can't be cashed out twice.
+   * Legs: USER −amount, PAYOUT +amount → balanced. `amount` must be positive.
+   */
+  async postWithdrawal(
+    input: {
+      userId: string;
+      amountPaise: bigint;
+      idempotencyKey: string;
+      referenceType?: string;
+      referenceId?: string;
+      memo?: string;
+    },
+    tx?: Db,
+  ): Promise<PostedTransaction> {
+    assertPositiveAmount(input.amountPaise);
+    const db = tx ?? this.prisma;
+
+    const existing = await this.findByKey(input.idempotencyKey, db);
+    if (existing) return existing;
+
+    const payout = await this.ensureSystemAccount('PAYOUT', tx);
+    const userAccount = await this.getOrCreateUserAccount(input.userId, tx);
+
+    return this.post(
+      {
+        kind: 'WITHDRAWAL',
+        idempotencyKey: input.idempotencyKey,
+        memo: input.memo,
+        referenceType: input.referenceType,
+        referenceId: input.referenceId,
+        legs: [
+          { accountId: userAccount.id, amountPaise: -input.amountPaise },
+          { accountId: payout.id, amountPaise: input.amountPaise },
+        ],
+      },
+      tx,
+    );
+  }
+
+  /**
+   * REVERSE a reserved withdrawal (rejected, or the disbursement failed): return
+   * the funds from PAYOUT to the user. Legs: PAYOUT −amount, USER +amount. Posted
+   * as an ADJUSTMENT so the ledger reads as a correction, not a fresh payout.
+   */
+  async postWithdrawalReversal(
+    input: {
+      userId: string;
+      amountPaise: bigint;
+      idempotencyKey: string;
+      referenceType?: string;
+      referenceId?: string;
+      memo?: string;
+    },
+    tx?: Db,
+  ): Promise<PostedTransaction> {
+    assertPositiveAmount(input.amountPaise);
+    const db = tx ?? this.prisma;
+
+    const existing = await this.findByKey(input.idempotencyKey, db);
+    if (existing) return existing;
+
+    const payout = await this.ensureSystemAccount('PAYOUT', tx);
+    const userAccount = await this.getOrCreateUserAccount(input.userId, tx);
+
+    return this.post(
+      {
+        kind: 'ADJUSTMENT',
+        idempotencyKey: input.idempotencyKey,
+        memo: input.memo,
+        referenceType: input.referenceType,
+        referenceId: input.referenceId,
+        legs: [
+          { accountId: payout.id, amountPaise: -input.amountPaise },
+          { accountId: userAccount.id, amountPaise: input.amountPaise },
+        ],
+      },
+      tx,
+    );
+  }
+
   private createTransaction(
     input: PostInput,
     db: Db,
