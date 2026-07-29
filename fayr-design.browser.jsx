@@ -1298,7 +1298,7 @@ function SetupFlow({ go, setName, setProfile, authVia, tcName }) {
    5 · HOME — rails, cards (6 states), header chips, bottom nav, error/offline
    ========================================================================== */
 function BottomNav({ tab, go }) {
-  const items = [["home", "🏠", "Home"], ["myproducts", "🛍️", "My Products"], ["earnings", "💰", "Earnings"], ["insights", "📊", "Insights"]];
+  const items = [["home", "🏠", "Home"], ["myproducts", "🛍️", "My Products"], ["earnings", "💰", "Earnings"], ["insights", "👤", "My Profile"]];
   return (
     <div style={{ flex: "0 0 auto", background: "#fff", borderTop: `1px solid ${C.line}`, padding: "8px 10px 12px", display: "flex", boxShadow: "0 -6px 18px rgba(0,0,0,.05)" }}>
       {items.map(([k, icon, label]) => {
@@ -2982,6 +2982,34 @@ function TaskStatus({ go, c, enrolled, rewards, onAction, finalize, task, taskDi
   };
   const rf = REVIEW_FLOW[c.marketplace] || REVIEW_FLOW.amazon;
 
+  // Real payout status for the FINAL timeline stage. A refunded task credits the
+  // WALLET — that is not "sent to your bank" until the user actually withdraws and
+  // ops marks it PAID. Withdrawals are wallet-level (the ledger pools every refund,
+  // there is no per-task link), so this reflects the user's real withdrawal status:
+  // "paid" only once a withdrawal reaches PAID, "pending" while one is in flight,
+  // otherwise the money is simply sitting in the wallet, withdrawable anytime.
+  const [payout, setPayout] = useState({ loaded: false, status: "none" });
+  useEffect(() => {
+    if (!backed) return;
+    let alive = true;
+    backendApi
+      .listWithdrawals()
+      .then((ws) => {
+        if (!alive) return;
+        const list = ws || [];
+        const status = list.some((w) => w.status === "PAID")
+          ? "paid"
+          : list.some((w) => w.status === "REQUESTED" || w.status === "APPROVED")
+            ? "pending"
+            : "none";
+        setPayout({ loaded: true, status });
+      })
+      .catch(() => alive && setPayout({ loaded: true, status: "none" }));
+    return () => {
+      alive = false;
+    };
+  }, [backed, v && v.state]);
+
   // Full journey. reach = step at which the stage is DONE. The current pending stage is "active".
   // step machine: 2 order-verified · 3 delivered · 4 review-submitted · 5 verifying · 6 return-window
   //               · 7 reward-pending · 8 reward-confirmed · 9 paid
@@ -2993,6 +3021,20 @@ function TaskStatus({ go, c, enrolled, rewards, onAction, finalize, task, taskDi
   const refundState = v
     ? (v.state === "REFUNDED" || v.eligible ? "confirmed" : v.order ? "pending" : null)
     : (step >= 8 ? "confirmed" : step >= 3 ? "pending" : null);
+  const refunded = !!(v && v.state === "REFUNDED");
+  // Final stage, driven by the REAL withdrawal status (not just "task refunded"):
+  //   paid    → money actually reached the bank (a withdrawal is PAID)
+  //   pending → a withdrawal is in flight (REQUESTED / APPROVED)
+  //   refunded, none → the refund is in the wallet, withdrawable anytime
+  //   not yet refunded → an upcoming step, greyed out
+  const paidStage =
+    payout.status === "paid"
+      ? { key: "paid", icon: "🏦", title: "Payment Processed",   sub: "Sent to your bank account",         reach: 9, coin: true, force: "done" }
+      : payout.status === "pending"
+        ? { key: "paid", icon: "🏦", title: "Withdrawal Requested", sub: "On its way to your bank account",  reach: 9, force: "active" }
+        : refunded
+          ? { key: "paid", icon: "👛", title: "Refund in Your Wallet", sub: "Withdraw anytime from Earnings", reach: 9, force: "active" }
+          : { key: "paid", icon: "🏦", title: "Payment Processed", sub: "Withdraw your refund to your bank", reach: 9 };
   const stages = [
     { key: "claimed",   icon: "🎯", title: "Product Claimed",          sub: "28 May · 4:12 PM",                 reach: 2 },
     { key: "order",     icon: "📦", title: "Order Placed & Verified",  sub: "Fetched from your email",          reach: 3, action: "order" },
@@ -3002,8 +3044,10 @@ function TaskStatus({ go, c, enrolled, rewards, onAction, finalize, task, taskDi
     { key: "verifying", icon: rf.instant ? "✔️" : "🔎", title: rf.verifyTitle, sub: rf.verifySub,              reach: 6, autoInfo: true },
     { key: "window",    icon: "⏳", title: "Return Window",            sub: "Refund confirms after it closes",  reach: 7, autoInfo: true },
     { key: "confirmed", icon: "✅", title: "Refund Confirmed",         sub: "Review approved · window closed",   reach: 8, refundChip: "confirmed", action: "withdraw" },
-    { key: "paid",      icon: "🏦", title: "Payment Processed",        sub: `₹${refundStr} sent to your bank`,        reach: 9, coin: true },
+    paidStage,
   ];
+  // A stage's state is its step position, unless it carries an explicit `force`
+  // (the final payout stage decides its own state from real withdrawal data).
   const stateFor = (reach) => (step >= reach ? "done" : step >= reach - 1 ? "active" : "pending");
 
   // Replaces the old setTimeout step machine. Once the review is marked, ENTER
@@ -3076,7 +3120,7 @@ function TaskStatus({ go, c, enrolled, rewards, onAction, finalize, task, taskDi
 
         <div style={{ position: "relative" }}>
           {stages.map((stg, i) => {
-            const st = stateFor(stg.reach);
+            const st = stg.force || stateFor(stg.reach);
             const last = i === stages.length - 1;
             return (
               <div key={stg.key} style={{ display: "flex", gap: 14, position: "relative", animation: "fayr-rise .4s cubic-bezier(.22,.61,.36,1) both", animationDelay: i * 45 + "ms" }}>
@@ -3717,27 +3761,78 @@ function RefundedRow({ c, delay }) {
     </div>
   );
 }
-function Insights({ go }) {
+// "My Profile" tab (the 4th nav slot — formerly "Insights"). Shows the user's
+// profile at the top with REAL stats, and a Log out button at the very bottom.
+// Stats use exactly the same real sources as the Earnings screen so the numbers
+// match: total earned = withdrawable wallet + paid + pending withdrawals; products
+// reviewed = tasks whose review has been submitted (REVIEWED / HOLDING / REFUNDED).
+function Insights({ go, name, phone, gmail, emailVerified, wallet, onLogout, openEmailConnect }) {
+  const [wds, setWds] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [signingOut, setSigningOut] = useState(false);
+  useEffect(() => {
+    backendApi.listWithdrawals().then((w) => setWds(w || [])).catch(() => setWds([]));
+    backendApi.listTasks().then((t) => setTasks(t || [])).catch(() => setTasks([]));
+  }, []);
+  const sumR = (arr) => arr.reduce((s, w) => s + Number(w.amountPaise), 0) / 100;
+  const withdrawable = (Number(wallet) || 0) / 100;
+  const paid = sumR(wds.filter((w) => w.status === "PAID"));
+  const pending = sumR(wds.filter((w) => w.status === "REQUESTED" || w.status === "APPROVED"));
+  const totalEarned = withdrawable + paid + pending;
+  const reviewedCount = tasks.filter((t) => ["REVIEWED", "HOLDING", "REFUNDED"].includes(t.state)).length;
+  const inboxSub = gmail && gmail.connected ? "Gmail connected · auto-verifying orders"
+    : emailVerified ? "Email verified · connect Gmail for auto-verification"
+    : "Not connected · using screenshots";
+  const doLogout = async () => { if (signingOut) return; setSigningOut(true); try { await (onLogout && onLogout()); } finally { setSigningOut(false); } };
+  const stat = (v, l) => (
+    <div key={l} style={{ flex: 1, background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 4px 12px rgba(0,0,0,.06)", textAlign: "center" }}>
+      <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 22, color: C.ink }}>{v}</div>
+      <div style={{ fontFamily: FONT_BODY, fontWeight: 500, fontSize: 11.5, color: C.sub, marginTop: 3 }}>{l}</div>
+    </div>
+  );
   return (
     <Screen noPad bg="#FBFBEF">
       <div style={{ padding: "0 16px", flex: "0 0 auto" }}>
         <StatusSpacer />
-        <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 26, color: C.ink, margin: "6px 0 12px" }}>Insights</h1>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 26, color: C.ink, margin: "6px 0 12px" }}>My Profile</h1>
       </div>
       <div className="fayr-scroll" style={{ flex: 1, overflowY: "auto", padding: "4px 16px 92px" }}>
-        <div style={{ display: "flex", gap: 12 }}>
-          {[["₹1,250", "Total earned"], ["3", "Products reviewed"]].map(([v, l]) => (
-            <div key={l} style={{ flex: 1, background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 4px 12px rgba(0,0,0,.06)", textAlign: "center" }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 22, color: C.ink }}>{v}</div>
-              <div style={{ fontFamily: FONT_BODY, fontWeight: 500, fontSize: 11.5, color: C.sub, marginTop: 3 }}>{l}</div>
+        {/* profile info */}
+        <div style={{ display: "flex", alignItems: "center", gap: 13, background: "#fff", borderRadius: 16, padding: "14px 15px", boxShadow: "0 4px 12px rgba(0,0,0,.06)" }}>
+          <div style={{ width: 52, height: 52, borderRadius: "50%", background: C.purpleBg, display: "grid", placeItems: "center", fontSize: 24, flex: "0 0 auto" }}>👤</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 19, color: C.ink2 }}>{name || "there"}</div>
+            <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12, color: C.sub }}>{phone ? "+91 " + String(phone).replace(/(\d{5})(\d{5})/, "$1 $2") : "Phone verified"}</div>
+          </div>
+        </div>
+        {/* real stats — same sources as the Earnings screen */}
+        <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+          {stat("₹" + totalEarned.toLocaleString(undefined, { maximumFractionDigits: 2 }), "Total earned")}
+          {stat(String(reviewedCount), "Products reviewed")}
+        </div>
+        {/* quick links into the existing screens */}
+        <div style={{ background: "#fff", borderRadius: 16, marginTop: 12, boxShadow: "0 4px 12px rgba(0,0,0,.06)", overflow: "hidden" }}>
+          {[
+            ["💰", "Earnings & withdrawals", "See withdrawable balance and payout history", () => go("earnings")],
+            ["🛍️", "My Products", "Track every claim and refund", () => go("myproducts")],
+            ["📧", gmail && gmail.connected ? "Connected inbox ✓" : "Connected inbox", inboxSub, openEmailConnect],
+            ["⚙️", "Account & settings", "Privacy, security, notifications, help", () => go("profile")],
+          ].map(([ic, t, s, fn], i, a) => (
+            <div key={t} onClick={fn || undefined} style={{ display: "flex", alignItems: "center", gap: 13, padding: "14px 15px", borderBottom: i < a.length - 1 ? `1px solid ${C.line}` : "none", cursor: fn ? "pointer" : "default" }}>
+              <span style={{ fontSize: 19, width: 24, textAlign: "center" }}>{ic}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 14, color: C.ink }}>{t}</div>
+                <div style={{ fontFamily: FONT_BODY, fontWeight: 500, fontSize: 11, color: C.sub, marginTop: 1 }}>{s}</div>
+              </div>
+              <span style={{ color: "#b7b8aa", fontSize: 18 }}>›</span>
             </div>
           ))}
         </div>
-        <div style={{ background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 4px 12px rgba(0,0,0,.06)", marginTop: 12, textAlign: "center" }}>
-          <div style={{ fontSize: 40 }}>📊</div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.ink, marginTop: 8 }}>More insights coming soon</div>
-          <p style={{ ...hSub, maxWidth: 240, margin: "6px auto 0" }}>Savings trends, category breakdowns, and your review impact will live here.</p>
-        </div>
+        {/* log out — bottom of the scroll */}
+        <button onClick={doLogout} disabled={signingOut}
+          style={{ width: "100%", marginTop: 16, background: "#fff", border: `1.5px solid ${C.red}`, borderRadius: 14, padding: "14px 16px", fontFamily: FONT_BODY, fontWeight: 800, fontSize: 14, color: C.red, cursor: signingOut ? "default" : "pointer", opacity: signingOut ? 0.6 : 1 }}>
+          {signingOut ? "Logging out…" : "Log out"}
+        </button>
       </div>
       <BottomNav tab="insights" go={go} />
     </Screen>
@@ -4417,7 +4512,7 @@ function FayrApp() {
     myproducts: <MyProducts go={go} enrolled={enrolled} claimed={claimed} openProof={openProof} cardDismissed={notifCardDismissed} dismissCard={() => setNotifCardDismissed(true)} continueStep={continueStep} openTaskStatus={openTaskStatus} />,
     notifcenter: <NotificationCenter go={go} campaigns={CAMPAIGNS} enrolled={enrolled} onClose={() => { setNotifsRead(true); go("home"); }} />,
     campaigns: <MyProducts go={go} enrolled={enrolled} claimed={claimed} openProof={openProof} cardDismissed={notifCardDismissed} dismissCard={() => setNotifCardDismissed(true)} continueStep={continueStep} openTaskStatus={openTaskStatus} />,
-    insights: <Insights go={go} />,
+    insights: <Insights go={go} name={name} phone={phone} gmail={gmail} emailVerified={emailVerified} wallet={wallet} onLogout={logout} openEmailConnect={() => { setEmailReturnTo("profile"); go("emailconnect"); }} />,
     earnings: <Earnings go={go} wallet={wallet} />,
     withdraw: <Withdraw go={go} wallet={wallet} refreshWallet={refreshWallet} />,
     tickets: <Tickets go={go} tickets={tickets} />,
