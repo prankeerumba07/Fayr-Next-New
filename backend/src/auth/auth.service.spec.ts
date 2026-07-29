@@ -110,6 +110,26 @@ describe('AuthService', () => {
       expect(sms.sendOtp).not.toHaveBeenCalled();
       expect(prisma.otpChallenge.create).not.toHaveBeenCalled();
     });
+
+    it('generates a genuinely new random code on every request — a resend never repeats the previous code', async () => {
+      const { service, prisma, sms } = build();
+      // No recent challenge -> the cooldown never blocks, so each call issues a
+      // code (this is exactly the resend path once the cooldown has elapsed).
+      prisma.otpChallenge.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      // Three back-to-back requests for the SAME number.
+      await service.requestOtp(MOBILE);
+      await service.requestOtp(MOBILE);
+      await service.requestOtp(MOBILE);
+
+      const codes = sms.sendOtp.mock.calls.map((c) => c[1] as string);
+      expect(codes).toHaveLength(3);
+      codes.forEach((c) => expect(c).toMatch(/^\d{6}$/));
+      // Each request draws a fresh code from the CSPRNG, so the codes differ —
+      // proof the code is regenerated per request, never reused from the last one.
+      expect(new Set(codes).size).toBe(3);
+    });
   });
 
   describe('verifyOtp', () => {

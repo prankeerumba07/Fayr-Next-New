@@ -14,7 +14,7 @@ export const OTP_TTL_SECONDS = 5 * 60; // 5 minutes
 export const OTP_MAX_ATTEMPTS = 5;
 
 /** Minimum gap between successive OTP requests for the same number. */
-export const OTP_RESEND_COOLDOWN_SECONDS = 60;
+export const OTP_RESEND_COOLDOWN_SECONDS = 30;
 
 /**
  * E.164 mobile number: leading '+', first digit 1-9, then 7–14 more digits.
