@@ -84,6 +84,20 @@ export class TaskService {
         });
         if (open) return toTaskResponse(open, campaign);
 
+        // Claim-limit: a purchase is permanent. Once ANY prior task for this
+        // (user, campaign) has progressed past CLAIMED — i.e. a purchase was
+        // confirmed, regardless of where it ended up (delivered, reviewed, or
+        // even fully refunded) — the user may never claim this campaign again.
+        // The state machine only moves forward, and an unpurchased expiry leaves
+        // the task at CLAIMED, so `state != CLAIMED` is exactly "was purchased".
+        const everPurchased = await tx.task.findFirst({
+          where: { userId, campaignId, state: { not: 'CLAIMED' } },
+          select: { id: true },
+        });
+        if (everPurchased) {
+          throw new ConflictException("You've already completed this campaign");
+        }
+
         if (campaign.totalSlots != null) {
           const taken = await tx.task.count({ where: { campaignId } });
           if (taken >= campaign.totalSlots) {
