@@ -386,4 +386,91 @@ describe('Task loop (e2e)', () => {
     });
     expect(closed.closeReason).toBe('expired');
   });
+
+  // Claim-limit rule: a campaign may be claimed once per user, but only a
+  // *purchase* is permanent. An unpurchased claim that expires can be re-claimed;
+  // once a task ever passes CLAIMED (purchase confirmed), the campaign is locked
+  // for that user forever — even after the refund lands.
+  describe('claim-limit rule', () => {
+    it('(a) allows a fresh claim on a campaign the user has never claimed', async () => {
+      const { id: userId, token } = await newUser();
+      await ticketsSvc.grantSignup(userId);
+      const campaign = await makeCampaign();
+      await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id })
+        .expect(201)
+        .expect((r) => expect(r.body.state).toBe('CLAIMED'));
+    });
+
+    it('(b) allows re-claiming after an unpurchased claim expired', async () => {
+      const { id: userId, token } = await newUser();
+      await ticketsSvc.grantSignup(userId);
+      const campaign = await makeCampaign();
+
+      const first = await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id })
+        .expect(201);
+
+      // Expire it unpurchased — state stays CLAIMED, task is closed.
+      await prisma.task.update({
+        where: { id: first.body.id },
+        data: { claimExpiresAt: new Date(Date.now() - DAY) },
+      });
+      expect((await taskSvc.sweepExpiredClaims()).expired).toBe(1);
+
+      // A fresh claim on the same campaign works — a new task, charged again.
+      const second = await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id })
+        .expect(201)
+        .expect((r) => expect(r.body.state).toBe('CLAIMED'));
+      expect(second.body.id).not.toBe(first.body.id);
+      expect(
+        await prisma.task.count({
+          where: { userId, campaignId: campaign.id },
+        }),
+      ).toBe(2);
+    });
+
+    it('(c) blocks a second claim once the campaign was ever purchased — even after a full refund', async () => {
+      const { id: userId, token } = await newUser();
+      await ticketsSvc.grantSignup(userId);
+      const campaign = await makeCampaign();
+
+      const first = await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id })
+        .expect(201);
+      const taskId: string = first.body.id;
+
+      // Drive all the way to REFUNDED (delivery 30 days ago → window elapsed).
+      await driveToHolding(token, taskId, Date.now() - 30 * DAY);
+      await request(server())
+        .post(`/tasks/${taskId}/release-refund`)
+        .set('Authorization', bearer(token))
+        .expect(200)
+        .expect((r) => expect(r.body.state).toBe('REFUNDED'));
+
+      // The campaign is now permanently locked for this user.
+      await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id })
+        .expect(409)
+        .expect((r) => expect(r.body.message).toMatch(/already completed/i));
+
+      // No new task, no extra tickets charged.
+      expect(
+        await prisma.task.count({
+          where: { userId, campaignId: campaign.id },
+        }),
+      ).toBe(1);
+    });
+  });
 });
