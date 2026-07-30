@@ -6,6 +6,8 @@ import { WalletModule } from '../wallet/wallet.module';
 import { AdminAuditController } from './admin-audit.controller';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminAuditService } from './admin-audit.service';
+import { AdminStaffController } from './admin-staff.controller';
+import { AdminStaffService } from './admin-staff.service';
 import { AdminUsersController } from './admin-users.controller';
 import { AdminUsersService } from './admin-users.service';
 import { RolesGuard } from './guards/roles.guard';
@@ -32,12 +34,14 @@ import { StaffTokenService } from './staff-token.service';
     AdminAuthController,
     AdminUsersController,
     AdminAuditController,
+    AdminStaffController,
   ],
   providers: [
     StaffTokenService,
     StaffAuthService,
     AdminAuditService,
     AdminUsersService,
+    AdminStaffService,
     StaffBootstrapService,
     StaffAuthGuard,
     RolesGuard,

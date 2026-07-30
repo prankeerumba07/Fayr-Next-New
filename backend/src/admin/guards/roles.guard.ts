@@ -34,6 +34,10 @@ export class RolesGuard implements CanActivate {
     if (!req.staff) {
       throw new UnauthorizedException();
     }
+    // ADMIN is a super-role: it can do everything the functional roles
+    // (SUPPORT / FINANCE / OPERATIONS) can, so it passes every @Roles check.
+    // Routes then declare only the specific functional role they need.
+    if (req.staff.role === 'ADMIN') return true;
     if (!required.includes(req.staff.role)) {
       throw new ForbiddenException('Insufficient role');
     }

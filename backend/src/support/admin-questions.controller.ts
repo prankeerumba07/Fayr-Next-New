@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { CurrentStaff } from '../admin/decorators/current-staff.decorator';
+import { Roles } from '../admin/decorators/roles.decorator';
 import { RolesGuard } from '../admin/guards/roles.guard';
 import { StaffAuthGuard } from '../admin/guards/staff-auth.guard';
 import type { AuthenticatedStaff } from '../admin/staff.types';
@@ -21,12 +22,13 @@ import type { QuestionWithUserResponse } from './support.response';
 
 /**
  * The staff-facing side of support questions, under the guarded /admin namespace.
- * Any authenticated staff role may triage and answer questions; replying and
- * closing are audited (they act on a user's thread). Staff see the raising user
- * alongside each thread.
+ * SUPPORT owns this (ADMIN via the super-role); FINANCE/OPERATIONS cannot triage
+ * or answer. Replying and closing are audited (they act on a user's thread).
+ * Staff see the raising user alongside each thread.
  */
 @Controller('admin/questions')
 @UseGuards(StaffAuthGuard, RolesGuard)
+@Roles('SUPPORT')
 export class AdminQuestionsController {
   constructor(private readonly support: SupportQuestionService) {}
 
