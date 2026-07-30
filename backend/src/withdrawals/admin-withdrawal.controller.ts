@@ -27,14 +27,14 @@ import {
 import { WithdrawalService } from './withdrawal.service';
 
 /**
- * The staff withdrawal console (Phase 3). ADMIN-only this phase (a dedicated
- * FINANCE role is deferred). Disbursement is external: staff approve, then record
- * the UTR via mark-paid (which grants the +10 completion tickets), or reject/fail
- * a request (which reverses the reserved funds back to the user).
+ * The staff withdrawal console. FINANCE owns it (ADMIN via the super-role);
+ * SUPPORT/OPERATIONS cannot touch payouts. Disbursement is external: staff
+ * approve, then record the UTR via mark-paid (which grants the +10 completion
+ * tickets), or reject/fail a request (which reverses the reserved funds).
  */
 @Controller('admin/withdrawals')
 @UseGuards(StaffAuthGuard, RolesGuard)
-@Roles('ADMIN')
+@Roles('FINANCE')
 export class AdminWithdrawalController {
   constructor(private readonly withdrawals: WithdrawalService) {}
 

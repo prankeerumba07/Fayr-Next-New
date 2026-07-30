@@ -465,8 +465,10 @@ model Withdrawal {
 // on the shared user token. RBAC (StaffRole) gates what each staff member can do.
 
 enum StaffRole {
-  SUPPORT // day-to-day: read user views, answer questions
-  ADMIN // everything, including managing staff accounts
+  SUPPORT // read user views, answer support questions
+  FINANCE // view/approve/reject/pay withdrawals (+ read-only user view)
+  OPERATIONS // create/edit/publish/pause campaigns
+  ADMIN // everything above, plus the audit log + staff management
 }
 
 enum StaffStatus {

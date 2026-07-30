@@ -188,13 +188,39 @@
       token: sessionStorage.getItem(SS + "token") || null,
       staff: JSON.parse(sessionStorage.getItem(SS + "staff") || "null"),
       view: "login",       // login | app
-      screen: "withdrawals", // withdrawals | queue | search | user
+      screen: "withdrawals", // withdrawals | queue | search | staff | user
       flash: null,
       withdrawals: { loading: false, error: null, items: null, filter: "REQUESTED" },
       queue: { loading: false, error: null, items: null },
       search: { mobile: "", loading: false, error: null, notFound: false, result: null },
+      staffMgmt: { loading: false, error: null, items: null },
       user: { loading: false, error: null, data: null, from: "search" }
     };
+    // Which tabs each staff role may see. ADMIN sees everything; the others get a
+    // single functional area. This MIRRORS the backend RBAC (RolesGuard) — the
+    // server is the real gate, this just hides what a role can't use.
+    var TAB_ROLES = {
+      withdrawals: ["FINANCE", "ADMIN"],
+      queue: ["SUPPORT", "ADMIN"],
+      search: ["SUPPORT", "FINANCE", "ADMIN"],
+      staff: ["ADMIN"],
+    };
+    function roleCanSee(tab) {
+      var role = state.staff && state.staff.role;
+      return !!role && TAB_ROLES[tab] && TAB_ROLES[tab].indexOf(role) !== -1;
+    }
+    // The tab a role lands on after login: the first one it's allowed to see.
+    function defaultScreen() {
+      var order = ["withdrawals", "queue", "search", "staff"];
+      for (var i = 0; i < order.length; i++) if (roleCanSee(order[i])) return order[i];
+      return "search";
+    }
+    // Lazily load a tab's data the first time it's shown.
+    function loadForScreen(id) {
+      if (id === "queue" && state.queue.items === null && !state.queue.loading) loadQueue();
+      else if (id === "withdrawals" && state.withdrawals.items === null && !state.withdrawals.loading) loadWithdrawals();
+      else if (id === "staff" && state.staffMgmt.items === null && !state.staffMgmt.loading) loadStaff();
+    }
     function saveSession() {
       if (state.token) sessionStorage.setItem(SS + "token", state.token);
       else sessionStorage.removeItem(SS + "token");
@@ -270,6 +296,9 @@
     var Q_PILL = { OPEN: "warn", ANSWERED: "info", CLOSED: "neutral" };
     var USER_PILL = { ACTIVE: "ok", BLOCKED: "bad" };
     var WD_PILL = { REQUESTED: "warn", APPROVED: "info", PAID: "ok", REJECTED: "bad", FAILED: "bad" };
+    var ROLE_PILL = { SUPPORT: "info", FINANCE: "warn", OPERATIONS: "info", ADMIN: "ok" };
+    var STAFF_STATUS_PILL = { ACTIVE: "ok", DISABLED: "neutral" };
+    var STAFF_ROLES = ["SUPPORT", "FINANCE", "OPERATIONS", "ADMIN"];
     function pill(txt, kind) { return h("span", { class: "pill pill-" + (kind || "neutral"), text: txt }); }
 
     // ── Auth actions ──────────────────────────────────────────────────────────
@@ -278,11 +307,11 @@
       state.token = data.accessToken;
       state.staff = data.staff;
       state.view = "app";
-      state.screen = "withdrawals";
+      state.screen = defaultScreen();
       state.flash = null;
       saveSession();
       render();
-      loadWithdrawals();
+      loadForScreen(state.screen);
     }
     function logout(msg) {
       state.token = null; state.staff = null;
@@ -290,6 +319,7 @@
       state.withdrawals = { loading: false, error: null, items: null, filter: "REQUESTED" };
       state.queue = { loading: false, error: null, items: null };
       state.search = { mobile: "", loading: false, error: null, notFound: false, result: null };
+      state.staffMgmt = { loading: false, error: null, items: null };
       state.user = { loading: false, error: null, data: null, from: "search" };
       saveSession();
       render();
@@ -310,6 +340,12 @@
         state.withdrawals.items = await api("GET", "/admin/withdrawals" + qs);
       } catch (e) { state.withdrawals.error = e.message; }
       state.withdrawals.loading = false; render();
+    }
+    async function loadStaff() {
+      state.staffMgmt.loading = true; state.staffMgmt.error = null; render();
+      try { state.staffMgmt.items = await api("GET", "/admin/staff"); }
+      catch (e) { state.staffMgmt.error = e.message; }
+      state.staffMgmt.loading = false; render();
     }
     function normalizeMobile(raw) {
       var s = (raw || "").trim().replace(/[\s-]/g, "");
@@ -419,12 +455,95 @@
           onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(id); } }
         }, label);
       }
-      return h("div", { class: "tabs" }, tab("withdrawals", "Withdrawals"), tab("queue", "Open questions"), tab("search", "Search user"));
+      var defs = [["withdrawals", "Withdrawals"], ["queue", "Open questions"], ["search", "Search user"], ["staff", "Staff"]];
+      var tabs = defs.filter(function (d) { return roleCanSee(d[0]); }).map(function (d) { return tab(d[0], d[1]); });
+      return h("div", { class: "tabs" }, tabs);
     }
     function switchTab(id) {
       state.screen = id; render();
-      if (id === "queue" && state.queue.items === null && !state.queue.loading) loadQueue();
-      if (id === "withdrawals" && state.withdrawals.items === null && !state.withdrawals.loading) loadWithdrawals();
+      loadForScreen(id);
+    }
+
+    // Staff-account management (ADMIN only): create accounts and change role /
+    // status. The server is the real gate; this is the console for it.
+    function StaffScreen() {
+      // Create form.
+      var emailIn = h("input", { type: "email", placeholder: "name@fayr.app" });
+      var nameIn = h("input", { type: "text", placeholder: "Full name" });
+      var roleSel = h("select", null, STAFF_ROLES.map(function (r) { return h("option", { value: r }, r); }));
+      var passIn = h("input", { type: "password", placeholder: "Temp password (min 12 chars)" });
+      var createMsg = h("div");
+      var createBtn = h("button", { class: "btn btn-primary btn-sm", type: "submit" }, "Create account");
+      async function onCreate(ev) {
+        ev.preventDefault();
+        createMsg.textContent = "";
+        createBtn.disabled = true;
+        try {
+          await api("POST", "/admin/staff", { email: emailIn.value.trim(), name: nameIn.value.trim(), role: roleSel.value, password: passIn.value });
+          emailIn.value = ""; nameIn.value = ""; passIn.value = ""; roleSel.value = "SUPPORT";
+          await loadStaff();
+        } catch (e) {
+          createMsg.appendChild(h("div", { class: "flash flash-err", style: "margin-top:8px" }, e.message));
+          createBtn.disabled = false;
+        }
+      }
+      var createCard = h("div", { class: "card" },
+        h("h3", { style: "margin-top:0" }, "Add a staff account"),
+        h("form", { onsubmit: onCreate },
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap" },
+            h("label", { class: "field", style: "flex:1;min-width:180px" }, h("span", null, "Email"), emailIn),
+            h("label", { class: "field", style: "flex:1;min-width:160px" }, h("span", null, "Name"), nameIn)),
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;margin-top:2px" },
+            h("label", { class: "field", style: "flex:0 0 160px" }, h("span", null, "Role"), roleSel),
+            h("label", { class: "field", style: "flex:1;min-width:180px" }, h("span", null, "Temp password"), passIn)),
+          h("div", { class: "row", style: "margin-top:4px" }, createBtn),
+          createMsg));
+
+      // List + role/status controls.
+      var body;
+      if (state.staffMgmt.loading && !state.staffMgmt.items) body = h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading…");
+      else if (state.staffMgmt.error) body = h("div", { class: "flash flash-err" }, state.staffMgmt.error);
+      else if (!state.staffMgmt.items || state.staffMgmt.items.length === 0) body = h("div", { class: "empty" }, "No staff accounts.");
+      else body = h("div", null, state.staffMgmt.items.map(StaffRow));
+
+      return h("div", null,
+        h("div", { class: "row", style: "justify-content:space-between;margin-bottom:12px" },
+          h("h2", { style: "margin:0;font-size:18px" }, "Staff",
+            state.staffMgmt.items ? h("span", { class: "muted", style: "font-weight:500;font-size:14px" }, "  " + state.staffMgmt.items.length) : null),
+          h("button", { class: "btn btn-sm", onclick: function () { loadStaff(); } }, "Refresh")),
+        createCard,
+        h("div", { style: "height:14px" }),
+        body);
+    }
+
+    function StaffRow(s) {
+      var isSelf = state.staff && state.staff.id === s.id;
+      var msg = h("div");
+      async function patch(payload) {
+        msg.textContent = "";
+        try { var updated = await api("PATCH", "/admin/staff/" + s.id, payload);
+          for (var i = 0; i < state.staffMgmt.items.length; i++) if (state.staffMgmt.items[i].id === updated.id) state.staffMgmt.items[i] = updated;
+          render();
+        } catch (e) { msg.appendChild(h("div", { class: "flash flash-err", style: "margin-top:8px" }, e.message)); }
+      }
+      var roleSel = h("select", { onchange: function (e) { patch({ role: e.target.value }); } },
+        STAFF_ROLES.map(function (r) { return h("option", { value: r, selected: r === s.role ? "selected" : null }, r); }));
+      var toggleBtn = s.status === "ACTIVE"
+        ? h("button", { class: "btn btn-sm btn-danger", onclick: function () { patch({ status: "DISABLED" }); } }, "Disable")
+        : h("button", { class: "btn btn-sm", onclick: function () { patch({ status: "ACTIVE" }); } }, "Enable");
+      return h("div", { class: "card" },
+        h("div", { class: "row", style: "justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap" },
+          h("div", { style: "min-width:0" },
+            h("div", { class: "row" }, h("span", { class: "mono", style: "font-weight:700" }, s.email),
+              isSelf ? h("span", { class: "muted", style: "font-size:12px" }, "(you)") : null),
+            h("div", { class: "muted", style: "margin-top:2px;font-size:12.5px" }, s.name, "  ·  last login ", fmtDate(s.lastLoginAt))),
+          h("div", { class: "row", style: "gap:8px;align-items:center" },
+            pill(s.role, ROLE_PILL[s.role] || "neutral"),
+            pill(s.status, STAFF_STATUS_PILL[s.status] || "neutral"))),
+        h("div", { class: "row", style: "gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap" },
+          h("label", { class: "field", style: "flex:0 0 170px;margin:0" }, h("span", null, "Role"), roleSel),
+          toggleBtn),
+        msg);
     }
 
     function WithdrawalsScreen() {
@@ -712,10 +831,14 @@
     }
 
     function AppView() {
+      // A role landing on a screen it can't see (stale session / hand-typed) is
+      // redirected to its default; the server still enforces the real gate.
+      if (state.screen !== "user" && !roleCanSee(state.screen)) state.screen = defaultScreen();
       var content;
       if (state.screen === "withdrawals") content = WithdrawalsScreen();
       else if (state.screen === "queue") content = QueueScreen();
       else if (state.screen === "search") content = SearchScreen();
+      else if (state.screen === "staff") content = StaffScreen();
       else if (state.screen === "user") content = UserScreen();
       return h("div", null, Header(),
         state.screen !== "user" ? Tabs() : null,
@@ -732,8 +855,8 @@
       if (state.token) {
         try {
           var me = await api("GET", "/admin/auth/me");
-          state.staff = me; state.view = "app"; state.screen = "withdrawals"; saveSession();
-          render(); loadWithdrawals(); return;
+          state.staff = me; state.view = "app"; state.screen = defaultScreen(); saveSession();
+          render(); loadForScreen(state.screen); return;
         } catch (e) { /* 401 already routed to logout(); other errors fall through */ }
       }
       state.view = "login"; render();

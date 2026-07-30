@@ -18,7 +18,20 @@ export const AUDIT_ACTIONS = {
   USER_VIEW: 'USER_VIEW',
   QUESTION_REPLY: 'QUESTION_REPLY',
   QUESTION_CLOSE: 'QUESTION_CLOSE',
+  STAFF_CREATE: 'STAFF_CREATE',
+  STAFF_UPDATE: 'STAFF_UPDATE',
 } as const;
+
+/** The staff roles an admin can assign. Kept here so the DTO + tests share one list. */
+export const STAFF_ROLES = [
+  'SUPPORT',
+  'FINANCE',
+  'OPERATIONS',
+  'ADMIN',
+] as const;
+
+/** Staff account states an admin can set. */
+export const STAFF_STATUSES = ['ACTIVE', 'DISABLED'] as const;
 
 /**
  * Normalize an email for storage and lookup: trim + lowercase. Applied on every
