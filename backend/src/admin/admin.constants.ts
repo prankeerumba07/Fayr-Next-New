@@ -20,6 +20,9 @@ export const AUDIT_ACTIONS = {
   QUESTION_CLOSE: 'QUESTION_CLOSE',
   STAFF_CREATE: 'STAFF_CREATE',
   STAFF_UPDATE: 'STAFF_UPDATE',
+  CAMPAIGN_CREATE: 'CAMPAIGN_CREATE',
+  CAMPAIGN_UPDATE: 'CAMPAIGN_UPDATE',
+  CAMPAIGN_STATUS: 'CAMPAIGN_STATUS',
 } as const;
 
 /** The staff roles an admin can assign. Kept here so the DTO + tests share one list. */

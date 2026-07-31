@@ -1,15 +1,21 @@
+import { resolve } from 'node:path';
 import { Logger as NestLogger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
 import type { Env } from './config/env.validation';
+import { UPLOADS_URL_PREFIX } from './storage/storage.service';
 
 async function bootstrap(): Promise<void> {
   // `bufferLogs` holds early framework logs until the pino logger is installed,
   // so even boot-time messages come out structured (and in the right order).
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // The Express typing is needed for useStaticAssets (serving uploaded images).
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+  });
 
   // Route ALL logging — framework internals included — through pino, so every
   // line is structured and carries the request id.
@@ -28,6 +34,17 @@ async function bootstrap(): Promise<void> {
   // typed and non-optional — no `undefined` config values leaking into runtime.
   const config = app.get(ConfigService<Env, true>);
   const port = config.get('PORT', { infer: true });
+
+  // Serve operator-uploaded files (campaign images) as static assets under
+  // /uploads, straight from the storage directory. Same root the StorageService
+  // writes to; the shared UPLOADS_URL_PREFIX keeps the mount and the returned
+  // URLs in lockstep. (In production these would move behind a CDN / object
+  // store — the URL space stays the same, so clients don't change.)
+  const uploadDir = resolve(
+    process.cwd(),
+    config.get('UPLOAD_DIR', { infer: true }),
+  );
+  app.useStaticAssets(uploadDir, { prefix: `${UPLOADS_URL_PREFIX}/` });
 
   // CORS for browser clients (the web prototype, a future web app). An explicit
   // allowlist wins everywhere; with none set, non-production reflects the request

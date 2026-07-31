@@ -14,5 +14,8 @@ dist
 *.log
 logs
 
+# operator uploads (campaign images, etc.) — user content, never committed
+uploads
+
 # os / editor
 .DS_Store

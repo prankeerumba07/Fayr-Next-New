@@ -47,6 +47,13 @@ export const envSchema = z.object({
   // value means NO cross-origin access — set it explicitly per deploy.
   CORS_ORIGINS: z.string().default(''),
 
+  // --- Uploads (step 3, campaign images) ------------------------------------
+  // Where operator-uploaded files (campaign images now; verification screenshots
+  // later) are written. Local disk in dev; the StorageService abstraction lets a
+  // deploy swap this for S3/Cloudflare R2 without touching the controllers.
+  // Resolved relative to the process cwd, so the default lands at backend/uploads.
+  UPLOAD_DIR: z.string().min(1).default('./uploads'),
+
   // --- Task loop (step 1.5) -------------------------------------------------
   // How long a claim may sit before purchase before it expires and returns the
   // user's tickets. Operator policy, not a fetched fact.

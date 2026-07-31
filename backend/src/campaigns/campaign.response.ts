@@ -12,6 +12,8 @@ export interface CampaignResponse {
   title: string;
   productName: string;
   category: string | null;
+  /** Per-campaign Terms & Conditions (free text, one rule per line), or null. */
+  terms: string | null;
   /** Expected product price, integer paise as a string (e.g. "129900"). */
   productPricePaise: string;
   payoutPercent: number;
@@ -37,6 +39,7 @@ export function toCampaignResponse(c: Campaign): CampaignResponse {
     title: c.title,
     productName: c.productName,
     category: c.category,
+    terms: c.terms,
     productPricePaise: c.productPricePaise.toString(),
     payoutPercent: c.payoutPercent,
     payoutCapPaise:
