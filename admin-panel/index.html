@@ -195,6 +195,7 @@
       search: { mobile: "", loading: false, error: null, notFound: false, result: null },
       staffMgmt: { loading: false, error: null, items: null },
       campaigns: { loading: false, error: null, items: null, filter: "ALL" },
+      reports: { type: null, from: null, to: null, granularity: "", loading: false, error: null, data: null },
       user: { loading: false, error: null, data: null, from: "search" }
     };
     // Which tabs each staff role may see. ADMIN sees everything; the others get a
@@ -204,6 +205,7 @@
       withdrawals: ["FINANCE", "ADMIN"],
       queue: ["SUPPORT", "ADMIN"],
       campaigns: ["OPERATIONS", "ADMIN"],
+      reports: ["OPERATIONS", "FINANCE", "ADMIN"],
       search: ["SUPPORT", "FINANCE", "ADMIN"],
       staff: ["ADMIN"],
     };
@@ -213,7 +215,7 @@
     }
     // The tab a role lands on after login: the first one it's allowed to see.
     function defaultScreen() {
-      var order = ["withdrawals", "queue", "campaigns", "search", "staff"];
+      var order = ["withdrawals", "queue", "campaigns", "reports", "search", "staff"];
       for (var i = 0; i < order.length; i++) if (roleCanSee(order[i])) return order[i];
       return "search";
     }
@@ -223,6 +225,7 @@
       else if (id === "withdrawals" && state.withdrawals.items === null && !state.withdrawals.loading) loadWithdrawals();
       else if (id === "staff" && state.staffMgmt.items === null && !state.staffMgmt.loading) loadStaff();
       else if (id === "campaigns" && state.campaigns.items === null && !state.campaigns.loading) loadCampaigns();
+      else if (id === "reports" && state.reports.data === null && !state.reports.loading) openReports();
     }
     function saveSession() {
       if (state.token) sessionStorage.setItem(SS + "token", state.token);
@@ -300,6 +303,15 @@
       return e;
     }
 
+    // SVG sibling of h() — createElementNS so <svg> children render; text via
+    // textContent stays XSS-safe (chart labels can include campaign titles).
+    function s(tag, attrs) {
+      var e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      if (attrs) for (var k in attrs) { var v = attrs[k]; if (v == null || v === false) continue; if (k === "text") e.textContent = v; else e.setAttribute(k, v); }
+      for (var i = 2; i < arguments.length; i++) { var kids = arguments[i]; if (!Array.isArray(kids)) kids = [kids]; for (var j = 0; j < kids.length; j++) { var c = kids[j]; if (c == null || c === false) continue; e.appendChild((typeof c === "string" || typeof c === "number") ? document.createTextNode(String(c)) : c); } }
+      return e;
+    }
+
     // ── Formatting ────────────────────────────────────────────────────────────
     function rupees(paiseStr) {
       if (paiseStr == null) return "—";
@@ -370,6 +382,7 @@
       state.search = { mobile: "", loading: false, error: null, notFound: false, result: null };
       state.staffMgmt = { loading: false, error: null, items: null };
       state.campaigns = { loading: false, error: null, items: null, filter: "ALL" };
+      state.reports = { type: null, from: null, to: null, granularity: "", loading: false, error: null, data: null };
       state.user = { loading: false, error: null, data: null, from: "search" };
       campaignForm = null;
       saveSession();
@@ -515,7 +528,7 @@
           onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(id); } }
         }, label);
       }
-      var defs = [["withdrawals", "Withdrawals"], ["queue", "Open questions"], ["campaigns", "Campaigns"], ["search", "Search user"], ["staff", "Staff"]];
+      var defs = [["withdrawals", "Withdrawals"], ["queue", "Open questions"], ["campaigns", "Campaigns"], ["reports", "Reports"], ["search", "Search user"], ["staff", "Staff"]];
       var tabs = defs.filter(function (d) { return roleCanSee(d[0]); }).map(function (d) { return tab(d[0], d[1]); });
       return h("div", { class: "tabs" }, tabs);
     }
@@ -676,8 +689,8 @@
       }
 
       var thumb = c.imageUrl
-        ? h("img", { src: imgSrc(c.imageUrl), alt: "", style: "width:64px;height:64px;border-radius:10px;object-fit:cover;flex:0 0 auto;background:var(--panel)" })
-        : h("div", { style: "width:64px;height:64px;border-radius:10px;flex:0 0 auto;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:22px" }, "🛍️");
+        ? h("img", { src: imgSrc(c.imageUrl), alt: "", style: "width:64px;height:64px;border-radius:10px;object-fit:cover;flex:0 0 auto;background:var(--surface-2)" })
+        : h("div", { style: "width:64px;height:64px;border-radius:10px;flex:0 0 auto;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:22px" }, "🛍️");
 
       function metaBit(label, value) {
         return h("div", null, h("span", { class: "muted", style: "font-size:12px" }, label + "  "), h("span", { class: "mono" }, value));
@@ -738,7 +751,7 @@
 
       // Image upload.
       var imageUrl = campaign.imageUrl || "";
-      var preview = h("img", { src: imgSrc(imageUrl), alt: "", style: "width:72px;height:72px;border-radius:10px;object-fit:cover;background:var(--panel);" + (imageUrl ? "" : "display:none") });
+      var preview = h("img", { src: imgSrc(imageUrl), alt: "", style: "width:72px;height:72px;border-radius:10px;object-fit:cover;background:var(--surface-2);" + (imageUrl ? "" : "display:none") });
       var upStatus = h("span", { class: "muted", style: "font-size:12.5px" }, imageUrl ? "Current image" : "");
       var fileIn = h("input", { type: "file", accept: "image/png,image/jpeg,image/webp", onchange: async function (e) {
         var f = e.target.files && e.target.files[0]; if (!f) return;
@@ -834,6 +847,215 @@
           err,
           h("div", { class: "row", style: "margin-top:12px;gap:8px" }, saveBtn,
             h("button", { class: "btn btn-sm btn-ghost", type: "button", onclick: closeCampaignForm }, "Cancel"))));
+    }
+
+    // ── Reports (OPERATIONS / FINANCE / ADMIN, role-scoped) ─────────────────
+    var REPORT_TYPES = [
+      { id: "campaigns", label: "Offers performance", roles: ["OPERATIONS", "ADMIN"] },
+      { id: "payouts", label: "Payouts", roles: ["FINANCE", "ADMIN"] },
+      { id: "activity", label: "Activity funnel", roles: ["ADMIN"] },
+      { id: "users", label: "User growth", roles: ["ADMIN"] }
+    ];
+    function reportsForRole() {
+      var role = state.staff && state.staff.role;
+      return REPORT_TYPES.filter(function (t) { return role && t.roles.indexOf(role) !== -1; });
+    }
+    function isoDay(d) { return d.toISOString().slice(0, 10); }
+    function daysAgoISO(n) { var d = new Date(); d.setUTCDate(d.getUTCDate() - n); return isoDay(d); }
+    function shortLabel(s0) { s0 = s0 || ""; return s0.length > 12 ? s0.slice(0, 11) + "…" : s0; }
+    function rupeeNum(paise) { var n = Number(paise); return isFinite(n) ? n / 100 : 0; }
+    function inrShort(v) { if (v >= 100000) return "₹" + (v / 100000).toFixed(1) + "L"; if (v >= 1000) return "₹" + (v / 1000).toFixed(1) + "k"; return "₹" + Math.round(v); }
+
+    function openReports() {
+      var avail = reportsForRole();
+      if (!avail.length) return;
+      if (!state.reports.type || !avail.some(function (t) { return t.id === state.reports.type; })) state.reports.type = avail[0].id;
+      if (!state.reports.from) state.reports.from = daysAgoISO(29);
+      if (!state.reports.to) state.reports.to = isoDay(new Date());
+      loadReport();
+    }
+    async function loadReport() {
+      var r = state.reports;
+      r.loading = true; r.error = null; r.data = null; render();
+      try {
+        var q = "?from=" + r.from + "&to=" + r.to + (r.granularity ? "&granularity=" + r.granularity : "");
+        r.data = await api("GET", "/admin/reports/" + r.type + q);
+      } catch (e) { r.error = e.message; }
+      r.loading = false; render();
+    }
+    async function downloadReport() {
+      var r = state.reports;
+      var q = "?from=" + r.from + "&to=" + r.to + (r.granularity ? "&granularity=" + r.granularity : "") + "&format=xlsx";
+      try {
+        var res = await fetch(API_BASE + "/admin/reports/" + r.type + q, { headers: { Authorization: "Bearer " + state.token } });
+        if (res.status === 401) { logout("Your session expired — please sign in again."); return; }
+        if (!res.ok) throw new Error("Download failed (" + res.status + ")");
+        var blob = await res.blob();
+        var url = URL.createObjectURL(blob);
+        var cd = res.headers.get("content-disposition") || "";
+        var m = /filename="?([^"]+)"?/.exec(cd);
+        var a = document.createElement("a");
+        a.href = url; a.download = m ? m[1] : ("fayr-" + r.type + ".xlsx");
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+      } catch (e) { state.reports.error = e.message; render(); }
+    }
+
+    // Dependency-free inline-SVG vertical bar chart (panel is CSP-tight → no CDN).
+    function svgBarChart(bars, opts) {
+      opts = opts || {};
+      if (!bars.length) return h("div", { class: "empty" }, "No data in range.");
+      var W = 680, H = opts.height || 168, padL = 40, padR = 8, padT = 12, padB = 32;
+      var innerW = W - padL - padR, innerH = H - padT - padB;
+      var max = Math.max.apply(null, bars.map(function (b) { return b.value; }).concat([1]));
+      var n = bars.length, slot = innerW / n, bw = Math.max(2, Math.min(40, slot * 0.66));
+      var color = opts.color || "var(--accent)";
+      var every = Math.ceil(n / 12);
+      var fmt = opts.money ? inrShort : function (v) { return String(v); };
+      var els = [s("line", { x1: padL, y1: padT + innerH, x2: W - padR, y2: padT + innerH, stroke: "var(--border)" })];
+      els.push(s("text", { x: 4, y: padT + 7, "font-size": "9", fill: "var(--muted)" }, fmt(max)));
+      bars.forEach(function (b, i) {
+        var bh = max > 0 ? (b.value / max) * innerH : 0;
+        var x = padL + i * slot + (slot - bw) / 2, y = padT + innerH - bh;
+        els.push(s("rect", { x: x, y: y, width: bw, height: Math.max(0, bh), rx: 2, fill: color },
+          s("title", { text: (b.title || b.label) + ": " + fmt(b.value) })));
+        if (b.value > 0 && n <= 14) els.push(s("text", { x: x + bw / 2, y: y - 3, "text-anchor": "middle", "font-size": "9", fill: "var(--muted)" }, fmt(b.value)));
+        if (i % every === 0) els.push(s("text", { x: x + bw / 2, y: H - 10, "text-anchor": "middle", "font-size": "9", fill: "var(--muted)" }, b.label));
+      });
+      return s("svg", { viewBox: "0 0 " + W + " " + H, width: "100%", height: String(H), style: "display:block;max-width:100%" }, els);
+    }
+
+    // Horizontal funnel bars (HTML, not SVG — simple proportional widths).
+    function funnelChart(stages) {
+      var max = Math.max.apply(null, stages.map(function (x) { return x.value; }).concat([1]));
+      return h("div", null, stages.map(function (st) {
+        var w = max > 0 ? Math.round((st.value / max) * 100) : 0;
+        return h("div", { class: "row", style: "align-items:center;gap:10px;margin-bottom:7px" },
+          h("div", { style: "flex:0 0 140px;font-size:12.5px;color:var(--muted)" }, st.label),
+          h("div", { style: "flex:1;background:var(--surface-2);border-radius:6px;overflow:hidden;height:22px" },
+            h("div", { style: "height:100%;width:" + w + "%;min-width:2px;background:var(--accent)" })),
+          h("div", { style: "flex:0 0 52px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums" }, String(st.value)));
+      }));
+    }
+
+    function statCards(cards) {
+      return h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;margin-bottom:16px" }, cards.map(function (c) {
+        return h("div", { class: "kv", style: "flex:1;min-width:120px" }, h("div", { class: "k" }, c.label), h("div", { class: "v num" }, c.value));
+      }));
+    }
+    function reportTable(headers, rows) {
+      return h("div", { class: "table-wrap" }, h("table", { class: "ledger" },
+        h("thead", null, h("tr", null, headers.map(function (hd) { return h("th", null, hd); }))),
+        h("tbody", null, rows.map(function (cells) {
+          return h("tr", null, cells.map(function (c, i) { return h("td", i > 0 ? { class: "num", style: "white-space:nowrap" } : null, c); }));
+        }))));
+    }
+
+    function ReportsScreen() {
+      var avail = reportsForRole();
+      var r = state.reports;
+      var typeChips = h("div", { class: "row", style: "gap:6px;flex-wrap:wrap" }, avail.map(function (t) {
+        var active = r.type === t.id;
+        return h("button", { class: "btn btn-sm" + (active ? " btn-primary" : ""), onclick: function () { if (r.type !== t.id) { r.type = t.id; loadReport(); } } }, t.label);
+      }));
+      var fromIn = h("input", { type: "date", value: r.from || "" });
+      var toIn = h("input", { type: "date", value: r.to || "" });
+      var granSel = h("select", null, [["", "Auto"], ["day", "Daily"], ["week", "Weekly"]].map(function (g) {
+        return h("option", { value: g[0], selected: r.granularity === g[0] ? "selected" : null }, g[1]);
+      }));
+      function run() { r.from = fromIn.value || r.from; r.to = toIn.value || r.to; r.granularity = granSel.value; loadReport(); }
+      var controls = h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;align-items:flex-end;margin:14px 0" },
+        h("label", { class: "field", style: "flex:0 0 150px;margin:0" }, h("span", null, "From"), fromIn),
+        h("label", { class: "field", style: "flex:0 0 150px;margin:0" }, h("span", null, "To"), toIn),
+        h("label", { class: "field", style: "flex:0 0 120px;margin:0" }, h("span", null, "Granularity"), granSel),
+        h("button", { class: "btn btn-sm btn-primary", onclick: run }, "Run"),
+        h("button", { class: "btn btn-sm", onclick: downloadReport }, "⬇ Excel"));
+
+      var body;
+      if (r.loading) body = h("div", { class: "muted" }, h("span", { class: "spin" }), " Crunching…");
+      else if (r.error) body = h("div", { class: "flash flash-err" }, r.error);
+      else if (r.data) body = renderReport(r.type, r.data);
+      else body = h("div", { class: "empty" }, "Pick a range and hit Run.");
+
+      return h("div", null,
+        h("div", { class: "row", style: "justify-content:space-between;margin-bottom:4px" },
+          h("h2", { style: "margin:0;font-size:18px" }, "Reports"),
+          h("button", { class: "btn btn-sm", onclick: function () { loadReport(); } }, "Refresh")),
+        typeChips, controls, body);
+    }
+
+    function renderReport(type, d) {
+      if (type === "campaigns") return reportCampaigns(d);
+      if (type === "payouts") return reportPayouts(d);
+      if (type === "activity") return reportActivity(d);
+      if (type === "users") return reportUsers(d);
+      return h("div");
+    }
+
+    function reportCampaigns(d) {
+      var cards = statCards([
+        { label: "Campaigns", value: String(d.totals.campaigns) },
+        { label: "Claims", value: String(d.totals.claims) },
+        { label: "Purchases", value: String(d.totals.purchases) },
+        { label: "Reviews", value: String(d.totals.reviews) },
+        { label: "Refunds", value: String(d.totals.refunds) }
+      ]);
+      var bars = d.rows.slice(0, 12).map(function (row) { return { label: shortLabel(row.title), value: row.claims, title: row.title }; });
+      var chart = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Claims by campaign"), svgBarChart(bars, {}));
+      var rows = d.rows.map(function (row) {
+        return [row.title, pill(row.status, CAMP_PILL[row.status] || "neutral"), String(row.claims), String(row.purchases), String(row.reviews), String(row.refunds), row.purchaseConversionPct + "%", row.refundConversionPct + "%", row.fillRatePct == null ? "—" : row.fillRatePct + "%"];
+      });
+      var table = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "By campaign"),
+        d.rows.length ? reportTable(["Campaign", "Status", "Claims", "Purchases", "Reviews", "Refunds", "Purch %", "Refund %", "Fill %"], rows) : h("div", { class: "empty" }, "No campaign activity in range."));
+      return h("div", null, cards, chart, table);
+    }
+
+    function reportPayouts(d) {
+      var cards = statCards([
+        { label: "Refunds credited", value: rupees(d.refundsCreditedPaise) },
+        { label: "Refund count", value: String(d.refundsCreditedCount) },
+        { label: "Paid out", value: rupees(d.paidOutPaise) },
+        { label: "Completion grants", value: String(d.completionGrants) }
+      ]);
+      var bars = d.series.map(function (p) { return { label: p.bucket.slice(5), value: rupeeNum(p.refundsPaise), title: p.bucket }; });
+      var chart = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Refunds credited over time"), svgBarChart(bars, { money: true }));
+      var wrows = d.withdrawalsByStatus.map(function (s0) { return [pill(s0.status, WD_PILL[s0.status] || "neutral"), String(s0.count), rupees(s0.totalPaise)]; });
+      var table = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Withdrawals requested (by status)"),
+        reportTable(["Status", "Count", "Total"], wrows));
+      return h("div", null, cards, chart, table);
+    }
+
+    function reportActivity(d) {
+      var f = d.funnel;
+      var cards = statCards([
+        { label: "Claimed", value: String(f.claimed) },
+        { label: "Purchased", value: String(f.purchased) },
+        { label: "Refunded", value: String(f.refunded) },
+        { label: "Expired", value: String(f.expired) }
+      ]);
+      var funnel = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Funnel (tasks created in range)"),
+        funnelChart([
+          { label: "Claimed", value: f.claimed }, { label: "Purchased", value: f.purchased },
+          { label: "Delivered", value: f.delivered }, { label: "Reviewed", value: f.reviewed },
+          { label: "In holding", value: f.holding }, { label: "Refunded", value: f.refunded }
+        ]));
+      var bars = d.series.map(function (p) { return { label: p.bucket.slice(5), value: p.claims, title: p.bucket }; });
+      var chart = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Claims over time"), svgBarChart(bars, {}));
+      return h("div", null, cards, funnel, chart);
+    }
+
+    function reportUsers(d) {
+      var cards = statCards([
+        { label: "New signups", value: String(d.newSignups) },
+        { label: "Active claimers", value: String(d.activeClaimers) },
+        { label: "Cumulative users", value: String(d.cumulativeUsers) }
+      ]);
+      var bars = d.series.map(function (p) { return { label: p.bucket.slice(5), value: p.signups, title: p.bucket }; });
+      var chart = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "New signups over time"), svgBarChart(bars, {}));
+      var rows = d.series.map(function (p) { return [p.bucket, String(p.signups), String(p.activeClaimers), String(p.cumulative)]; });
+      var table = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Growth detail"),
+        reportTable(["Bucket", "Signups", "Active claimers", "Cumulative"], rows));
+      return h("div", null, cards, chart, table);
     }
 
     function WithdrawalsScreen() {
@@ -1128,6 +1350,7 @@
       if (state.screen === "withdrawals") content = WithdrawalsScreen();
       else if (state.screen === "queue") content = QueueScreen();
       else if (state.screen === "campaigns") content = CampaignsScreen();
+      else if (state.screen === "reports") content = ReportsScreen();
       else if (state.screen === "search") content = SearchScreen();
       else if (state.screen === "staff") content = StaffScreen();
       else if (state.screen === "user") content = UserScreen();
