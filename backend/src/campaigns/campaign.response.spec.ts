@@ -13,6 +13,7 @@ const baseCampaign: Campaign = {
   title: 'Review the boAt Rockerz',
   productName: 'boAt Rockerz 255 Pro+',
   category: 'electronics',
+  terms: null,
   productPricePaise: 129900n,
   payoutPercent: 100,
   payoutCapPaise: null,
@@ -63,6 +64,14 @@ describe('toCampaignResponse', () => {
       totalSlots: 50,
       asin: 'B08TV2P5QL',
     });
+  });
+
+  it('passes campaign terms through, and keeps a missing one null', () => {
+    expect(toCampaignResponse(baseCampaign).terms).toBeNull();
+    expect(
+      toCampaignResponse({ ...baseCampaign, terms: 'One entry per user.' })
+        .terms,
+    ).toBe('One entry per user.');
   });
 
   it('produces an object with no BigInt values (JSON-safe)', () => {

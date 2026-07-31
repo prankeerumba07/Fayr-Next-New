@@ -167,6 +167,9 @@ function mapCampaign(cp, i) {
     asin: cp.asin || null,
     category: cp.category || null,
     productName: cp.productName,
+    // Operator-authored Terms & Conditions (one rule per line), or null → the
+    // Detail screen falls back to the app's default T&C copy.
+    terms: cp.terms || null,
   };
 }
 
@@ -2105,7 +2108,11 @@ function Detail({ go, c, enrolled, claimed, claim, buyNow, linked }) {
 
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 18, color: C.ink, margin: "0 0 12px" }}>Terms &amp; conditions</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
-              {["Your " + m.name + " account must match your fayr number or email.", "Buy the exact product & variant only: " + c.variant + ".", "One entry per user.", "Reviews must be genuine — your rating never affects your refund.", "Refund releases after the marketplace return window closes."].map((r) => (
+              {/* Operator-authored T&C (one rule per line) when the campaign has
+                  them; otherwise the app's default rule set. */}
+              {(c.terms
+                ? c.terms.split("\n").map((l) => l.trim()).filter(Boolean)
+                : ["Your " + m.name + " account must match your fayr number or email.", "Buy the exact product & variant only: " + c.variant + ".", "One entry per user.", "Reviews must be genuine — your rating never affects your refund.", "Refund releases after the marketplace return window closes."]).map((r) => (
                 <div key={r} style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
                   <span style={{ flex: "0 0 5px", width: 5, height: 5, borderRadius: "50%", background: "#c7bfa9", marginTop: 8 }} />
                   <span style={{ fontFamily: FONT_BODY, fontWeight: 450, fontSize: 13.5, lineHeight: 1.5, color: "#6b6555" }}>{r}</span>

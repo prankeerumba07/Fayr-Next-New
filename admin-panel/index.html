@@ -194,6 +194,7 @@
       queue: { loading: false, error: null, items: null },
       search: { mobile: "", loading: false, error: null, notFound: false, result: null },
       staffMgmt: { loading: false, error: null, items: null },
+      campaigns: { loading: false, error: null, items: null, filter: "ALL" },
       user: { loading: false, error: null, data: null, from: "search" }
     };
     // Which tabs each staff role may see. ADMIN sees everything; the others get a
@@ -202,6 +203,7 @@
     var TAB_ROLES = {
       withdrawals: ["FINANCE", "ADMIN"],
       queue: ["SUPPORT", "ADMIN"],
+      campaigns: ["OPERATIONS", "ADMIN"],
       search: ["SUPPORT", "FINANCE", "ADMIN"],
       staff: ["ADMIN"],
     };
@@ -211,7 +213,7 @@
     }
     // The tab a role lands on after login: the first one it's allowed to see.
     function defaultScreen() {
-      var order = ["withdrawals", "queue", "search", "staff"];
+      var order = ["withdrawals", "queue", "campaigns", "search", "staff"];
       for (var i = 0; i < order.length; i++) if (roleCanSee(order[i])) return order[i];
       return "search";
     }
@@ -220,6 +222,7 @@
       if (id === "queue" && state.queue.items === null && !state.queue.loading) loadQueue();
       else if (id === "withdrawals" && state.withdrawals.items === null && !state.withdrawals.loading) loadWithdrawals();
       else if (id === "staff" && state.staffMgmt.items === null && !state.staffMgmt.loading) loadStaff();
+      else if (id === "campaigns" && state.campaigns.items === null && !state.campaigns.loading) loadCampaigns();
     }
     function saveSession() {
       if (state.token) sessionStorage.setItem(SS + "token", state.token);
@@ -246,6 +249,26 @@
       if (txt) { try { data = JSON.parse(txt); } catch (e) { data = txt; } }
       if (!res.ok) {
         var m = (data && data.message) || (typeof data === "string" && data) || ("Request failed (" + res.status + ")");
+        throw new ApiError(res.status, Array.isArray(m) ? m.join(", ") : m);
+      }
+      return data;
+    }
+
+    // Multipart upload (the JSON `api()` can't carry a file). Lets the browser set
+    // the multipart boundary; only the Authorization header is added.
+    async function apiUpload(path, file) {
+      var fd = new FormData();
+      fd.append("file", file);
+      var init = { method: "POST", headers: {}, body: fd };
+      if (state.token) init.headers["Authorization"] = "Bearer " + state.token;
+      var res;
+      try { res = await fetch(API_BASE + path, init); }
+      catch (e) { throw new ApiError(0, "Can’t reach the Fayr server at " + API_BASE + "."); }
+      if (res.status === 401) { logout("Your session expired — please sign in again."); throw new ApiError(401, "Unauthorized"); }
+      var txt = await res.text(), data = null;
+      if (txt) { try { data = JSON.parse(txt); } catch (e) { data = txt; } }
+      if (!res.ok) {
+        var m = (data && data.message) || (typeof data === "string" && data) || ("Upload failed (" + res.status + ")");
         throw new ApiError(res.status, Array.isArray(m) ? m.join(", ") : m);
       }
       return data;
@@ -292,6 +315,26 @@
       if (!iso) return "—";
       return new Date(iso).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" });
     }
+    // Campaign money is integer-paise strings on the wire, but operators think in
+    // rupees — so the form shows/accepts rupees and converts at the boundary.
+    function paiseToRupeeInput(paiseStr) {
+      if (paiseStr == null || paiseStr === "") return "";
+      var n = Number(paiseStr);
+      return isFinite(n) ? String(n / 100) : "";
+    }
+    function rupeeInputToPaise(str) {
+      var s = (str == null ? "" : String(str)).trim();
+      if (s === "") return null;
+      var n = Number(s);
+      if (!isFinite(n) || n < 0) return null;
+      return String(Math.round(n * 100)); // integer paise, as a string
+    }
+    // Uploaded images come back as root-relative "/uploads/…" — resolve them
+    // against the API host so the panel (served from :8090) can show them.
+    function imgSrc(url) {
+      if (!url) return "";
+      return url.charAt(0) === "/" ? API_BASE + url : url;
+    }
     var TASK_PILL = { CLAIMED: "info", PURCHASED: "info", DELIVERED: "info", REVIEWED: "info", HOLDING: "warn", REFUNDED: "ok", EXPIRED: "neutral", CLOSED: "neutral", REJECTED: "bad", CANCELLED: "neutral" };
     var Q_PILL = { OPEN: "warn", ANSWERED: "info", CLOSED: "neutral" };
     var USER_PILL = { ACTIVE: "ok", BLOCKED: "bad" };
@@ -299,7 +342,13 @@
     var ROLE_PILL = { SUPPORT: "info", FINANCE: "warn", OPERATIONS: "info", ADMIN: "ok" };
     var STAFF_STATUS_PILL = { ACTIVE: "ok", DISABLED: "neutral" };
     var STAFF_ROLES = ["SUPPORT", "FINANCE", "OPERATIONS", "ADMIN"];
+    var CAMP_PILL = { DRAFT: "neutral", ACTIVE: "ok", PAUSED: "warn", ENDED: "bad" };
+    var PLATFORMS = ["AMAZON", "FLIPKART", "MEESHO", "MYNTRA", "BLINKIT", "ZEPTO", "INSTAMART"];
     function pill(txt, kind) { return h("span", { class: "pill pill-" + (kind || "neutral"), text: txt }); }
+    // The currently-open campaign create/edit form: null (closed), or
+    // { mode: "create" | "edit", campaign }. Held outside `state` so typing in the
+    // form never triggers a re-render (inputs live in the CampaignForm closure).
+    var campaignForm = null;
 
     // ── Auth actions ──────────────────────────────────────────────────────────
     async function doLogin(email, password) {
@@ -320,7 +369,9 @@
       state.queue = { loading: false, error: null, items: null };
       state.search = { mobile: "", loading: false, error: null, notFound: false, result: null };
       state.staffMgmt = { loading: false, error: null, items: null };
+      state.campaigns = { loading: false, error: null, items: null, filter: "ALL" };
       state.user = { loading: false, error: null, data: null, from: "search" };
+      campaignForm = null;
       saveSession();
       render();
     }
@@ -346,6 +397,15 @@
       try { state.staffMgmt.items = await api("GET", "/admin/staff"); }
       catch (e) { state.staffMgmt.error = e.message; }
       state.staffMgmt.loading = false; render();
+    }
+    async function loadCampaigns() {
+      state.campaigns.loading = true; state.campaigns.error = null; render();
+      try {
+        var f = state.campaigns.filter;
+        var qs = (f && f !== "ALL") ? "?status=" + encodeURIComponent(f) : "";
+        state.campaigns.items = await api("GET", "/admin/campaigns" + qs);
+      } catch (e) { state.campaigns.error = e.message; }
+      state.campaigns.loading = false; render();
     }
     function normalizeMobile(raw) {
       var s = (raw || "").trim().replace(/[\s-]/g, "");
@@ -455,11 +515,12 @@
           onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(id); } }
         }, label);
       }
-      var defs = [["withdrawals", "Withdrawals"], ["queue", "Open questions"], ["search", "Search user"], ["staff", "Staff"]];
+      var defs = [["withdrawals", "Withdrawals"], ["queue", "Open questions"], ["campaigns", "Campaigns"], ["search", "Search user"], ["staff", "Staff"]];
       var tabs = defs.filter(function (d) { return roleCanSee(d[0]); }).map(function (d) { return tab(d[0], d[1]); });
       return h("div", { class: "tabs" }, tabs);
     }
     function switchTab(id) {
+      campaignForm = null; // don't carry a half-filled campaign form across tabs
       state.screen = id; render();
       loadForScreen(id);
     }
@@ -544,6 +605,235 @@
           h("label", { class: "field", style: "flex:0 0 170px;margin:0" }, h("span", null, "Role"), roleSel),
           toggleBtn),
         msg);
+    }
+
+    // ── Campaigns (OPERATIONS) ──────────────────────────────────────────────
+    function openCampaignForm(mode, campaign) { campaignForm = { mode: mode, campaign: campaign || null }; render(); }
+    function closeCampaignForm() { campaignForm = null; render(); }
+
+    function payoutText(c) {
+      var t = c.payoutPercent + "% back";
+      if (c.payoutCapPaise != null) t += " · up to " + rupees(c.payoutCapPaise);
+      return t;
+    }
+
+    function CampaignsScreen() {
+      var FILTERS = [["ALL", "All"], ["DRAFT", "Draft"], ["ACTIVE", "Live"], ["PAUSED", "Paused"], ["ENDED", "Ended"]];
+      var chips = h("div", { class: "row", style: "gap:6px;flex-wrap:wrap" }, FILTERS.map(function (f) {
+        var active = state.campaigns.filter === f[0];
+        return h("button", { class: "btn btn-sm" + (active ? " btn-primary" : ""), onclick: function () {
+          if (state.campaigns.filter === f[0]) return;
+          state.campaigns.filter = f[0]; state.campaigns.items = null; loadCampaigns();
+        } }, f[1]);
+      }));
+
+      var body;
+      if (state.campaigns.loading && !state.campaigns.items) body = h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading…");
+      else if (state.campaigns.error) body = h("div", { class: "flash flash-err" }, state.campaigns.error);
+      else if (!state.campaigns.items || state.campaigns.items.length === 0) body = h("div", { class: "empty" }, "No campaigns in this view.");
+      else body = h("div", null, state.campaigns.items.map(CampaignCard));
+
+      return h("div", null,
+        h("div", { class: "row", style: "justify-content:space-between;margin-bottom:12px" },
+          h("h2", { style: "margin:0;font-size:18px" }, "Campaigns",
+            state.campaigns.items ? h("span", { class: "muted", style: "font-weight:500;font-size:14px" }, "  " + state.campaigns.items.length) : null),
+          h("div", { class: "row", style: "gap:8px" },
+            campaignForm ? null : h("button", { class: "btn btn-sm btn-primary", onclick: function () { openCampaignForm("create", null); } }, "+ New campaign"),
+            h("button", { class: "btn btn-sm", onclick: function () { loadCampaigns(); } }, "Refresh"))),
+        campaignForm ? CampaignForm(campaignForm.mode, campaignForm.campaign) : null,
+        h("div", { style: "margin-bottom:14px" }, chips),
+        body);
+    }
+
+    // One campaign row: identity + the money/policy summary, plus the lifecycle
+    // actions its status allows (DRAFT → publish/edit/end, ACTIVE → pause/end,
+    // PAUSED → resume/edit/end; ENDED is terminal). Edit reopens the form.
+    function CampaignCard(c) {
+      var msg = h("div");
+      var busy = false;
+      async function act(verb) {
+        if (busy) return; busy = true; msg.textContent = "";
+        msg.appendChild(h("div", { class: "muted", style: "margin-top:10px" }, h("span", { class: "spin" }), " Working…"));
+        try { await api("POST", "/admin/campaigns/" + c.id + "/" + verb); campaignForm = null; await loadCampaigns(); }
+        catch (e) { busy = false; msg.textContent = ""; msg.appendChild(h("div", { class: "flash flash-err", style: "margin-top:10px" }, e.message)); }
+      }
+      function actBtn(label, verb, kind) {
+        return h("button", { class: "btn btn-sm " + (kind || ""), onclick: function () { act(verb); } }, label);
+      }
+
+      var actions = [];
+      if (c.status === "DRAFT") {
+        actions.push(actBtn("Publish", "publish", "btn-primary"));
+        actions.push(h("button", { class: "btn btn-sm", onclick: function () { openCampaignForm("edit", c); } }, "Edit"));
+        actions.push(actBtn("End", "end", "btn-danger"));
+      } else if (c.status === "ACTIVE") {
+        actions.push(actBtn("Pause", "pause", ""));
+        actions.push(actBtn("End", "end", "btn-danger"));
+      } else if (c.status === "PAUSED") {
+        actions.push(actBtn("Resume", "resume", "btn-primary"));
+        actions.push(h("button", { class: "btn btn-sm", onclick: function () { openCampaignForm("edit", c); } }, "Edit"));
+        actions.push(actBtn("End", "end", "btn-danger"));
+      }
+
+      var thumb = c.imageUrl
+        ? h("img", { src: imgSrc(c.imageUrl), alt: "", style: "width:64px;height:64px;border-radius:10px;object-fit:cover;flex:0 0 auto;background:var(--panel)" })
+        : h("div", { style: "width:64px;height:64px;border-radius:10px;flex:0 0 auto;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:22px" }, "🛍️");
+
+      function metaBit(label, value) {
+        return h("div", null, h("span", { class: "muted", style: "font-size:12px" }, label + "  "), h("span", { class: "mono" }, value));
+      }
+
+      return h("div", { class: "card" },
+        h("div", { class: "row", style: "gap:14px;align-items:flex-start" },
+          thumb,
+          h("div", { style: "flex:1;min-width:0" },
+            h("div", { class: "row", style: "justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap" },
+              h("div", { style: "min-width:0" },
+                h("div", { class: "row" }, h("span", { style: "font-weight:800;font-size:16px" }, c.title), pill(c.status, CAMP_PILL[c.status] || "neutral")),
+                h("div", { class: "muted", style: "margin-top:2px;font-size:13px" }, c.productName)),
+              h("div", { style: "text-align:right;white-space:nowrap" },
+                h("div", { style: "font-weight:800;font-size:16px" }, rupees(c.productPricePaise)),
+                h("div", { class: "muted", style: "font-size:12px" }, c.platform))),
+            h("div", { class: "row", style: "margin-top:10px;gap:16px;flex-wrap:wrap" },
+              metaBit("Refund", payoutText(c)),
+              metaBit("Tickets", String(c.ticketCost)),
+              metaBit("Return window", c.returnWindowDays != null ? c.returnWindowDays + "d" : "default"),
+              c.category ? metaBit("Category", c.category) : null,
+              c.minRating != null ? metaBit("Min rating", c.minRating + "★") : null,
+              c.totalSlots != null ? metaBit("Slots", String(c.totalSlots)) : null),
+            c.terms ? h("div", { class: "muted", style: "margin-top:10px;font-size:12.5px;white-space:pre-wrap;border-left:2px solid var(--border);padding-left:10px" }, c.terms) : null)),
+        actions.length ? h("div", { class: "row", style: "margin-top:12px;gap:8px;flex-wrap:wrap" }, actions) : null,
+        msg);
+    }
+
+    // Create / edit form. On create the server always lands the campaign in DRAFT
+    // (going live is the explicit Publish action); edit is allowed only while
+    // DRAFT or PAUSED (the server enforces this too). Money is entered in rupees
+    // and converted to integer paise at submit.
+    function CampaignForm(mode, campaign) {
+      campaign = campaign || {};
+      var isEdit = mode === "edit";
+      var err = h("div");
+      function showErr(m) { err.textContent = ""; err.appendChild(h("div", { class: "flash flash-err", style: "margin-top:4px" }, m)); }
+
+      function inp(attrs) { return h("input", attrs); }
+      function fld(label, node, style) { return h("label", { class: "field", style: style || "" }, h("span", null, label), node); }
+
+      var platformSel = h("select", null, PLATFORMS.map(function (p) {
+        return h("option", { value: p, selected: (campaign.platform || "AMAZON") === p ? "selected" : null }, p);
+      }));
+      var titleIn = inp({ type: "text", placeholder: "e.g. Review the boAt Airdopes 141", value: campaign.title || "" });
+      var productIn = inp({ type: "text", placeholder: "Exact product name on the marketplace", value: campaign.productName || "" });
+      var categoryIn = inp({ type: "text", placeholder: "electronics / apparel / home / grocery", value: campaign.category || "" });
+      var priceIn = inp({ type: "number", min: "0", step: "0.01", placeholder: "1299", value: paiseToRupeeInput(campaign.productPricePaise) });
+      var pctIn = inp({ type: "number", min: "1", max: "100", placeholder: "100", value: campaign.payoutPercent != null ? String(campaign.payoutPercent) : "100" });
+      var capIn = inp({ type: "number", min: "0", step: "0.01", placeholder: "optional", value: paiseToRupeeInput(campaign.payoutCapPaise) });
+      var ticketIn = inp({ type: "number", min: "0", max: "100", placeholder: "5", value: campaign.ticketCost != null ? String(campaign.ticketCost) : "5" });
+      var rwIn = inp({ type: "number", min: "1", max: "60", placeholder: "default", value: campaign.returnWindowDays != null ? String(campaign.returnWindowDays) : "" });
+      var ratingIn = inp({ type: "number", min: "1", max: "5", placeholder: "any", value: campaign.minRating != null ? String(campaign.minRating) : "" });
+      var slotsIn = inp({ type: "number", min: "1", placeholder: "unlimited", value: campaign.totalSlots != null ? String(campaign.totalSlots) : "" });
+      var asinIn = inp({ type: "text", placeholder: "optional (Amazon ASIN)", value: campaign.asin || "" });
+      var urlIn = inp({ type: "text", placeholder: "optional product URL", value: campaign.productUrl || "" });
+      var termsIn = h("textarea", { placeholder: "One rule per line — shown to users before they claim.", style: "min-height:90px" }, campaign.terms || "");
+
+      // Image upload.
+      var imageUrl = campaign.imageUrl || "";
+      var preview = h("img", { src: imgSrc(imageUrl), alt: "", style: "width:72px;height:72px;border-radius:10px;object-fit:cover;background:var(--panel);" + (imageUrl ? "" : "display:none") });
+      var upStatus = h("span", { class: "muted", style: "font-size:12.5px" }, imageUrl ? "Current image" : "");
+      var fileIn = h("input", { type: "file", accept: "image/png,image/jpeg,image/webp", onchange: async function (e) {
+        var f = e.target.files && e.target.files[0]; if (!f) return;
+        upStatus.textContent = "Uploading…";
+        try {
+          var r = await apiUpload("/admin/uploads/image", f);
+          imageUrl = r.url; preview.src = imgSrc(imageUrl); preview.style.display = "block"; upStatus.textContent = "Uploaded ✓";
+        } catch (er) { upStatus.textContent = ""; showErr(er.message); }
+      } });
+      var removeImg = h("button", { class: "btn btn-sm btn-ghost", type: "button", onclick: function () { imageUrl = ""; preview.style.display = "none"; fileIn.value = ""; upStatus.textContent = "Image removed"; } }, "Remove");
+
+      var saveBtn = h("button", { class: "btn btn-primary btn-sm", type: "submit" }, isEdit ? "Save changes" : "Create draft");
+
+      async function onSubmit(ev) {
+        ev.preventDefault();
+        err.textContent = "";
+        var title = titleIn.value.trim(), product = productIn.value.trim();
+        if (!title || !product) { showErr("Title and product name are required."); return; }
+        var pricePaise = rupeeInputToPaise(priceIn.value);
+        if (pricePaise == null) { showErr("Enter a valid product price (₹)."); return; }
+        var cap = rupeeInputToPaise(capIn.value);
+
+        var body;
+        if (isEdit) {
+          body = {
+            platform: platformSel.value,
+            title: title, productName: product,
+            category: categoryIn.value.trim(),
+            productPricePaise: pricePaise,
+            payoutPercent: Number(pctIn.value || 100),
+            payoutCapPaise: cap == null ? "" : cap,
+            ticketCost: Number(ticketIn.value || 5),
+            returnWindowDays: rwIn.value === "" ? null : Number(rwIn.value),
+            minRating: ratingIn.value === "" ? null : Number(ratingIn.value),
+            totalSlots: slotsIn.value === "" ? null : Number(slotsIn.value),
+            asin: asinIn.value.trim(),
+            productUrl: urlIn.value.trim(),
+            imageUrl: imageUrl || "",
+            terms: termsIn.value.trim()
+          };
+        } else {
+          body = { platform: platformSel.value, title: title, productName: product, productPricePaise: pricePaise };
+          if (categoryIn.value.trim()) body.category = categoryIn.value.trim();
+          if (pctIn.value !== "") body.payoutPercent = Number(pctIn.value);
+          if (cap != null) body.payoutCapPaise = cap;
+          if (ticketIn.value !== "") body.ticketCost = Number(ticketIn.value);
+          if (rwIn.value !== "") body.returnWindowDays = Number(rwIn.value);
+          if (ratingIn.value !== "") body.minRating = Number(ratingIn.value);
+          if (slotsIn.value !== "") body.totalSlots = Number(slotsIn.value);
+          if (asinIn.value.trim()) body.asin = asinIn.value.trim();
+          if (urlIn.value.trim()) body.productUrl = urlIn.value.trim();
+          if (imageUrl) body.imageUrl = imageUrl;
+          if (termsIn.value.trim()) body.terms = termsIn.value.trim();
+        }
+
+        saveBtn.disabled = true;
+        try {
+          if (isEdit) await api("PATCH", "/admin/campaigns/" + campaign.id, body);
+          else await api("POST", "/admin/campaigns", body);
+          campaignForm = null;
+          await loadCampaigns();
+        } catch (e) { saveBtn.disabled = false; showErr(e.message); }
+      }
+
+      return h("div", { class: "card", style: "border-color:color-mix(in srgb, var(--accent) 45%, var(--border))" },
+        h("div", { class: "row", style: "justify-content:space-between;align-items:center" },
+          h("h3", { style: "margin:0" }, isEdit ? "Edit campaign" : "New campaign",
+            isEdit ? h("span", { class: "muted", style: "font-weight:500;font-size:13px" }, "  " + (campaign.status || "")) : h("span", { class: "muted", style: "font-weight:500;font-size:13px" }, "  saved as draft")),
+          h("button", { class: "btn btn-sm btn-ghost", type: "button", onclick: closeCampaignForm }, "Cancel")),
+        h("form", { onsubmit: onSubmit, style: "margin-top:12px" },
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap" },
+            fld("Marketplace", platformSel, "flex:0 0 150px"),
+            fld("Title (headline)", titleIn, "flex:1;min-width:220px")),
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;margin-top:2px" },
+            fld("Product name (exact)", productIn, "flex:1;min-width:220px"),
+            fld("Category", categoryIn, "flex:0 0 200px")),
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;margin-top:2px" },
+            fld("Product price (₹)", priceIn, "flex:0 0 150px"),
+            fld("Refund %", pctIn, "flex:0 0 110px"),
+            fld("Refund cap (₹)", capIn, "flex:0 0 150px"),
+            fld("Ticket cost", ticketIn, "flex:0 0 110px")),
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;margin-top:2px" },
+            fld("Return window (days)", rwIn, "flex:0 0 160px"),
+            fld("Min rating", ratingIn, "flex:0 0 110px"),
+            fld("Total slots", slotsIn, "flex:0 0 130px")),
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;margin-top:2px" },
+            fld("ASIN", asinIn, "flex:0 0 180px"),
+            fld("Product URL", urlIn, "flex:1;min-width:220px")),
+          h("label", { class: "field", style: "margin-top:2px" }, h("span", null, "Product image"),
+            h("div", { class: "row", style: "gap:12px;align-items:center;flex-wrap:wrap" },
+              preview, fileIn, imageUrl ? removeImg : null, upStatus)),
+          h("label", { class: "field", style: "margin-top:2px" }, h("span", null, "Terms & conditions (shown to users)"), termsIn),
+          err,
+          h("div", { class: "row", style: "margin-top:12px;gap:8px" }, saveBtn,
+            h("button", { class: "btn btn-sm btn-ghost", type: "button", onclick: closeCampaignForm }, "Cancel"))));
     }
 
     function WithdrawalsScreen() {
@@ -837,6 +1127,7 @@
       var content;
       if (state.screen === "withdrawals") content = WithdrawalsScreen();
       else if (state.screen === "queue") content = QueueScreen();
+      else if (state.screen === "campaigns") content = CampaignsScreen();
       else if (state.screen === "search") content = SearchScreen();
       else if (state.screen === "staff") content = StaffScreen();
       else if (state.screen === "user") content = UserScreen();

@@ -194,6 +194,10 @@ model Campaign {
   title       String
   productName String
   category    String? // drives the return-window policy (see taskflow policy table)
+  /// Per-campaign Terms & Conditions shown to the user on the campaign detail
+  /// screen before they claim. Free text (one rule per line by convention).
+  /// Optional — a campaign with none falls back to the app's default T&C copy.
+  terms       String?
 
   /// Expected product price in integer paise — used ON-DEVICE to match the order
   /// by name + amount (campaigns carry no marketplace product id). Never a float.
