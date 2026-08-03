@@ -18,7 +18,13 @@ import {
 } from '../engine/states';
 
 const BLOCKER_VALUES = Object.values(BLOCKERS);
-const SOURCE_VALUES = Object.values(SOURCES);
+/**
+ * Sources a USER may claim on submitted evidence — every source EXCEPT `ocr`.
+ * `ocr` is the lowest tier and is minted only by the staff verification approve
+ * action (a screenshot a staff member has reviewed); letting a user self-declare
+ * `source: 'ocr'` here would smuggle a fragment past that mandatory human gate.
+ */
+const SOURCE_VALUES = Object.values(SOURCES).filter((s) => s !== SOURCES.OCR);
 /** Integer paise as a decimal string — money crosses the wire as a string. */
 const PAISE = /^\d+$/;
 

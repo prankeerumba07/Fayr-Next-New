@@ -53,6 +53,25 @@ export const envSchema = z.object({
   // deploy swap this for S3/Cloudflare R2 without touching the controllers.
   // Resolved relative to the process cwd, so the default lands at backend/uploads.
   UPLOAD_DIR: z.string().min(1).default('./uploads'),
+  // Where PRIVATE files (verification screenshots — user PII) are written.
+  // Deliberately a SEPARATE dir, never mounted as static assets: private files
+  // are only ever streamed back through an RBAC-checked endpoint, never a URL.
+  PRIVATE_UPLOAD_DIR: z.string().min(1).default('./private-uploads'),
+
+  // --- Screenshot OCR (step 3, Claude vision) -------------------------------
+  // Anthropic API key for the vision extraction. OPTIONAL by design: when unset,
+  // OCR degrades gracefully — screenshots still upload and land for MANUAL staff
+  // review; extraction simply doesn't run. Never commit a real key (.env only).
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  // Default (cheap) vision model; escalation model used when confidence is low.
+  // Confirmed IDs/pricing via the claude-api reference: Haiku 4.5 $1/$5 per MTok,
+  // Sonnet 5 $3/$15 per MTok.
+  OCR_MODEL: z.string().min(1).default('claude-haiku-4-5'),
+  OCR_ESCALATION_MODEL: z.string().min(1).default('claude-sonnet-5'),
+  // Escalate to the stronger model when extraction confidence is below this.
+  OCR_CONFIDENCE_ESCALATE: z.coerce.number().int().min(0).max(100).default(70),
+  // Safety ceiling on extractions per UTC day (cost guard). Enforced at upload.
+  OCR_DAILY_CAP: z.coerce.number().int().min(0).max(100000).default(500),
 
   // --- Task loop (step 1.5) -------------------------------------------------
   // How long a claim may sit before purchase before it expires and returns the

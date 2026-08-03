@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InsufficientTicketsError } from '../tickets/ticket.types';
 import { TicketService } from '../tickets/ticket.service';
 import { WalletService } from '../wallet/wallet.service';
+import type { Evidence } from './engine/evidence.types';
 import { computeRefundPaise } from './engine/money';
 import { policyForWindowDays } from './engine/return-policy';
 import { DAY, STATES } from './engine/states';
@@ -180,10 +181,23 @@ export class TaskService {
     taskId: string,
     dto: SubmitEvidenceDto,
   ): Promise<TaskResponse> {
-    return this.runEvent(userId, taskId, {
-      type: 'EVIDENCE',
-      evidence: evidenceFromDto(dto),
-    });
+    return this.applyEvidence(userId, taskId, evidenceFromDto(dto));
+  }
+
+  /**
+   * Apply an already-built Evidence object through the SAME engine path as user
+   * evidence. This is the funnel the staff OCR-approval flow uses (source `ocr`)
+   * and the one the on-device scraper will use later (higher-tier sources) — one
+   * pipeline, tiered sources, so an approved screenshot advances the task under
+   * the identical state-machine rules. `userId` is the task OWNER (evidence is
+   * always applied to that user's own task); the caller supplies it.
+   */
+  applyEvidence(
+    userId: string,
+    taskId: string,
+    evidence: Evidence,
+  ): Promise<TaskResponse> {
+    return this.runEvent(userId, taskId, { type: 'EVIDENCE', evidence });
   }
 
   confirmOrder(userId: string, taskId: string): Promise<TaskResponse> {

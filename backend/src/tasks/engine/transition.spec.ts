@@ -86,6 +86,61 @@ describe('transition — forward progression', () => {
   });
 });
 
+describe('transition — evidence source authority (OCR is the lowest tier)', () => {
+  const EARLIER = T0;
+  const LATER = T0 + 5 * DAY;
+
+  it('a lower-tier OCR delivery cannot override an earlier higher-tier delivery date', () => {
+    const t = drive(fresh(), [
+      orderEvidence,
+      {
+        type: 'EVIDENCE',
+        at: T0,
+        evidence: { delivery: { at: EARLIER, source: 'order-details' } },
+      },
+      // An OCR screenshot approved later, timestamped at its upload time (LATER):
+      {
+        type: 'EVIDENCE',
+        at: LATER,
+        evidence: { delivery: { at: LATER, source: 'ocr' } },
+      },
+    ]);
+    expect(t.delivery?.at).toBe(EARLIER); // the earlier, higher-tier date wins
+    expect(t.delivery?.source).toBe('order-details');
+  });
+
+  it('a higher-tier delivery DOES correct an earlier OCR delivery', () => {
+    const t = drive(fresh(), [
+      orderEvidence,
+      {
+        type: 'EVIDENCE',
+        at: T0,
+        evidence: { delivery: { at: LATER, source: 'ocr' } },
+      },
+      {
+        type: 'EVIDENCE',
+        at: T0,
+        evidence: { delivery: { at: EARLIER, source: 'order-details' } },
+      },
+    ]);
+    expect(t.delivery?.at).toBe(EARLIER);
+    expect(t.delivery?.source).toBe('order-details');
+  });
+
+  it('a lower-tier OCR order cannot wipe a higher-tier verified itemPaise', () => {
+    const t = drive(fresh(), [
+      orderEvidence, // order-details, itemPaise 129900n
+      {
+        type: 'EVIDENCE',
+        at: T0,
+        evidence: { order: { id: 'o1', itemPaise: null, source: 'ocr' } },
+      },
+    ]);
+    expect(t.order?.itemPaise).toBe(129900n);
+    expect(t.order?.source).toBe('order-details');
+  });
+});
+
 describe('transition — guards & atomicity', () => {
   it('rejects MARK_REVIEWED before delivery, leaving the task untouched', () => {
     const before = fresh();

@@ -196,14 +196,28 @@
       staffMgmt: { loading: false, error: null, items: null },
       campaigns: { loading: false, error: null, items: null, filter: "ALL" },
       reports: { type: null, from: null, to: null, granularity: "", loading: false, error: null, data: null },
-      user: { loading: false, error: null, data: null, from: "search" }
+      user: { loading: false, error: null, data: null, from: "search" },
+      verifications: {
+        loading: false, error: null, items: null, notice: null,
+        selId: null, detail: null, detailLoading: false, detailError: null,
+        imgUrl: null, imgLoading: false, busy: false, actionError: null
+      }
     };
+    // A fresh, empty verifications slice — used at init and on logout.
+    function freshVerifications() {
+      return {
+        loading: false, error: null, items: null, notice: null,
+        selId: null, detail: null, detailLoading: false, detailError: null,
+        imgUrl: null, imgLoading: false, busy: false, actionError: null
+      };
+    }
     // Which tabs each staff role may see. ADMIN sees everything; the others get a
     // single functional area. This MIRRORS the backend RBAC (RolesGuard) — the
     // server is the real gate, this just hides what a role can't use.
     var TAB_ROLES = {
       withdrawals: ["FINANCE", "ADMIN"],
       queue: ["SUPPORT", "ADMIN"],
+      verifications: ["SUPPORT", "ADMIN"],
       campaigns: ["OPERATIONS", "ADMIN"],
       reports: ["OPERATIONS", "FINANCE", "ADMIN"],
       search: ["SUPPORT", "FINANCE", "ADMIN"],
@@ -215,13 +229,14 @@
     }
     // The tab a role lands on after login: the first one it's allowed to see.
     function defaultScreen() {
-      var order = ["withdrawals", "queue", "campaigns", "reports", "search", "staff"];
+      var order = ["withdrawals", "queue", "verifications", "campaigns", "reports", "search", "staff"];
       for (var i = 0; i < order.length; i++) if (roleCanSee(order[i])) return order[i];
       return "search";
     }
     // Lazily load a tab's data the first time it's shown.
     function loadForScreen(id) {
       if (id === "queue" && state.queue.items === null && !state.queue.loading) loadQueue();
+      else if (id === "verifications" && state.verifications.items === null && !state.verifications.loading) loadVerifications();
       else if (id === "withdrawals" && state.withdrawals.items === null && !state.withdrawals.loading) loadWithdrawals();
       else if (id === "staff" && state.staffMgmt.items === null && !state.staffMgmt.loading) loadStaff();
       else if (id === "campaigns" && state.campaigns.items === null && !state.campaigns.loading) loadCampaigns();
@@ -355,6 +370,12 @@
     var STAFF_STATUS_PILL = { ACTIVE: "ok", DISABLED: "neutral" };
     var STAFF_ROLES = ["SUPPORT", "FINANCE", "OPERATIONS", "ADMIN"];
     var CAMP_PILL = { DRAFT: "neutral", ACTIVE: "ok", PAUSED: "warn", ENDED: "bad" };
+    // OCR verification pills. Verdict drives triage colour (mismatch/partial = attention).
+    var VERDICT_PILL = { MATCH: "ok", PARTIAL: "warn", MISMATCH: "bad", UNKNOWN: "neutral" };
+    var SUB_STATUS_PILL = { UPLOADED: "neutral", EXTRACTING: "info", EXTRACTED: "info", FAILED: "bad", APPROVED: "ok", REJECTED: "bad", NEEDS_MORE: "warn" };
+    var KIND_LABEL = { PURCHASE: "Purchase", DELIVERY: "Delivery", REVIEW: "Review" };
+    // Sort weight so the riskiest cases surface first in the queue.
+    var VERDICT_WEIGHT = { MISMATCH: 0, PARTIAL: 1, UNKNOWN: 2, MATCH: 3 };
     var PLATFORMS = ["AMAZON", "FLIPKART", "MEESHO", "MYNTRA", "BLINKIT", "ZEPTO", "INSTAMART"];
     function pill(txt, kind) { return h("span", { class: "pill pill-" + (kind || "neutral"), text: txt }); }
     // The currently-open campaign create/edit form: null (closed), or
@@ -384,6 +405,8 @@
       state.campaigns = { loading: false, error: null, items: null, filter: "ALL" };
       state.reports = { type: null, from: null, to: null, granularity: "", loading: false, error: null, data: null };
       state.user = { loading: false, error: null, data: null, from: "search" };
+      if (state.verifications.imgUrl) URL.revokeObjectURL(state.verifications.imgUrl);
+      state.verifications = freshVerifications();
       campaignForm = null;
       saveSession();
       render();
@@ -528,7 +551,7 @@
           onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(id); } }
         }, label);
       }
-      var defs = [["withdrawals", "Withdrawals"], ["queue", "Open questions"], ["campaigns", "Campaigns"], ["reports", "Reports"], ["search", "Search user"], ["staff", "Staff"]];
+      var defs = [["withdrawals", "Withdrawals"], ["queue", "Open questions"], ["verifications", "Verifications"], ["campaigns", "Campaigns"], ["reports", "Reports"], ["search", "Search user"], ["staff", "Staff"]];
       var tabs = defs.filter(function (d) { return roleCanSee(d[0]); }).map(function (d) { return tab(d[0], d[1]); });
       return h("div", { class: "tabs" }, tabs);
     }
@@ -1155,6 +1178,223 @@
         panel);
     }
 
+    // ── Verifications (OCR screenshot review) ──────────────────────────────────
+    var FIELD_LABEL = { product: "Product", amount: "Amount", orderDate: "Order date", delivery: "Delivery", rating: "Rating" };
+    function costUsd(micro) { return micro == null ? "—" : "$" + (micro / 1e6).toFixed(4); }
+
+    async function loadVerifications() {
+      var v = state.verifications;
+      v.loading = true; v.error = null; render();
+      try {
+        var resp = await api("GET", "/admin/verifications");
+        v.items = (resp && resp.items) || [];
+      } catch (e) { v.error = e.message; }
+      v.loading = false; render();
+    }
+    async function openVerification(id) {
+      var v = state.verifications;
+      if (v.imgUrl) { URL.revokeObjectURL(v.imgUrl); v.imgUrl = null; }
+      v.selId = id; v.detail = null; v.detailLoading = true; v.detailError = null; v.actionError = null; v.notice = null;
+      render();
+      try {
+        v.detail = await api("GET", "/admin/verifications/" + id);
+        v.detailLoading = false; render();
+        loadVerificationImage(id);
+      } catch (e) { v.detailError = e.message; v.detailLoading = false; render(); }
+    }
+    async function loadVerificationImage(id) {
+      var v = state.verifications;
+      v.imgLoading = true; render();
+      try {
+        var res = await fetch(API_BASE + "/admin/verifications/" + id + "/image", { headers: { Authorization: "Bearer " + state.token } });
+        if (res.status === 401) { logout("Your session expired — please sign in again."); return; }
+        if (!res.ok) throw new Error("image " + res.status);
+        var blob = await res.blob();
+        if (v.imgUrl) URL.revokeObjectURL(v.imgUrl);
+        v.imgUrl = URL.createObjectURL(blob);
+      } catch (e) { v.imgUrl = null; }
+      v.imgLoading = false; render();
+    }
+    function closeVerification() {
+      var v = state.verifications;
+      if (v.imgUrl) { URL.revokeObjectURL(v.imgUrl); v.imgUrl = null; }
+      v.selId = null; v.detail = null; v.detailError = null; v.actionError = null;
+      render();
+    }
+    async function decideVerification(id, action, body, okMsg) {
+      var v = state.verifications;
+      v.busy = true; v.actionError = null; render();
+      try {
+        await api("POST", "/admin/verifications/" + id + "/" + action, body || {});
+        if (v.imgUrl) { URL.revokeObjectURL(v.imgUrl); v.imgUrl = null; }
+        v.selId = null; v.detail = null; v.busy = false; v.notice = okMsg;
+        await loadVerifications();
+      } catch (e) { v.actionError = e.message; v.busy = false; render(); }
+    }
+
+    function VerificationsScreen() {
+      var v = state.verifications;
+      if (v.selId && (v.detail || v.detailLoading || v.detailError)) return VerificationDetail();
+
+      var body;
+      if (v.loading && !v.items) body = h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading…");
+      else if (v.error) body = h("div", { class: "flash flash-err" }, v.error);
+      else if (!v.items || v.items.length === 0) body = h("div", { class: "empty" }, "No screenshots waiting for review. 🎉");
+      else {
+        var items = v.items.slice().sort(function (a, b) {
+          var wa = VERDICT_WEIGHT[a.verdict] != null ? VERDICT_WEIGHT[a.verdict] : 2;
+          var wb = VERDICT_WEIGHT[b.verdict] != null ? VERDICT_WEIGHT[b.verdict] : 2;
+          if (wa !== wb) return wa - wb;
+          return new Date(a.createdAt) - new Date(b.createdAt); // oldest first within a bucket
+        });
+        body = h("div", null, items.map(VerificationCard));
+      }
+      return h("div", null,
+        v.notice ? h("div", { class: "flash flash-info", style: "margin-bottom:12px" }, v.notice) : null,
+        h("div", { class: "row", style: "justify-content:space-between;margin-bottom:14px" },
+          h("h2", { style: "margin:0;font-size:18px" }, "Verifications",
+            v.items ? h("span", { class: "muted", style: "font-weight:500;font-size:14px" }, "  " + v.items.length) : null),
+          h("button", { class: "btn btn-sm", onclick: loadVerifications }, "Refresh")),
+        h("div", { class: "muted", style: "margin:-6px 0 14px;font-size:13px" },
+          "Screenshot proof is tier-3 supporting evidence — your decision is the gate before it counts."),
+        body);
+    }
+
+    function VerificationCard(it) {
+      var dup = it.duplicateCount > 0
+        ? h("span", { class: "pill pill-bad", title: "This exact image appears on " + it.duplicateCount + " other upload(s)" }, "DUP ×" + it.duplicateCount)
+        : null;
+      return h("div", { class: "card", style: "cursor:pointer", onclick: function () { openVerification(it.id); } },
+        h("div", { class: "row", style: "justify-content:space-between;align-items:flex-start" },
+          h("div", null,
+            h("div", { class: "row", style: "gap:8px;align-items:center" },
+              pill(KIND_LABEL[it.kind] || it.kind, "info"),
+              it.verdict ? pill(it.verdict, VERDICT_PILL[it.verdict]) : pill("no read", "neutral"),
+              it.confidence != null ? h("span", { class: "muted", style: "font-size:12.5px" }, it.confidence + "% conf") : null,
+              dup),
+            h("div", { style: "margin-top:6px;font-weight:600" }, it.campaignTitle || "—"),
+            h("div", { class: "muted mono", style: "margin-top:2px;font-size:12px" }, "task " + it.taskId.slice(0, 8) + " · user " + it.userId.slice(0, 8) + " · " + fmtDate(it.uploadedAt))),
+          h("div", { style: "text-align:right" },
+            pill(it.status, SUB_STATUS_PILL[it.status] || "neutral"),
+            h("div", { class: "muted", style: "margin-top:6px;font-size:12px" }, "cost " + costUsd(it.costMicroUsd)),
+            h("button", { class: "btn btn-sm btn-primary", style: "margin-top:8px", onclick: function (e) { e.stopPropagation(); openVerification(it.id); } }, "Review →"))));
+    }
+
+    function diffTable(match) {
+      if (!match || !match.length) return h("div", { class: "muted", style: "font-size:13px" }, "No extracted fields to compare.");
+      var head = h("div", { class: "row", style: "font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:0 0 6px" },
+        h("div", { style: "flex:0 0 92px" }, "Field"), h("div", { style: "flex:1" }, "Expected"), h("div", { style: "flex:1" }, "Extracted"), h("div", { style: "flex:0 0 84px;text-align:right" }, "Match"));
+      var rows = match.map(function (f) {
+        var kind = f.matched === true ? "ok" : f.matched === false ? "bad" : "neutral";
+        var label = f.matched === true ? "match" : f.matched === false ? "mismatch" : "n/a";
+        return h("div", { style: "border-top:1px solid var(--border);padding:8px 0" },
+          h("div", { class: "row", style: "align-items:flex-start" },
+            h("div", { style: "flex:0 0 92px;font-weight:600" }, FIELD_LABEL[f.field] || f.field),
+            h("div", { style: "flex:1", class: "mono" }, f.expected == null ? "—" : String(f.expected)),
+            h("div", { style: "flex:1", class: "mono" }, f.extracted == null ? "—" : String(f.extracted)),
+            h("div", { style: "flex:0 0 84px;text-align:right" }, pill(label, kind))),
+          f.note ? h("div", { class: "muted", style: "font-size:11.5px;margin-top:3px" }, f.note) : null);
+      });
+      return h("div", null, head, h("div", null, rows));
+    }
+
+    function VerificationDetail() {
+      var v = state.verifications;
+      var back = h("button", { class: "btn btn-sm btn-ghost", onclick: closeVerification }, "← Back to queue");
+      if (v.detailLoading) return h("div", null, back, h("div", { class: "muted", style: "margin-top:14px" }, h("span", { class: "spin" }), " Loading…"));
+      if (v.detailError) return h("div", null, back, h("div", { class: "flash flash-err", style: "margin-top:14px" }, v.detailError));
+      var d = v.detail;
+      if (!d) return h("div", null, back);
+
+      // Left: the screenshot (private, streamed with auth; the view is audited).
+      var imgBox;
+      if (v.imgLoading) imgBox = h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading image…");
+      else if (v.imgUrl) imgBox = h("img", { src: v.imgUrl, alt: "verification screenshot", style: "max-width:100%;border-radius:8px;border:1px solid var(--border);display:block" });
+      else imgBox = h("div", { class: "empty" }, "Image unavailable.");
+      var dupNote = d.screenshot.duplicateCount > 0
+        ? h("div", { class: "flash flash-err", style: "margin-top:10px;font-size:12.5px" }, "⚠ This exact image appears on " + d.screenshot.duplicateCount + " other upload(s) — possible reuse across users/tasks.")
+        : null;
+      var left = h("div", { class: "card" },
+        h("h3", null, KIND_LABEL[d.kind] || d.kind, " screenshot"),
+        imgBox,
+        h("div", { class: "muted mono", style: "margin-top:8px;font-size:11px;word-break:break-all" }, "sha256 " + d.screenshot.sha256),
+        h("div", { class: "muted", style: "font-size:12px;margin-top:2px" }, Math.round(d.screenshot.sizeBytes / 1024) + " KB · uploaded " + fmtDate(d.screenshot.uploadedAt) + " · viewing is audited"),
+        dupNote);
+
+      // Right: verdict + the expected-vs-extracted diff + task/campaign context.
+      var meta = h("div", { class: "row", style: "gap:8px;align-items:center;flex-wrap:wrap" },
+        d.verdict ? pill(d.verdict, VERDICT_PILL[d.verdict]) : pill("no read", "neutral"),
+        pill(d.status, SUB_STATUS_PILL[d.status] || "neutral"),
+        d.confidence != null ? h("span", { class: "muted", style: "font-size:12.5px" }, d.confidence + "% confidence") : null,
+        h("span", { class: "muted", style: "font-size:12px" }, (d.model || "not extracted") + " · " + costUsd(d.costMicroUsd)));
+      var errBox = d.status === "FAILED" && d.error ? h("div", { class: "flash flash-err", style: "margin-top:10px" }, "Extraction failed: " + d.error + " — review the raw screenshot.") : null;
+
+      var context = h("div", { class: "grid-2", style: "margin-top:12px" },
+        KV("Campaign", d.campaign.title),
+        KV("Product", d.campaign.productName),
+        KV("Expected price", rupees(d.campaign.productPricePaise)),
+        KV("Min rating", d.campaign.minRating != null ? d.campaign.minRating + "★" : "—"),
+        KV("Task state", d.task.state),
+        KV("User", d.task.userId.slice(0, 8)));
+
+      var right = h("div", { class: "card" },
+        h("h3", null, "Do the details match?"),
+        meta, errBox,
+        h("div", { style: "margin-top:14px" }, diffTable(d.match)),
+        h("div", { style: "margin-top:6px" }, context));
+
+      return h("div", null, back,
+        h("div", { class: "grid-2", style: "margin-top:14px;align-items:start" }, left, right),
+        VerificationActions(d));
+    }
+
+    function VerificationActions(d) {
+      var v = state.verifications;
+      var decided = ["APPROVED", "REJECTED", "NEEDS_MORE"].indexOf(d.status) !== -1;
+      if (decided) {
+        return h("div", { class: "card" },
+          h("div", { class: "muted" }, "Already ", h("b", null, d.status.toLowerCase()),
+            d.reviewedAt ? " · " + fmtDate(d.reviewedAt) : "",
+            d.reviewReason ? " · “" + d.reviewReason + "”" : ""));
+      }
+      var reason = h("textarea", { rows: "2", placeholder: "Reason / note (shown in the audit trail; recommended on reject or request-more)", style: "width:100%;resize:vertical" });
+      // A reviewer-confirmed item price, ONLY for a PURCHASE — used when OCR
+      // couldn't read the amount so we never assert the campaign price as fact.
+      var priceField = null, priceInput = null;
+      if (d.kind === "PURCHASE") {
+        priceInput = h("input", { type: "number", min: "0", step: "0.01", placeholder: "e.g. 1299.00", style: "max-width:180px" });
+        priceField = h("label", { class: "field", style: "margin-top:10px" },
+          h("span", null, "Confirmed item price (₹) — optional, for when the amount wasn’t read"),
+          priceInput);
+      }
+      function approve() {
+        var body = {};
+        var r = reason.value.trim(); if (r) body.reason = r;
+        if (priceInput) { var p = rupeeInputToPaise(priceInput.value); if (p != null) body.itemPaise = p; }
+        decideVerification(d.id, "approve", body, "Approved — evidence funnelled into the task.");
+      }
+      function reject() {
+        var r = reason.value.trim();
+        if (!r) { v.actionError = "Add a reason when rejecting."; render(); return; }
+        decideVerification(d.id, "reject", { reason: r }, "Rejected.");
+      }
+      function requestMore() {
+        var r = reason.value.trim();
+        if (!r) { v.actionError = "Say what else is needed."; render(); return; }
+        decideVerification(d.id, "request-more", { reason: r }, "Asked the user for another screenshot.");
+      }
+      return h("div", { class: "card" },
+        h("h3", null, "Decision"),
+        h("div", { class: "muted", style: "font-size:12.5px;margin-bottom:8px" },
+          "Approving funnels this as tier-3 ‘ocr’ evidence — the holding period, public-visibility re-check and FINANCE payout gate still apply."),
+        reason, priceField,
+        v.actionError ? h("div", { class: "flash flash-err", style: "margin-top:10px" }, v.actionError) : null,
+        h("div", { class: "row", style: "margin-top:12px;gap:8px" },
+          h("button", { class: "btn btn-primary", disabled: v.busy, onclick: approve }, v.busy ? "Working…" : "Approve"),
+          h("button", { class: "btn", disabled: v.busy, onclick: requestMore }, "Request more"),
+          h("button", { class: "btn btn-danger", disabled: v.busy, onclick: reject }, "Reject")));
+    }
+
     function QueueScreen() {
       var body;
       if (state.queue.loading && !state.queue.items) body = h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading…");
@@ -1349,6 +1589,7 @@
       var content;
       if (state.screen === "withdrawals") content = WithdrawalsScreen();
       else if (state.screen === "queue") content = QueueScreen();
+      else if (state.screen === "verifications") content = VerificationsScreen();
       else if (state.screen === "campaigns") content = CampaignsScreen();
       else if (state.screen === "reports") content = ReportsScreen();
       else if (state.screen === "search") content = SearchScreen();

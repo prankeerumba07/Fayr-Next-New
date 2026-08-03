@@ -1,5 +1,12 @@
 import type { Evidence, EvidenceReview } from './evidence.types';
-import { DAY, BLOCKERS, STATES, rank, type TaskStateName } from './states';
+import {
+  DAY,
+  BLOCKERS,
+  STATES,
+  rank,
+  sourceRank,
+  type TaskStateName,
+} from './states';
 import type { EngineTask } from './task-state';
 import { windowDaysFor, type ReturnPolicy } from './return-policy';
 
@@ -138,14 +145,36 @@ function onEvidence(task: EngineTask, evidence: Evidence): HandlerOutput {
 
   const patch: Partial<EngineTask> = { blocker: null, blockerReason: null };
   if (e.review) patch.review = e.review;
-  if (e.order) patch.order = e.order;
-  if (e.delivery) patch.delivery = e.delivery;
+  // Order & delivery carry a `source`: a LOWER-authority source (e.g. an
+  // OCR-read screenshot) must never overwrite a fact a HIGHER-authority source
+  // (DKIM/scraper order read) already established — otherwise a later OCR
+  // upload-time delivery could clobber an earlier, verified delivery date and
+  // move the return window. Keep the incumbent unless the incoming source ranks
+  // at least as high.
+  if (e.order) patch.order = preferByAuthority(task.order, e.order);
+  if (e.delivery) patch.delivery = preferByAuthority(task.delivery, e.delivery);
   if (e.returned != null) patch.returned = e.returned;
 
   let to = task.state;
   if (rank(to) < rank(STATES.PURCHASED) && e.order) to = STATES.PURCHASED;
   if (rank(to) < rank(STATES.DELIVERED) && e.delivery) to = STATES.DELIVERED;
   return { patch, to, reason: 'evidence applied' };
+}
+
+/**
+ * Choose between an incumbent sourced fact and an incoming one: keep the
+ * incumbent when the incoming source ranks strictly LOWER (see sourceRank);
+ * otherwise take the incoming (same-or-higher authority — preserves the prior
+ * last-write-wins among equal-tier sources).
+ */
+function preferByAuthority<T extends { source?: string | null }>(
+  incumbent: T | null,
+  incoming: T,
+): T {
+  if (incumbent && sourceRank(incoming.source) < sourceRank(incumbent.source)) {
+    return incumbent;
+  }
+  return incoming;
 }
 
 /** The user confirming "this is my order" — a human gate on real fetched values. */

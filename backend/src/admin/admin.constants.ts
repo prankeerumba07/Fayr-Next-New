@@ -24,6 +24,8 @@ export const AUDIT_ACTIONS = {
   CAMPAIGN_UPDATE: 'CAMPAIGN_UPDATE',
   CAMPAIGN_STATUS: 'CAMPAIGN_STATUS',
   REPORT_DOWNLOAD: 'REPORT_DOWNLOAD',
+  SCREENSHOT_VIEW: 'SCREENSHOT_VIEW', // staff streamed a private verification screenshot
+  EVIDENCE_REVIEW: 'EVIDENCE_REVIEW', // staff approved / rejected / requested-more on a case
 } as const;
 
 /** The staff roles an admin can assign. Kept here so the DTO + tests share one list. */

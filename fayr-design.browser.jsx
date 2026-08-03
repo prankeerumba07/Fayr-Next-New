@@ -102,6 +102,30 @@ async function apiAuth(method, path, body) {
 const apiGet = (path) => apiAuth("GET", path);
 const apiPostAuth = (path, body) => apiAuth("POST", path, body);
 
+// Authed multipart upload — the JSON apiAuth can't carry a file. The browser sets
+// the multipart boundary; we add only the Bearer token.
+async function apiUpload(path, file, fields) {
+  if (!AUTH_TOKEN) { const e = new Error("Not signed in"); e.status = 401; throw e; }
+  const fd = new FormData();
+  fd.append("file", file);
+  if (fields) for (const k in fields) fd.append(k, fields[k]);
+  let res;
+  try {
+    res = await fetch(API_BASE + path, { method: "POST", headers: { Authorization: "Bearer " + AUTH_TOKEN }, body: fd });
+  } catch {
+    const e = new Error(`Can't reach the Fayr server at ${API_BASE}. Is the backend running?`);
+    e.kind = "network"; throw e;
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* empty body */ }
+  if (!res.ok) {
+    const msg = data && (Array.isArray(data.message) ? data.message[0] : data.message);
+    const e = new Error(msg || `Upload failed (${res.status})`);
+    e.status = res.status; e.data = data; throw e;
+  }
+  return data;
+}
+
 // The real backend endpoints the campaign / task / wallet screens use.
 const backendApi = {
   listCampaigns: () => apiGet("/campaigns"),
@@ -113,6 +137,10 @@ const backendApi = {
   // evidence and a back-dated delivery so the return window is already closed. On
   // device this same evidence is produced by the real scraper (ConnectScreen).
   submitEvidence: (id, ev) => apiPostAuth("/tasks/" + id + "/evidence", ev),
+  // Tier-3 screenshot proof (the manual fallback to the scraper). Upload one, and
+  // list the caller's own with status + the staff reason for rejected / needs_more.
+  uploadScreenshot: (id, kind, file) => apiUpload("/tasks/" + id + "/screenshot", file, { kind }),
+  listScreenshots: (id) => apiGet("/tasks/" + id + "/screenshots"),
   markReviewed: (id) => apiPostAuth("/tasks/" + id + "/reviewed"),
   startHold: (id) => apiPostAuth("/tasks/" + id + "/start-hold"),
   releaseRefund: (id) => apiPostAuth("/tasks/" + id + "/release-refund"),
@@ -2713,7 +2741,125 @@ function EmailCode({ go, email, setEmailVerified, returnTo }) {
     </Screen>
   );
 }
-function ProofUpload({ go }) {
+// The REAL screenshot-proof screen (tier-3 manual path). Uploads a chosen image
+// to POST /tasks/:id/screenshot, then lists the caller's own for this kind and
+// surfaces the staff reason when a prior upload was REJECTED or NEEDS_MORE — so
+// the user knows exactly what to fix or re-send. Never shows the match verdict /
+// confidence / diff (those are staff-only).
+const SHOT_STATUS_UI = {
+  pending_review: { bg: C.blueBg, line: C.blue, ink: "#1C5BB8", label: "Under review", note: "A Fayr reviewer is checking your screenshot — we'll update you here." },
+  approved: { bg: C.greenBg, line: C.green, ink: C.greenDeep, label: "Accepted ✓", note: "Your proof was accepted." },
+  needs_more: { bg: C.amberBg, line: C.amberLine, ink: "#8A5A00", label: "More proof needed" },
+  rejected: { bg: C.redBg, line: C.red, ink: "#B3271C", label: "Not accepted" },
+};
+function ScreenshotProof({ go, task, kind, kindLabel, backTo = "proofprimer" }) {
+  const [shots, setShots] = useState(null); // null = loading
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const taskId = task && task.id;
+
+  function load() {
+    if (!taskId) { setShots([]); return; }
+    backendApi.listScreenshots(taskId)
+      .then((list) => setShots((list || []).filter((s) => s.kind === kind)))
+      .catch((e) => { setErr(e.message); setShots([]); });
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [taskId, kind]);
+
+  const onPick = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = ""; // let the user re-pick the same file after a failure
+    if (!f || !taskId) return;
+    setBusy(true); setErr(null);
+    backendApi.uploadScreenshot(taskId, kind, f)
+      .then(() => load())
+      .catch((e2) => setErr(e2.message))
+      .finally(() => setBusy(false));
+  };
+
+  const latest = shots && shots.length ? shots[0] : null;
+  const ui = latest ? SHOT_STATUS_UI[latest.status] : null;
+  const needsAction = latest && (latest.status === "rejected" || latest.status === "needs_more");
+  const dropLabel = needsAction ? "Upload a new screenshot" : (latest ? "Replace / add another" : "Tap to choose your screenshot");
+
+  return (
+    <Screen>
+      <TopBar title={"Upload " + kindLabel + " proof"} onBack={() => go(backTo)} />
+      <div className="fayr-scroll" style={{ flex: 1, overflowY: "auto", padding: "4px 24px 24px" }}>
+        {shots === null ? (
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.sub, padding: "18px 2px" }}>Loading…</div>
+        ) : (
+          <React.Fragment>
+            {latest && ui && (
+              <div style={{ marginTop: 6, background: ui.bg, border: `1px solid ${ui.line}`, borderRadius: 14, padding: "13px 15px" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 14, color: ui.ink }}>{ui.label}</div>
+                {needsAction ? (
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink2, marginTop: 5, lineHeight: 1.5 }}>
+                    <b>Reviewer’s note:</b> {latest.reviewReason || "Please re-upload a clearer screenshot."}
+                  </div>
+                ) : (
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.sub, marginTop: 4, lineHeight: 1.5 }}>{ui.note}</div>
+                )}
+              </div>
+            )}
+
+            {latest && latest.status === "approved" ? null : (
+              <label style={{ display: "block", marginTop: 14, border: `2px dashed ${busy ? C.green : C.line}`, borderRadius: 18, background: "#fff", minHeight: 168, cursor: busy ? "default" : "pointer", transition: "border-color .2s" }}>
+                <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onPick} disabled={busy} style={{ display: "none" }} />
+                <div style={{ display: "grid", placeItems: "center", minHeight: 168, textAlign: "center", padding: 20 }}>
+                  {busy ? (
+                    <div>
+                      <div style={{ fontSize: 34 }}>🖼️</div>
+                      <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12.5, color: C.sub, marginTop: 10 }}>Uploading…</div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 40 }}>📤</div>
+                      <div style={{ fontFamily: FONT_BODY, fontWeight: 700, fontSize: 14, color: C.ink2, marginTop: 10 }}>{dropLabel}</div>
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.sub, marginTop: 4 }}>JPG / PNG / WebP · up to 10 MB</div>
+                    </div>
+                  )}
+                </div>
+              </label>
+            )}
+
+            {err && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.red, marginTop: 10 }}>{err}</div>}
+
+            <p style={{ fontFamily: FONT_BODY, fontSize: 11, color: "#a9aa9c", marginTop: 12, lineHeight: 1.5 }}>
+              A screenshot is <b>supporting</b> proof — a Fayr reviewer makes the final call, and your refund still follows the normal holding period.
+            </p>
+
+            {shots.length > 1 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 11, letterSpacing: ".06em", color: C.sub, textTransform: "uppercase" }}>Your uploads</div>
+                {shots.map((s) => (
+                  <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${C.line}` }}>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.sub }}>{new Date(s.uploadedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                    <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 11, color: (SHOT_STATUS_UI[s.status] || {}).ink || C.sub }}>{(SHOT_STATUS_UI[s.status] || {}).label || s.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ marginTop: 20 }}>
+              <Pill onClick={() => go(backTo)} color={C.creamDeep} text={C.ink2}>{needsAction ? "I’ll do it now" : "Done"}</Pill>
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+    </Screen>
+  );
+}
+
+// Router: a real backend task → the real uploader above; otherwise the design-time
+// mock animation (so the prototype still runs with no backend).
+function ProofUpload({ go, task, kind = "PURCHASE", kindLabel = "order" }) {
+  if (task && task.id && isBackendTask(task)) {
+    return <ScreenshotProof go={go} task={task} kind={kind} kindLabel={kindLabel} backTo="proofprimer" />;
+  }
+  return <ProofUploadMock go={go} />;
+}
+function ProofUploadMock({ go }) {
   const [pct, setPct] = useState(0);
   const [started, setStarted] = useState(false);
   useEffect(() => {
@@ -4497,7 +4643,7 @@ function FayrApp() {
     proofprimer: <ProofPrimer go={(s) => { if (s === "emailconnect") setEmailReturnTo("ocrconfirm"); if (s === "ocrconfirm") setProofSource("email"); if (s === "proofupload") setProofSource("screenshot"); go(s); }} c={active} gmail={gmail} />,
     emailconnect: <EmailConnect go={(s) => { if (s === "ocrconfirm") setProofSource("email"); go(s); }} c={active} gmail={gmail} setGmail={setGmail} email={email} setEmail={setEmail} returnTo={emailReturnTo} />,
     emailcode: <EmailCode go={(s) => { if (s === "ocrconfirm") setProofSource("email"); go(s); }} email={email} setEmailVerified={setEmailVerified} returnTo={emailReturnTo} />,
-    proofupload: <ProofUpload go={(s) => { if (s === "ocrconfirm") setProofSource("screenshot"); go(s); }} />,
+    proofupload: <ProofUpload go={(s) => { if (s === "ocrconfirm") setProofSource("screenshot"); go(s); }} task={(active && tasks[active.id]) || null} kind="PURCHASE" kindLabel="order" />,
     ocrconfirm: <OcrConfirm go={go} c={active} advance={advance} trackPending={trackPending} source={proofSource} />,
     orderverified: <OrderVerified go={go} c={active} rewards={rewards} />,
     imagesuploaded: <ImagesUploaded go={go} c={active} />,
