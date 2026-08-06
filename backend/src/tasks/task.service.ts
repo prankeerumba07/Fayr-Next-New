@@ -181,7 +181,7 @@ export class TaskService {
     taskId: string,
     dto: SubmitEvidenceDto,
   ): Promise<TaskResponse> {
-    return this.applyEvidence(userId, taskId, evidenceFromDto(dto));
+    return this.applyEvidence(userId, taskId, evidenceFromDto(dto), dto.key);
   }
 
   /**
@@ -196,8 +196,9 @@ export class TaskService {
     userId: string,
     taskId: string,
     evidence: Evidence,
+    key?: string,
   ): Promise<TaskResponse> {
-    return this.runEvent(userId, taskId, { type: 'EVIDENCE', evidence });
+    return this.runEvent(userId, taskId, { type: 'EVIDENCE', evidence, key });
   }
 
   confirmOrder(userId: string, taskId: string): Promise<TaskResponse> {

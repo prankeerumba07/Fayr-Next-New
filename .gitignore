@@ -41,6 +41,8 @@ web-preview/bundle.js
 
 # typescript
 *.tsbuildinfo
+# root TS config is not used by the RN app build (Metro/Babel); left out for now
+tsconfig.json
 
 # generated native folders
 /ios

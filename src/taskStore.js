@@ -1,114 +1,263 @@
-// The tasks - one per campaign - persisted across launches.
+// The on-device task store — now a DISPLAY-ONLY MIRROR of the authoritative
+// backend task (Phase 1). It still does the instant OPTIMISTIC transition() so
+// the UI reacts the moment evidence is fetched, but the backend is the single
+// source of truth: every EVIDENCE event is forwarded to POST /tasks/:id/evidence
+// and the returned authoritative task replaces the local copy. The local store
+// NEVER independently decides money — refunds live on the backend.
 //
-// Device-only for now. The authoritative task will live in the NestJS service:
-// this device copy is forgeable and must never be the thing that moves money.
-// It is kept deliberately thin - load, dispatch, save, notify - so that porting
-// the rules to the backend later means moving taskflow.js, not this file.
-//
-// Stored with expo-file-system (Paths.document) rather than SecureStore: a task
-// with its event history outgrows SecureStore's per-item size limit, and none of
-// it is a secret. The session cookies that ARE secret stay in session.js.
+// Persistence keeps the (campaignId → taskId) map + last-known authoritative
+// snapshot so a relaunch shows real state offline; it is re-derived from
+// GET /tasks (the source of truth) on the next foreground.
 
 import { File, Paths } from 'expo-file-system';
 import { createTask, transition, STATES } from './taskflow';
-import { CAMPAIGNS, campaignById } from './campaign';
+import { toEvidenceDto } from './backend/evidenceDto';
+import { evidenceKey } from './backend/evidenceKey';
+import { claim as claimApi, listTasks } from './backend/tasksApi';
 
-// Bumped from v1 (single task) to v2 (campaignId -> task map). Old files are
-// ignored, not migrated - a demo task half-restored into a new shape is exactly
-// the "looks like data but isn't" state the flow is built to avoid.
-const FILE = 'fayr-tasks-v2.json';
+const FILE = 'fayr-tasks-v3.json'; // v3: {campaignId: {taskId, authoritative}}
 
-let tasks = {};       // campaignId -> frozen task
-let listeners = [];   // fns(campaignId, task)
+// entries[campaignId] = { taskId|null, authoritative: TaskResponse|null, optimistic: engineTask }
+let entries = {};
+let listeners = [];
+let syncFn = null; // injected: (taskId, dtoBody) => Promise (see evidenceSync)
 
 function file() {
   return new File(Paths.document, FILE);
 }
 
-function notify(id) {
-  listeners.forEach((fn) => {
-    try { fn(id, tasks[id]); } catch (e) { /* a bad listener must not break the store */ }
-  });
+function notify(campaignId) {
+  for (const fn of listeners) {
+    try {
+      fn(campaignId, getTask(campaignId));
+    } catch (e) {
+      /* a bad listener must not break the store */
+    }
+  }
 }
 
-// subscribe((campaignId, task) => …). Screens filter to the campaign they show.
 export function subscribe(fn) {
   listeners.push(fn);
-  return () => { listeners = listeners.filter((l) => l !== fn); };
+  return () => {
+    listeners = listeners.filter((l) => l !== fn);
+  };
 }
 
-export function getTask(campaignId) {
-  return tasks[campaignId] || null;
+// Inject the evidence transport (evidenceSync.syncEvidence). Kept out of this
+// module so there's no import cycle and the store stays testable/UI-agnostic.
+export function configureSync(fn) {
+  syncFn = fn;
 }
 
-export function getTasks() {
-  return tasks;
-}
+// ── engine-task <-> backend response ──────────────────────────────────────────
 
-function freshFor(c) {
+// A fresh CLAIMED engine task for a campaign (platform/category best-effort).
+function freshTask(campaignId, platform, category) {
   return createTask({
-    id: 'task_' + c.id,
-    platform: c.marketplace,
-    campaignId: c.id,
-    asin: c.asin || null,
-    product: c.productName,
-    category: c.category,
+    id: `local_${campaignId}`,
+    platform: platform || 'amazon',
+    category: category || null,
   });
 }
 
-// Restore each campaign's task, or start a fresh CLAIMED one. A task whose
-// stored shape is corrupt or stale is discarded rather than migrated.
+const msOf = (iso) => {
+  if (iso == null) return null;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? null : t;
+};
+const numOf = (s) => (s == null ? null : Number(s));
+
+// Backend TaskResponse → an engine task shaped exactly as TaskScreen/taskflow
+// expect (paise as numbers, dates as ms). This is what makes the authoritative
+// state drive the same rendering the optimistic path uses.
+function engineTaskFromResponse(tr) {
+  const base = freshTask(
+    tr.campaign ? tr.campaign.id : tr.id,
+    tr.campaign ? String(tr.campaign.platform || '').toLowerCase() : null,
+    tr.campaign ? tr.campaign.category : null,
+  );
+  return Object.freeze({
+    ...base,
+    id: tr.id,
+    state: tr.state,
+    order: tr.order
+      ? {
+          id: tr.order.id,
+          date: msOf(tr.order.date),
+          itemPaise: numOf(tr.order.itemPaise),
+          orderTotalPaise: numOf(tr.order.orderTotalPaise),
+          product: tr.order.product,
+          source: tr.order.source,
+        }
+      : null,
+    delivery: tr.delivery
+      ? { at: msOf(tr.delivery.at), source: tr.delivery.source }
+      : null,
+    review: tr.review
+      ? {
+          published: tr.review.published,
+          rating: tr.review.rating,
+          product: tr.review.product,
+        }
+      : null,
+    returned: tr.returned,
+    blocker: tr.blocker,
+    blockerReason: tr.blockerReason,
+  });
+}
+
+// ── accessors ─────────────────────────────────────────────────────────────────
+
+export function getTask(campaignId) {
+  const e = entries[campaignId];
+  return e ? e.optimistic : null;
+}
+export function getAuthoritative(campaignId) {
+  const e = entries[campaignId];
+  return e ? e.authoritative : null;
+}
+export function getTaskId(campaignId) {
+  const e = entries[campaignId];
+  return e ? e.taskId : null;
+}
+export function hasTask(campaignId) {
+  const e = entries[campaignId];
+  return !!(e && e.taskId);
+}
+export function getTasks() {
+  const out = {};
+  for (const cid of Object.keys(entries)) out[cid] = entries[cid].optimistic;
+  return out;
+}
+
+// ── persistence ─────────────────────────────────────────────────────────────
+
+function persist() {
+  try {
+    const slim = {};
+    for (const cid of Object.keys(entries)) {
+      slim[cid] = {
+        taskId: entries[cid].taskId,
+        authoritative: entries[cid].authoritative,
+      };
+    }
+    const f = file();
+    f.create({ overwrite: true });
+    f.write(JSON.stringify(slim));
+  } catch (e) {
+    /* best-effort */
+  }
+}
+
+// Load the persisted map/snapshots synchronously for instant UI, then refresh
+// from the backend (source of truth) in the background.
 export function load() {
-  let stored = {};
   try {
     const f = file();
     if (f.exists) {
       const parsed = JSON.parse(f.textSync());
-      if (parsed && typeof parsed === 'object') stored = parsed;
+      if (parsed && typeof parsed === 'object') {
+        entries = {};
+        for (const cid of Object.keys(parsed)) {
+          const p = parsed[cid] || {};
+          entries[cid] = {
+            taskId: p.taskId || null,
+            authoritative: p.authoritative || null,
+            optimistic: p.authoritative
+              ? engineTaskFromResponse(p.authoritative)
+              : freshTask(cid),
+          };
+        }
+      }
     }
   } catch (e) {
-    /* fall through to fresh tasks */
+    entries = {};
   }
-  tasks = {};
-  CAMPAIGNS.forEach((c) => {
-    const s = stored[c.id];
-    tasks[c.id] = (s && s.id && s.state && STATES[s.state]) ? Object.freeze(s) : freshFor(c);
-  });
-  save();
-  CAMPAIGNS.forEach((c) => notify(c.id));
-  return tasks;
+  for (const cid of Object.keys(entries)) notify(cid);
+  // Fire-and-forget refresh from the source of truth.
+  refreshFromBackend();
+  return entries;
 }
 
-function save() {
+// Rebuild the map + snapshots from GET /tasks — the authoritative source.
+export async function refreshFromBackend() {
   try {
-    const f = file();
-    f.create({ overwrite: true });
-    f.write(JSON.stringify(tasks));
+    const res = await listTasks();
+    if (res.ok) {
+      for (const tr of res.tasks) applyAuthoritative(tr);
+    }
   } catch (e) {
-    /* persistence is best-effort; the in-memory tasks are still usable */
+    /* keep last-known state */
   }
 }
 
-// The ONLY way a task changes. Every mutation goes through taskflow's
-// transition() so the atomic/idempotent guarantees hold here too.
+// ── authoritative apply ───────────────────────────────────────────────────────
+
+// Store a backend TaskResponse as the truth for its campaign, and snap the
+// optimistic copy to it so the display can't drift from the server.
+export function applyAuthoritative(tr) {
+  if (!tr || !tr.campaign || !tr.campaign.id) return;
+  const cid = tr.campaign.id;
+  entries[cid] = {
+    taskId: tr.id,
+    authoritative: tr,
+    optimistic: engineTaskFromResponse(tr),
+  };
+  persist();
+  notify(cid);
+}
+
+// ── claim ─────────────────────────────────────────────────────────────────────
+
+// Explicit claim (spends tickets; idempotent server-side). Seeds the entry from
+// the authoritative task the backend returns.
+export async function claim(campaignId) {
+  const res = await claimApi(campaignId);
+  if (res.ok && res.task) {
+    applyAuthoritative(res.task);
+    return { ok: true, task: res.task };
+  }
+  return { ok: false, status: res.status, error: res.error };
+}
+
+// ── the sync seam ───────────────────────────────────────────────────────────
+
+// The ONLY way a task changes locally. Applies the optimistic transition for
+// instant feedback, then (for EVIDENCE on a claimed task) forwards the SAME
+// evidence to the backend; the authoritative response snaps the display via
+// applyAuthoritative. Non-EVIDENCE events stay local-only in Phase 1 (the
+// confirm/review/hold/release actions get their backend wiring in a later phase).
 export function dispatch(campaignId, event) {
-  if (!Object.keys(tasks).length) load();
-  const cur = tasks[campaignId];
-  if (!cur) return { task: null, changed: false, reason: `unknown campaign ${campaignId}` };
-  const res = transition(cur, event);
-  if (res.task !== cur) {
-    tasks[campaignId] = res.task;
-    save();
+  let e = entries[campaignId];
+  if (!e) {
+    e = { taskId: null, authoritative: null, optimistic: freshTask(campaignId) };
+    entries[campaignId] = e;
+  }
+
+  const res = transition(e.optimistic, event);
+  if (res.task !== e.optimistic) {
+    e.optimistic = res.task;
     notify(campaignId);
   }
+
+  if (event.type === 'EVIDENCE' && e.taskId && syncFn) {
+    // Derive a SUPERSET idempotency key from the evidence CONTENT (not
+    // ConnectScreen's bare order-id key), so a purchase-only check and a later
+    // purchase+delivery check on the same order get distinct keys and both
+    // apply, while an identical re-fetch collapses to a backend no-op.
+    const body = toEvidenceDto(event.evidence, evidenceKey(event.evidence));
+    // Fire-and-forget: success/queue handled in evidenceSync; the authoritative
+    // response returns via applyAuthoritative (injected onApplied).
+    Promise.resolve(syncFn(e.taskId, body)).catch(() => {});
+  }
+
   return res;
 }
 
+// Dev helper: clear a campaign's LOCAL mirror (does not un-claim on the backend).
 export function reset(campaignId) {
-  const c = campaignById(campaignId);
-  if (!c) return null;
-  tasks[campaignId] = freshFor(c);
-  save();
+  delete entries[campaignId];
+  persist();
   notify(campaignId);
-  return tasks[campaignId];
+  return null;
 }

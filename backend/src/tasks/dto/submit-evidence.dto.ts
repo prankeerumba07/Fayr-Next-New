@@ -68,6 +68,17 @@ class EvidenceDeliveryDto {
  * `returned` for "unknown"; send it only when the order's return status is known.
  */
 export class SubmitEvidenceDto {
+  /**
+   * Idempotency key for this evidence event. Re-posting the SAME key is a no-op
+   * (the engine records applied keys per task), so a re-run of an unchanged
+   * check never double-advances. The on-device sync layer derives a key that is
+   * a SUPERSET of the order id — it also encodes whether delivery/returned/
+   * review-published are present — so a purchase-only check and a later
+   * purchase+delivery check on the same order get DISTINCT keys and both apply,
+   * while an identical re-fetch collapses to one. Constrained to a safe charset.
+   */
+  @IsOptional() @IsString() @Matches(/^[A-Za-z0-9:._-]{1,200}$/) key?: string;
+
   @IsOptional() @IsIn(BLOCKER_VALUES) blocker?: string;
   @IsOptional() @IsString() reason?: string;
 

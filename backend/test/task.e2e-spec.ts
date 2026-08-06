@@ -206,6 +206,65 @@ describe('Task loop (e2e)', () => {
     ).toBe(1);
   });
 
+  it('idempotency key: a re-run is a no-op; a superset key lets a later delivery through', async () => {
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const campaign = await makeCampaign();
+    const claim = await request(server())
+      .post('/tasks')
+      .set('Authorization', bearer(token))
+      .send({ campaignId: campaign.id })
+      .expect(201);
+    const taskId: string = claim.body.id;
+
+    // Purchase-only check, keyed as the on-device sync layer keys it.
+    const purchaseBody = {
+      key: 'evidence:o1:o',
+      order: { id: 'o1', itemPaise: '129900', source: 'order-details' },
+      returned: false,
+    };
+    await request(server())
+      .post(`/tasks/${taskId}/evidence`)
+      .set('Authorization', bearer(token))
+      .send(purchaseBody)
+      .expect(200)
+      .expect((r) => expect(r.body.state).toBe('PURCHASED'));
+    expect(
+      await prisma.taskEvent.count({ where: { taskId, type: 'EVIDENCE' } }),
+    ).toBe(1);
+
+    // Re-run the SAME check (same key) → genuine no-op: still PURCHASED, and NO
+    // second event row was written.
+    await request(server())
+      .post(`/tasks/${taskId}/evidence`)
+      .set('Authorization', bearer(token))
+      .send(purchaseBody)
+      .expect(200)
+      .expect((r) => expect(r.body.state).toBe('PURCHASED'));
+    expect(
+      await prisma.taskEvent.count({ where: { taskId, type: 'EVIDENCE' } }),
+    ).toBe(1);
+
+    // A later purchase+delivery check on the SAME order carries the SUPERSET key
+    // (decision A). It must APPLY — advancing to DELIVERED — where reusing the
+    // bare order-id key would have collided with the purchase check and silently
+    // dropped the delivery.
+    await request(server())
+      .post(`/tasks/${taskId}/evidence`)
+      .set('Authorization', bearer(token))
+      .send({
+        key: 'evidence:o1:od',
+        order: { id: 'o1', itemPaise: '129900', source: 'order-details' },
+        delivery: { at: Date.now() - 30 * DAY, source: 'order-details' },
+        returned: false,
+      })
+      .expect(200)
+      .expect((r) => expect(r.body.state).toBe('DELIVERED'));
+    expect(
+      await prisma.taskEvent.count({ where: { taskId, type: 'EVIDENCE' } }),
+    ).toBe(2);
+  });
+
   it('rolls the claim back when the user cannot afford it', async () => {
     const { token } = await newUser(); // 0 tickets (no grant)
     const campaign = await makeCampaign();

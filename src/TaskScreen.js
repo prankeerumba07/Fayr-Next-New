@@ -7,14 +7,16 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CAMPAIGNS, campaignById } from './campaign';
 import { PLATFORMS } from './platforms';
-import { STATES, BLOCKERS, describe, createPolicy, shouldRecheckVisibility } from './taskflow';
-import { getTask, subscribe, load, dispatch, reset } from './taskStore';
+import { STATES, describe, createPolicy, BLOCKERS, SOURCES } from './taskflow';
+import {
+  getTask, getAuthoritative, hasTask, claim, subscribe, load, dispatch, reset,
+} from './taskStore';
 import { percentOfPaise, formatPaise } from './money';
+import * as campaignStore from './backend/campaignStore';
 
 const POLICY = createPolicy();
 const FALLBACK_COLOR = '#FF9900';
@@ -52,21 +54,72 @@ function Row({ label, value, missing, hint }) {
 
 const STEPS = [STATES.CLAIMED, STATES.PURCHASED, STATES.DELIVERED, STATES.REVIEWED, STATES.HOLDING, STATES.REFUNDED];
 
-export default function TaskScreen({ navigation, route }) {
-  const campaignId = (route && route.params && route.params.campaignId) || CAMPAIGNS[0].id;
-  const campaign = campaignById(campaignId) || CAMPAIGNS[0];
-  const platform = PLATFORMS[campaign.marketplace];
-  const color = (platform && platform.color) || FALLBACK_COLOR;
-  const platformName = platform ? platform.name : campaign.marketplace;
+// Platform-neutral fallback text for a backend blocker when the server didn't
+// attach a specific reason. The server's blockerReason ALWAYS wins over these;
+// these only cover the "blocker set, reason null" edge, and are deliberately
+// not Amazon-worded.
+const BLOCKER_TEXT = {
+  [BLOCKERS.RECONNECT]: 'Sign in to your marketplace account again so we can read your orders.',
+  [BLOCKERS.ORDER_UNREADABLE]: "We couldn't read this order — connect your email so we can verify it from the confirmation.",
+  [BLOCKERS.NO_DELIVERY_DATE]: 'Delivery date not available yet.',
+  [BLOCKERS.REVIEW_NOT_PUBLIC]: 'Your review isn’t showing as public yet.',
+  [BLOCKERS.RETURNED]: 'This order looks returned, which blocks the refund.',
+};
 
-  const [task, setTask] = useState(getTask(campaignId));
+// The "what's next" hints, derived from the AUTHORITATIVE backend snapshot (the
+// source of truth) rather than the optimistic engine's generic default. Rules:
+//   1. A real, current backend blocker/reason wins — that's what actually happened.
+//   2. With no blocker and no matching order, show NOTHING here (the order card
+//      already says "no order fetched yet") — never the misleading static
+//      "Delivery date not available yet · Next: dkim" leftover.
+//   3. With an order but no delivery, THAT hint is genuinely true — show it.
+//   4. No authoritative snapshot yet (offline / pre-first-sync): fall back to the
+//      optimistic engine's own gaps so the screen still says something useful.
+function nextStepGaps(authoritative, view) {
+  if (!authoritative) return view.gaps;
+  if (authoritative.blocker) {
+    return [{
+      field: 'blocker',
+      message:
+        authoritative.blockerReason ||
+        BLOCKER_TEXT[authoritative.blocker] ||
+        `Action needed: ${authoritative.blocker}`,
+      action: authoritative.blocker,
+    }];
+  }
+  if (!authoritative.order) return [];
+  if (!authoritative.delivery) {
+    return [{ field: 'delivery', message: 'Delivery date not available yet', action: SOURCES.DKIM }];
+  }
+  return [];
+}
+
+export default function TaskScreen({ navigation, route }) {
+  const campaignId = (route && route.params && route.params.campaignId) || null;
+  const campaign = campaignId ? campaignStore.getById(campaignId) : null;
+  const platform = campaign ? PLATFORMS[campaign.marketplace] : null;
+  const color = (platform && platform.color) || FALLBACK_COLOR;
+  const platformName = platform ? platform.name : (campaign ? campaign.marketplace : '');
+
+  const [task, setTask] = useState(campaignId ? getTask(campaignId) : null);
+  const [authoritative, setAuthoritative] = useState(campaignId ? getAuthoritative(campaignId) : null);
+  const [claimed, setClaimed] = useState(campaignId ? hasTask(campaignId) : false);
+  const [claiming, setClaiming] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    // Only react to updates for THIS campaign's task.
-    const un = subscribe((id, t) => { if (id === campaignId) setTask(t); });
+    if (!campaignId) return undefined;
+    // React to updates for THIS campaign's task (optimistic + authoritative).
+    const un = subscribe((id) => {
+      if (id !== campaignId) return;
+      setTask(getTask(campaignId));
+      setAuthoritative(getAuthoritative(campaignId));
+      setClaimed(hasTask(campaignId));
+    });
     if (!getTask(campaignId)) load();
     setTask(getTask(campaignId));
+    setAuthoritative(getAuthoritative(campaignId));
+    setClaimed(hasTask(campaignId));
     return un;
   }, [campaignId]);
 
@@ -85,11 +138,58 @@ export default function TaskScreen({ navigation, route }) {
     if (res.rejected) Alert.alert('Not yet', res.reason);
   }, [campaignId]);
 
+  const doClaim = useCallback(async () => {
+    setClaiming(true);
+    const res = await claim(campaignId);
+    setClaiming(false);
+    if (!res.ok) Alert.alert('Could not claim', res.error || 'Please try again.');
+  }, [campaignId]);
+
+  if (!campaign) {
+    return <SafeAreaView style={styles.container}><Text style={styles.muted}>Loading task…</Text></SafeAreaView>;
+  }
+
+  // Explicit claim gate — claiming reserves the task and SPENDS tickets, so it's
+  // a deliberate action (idempotent server-side: re-tapping never double-spends).
+  if (!claimed) {
+    return (
+      <SafeAreaView style={styles.container} edges={['bottom']}>
+        <ScrollView contentContainerStyle={{ padding: 16 }}>
+          <Text style={styles.h1}>{campaign.productName}</Text>
+          <Text style={styles.muted}>{campaign.percent}% refund · {platformName}</Text>
+          <View style={[styles.card, { marginTop: 20 }]}>
+            <Text style={styles.claimTitle}>Claim this task</Text>
+            <Text style={styles.claimBody}>
+              Claiming reserves this task and spends {campaign.ticketCost} tickets. You then buy the
+              product yourself and Fayr verifies your order automatically.
+            </Text>
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: color, marginTop: 14 }]}
+              onPress={doClaim}
+              disabled={claiming}
+              activeOpacity={0.85}
+            >
+              {claiming ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.btnText}>Claim this task ({campaign.ticketCost} tickets)</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   if (!task) {
     return <SafeAreaView style={styles.container}><Text style={styles.muted}>Loading…</Text></SafeAreaView>;
   }
 
   const view = describe(task, now, POLICY);
+  // Next-step hints come from the authoritative backend snapshot, not the
+  // optimistic engine default (see nextStepGaps). `view` still drives the
+  // countdown / refund-eligibility below.
+  const gaps = nextStepGaps(authoritative, view);
   const itemPaise = task.order ? task.order.itemPaise : null;
   const refundPaise = itemPaise != null ? percentOfPaise(itemPaise, campaign.percent) : null;
   const stepIndex = STEPS.indexOf(task.state);
@@ -103,6 +203,15 @@ export default function TaskScreen({ navigation, route }) {
         <Text style={styles.muted}>
           {campaign.percent}% refund · {platformName}{idLabel ? ` · ${idLabel}` : ` · ₹${campaign.amount}`}
         </Text>
+        {/* The AUTHORITATIVE state from the backend — the source of truth. The
+            pipeline/cards below render the optimistic mirror, which snaps to
+            this after each evidence sync. */}
+        {authoritative ? (
+          <Text style={styles.serverBadge}>
+            ✓ Verified state: {authoritative.state}
+            {authoritative.blocker ? ` · ${authoritative.blocker}` : ''}
+          </Text>
+        ) : null}
 
         <View style={styles.pipeline}>
           {STEPS.map((s, i) => (
@@ -113,7 +222,7 @@ export default function TaskScreen({ navigation, route }) {
           ))}
         </View>
 
-        {view.gaps.map((g) => (
+        {gaps.map((g) => (
           <View key={g.field} style={styles.gap}>
             <Text style={styles.gapTitle}>{g.message}</Text>
             <Text style={styles.gapAction}>Next: {g.action}</Text>
@@ -177,7 +286,7 @@ export default function TaskScreen({ navigation, route }) {
             </>
           ) : (
             <Text style={styles.rowMissing}>
-              {view.gaps.length ? view.gaps[0].message : 'No order fetched yet. Tap "I\'ve completed the purchase".'}
+              {gaps.length ? gaps[0].message : 'No order fetched yet. Tap "I\'ve completed the purchase".'}
             </Text>
           )}
         </View>
@@ -267,6 +376,9 @@ const styles = StyleSheet.create({
   h1: { fontSize: 20, fontWeight: '700', color: '#1a1a1a' },
   h2: { fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase', marginTop: 22, marginBottom: 8, letterSpacing: 0.5 },
   muted: { fontSize: 13, color: '#777', marginTop: 4 },
+  serverBadge: { fontSize: 12, fontWeight: '700', color: '#0C831F', marginTop: 8 },
+  claimTitle: { fontSize: 16, fontWeight: '800', color: '#1a1a1a', marginBottom: 8 },
+  claimBody: { fontSize: 14, color: '#555', lineHeight: 20 },
   pipeline: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 18, marginBottom: 4 },
   pipeStep: { alignItems: 'center', flex: 1 },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#ddd', marginBottom: 4 },
