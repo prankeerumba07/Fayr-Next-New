@@ -1,15 +1,22 @@
-// The task screen: current state, the fetched order for confirmation, the gaps
-// where a field is missing, and the refund countdown.
+// Task status — the post-claim journey, rebuilt in the fayr design system as the
+// prototype's refund timeline (Claimed → Order verified → Refund tracked →
+// Delivered → Review → Verification → Return window → Refund confirmed → Wallet).
 //
-// The rule this screen exists to honour: NEVER render a blank where a fact
-// should be. If the order couldn't be read, it says so and offers the next
-// action. A missing field is a gap with a cause, not an empty row.
+// Two rules this screen exists to honour, both kept from the original:
+//   1. NEVER render a blank where a fact should be. A missing field is a gap with
+//      a cause and a next action, not an empty row.
+//   2. The BACKEND is the source of truth. Stage states derive from the
+//      authoritative task snapshot (mirrored into `task`), never from a timer or
+//      a step counter that could drift from the server.
+//
+// Claiming lives on DetailScreen; this screen is only ever the post-claim view.
 
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PLATFORMS } from './platforms';
 import { STATES, describe, createPolicy, BLOCKERS, SOURCES } from './taskflow';
 import {
@@ -17,9 +24,10 @@ import {
 } from './taskStore';
 import { percentOfPaise, formatPaise } from './money';
 import * as campaignStore from './backend/campaignStore';
+import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
+import { Card, RefundBadge, ProductImage } from './ui/primitives';
 
 const POLICY = createPolicy();
-const FALLBACK_COLOR = '#FF9900';
 
 function fmtDate(ms) {
   if (ms == null) return null;
@@ -94,11 +102,125 @@ function nextStepGaps(authoritative, view) {
   return [];
 }
 
+// How the review becomes verifiable, per marketplace. This is deliberately NOT
+// the web prototype's copy: the prototype tells quick-commerce/Meesho users their
+// rating is "confirmed instantly" from the in-app signal, but that weak
+// `is_rated` marker must never stand as proof on its own (fraud model, loophole
+// 2). For those platforms a Fayr reviewer confirms the review is genuinely live,
+// so the copy says exactly that.
+const REVIEW_VERIFY = {
+  amazon: {
+    title: 'Review under verification',
+    sub: 'Amazon moderates new reviews (usually 48–72h) before they show publicly.',
+  },
+  flipkart: {
+    title: 'Review indexing',
+    sub: 'Flipkart is indexing your review — it appears on the product page shortly.',
+  },
+  myntra: {
+    title: 'Review publishing',
+    sub: 'Myntra is publishing your review to the product page.',
+  },
+  meesho: {
+    title: 'Reviewer check',
+    sub: 'Meesho doesn’t show review text publicly, so a Fayr reviewer confirms yours is live.',
+  },
+  blinkit: {
+    title: 'Reviewer check',
+    sub: 'Blinkit has no public review page, so a Fayr reviewer confirms your rating.',
+  },
+  zepto: {
+    title: 'Reviewer check',
+    sub: 'Zepto has no public review page, so a Fayr reviewer confirms your rating.',
+  },
+  instamart: {
+    title: 'Reviewer check',
+    sub: 'Instamart has no public review page, so a Fayr reviewer confirms your rating.',
+  },
+};
+
+// ── one timeline stage ──────────────────────────────────────────────────────
+function Stage({ stage, last }) {
+  const { state, icon, title, sub, chip, action, auto } = stage;
+  const done = state === 'done';
+  const active = state === 'active';
+  return (
+    <View style={styles.stageRow}>
+      {/* rail + node */}
+      <View style={styles.rail}>
+        {!last ? <View style={[styles.railLine, done && styles.railLineDone]} /> : null}
+        <View style={[styles.node, done && styles.nodeDone, active && styles.nodeActive]}>
+          <Text style={[styles.nodeIcon, !done && !active && styles.nodeIconPending]}>
+            {done ? '✓' : icon}
+          </Text>
+        </View>
+      </View>
+
+      {/* card */}
+      <View style={styles.stageBody}>
+        <View
+          style={[
+            styles.stageCard,
+            active && styles.stageCardActive,
+            done && styles.stageCardDone,
+            !done && !active && styles.stageCardPending,
+          ]}
+        >
+          <View style={styles.stageHead}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text
+                style={[
+                  styles.stageTitle,
+                  active && styles.stageTitleActive,
+                  !done && !active && styles.stageTitlePending,
+                ]}
+              >
+                {title}
+              </Text>
+              {sub ? (
+                <Text style={[styles.stageSub, !done && !active && styles.stageSubPending]}>
+                  {sub}
+                </Text>
+              ) : null}
+            </View>
+            {chip ? (
+              <View style={[styles.chip, chip.tone === 'ok' ? styles.chipOk : chip.tone === 'warn' ? styles.chipWarn : styles.chipInfo]}>
+                <Text
+                  style={[
+                    styles.chipText,
+                    chip.tone === 'ok' ? styles.chipTextOk : chip.tone === 'warn' ? styles.chipTextWarn : styles.chipTextInfo,
+                  ]}
+                >
+                  ● {chip.label}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          {active && action ? (
+            <TouchableOpacity
+              onPress={action.onPress}
+              activeOpacity={0.88}
+              style={styles.stageAction}
+            >
+              <Text style={styles.stageActionText}>{action.label} →</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {active && auto ? (
+            <Text style={styles.autoNote}>Processing automatically — nothing needed from you</Text>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function TaskScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const campaignId = (route && route.params && route.params.campaignId) || null;
   const campaign = campaignId ? campaignStore.getById(campaignId) : null;
   const platform = campaign ? PLATFORMS[campaign.marketplace] : null;
-  const color = (platform && platform.color) || FALLBACK_COLOR;
   const platformName = platform ? platform.name : (campaign ? campaign.marketplace : '');
 
   const [task, setTask] = useState(campaignId ? getTask(campaignId) : null);
@@ -138,7 +260,11 @@ export default function TaskScreen({ navigation, route }) {
   }, [campaignId]);
 
   if (!campaign) {
-    return <SafeAreaView style={styles.container}><Text style={styles.muted}>Loading task…</Text></SafeAreaView>;
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Text style={styles.muted}>Loading task…</Text>
+      </View>
+    );
   }
 
   // Claiming now lives on DetailScreen (the pre-claim product reveal), so this
@@ -147,31 +273,35 @@ export default function TaskScreen({ navigation, route }) {
   // showing a second, competing claim button.
   if (!claimed) {
     return (
-      <SafeAreaView style={styles.container} edges={['bottom']}>
-        <ScrollView contentContainerStyle={{ padding: 16 }}>
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={{ padding: SPACE.lg, paddingTop: insets.top + SPACE.lg }}>
           <Text style={styles.h1}>{campaign.productName}</Text>
           <Text style={styles.muted}>{campaign.percent}% refund · {platformName}</Text>
-          <View style={[styles.card, { marginTop: 20 }]}>
-            <Text style={styles.claimTitle}>Not claimed yet</Text>
-            <Text style={styles.claimBody}>
+          <Card style={{ marginTop: SPACE.xl, padding: SPACE.lg }}>
+            <Text style={styles.cardTitle}>Not claimed yet</Text>
+            <Text style={styles.cardBody}>
               Claim this product first — the campaign page has the details, terms and the
               claim button.
             </Text>
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: color, marginTop: 14 }]}
+              style={styles.primaryBtn}
               onPress={() => navigation.navigate('Detail', { campaignId })}
               activeOpacity={0.85}
             >
-              <Text style={styles.btnText}>View campaign</Text>
+              <Text style={styles.primaryBtnText}>View campaign</Text>
             </TouchableOpacity>
-          </View>
+          </Card>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (!task) {
-    return <SafeAreaView style={styles.container}><Text style={styles.muted}>Loading…</Text></SafeAreaView>;
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Text style={styles.muted}>Loading…</Text>
+      </View>
+    );
   }
 
   const view = describe(task, now, POLICY);
@@ -181,220 +311,428 @@ export default function TaskScreen({ navigation, route }) {
   const gaps = nextStepGaps(authoritative, view);
   const itemPaise = task.order ? task.order.itemPaise : null;
   const refundPaise = itemPaise != null ? percentOfPaise(itemPaise, campaign.percent) : null;
-  const stepIndex = STEPS.indexOf(task.state);
-  const idLabel = campaign.asin || campaign.pid || campaign.styleId || null;
   const match = task.order && task.order.match;
 
-  return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-        <Text style={styles.h1}>{campaign.productName}</Text>
-        <Text style={styles.muted}>
-          {campaign.percent}% refund · {platformName}{idLabel ? ` · ${idLabel}` : ` · ₹${campaign.amount}`}
-        </Text>
-        {/* The AUTHORITATIVE state from the backend — the source of truth. The
-            pipeline/cards below render the optimistic mirror, which snaps to
-            this after each evidence sync. */}
-        {authoritative ? (
-          <Text style={styles.serverBadge}>
-            ✓ Verified state: {authoritative.state}
-            {authoritative.blocker ? ` · ${authoritative.blocker}` : ''}
-          </Text>
-        ) : null}
+  // ── real facts the timeline reads ────────────────────────────────────────
+  const rank = STEPS.indexOf(task.state);
+  const hasOrder = !!task.order;
+  const hasDelivery = !!task.delivery;
+  const reviewed = rank >= STEPS.indexOf(STATES.REVIEWED);
+  const published = !!(task.review && task.review.published === true);
+  const refunded = task.state === STATES.REFUNDED;
+  const windowClosed = view.windowEndsAt != null && now >= view.windowEndsAt;
+  const eligible = view.refund.eligible;
+  const rv = REVIEW_VERIFY[campaign.marketplace] || REVIEW_VERIFY.amazon;
+  const refundLabel = refundPaise != null ? `₹${formatPaise(refundPaise)}` : null;
 
-        <View style={styles.pipeline}>
-          {STEPS.map((s, i) => (
-            <View key={s} style={styles.pipeStep}>
-              <View style={[styles.dot, i <= stepIndex && { backgroundColor: color }]} />
-              <Text style={[styles.pipeLabel, i === stepIndex && styles.pipeLabelActive]}>{s}</Text>
+  const goMarketplace = () => navigation.navigate(campaign.marketplace, { campaignId });
+
+  const stages = [
+    {
+      key: 'claimed',
+      icon: '🎯',
+      title: 'Product claimed',
+      sub: 'Reserved for you',
+      state: 'done',
+    },
+    {
+      key: 'order',
+      icon: '📦',
+      title: hasOrder ? 'Order placed & verified' : 'Order not found yet',
+      sub: hasOrder
+        ? `Verified from your ${platformName} account`
+        : `Buy on ${platformName}, then check again`,
+      state: hasOrder ? 'done' : 'active',
+      action: hasOrder ? null : { label: `Check ${platformName}`, onPress: goMarketplace },
+    },
+    {
+      key: 'tracked',
+      icon: '💸',
+      title: 'Refund tracked',
+      sub: refundLabel
+        ? `${refundLabel} reserved for your fayr Wallet`
+        : 'Confirmed once the item price is verified',
+      state: hasOrder && refundLabel ? 'done' : 'pending',
+      chip: hasOrder && refundLabel && !eligible && !refunded
+        ? { label: 'Pending', tone: 'warn' }
+        : null,
+    },
+    {
+      key: 'delivered',
+      icon: '🚚',
+      title: hasDelivery ? 'Order delivered' : 'Awaiting delivery',
+      sub: hasDelivery
+        ? fmtDate(task.delivery.at) || 'Delivery confirmed'
+        : 'We read the delivery date from your account',
+      state: hasDelivery ? 'done' : hasOrder ? 'active' : 'pending',
+      action: !hasDelivery && hasOrder
+        ? { label: `Check delivery on ${platformName}`, onPress: goMarketplace }
+        : null,
+    },
+    {
+      key: 'review',
+      icon: '✍️',
+      title: reviewed ? 'Review submitted' : 'Write your review',
+      sub: reviewed
+        ? `Posted on ${platformName}`
+        : 'An honest review once you’ve used the product',
+      state: reviewed ? 'done' : hasDelivery ? 'active' : 'pending',
+      action: !reviewed && hasDelivery
+        ? {
+            label: 'I’ve written my review',
+            onPress: () => act({ type: 'MARK_REVIEWED', key: 'reviewed', at: Date.now() }),
+          }
+        : null,
+    },
+    {
+      key: 'verifying',
+      icon: published ? '✔️' : '🔎',
+      title: published ? 'Review confirmed live' : rv.title,
+      sub: published ? 'Publicly visible on the product page' : rv.sub,
+      state: published ? 'done' : reviewed ? 'active' : 'pending',
+      auto: !published && reviewed,
+    },
+    {
+      key: 'window',
+      icon: '⏳',
+      title: 'Return window',
+      sub: view.windowEndsAt != null
+        ? countdown(view.windowEndsAt, now)
+        : 'Starts once delivery is confirmed',
+      state: windowClosed ? 'done' : task.state === STATES.HOLDING ? 'active' : 'pending',
+      auto: task.state === STATES.HOLDING && !windowClosed,
+      action: reviewed && task.state === STATES.REVIEWED
+        ? {
+            label: 'Start return-window hold',
+            onPress: () => act({ type: 'START_HOLD', key: `hold:${Date.now()}`, at: Date.now() }),
+          }
+        : null,
+    },
+    {
+      key: 'confirmed',
+      icon: '✅',
+      title: 'Refund confirmed',
+      sub: refunded
+        ? 'Released to your fayr Wallet'
+        : eligible
+          ? 'Review is live and the window has closed'
+          : 'Confirms when your review is live and the window closes',
+      state: refunded || eligible ? 'done' : windowClosed ? 'active' : 'pending',
+      chip: refunded || eligible ? { label: 'Confirmed', tone: 'ok' } : null,
+      action: eligible && !refunded && refundLabel
+        ? {
+            label: `Release ${refundLabel} to wallet`,
+            onPress: () => act({ type: 'RELEASE_REFUND', key: 'release', at: Date.now(), policy: POLICY }),
+          }
+        : null,
+    },
+    {
+      key: 'wallet',
+      icon: '👛',
+      title: refunded ? 'Refund in your wallet' : 'Payout',
+      // Deliberately NOT claiming "sent to your bank": a released refund sits in
+      // the wallet until the user withdraws and FINANCE marks it paid. The
+      // withdrawal screen is a later phase.
+      sub: refunded
+        ? 'Withdraw it from your wallet whenever you like'
+        : 'Withdraw your refund once it is confirmed',
+      state: refunded ? 'done' : 'pending',
+    },
+  ];
+
+  const doneCount = stages.filter((s) => s.state === 'done').length;
+  const pct = Math.round((doneCount / stages.length) * 100);
+
+  return (
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+        {/* header — soft violet gradient, product chip, progress */}
+        <LinearGradient
+          colors={['#E7DCFA', '#EDE4FB', COLOR.homeBg]}
+          style={[styles.header, { paddingTop: insets.top + 8 }]}
+        >
+          <View style={styles.headerTop}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back} activeOpacity={0.8}>
+              <Text style={styles.backIcon}>←</Text>
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Task status</Text>
+          </View>
+
+          <View style={styles.productChip}>
+            <ProductImage
+              imageUrl={campaign.imageUrl}
+              seed={campaign.id}
+              radius={13}
+              style={styles.chipImage}
+            />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text numberOfLines={2} style={styles.chipName}>{campaign.productName}</Text>
+              <View style={{ marginTop: 6, flexDirection: 'row' }}>
+                <RefundBadge percent={campaign.percent} size="sm" />
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.progressRow}>
+            <Text style={styles.progressLabel}>{doneCount} of {stages.length} done</Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${pct}%` }]} />
+            </View>
+            <Text style={styles.progressPct}>{pct}%</Text>
+          </View>
+
+          {/* AUTHORITATIVE backend state — the source of truth behind the timeline */}
+          {authoritative ? (
+            <Text style={styles.serverBadge}>
+              ✓ Verified state: {authoritative.state}
+              {authoritative.blocker ? ` · ${authoritative.blocker}` : ''}
+            </Text>
+          ) : null}
+        </LinearGradient>
+
+        <View style={styles.body}>
+          {/* what's blocking / what's next, from the backend */}
+          {gaps.map((g) => (
+            <View key={g.field} style={styles.gap}>
+              <Text style={styles.gapTitle}>{g.message}</Text>
+              <Text style={styles.gapAction}>Next: {g.action}</Text>
             </View>
           ))}
-        </View>
 
-        {gaps.map((g) => (
-          <View key={g.field} style={styles.gap}>
-            <Text style={styles.gapTitle}>{g.message}</Text>
-            <Text style={styles.gapAction}>Next: {g.action}</Text>
+          <Text style={styles.sectionHead}>Refund timeline</Text>
+          <Text style={styles.sectionSub}>Updates automatically as your refund progresses</Text>
+          <View style={{ marginTop: SPACE.lg }}>
+            {stages.map((s, i) => (
+              <Stage key={s.key} stage={s} last={i === stages.length - 1} />
+            ))}
           </View>
-        ))}
 
-        <Text style={styles.h2}>Your order</Text>
-        <View style={styles.card}>
-          {task.order ? (
-            <>
-              {task.order.image ? (
-                <Image
-                  source={{ uri: task.order.image }}
-                  style={styles.orderImage}
-                  resizeMode="contain"
-                />
-              ) : null}
-              <Row label="Product" value={task.order.product} missing="Name not read from the order" />
-              <Row label="Order ID" value={task.order.id} />
-              <Row label="Order date" value={fmtDate(task.order.date)} />
-              {task.order.statusText ? (
-                <Row label="Order status" value={String(task.order.statusText)} />
-              ) : null}
-              {match && match.amountOk === false ? (
-                <Text style={styles.warn}>
-                  Paid price differs from the campaign (₹{campaign.amount}) — confirm this is the right product/variant before continuing.
-                </Text>
-              ) : null}
-              {match && match.ambiguous ? (
-                <Text style={styles.warn}>
-                  More than one order matched this product — make sure this is the one for this task.
-                </Text>
-              ) : null}
-              {itemPaise != null ? (
-                <>
-                  <Row label="Item price" value={`₹${formatPaise(itemPaise)}`} />
-                  {task.order.orderTotalPaise != null && task.order.orderTotalPaise !== itemPaise ? (
-                    // Show the contrast explicitly: the refund is a % of the ITEM,
-                    // not of an order total that may bundle unrelated products.
-                    <Text style={styles.contrast}>
-                      Order total ₹{formatPaise(task.order.orderTotalPaise)} — includes other items; refund uses the item price only
-                    </Text>
-                  ) : null}
-                </>
-              ) : task.order.orderTotalPaise != null ? (
-                // Quick-commerce (and Myntra): web exposes only the ORDER TOTAL,
-                // not a per-item price. Show it plainly as the order amount; the
-                // Refund section states the per-item price is still needed.
-                <Row label="Order amount" value={`₹${formatPaise(task.order.orderTotalPaise)}`} />
-              ) : (
-                <Row
-                  label="Item price"
-                  value={null}
-                  missing="Couldn't read the item price"
-                  hint="refund can't be computed"
-                />
-              )}
-              {task.order.itemAmountAmbiguous ? (
-                <Text style={styles.warn}>Item price was ambiguous — needs manual review before refund</Text>
-              ) : null}
-            </>
-          ) : (
-            <Text style={styles.rowMissing}>
-              {gaps.length ? gaps[0].message : 'No order fetched yet. Tap "I\'ve completed the purchase".'}
+          {/* ── your order — every verified fact, never a blank ── */}
+          <Text style={[styles.sectionHead, { marginTop: SPACE.xxl }]}>Your order</Text>
+          <Card style={styles.detailCard}>
+            {task.order ? (
+              <>
+                {task.order.image ? (
+                  <Image source={{ uri: task.order.image }} style={styles.orderImage} resizeMode="contain" />
+                ) : null}
+                <Row label="Product" value={task.order.product} missing="Name not read from the order" />
+                <Row label="Order ID" value={task.order.id} />
+                <Row label="Order date" value={fmtDate(task.order.date)} />
+                {task.order.statusText ? (
+                  <Row label="Order status" value={String(task.order.statusText)} />
+                ) : null}
+                {match && match.amountOk === false ? (
+                  <Text style={styles.warn}>
+                    Paid price differs from the campaign (₹{campaign.amount}) — confirm this is the right product/variant before continuing.
+                  </Text>
+                ) : null}
+                {match && match.ambiguous ? (
+                  <Text style={styles.warn}>
+                    More than one order matched this product — make sure this is the one for this task.
+                  </Text>
+                ) : null}
+                {itemPaise != null ? (
+                  <>
+                    <Row label="Item price" value={`₹${formatPaise(itemPaise)}`} />
+                    {task.order.orderTotalPaise != null && task.order.orderTotalPaise !== itemPaise ? (
+                      // Show the contrast explicitly: the refund is a % of the ITEM,
+                      // not of an order total that may bundle unrelated products.
+                      <Text style={styles.contrast}>
+                        Order total ₹{formatPaise(task.order.orderTotalPaise)} — includes other items; refund uses the item price only
+                      </Text>
+                    ) : null}
+                  </>
+                ) : task.order.orderTotalPaise != null ? (
+                  // Quick-commerce (and Myntra): web exposes only the ORDER TOTAL,
+                  // not a per-item price. Show it plainly as the order amount; the
+                  // Refund section states the per-item price is still needed.
+                  <Row label="Order amount" value={`₹${formatPaise(task.order.orderTotalPaise)}`} />
+                ) : (
+                  <Row
+                    label="Item price"
+                    value={null}
+                    missing="Couldn't read the item price"
+                    hint="refund can't be computed"
+                  />
+                )}
+                {task.order.itemAmountAmbiguous ? (
+                  <Text style={styles.warn}>Item price was ambiguous — needs manual review before refund</Text>
+                ) : null}
+              </>
+            ) : (
+              <Text style={styles.rowMissing}>
+                {gaps.length ? gaps[0].message : 'No order fetched yet — buy the product, then check again.'}
+              </Text>
+            )}
+          </Card>
+
+          {/* ── refund ── */}
+          <Text style={[styles.sectionHead, { marginTop: SPACE.xxl }]}>Refund</Text>
+          <Card style={styles.detailCard}>
+            {refundPaise != null ? (
+              <Text style={styles.refundAmount}>₹{formatPaise(refundPaise)}</Text>
+            ) : (
+              <Text style={styles.rowMissing}>Available once the item price is verified</Text>
+            )}
+            <Row label="Delivered" value={fmtDate(task.delivery && task.delivery.at)} missing="Not verified yet" />
+            <Row label="Review live" value={task.review ? (task.review.published ? 'Yes' : 'No') : null} missing="Not checked yet" />
+            <Row label="Returned" value={task.returned == null ? null : task.returned ? 'Yes' : 'No'} missing="Unknown" hint="blocks refund" />
+            <Row label="Window ends" value={fmtDate(view.windowEndsAt)} missing="Needs a delivery date" />
+            {view.windowEndsAt != null ? (
+              <Text style={styles.countdown}>{countdown(view.windowEndsAt, now)}</Text>
+            ) : null}
+            {!view.refund.eligible ? (
+              <View style={styles.blockedBox}>
+                <Text style={styles.blockedTitle}>Refund on hold</Text>
+                {view.refund.reasons.map((r) => (
+                  <Text key={r} style={styles.blockedReason}>• {r}</Text>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.eligible}>✓ Ready to release</Text>
+            )}
+          </Card>
+
+          {/* primary action — always available, mirrors the active stage */}
+          <TouchableOpacity style={styles.primaryBtn} onPress={goMarketplace} activeOpacity={0.88}>
+            <Text style={styles.primaryBtnText}>
+              {task.order ? `Re-check on ${platformName}` : `I've completed the purchase`}
             </Text>
-          )}
-        </View>
+          </TouchableOpacity>
 
-        <Text style={styles.h2}>Refund</Text>
-        <View style={styles.card}>
-          {refundPaise != null ? (
-            <Text style={styles.refund}>₹{formatPaise(refundPaise)}</Text>
-          ) : (
-            <Text style={styles.rowMissing}>Available once the item price is verified</Text>
-          )}
-          <Row label="Delivered" value={fmtDate(task.delivery && task.delivery.at)} missing="Not verified yet" />
-          <Row label="Review live" value={task.review ? (task.review.published ? 'Yes' : 'No') : null} missing="Not checked yet" />
-          <Row label="Returned" value={task.returned == null ? null : task.returned ? 'Yes' : 'No'} missing="Unknown" hint="blocks refund" />
-          <Row label="Window ends" value={fmtDate(view.windowEndsAt)} missing="Needs a delivery date" />
-          {view.windowEndsAt != null ? (
-            <Text style={styles.countdown}>{countdown(view.windowEndsAt, now)}</Text>
-          ) : null}
-          {!view.refund.eligible ? (
-            <View style={styles.blockedBox}>
-              <Text style={styles.blockedTitle}>Refund on hold</Text>
-              {view.refund.reasons.map((r) => (
-                <Text key={r} style={styles.blockedReason}>• {r}</Text>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.eligible}>✓ Ready to release</Text>
-          )}
-        </View>
+          <TouchableOpacity
+            style={styles.ghostBtn}
+            onPress={() => act({ type: 'CONFIRM_ORDER', key: 'confirm', at: Date.now() })}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.ghostBtnText}>Yes, this is my order</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.btn, { backgroundColor: color }]}
-          onPress={() => navigation.navigate(campaign.marketplace, { campaignId })}
-        >
-          <Text style={styles.btnText}>
-            {task.order ? `Re-check on ${platformName}` : "I've completed the purchase"}
+          {/* dev footer */}
+          <TouchableOpacity onPress={() => reset(campaignId)} style={styles.resetBtn}>
+            <Text style={styles.resetText}>Reset task (dev)</Text>
+          </TouchableOpacity>
+          <Text style={styles.history}>
+            {task.history.length} event(s) · state {task.state}
+            {task.blocker ? ` · blocked: ${task.blocker}` : ''}
           </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.btn, styles.btnGhost]}
-          onPress={() => act({ type: 'CONFIRM_ORDER', key: 'confirm', at: Date.now() })}
-        >
-          <Text style={styles.btnGhostText}>Yes, this is my order</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.btn, styles.btnGhost]}
-          onPress={() => act({ type: 'MARK_REVIEWED', key: 'reviewed', at: Date.now() })}
-        >
-          <Text style={styles.btnGhostText}>Yes, I have reviewed it</Text>
-        </TouchableOpacity>
-
-        {task.state === STATES.REVIEWED ? (
-          <TouchableOpacity
-            style={[styles.btn, styles.btnGhost]}
-            onPress={() => act({ type: 'START_HOLD', key: `hold:${Date.now()}`, at: Date.now() })}
-          >
-            <Text style={styles.btnGhostText}>Start return-window hold</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {view.refund.eligible ? (
-          <TouchableOpacity
-            style={[styles.btn, { backgroundColor: '#0C831F' }]}
-            onPress={() => act({ type: 'RELEASE_REFUND', key: 'release', at: Date.now(), policy: POLICY })}
-          >
-            <Text style={styles.btnText}>Release ₹{formatPaise(refundPaise)} to wallet</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        <TouchableOpacity onPress={() => reset(campaignId)} style={styles.resetBtn}>
-          <Text style={styles.resetText}>Reset task (dev)</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.history}>
-          {task.history.length} event(s) · state {task.state}
-          {task.blocker ? ` · blocked: ${task.blocker}` : ''}
-        </Text>
+        </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  h1: { fontSize: 20, fontWeight: '700', color: '#1a1a1a' },
-  h2: { fontSize: 13, fontWeight: '700', color: '#999', textTransform: 'uppercase', marginTop: 22, marginBottom: 8, letterSpacing: 0.5 },
-  muted: { fontSize: 13, color: '#777', marginTop: 4 },
-  serverBadge: { fontSize: 12, fontWeight: '700', color: '#0C831F', marginTop: 8 },
-  claimTitle: { fontSize: 16, fontWeight: '800', color: '#1a1a1a', marginBottom: 8 },
-  claimBody: { fontSize: 14, color: '#555', lineHeight: 20 },
-  pipeline: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 18, marginBottom: 4 },
-  pipeStep: { alignItems: 'center', flex: 1 },
-  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#ddd', marginBottom: 4 },
-  pipeLabel: { fontSize: 8, color: '#bbb', textAlign: 'center' },
-  pipeLabelActive: { color: '#1a1a1a', fontWeight: '700' },
-  card: { borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e2e2', borderRadius: 12, padding: 14 },
-  orderImage: { width: '100%', height: 140, borderRadius: 10, backgroundColor: '#f6f6f6', marginBottom: 10 },
+  container: { flex: 1, backgroundColor: COLOR.homeBg },
+  center: { alignItems: 'center', justifyContent: 'center' },
+  muted: { fontFamily: FONT.body, fontSize: 14, color: COLOR.sub },
+  h1: { fontFamily: FONT.display, fontSize: 20, color: COLOR.ink },
+
+  header: { paddingHorizontal: SPACE.lg, paddingBottom: SPACE.lg },
+  headerTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  back: {
+    width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.92)',
+    alignItems: 'center', justifyContent: 'center', ...SHADOW.chip,
+  },
+  backIcon: { fontSize: 17, color: '#2B1D45' },
+  headerTitle: { fontFamily: FONT.display, fontSize: 19, color: '#2B1D45' },
+  productChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 13, marginTop: SPACE.lg,
+    backgroundColor: 'rgba(255,255,255,0.75)', borderRadius: RADIUS.xl, padding: 12, ...SHADOW.chip,
+  },
+  chipImage: { width: 54, height: 54 },
+  chipName: { fontFamily: FONT.displaySemi, fontSize: 14, color: '#2B1D45', lineHeight: 18 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', marginTop: SPACE.lg },
+  progressLabel: { fontFamily: FONT.displaySemi, fontSize: 12.5, color: '#5B4880' },
+  progressTrack: {
+    flex: 1, height: 6, borderRadius: 3, backgroundColor: 'rgba(123,97,255,0.16)',
+    marginHorizontal: SPACE.md, overflow: 'hidden',
+  },
+  progressFill: { height: '100%', borderRadius: 3, backgroundColor: '#22A80E' },
+  progressPct: { fontFamily: FONT.displaySemi, fontSize: 12.5, color: '#22A80E' },
+  serverBadge: { fontFamily: FONT.bodySemi, fontSize: 11.5, color: COLOR.greenDeep, marginTop: 10 },
+
+  body: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.lg },
+  sectionHead: { fontFamily: FONT.display, fontSize: 17, color: COLOR.ink },
+  sectionSub: { fontFamily: FONT.body, fontSize: 11.5, color: '#9a9b8c', marginTop: 3 },
+
+  // timeline
+  stageRow: { flexDirection: 'row', gap: 13 },
+  rail: { width: 38, alignItems: 'center' },
+  // Absolutely positioned, so give it an explicit left (rail is 38 wide, line 3)
+  // rather than relying on the parent's alignItems to centre an absolute child.
+  railLine: { position: 'absolute', top: 34, bottom: -6, left: 17.5, width: 3, borderRadius: 2, backgroundColor: '#E4E4D6' },
+  railLineDone: { backgroundColor: '#3FBF1E' },
+  node: {
+    width: 34, height: 34, borderRadius: 17, backgroundColor: '#EDEDE2',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  nodeDone: { backgroundColor: '#2AA412' },
+  nodeActive: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#22A80E' },
+  nodeIcon: { fontSize: 14, color: '#fff' },
+  nodeIconPending: { opacity: 0.55 },
+  stageBody: { flex: 1, paddingBottom: 12 },
+  stageCard: { borderRadius: RADIUS.lg, padding: 12, borderWidth: 1, borderColor: 'rgba(0,0,0,0.04)' },
+  stageCardActive: { backgroundColor: '#F2FBEB', borderColor: '#B6E79E', borderWidth: 1.5 },
+  stageCardDone: { backgroundColor: '#fff' },
+  stageCardPending: { backgroundColor: '#FAFAF3', opacity: 0.85 },
+  stageHead: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  stageTitle: { fontFamily: FONT.displaySemi, fontSize: 13.5, color: COLOR.ink, lineHeight: 18 },
+  stageTitleActive: { fontSize: 15 },
+  stageTitlePending: { color: '#AEAFA0' },
+  stageSub: { fontFamily: FONT.body, fontSize: 11.5, color: '#98998a', marginTop: 3, lineHeight: 16 },
+  stageSubPending: { color: '#c2c3b5' },
+  chip: { borderRadius: RADIUS.round, borderWidth: 1, paddingVertical: 4, paddingHorizontal: 10 },
+  chipOk: { backgroundColor: '#E7F6E0', borderColor: '#9FD97F' },
+  chipWarn: { backgroundColor: '#FFF7DE', borderColor: '#F3D97A' },
+  chipInfo: { backgroundColor: '#F1EAFB', borderColor: '#D9C6F5' },
+  chipText: { fontFamily: FONT.displaySemi, fontSize: 11 },
+  chipTextOk: { color: '#2E8B0F' },
+  chipTextWarn: { color: '#A07D12' },
+  chipTextInfo: { color: COLOR.purple },
+  stageAction: {
+    marginTop: 11, backgroundColor: '#248C08', borderRadius: RADIUS.md,
+    paddingVertical: 11, alignItems: 'center',
+  },
+  stageActionText: { fontFamily: FONT.displaySemi, fontSize: 13.5, color: '#fff' },
+  autoNote: { fontFamily: FONT.bodySemi, fontSize: 11, color: COLOR.purple, marginTop: 9 },
+
+  // detail cards
+  detailCard: { marginTop: SPACE.md, padding: 14 },
+  orderImage: { width: '100%', height: 140, borderRadius: RADIUS.md, backgroundColor: COLOR.creamDeep, marginBottom: 10 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 5 },
-  rowLabel: { fontSize: 13, color: '#777', flex: 1 },
-  rowValue: { fontSize: 13, color: '#1a1a1a', fontWeight: '600', flex: 1.4, textAlign: 'right' },
-  rowMissing: { fontSize: 12, color: '#b0772a', flex: 1.4, textAlign: 'right', fontStyle: 'italic' },
-  contrast: { fontSize: 11, color: '#777', marginTop: 8, lineHeight: 15 },
-  warn: { fontSize: 12, color: '#b3261e', marginTop: 8, fontWeight: '600' },
-  refund: { fontSize: 30, fontWeight: '800', color: '#0C831F', marginBottom: 10 },
-  countdown: { fontSize: 13, fontWeight: '700', color: '#1a1a1a', marginTop: 8 },
-  blockedBox: { marginTop: 12, backgroundColor: '#fff8f0', borderRadius: 8, padding: 10 },
-  blockedTitle: { fontSize: 12, fontWeight: '700', color: '#b0772a', marginBottom: 4 },
-  blockedReason: { fontSize: 12, color: '#8a6a3a', lineHeight: 17 },
-  eligible: { marginTop: 12, fontSize: 14, fontWeight: '700', color: '#0C831F' },
-  gap: { backgroundColor: '#fff4f4', borderWidth: 1, borderColor: '#f3caca', borderRadius: 10, padding: 12, marginTop: 14 },
-  gapTitle: { fontSize: 13, color: '#7a1f1a', lineHeight: 18 },
-  gapAction: { fontSize: 12, color: '#b3261e', fontWeight: '700', marginTop: 6 },
-  btn: { backgroundColor: FALLBACK_COLOR, borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginTop: 12 },
-  btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  btnGhost: { backgroundColor: '#f2f2f2' },
-  btnGhostText: { color: '#1a1a1a', fontSize: 14, fontWeight: '600' },
-  resetBtn: { alignItems: 'center', marginTop: 18 },
-  resetText: { fontSize: 12, color: '#bbb' },
-  history: { fontSize: 11, color: '#bbb', textAlign: 'center', marginTop: 10 },
+  rowLabel: { fontFamily: FONT.body, fontSize: 13, color: '#7b7565', flex: 1 },
+  rowValue: { fontFamily: FONT.bodyBold, fontSize: 13, color: COLOR.ink, flex: 1.4, textAlign: 'right' },
+  rowMissing: { fontFamily: FONT.body, fontSize: 12, color: '#b0772a', flex: 1.4, textAlign: 'right', fontStyle: 'italic' },
+  contrast: { fontFamily: FONT.body, fontSize: 11, color: '#7b7565', marginTop: 8, lineHeight: 15 },
+  warn: { fontFamily: FONT.bodySemi, fontSize: 12, color: '#d0422e', marginTop: 8 },
+  refundAmount: { fontFamily: FONT.displayXBold, fontSize: 30, color: COLOR.refundInk, marginBottom: 10 },
+  countdown: { fontFamily: FONT.bodyBold, fontSize: 13, color: COLOR.ink, marginTop: 8 },
+  blockedBox: { marginTop: 12, backgroundColor: '#FFF8F0', borderRadius: RADIUS.sm, padding: 10 },
+  blockedTitle: { fontFamily: FONT.displaySemi, fontSize: 12, color: '#b0772a', marginBottom: 4 },
+  blockedReason: { fontFamily: FONT.body, fontSize: 12, color: '#8a6a3a', lineHeight: 17 },
+  eligible: { marginTop: 12, fontFamily: FONT.displaySemi, fontSize: 14, color: COLOR.refundInk },
+
+  gap: {
+    backgroundColor: '#FFF4F4', borderWidth: 1, borderColor: '#F3CACA',
+    borderRadius: RADIUS.md, padding: 12, marginBottom: SPACE.lg,
+  },
+  gapTitle: { fontFamily: FONT.body, fontSize: 13, color: '#7a1f1a', lineHeight: 18 },
+  gapAction: { fontFamily: FONT.bodySemi, fontSize: 12, color: '#b3261e', marginTop: 6 },
+
+  cardTitle: { fontFamily: FONT.displaySemi, fontSize: 16, color: COLOR.ink, marginBottom: 8 },
+  cardBody: { fontFamily: FONT.body, fontSize: 14, color: COLOR.sub, lineHeight: 20 },
+  primaryBtn: {
+    backgroundColor: COLOR.ink, borderRadius: RADIUS.md, paddingVertical: 15,
+    alignItems: 'center', marginTop: SPACE.lg, ...SHADOW.chip,
+  },
+  primaryBtnText: { fontFamily: FONT.displaySemi, fontSize: 15, color: '#fff' },
+  ghostBtn: {
+    backgroundColor: '#F1F1E6', borderRadius: RADIUS.md, paddingVertical: 14,
+    alignItems: 'center', marginTop: SPACE.md,
+  },
+  ghostBtnText: { fontFamily: FONT.displaySemi, fontSize: 14, color: COLOR.ink },
+  resetBtn: { alignItems: 'center', marginTop: SPACE.xl },
+  resetText: { fontFamily: FONT.body, fontSize: 12, color: '#bbb' },
+  history: { fontFamily: FONT.body, fontSize: 11, color: '#bbb', textAlign: 'center', marginTop: 8 },
 });
