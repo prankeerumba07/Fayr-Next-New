@@ -1,13 +1,16 @@
 import React from 'react';
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { fontMap } from './src/ui/fonts';
 
 import HomeScreen from './src/HomeScreen';
 import ConnectScreen from './src/ConnectScreen';
 import TaskScreen from './src/TaskScreen';
+import DetailScreen from './src/DetailScreen';
 import AuthScreen from './src/AuthScreen';
 import { PLATFORM_LIST } from './src/platforms';
 import { load as loadTask, applyAuthoritative, configureSync } from './src/taskStore';
@@ -45,6 +48,9 @@ function makeConnectScreen(platform) {
 //   'in'      — signed in → the existing Home/Task/marketplace stack.
 export default function App() {
   const [authState, setAuthState] = React.useState('loading');
+  // Gate first paint on the design fonts too, so no screen flashes in a
+  // fallback face before Poppins/Alexandria/Inter resolve.
+  const [fontsLoaded] = useFonts(fontMap);
 
   // Subscribe FIRST (so login/logout/dead-refresh all flip the gate on their
   // own), then hydrate the persisted session once at startup.
@@ -68,7 +74,7 @@ export default function App() {
     loadTask();
   }, [authState]);
 
-  if (authState === 'loading') {
+  if (authState === 'loading' || !fontsLoaded) {
     return (
       <SafeAreaProvider>
         <StatusBar style="dark" />
@@ -97,6 +103,12 @@ export default function App() {
           <Stack.Screen
             name="Home"
             component={HomeScreen}
+            options={{ headerShown: false }}
+          />
+          {/* Campaign detail owns its own hero + back button, so no nav header. */}
+          <Stack.Screen
+            name="Detail"
+            component={DetailScreen}
             options={{ headerShown: false }}
           />
           <Stack.Screen

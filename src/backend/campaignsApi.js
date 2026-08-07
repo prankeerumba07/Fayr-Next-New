@@ -20,6 +20,7 @@ export function normalizeCampaign(c) {
     productPricePaise: pricePaise,
     percent: c.payoutPercent != null ? c.payoutPercent : 100,
     payoutPercent: c.payoutPercent != null ? c.payoutPercent : 100,
+    payoutCapPaise: c.payoutCapPaise != null ? Number(c.payoutCapPaise) : null,
     ticketCost: c.ticketCost != null ? c.ticketCost : 5,
     category: c.category || null,
     asin: c.asin || null,

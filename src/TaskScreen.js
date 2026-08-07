@@ -7,13 +7,13 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PLATFORMS } from './platforms';
 import { STATES, describe, createPolicy, BLOCKERS, SOURCES } from './taskflow';
 import {
-  getTask, getAuthoritative, hasTask, claim, subscribe, load, dispatch, reset,
+  getTask, getAuthoritative, hasTask, subscribe, load, dispatch, reset,
 } from './taskStore';
 import { percentOfPaise, formatPaise } from './money';
 import * as campaignStore from './backend/campaignStore';
@@ -104,7 +104,6 @@ export default function TaskScreen({ navigation, route }) {
   const [task, setTask] = useState(campaignId ? getTask(campaignId) : null);
   const [authoritative, setAuthoritative] = useState(campaignId ? getAuthoritative(campaignId) : null);
   const [claimed, setClaimed] = useState(campaignId ? hasTask(campaignId) : false);
-  const [claiming, setClaiming] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -138,19 +137,14 @@ export default function TaskScreen({ navigation, route }) {
     if (res.rejected) Alert.alert('Not yet', res.reason);
   }, [campaignId]);
 
-  const doClaim = useCallback(async () => {
-    setClaiming(true);
-    const res = await claim(campaignId);
-    setClaiming(false);
-    if (!res.ok) Alert.alert('Could not claim', res.error || 'Please try again.');
-  }, [campaignId]);
-
   if (!campaign) {
     return <SafeAreaView style={styles.container}><Text style={styles.muted}>Loading task…</Text></SafeAreaView>;
   }
 
-  // Explicit claim gate — claiming reserves the task and SPENDS tickets, so it's
-  // a deliberate action (idempotent server-side: re-tapping never double-spends).
+  // Claiming now lives on DetailScreen (the pre-claim product reveal), so this
+  // screen is only ever the POST-claim task view. An unclaimed campaign that
+  // still lands here (deep link, stale nav state) is sent there rather than
+  // showing a second, competing claim button.
   if (!claimed) {
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -158,22 +152,17 @@ export default function TaskScreen({ navigation, route }) {
           <Text style={styles.h1}>{campaign.productName}</Text>
           <Text style={styles.muted}>{campaign.percent}% refund · {platformName}</Text>
           <View style={[styles.card, { marginTop: 20 }]}>
-            <Text style={styles.claimTitle}>Claim this task</Text>
+            <Text style={styles.claimTitle}>Not claimed yet</Text>
             <Text style={styles.claimBody}>
-              Claiming reserves this task and spends {campaign.ticketCost} tickets. You then buy the
-              product yourself and Fayr verifies your order automatically.
+              Claim this product first — the campaign page has the details, terms and the
+              claim button.
             </Text>
             <TouchableOpacity
               style={[styles.btn, { backgroundColor: color, marginTop: 14 }]}
-              onPress={doClaim}
-              disabled={claiming}
+              onPress={() => navigation.navigate('Detail', { campaignId })}
               activeOpacity={0.85}
             >
-              {claiming ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.btnText}>Claim this task ({campaign.ticketCost} tickets)</Text>
-              )}
+              <Text style={styles.btnText}>View campaign</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
