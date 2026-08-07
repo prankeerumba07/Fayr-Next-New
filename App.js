@@ -114,7 +114,9 @@ export default function App() {
           <Stack.Screen
             name="Task"
             component={TaskScreen}
-            options={{ title: 'Your task', headerTintColor: '#FF9900' }}
+            // Task status owns its own gradient header and back button, so the
+            // navigator's bar would be a second, competing header.
+            options={{ headerShown: false }}
           />
           {PLATFORM_LIST.map((p) => (
             <Stack.Screen

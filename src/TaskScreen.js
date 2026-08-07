@@ -386,7 +386,9 @@ export default function TaskScreen({ navigation, route }) {
     },
     {
       key: 'verifying',
-      icon: published ? '✔️' : '🔎',
+      // Always the magnifier — the '✓' for this stage comes from the node itself
+      // once it is done, so a tick here would be both unreachable and misleading.
+      icon: '🔎',
       title: published ? 'Review confirmed live' : rv.title,
       sub: published ? 'Publicly visible on the product page' : rv.sub,
       state: published ? 'done' : reviewed ? 'active' : 'pending',
@@ -410,7 +412,11 @@ export default function TaskScreen({ navigation, route }) {
     },
     {
       key: 'confirmed',
-      icon: '✅',
+      // NOT a checkmark: the Stage node renders a real '✓' only when a stage is
+      // actually done, so a tick-like emoji here would read as "complete" while
+      // the stage is merely active. A finish-line reads as "the milestone we're
+      // heading for" without claiming it has been reached.
+      icon: '🏁',
       title: 'Refund confirmed',
       sub: refunded
         ? 'Released to your fayr Wallet'
