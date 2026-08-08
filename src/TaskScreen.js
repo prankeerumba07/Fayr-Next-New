@@ -26,6 +26,7 @@ import { percentOfPaise, formatPaise } from './money';
 import * as campaignStore from './backend/campaignStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
 import { Card, RefundBadge, ProductImage } from './ui/primitives';
+import { clampMonotonic } from './ui/timeline';
 
 const POLICY = createPolicy();
 
@@ -321,9 +322,17 @@ export default function TaskScreen({ navigation, route }) {
   const published = !!(task.review && task.review.published === true);
   const refunded = task.state === STATES.REFUNDED;
   const windowClosed = view.windowEndsAt != null && now >= view.windowEndsAt;
+  const inHold = rank >= STEPS.indexOf(STATES.HOLDING);
   const eligible = view.refund.eligible;
   const rv = REVIEW_VERIFY[campaign.marketplace] || REVIEW_VERIFY.amazon;
   const refundLabel = refundPaise != null ? `₹${formatPaise(refundPaise)}` : null;
+  // The engine's `eligible` gate says nothing about the AMOUNT — attemptRelease
+  // checks that separately and refuses with 'amount-unknown'. On Instamart the
+  // item price is never readable and on Blinkit only the order total is, so a
+  // task can be fully "eligible" for a refund the backend would still refuse to
+  // pay. Anything claiming the refund is settled must require both.
+  const payable = eligible && refundLabel != null;
+  const amountNeedsStaff = hasOrder && refundLabel == null;
 
   const goMarketplace = () => navigation.navigate(campaign.marketplace, { campaignId });
 
@@ -351,11 +360,18 @@ export default function TaskScreen({ navigation, route }) {
       title: 'Refund tracked',
       sub: refundLabel
         ? `${refundLabel} reserved for your fayr Wallet`
-        : 'Confirmed once the item price is verified',
+        : amountNeedsStaff
+          // Say the manual step out loud. This is the routine outcome on
+          // quick-commerce, not an edge case, and the screen used to imply the
+          // amount would simply appear on its own.
+          ? 'A Fayr reviewer confirms the amount you paid'
+          : 'Confirmed once the item price is verified',
       state: hasOrder && refundLabel ? 'done' : 'pending',
       chip: hasOrder && refundLabel && !eligible && !refunded
         ? { label: 'Pending', tone: 'warn' }
-        : null,
+        : amountNeedsStaff
+          ? { label: 'Needs staff check', tone: 'warn' }
+          : null,
     },
     {
       key: 'delivered',
@@ -401,7 +417,14 @@ export default function TaskScreen({ navigation, route }) {
       sub: view.windowEndsAt != null
         ? countdown(view.windowEndsAt, now)
         : 'Starts once delivery is confirmed',
-      state: windowClosed ? 'done' : task.state === STATES.HOLDING ? 'active' : 'pending',
+      // The window closing is the MARKETPLACE's clock, but this stage is OUR
+      // hold — it is not complete until the task has actually been held through
+      // it. Delivery can predate the claim by months (the Instamart razor was
+      // delivered 151 days before it was claimed), so "time has passed" alone
+      // must never tick this off, or the hold appears served without running.
+      state: windowClosed && inHold ? 'done'
+        : task.state === STATES.REVIEWED || task.state === STATES.HOLDING ? 'active'
+          : 'pending',
       auto: task.state === STATES.HOLDING && !windowClosed,
       action: reviewed && task.state === STATES.REVIEWED
         ? {
@@ -420,11 +443,17 @@ export default function TaskScreen({ navigation, route }) {
       title: 'Refund confirmed',
       sub: refunded
         ? 'Released to your fayr Wallet'
-        : eligible
-          ? 'Review is live and the window has closed'
-          : 'Confirms when your review is live and the window closes',
-      state: refunded || eligible ? 'done' : windowClosed ? 'active' : 'pending',
-      chip: refunded || eligible ? { label: 'Confirmed', tone: 'ok' } : null,
+        : eligible && !refundLabel
+          ? 'Waiting on a Fayr reviewer to confirm the amount you paid'
+          : eligible
+            ? 'Review is live and the window has closed'
+            : 'Confirms when your review is live and the window closes',
+      state: refunded || payable ? 'done' : eligible ? 'active' : 'pending',
+      chip: refunded || payable
+        ? { label: 'Confirmed', tone: 'ok' }
+        : eligible && !refundLabel
+          ? { label: 'Needs staff check', tone: 'warn' }
+          : null,
       action: eligible && !refunded && refundLabel
         ? {
             label: `Release ${refundLabel} to wallet`,
@@ -445,6 +474,10 @@ export default function TaskScreen({ navigation, route }) {
       state: refunded ? 'done' : 'pending',
     },
   ];
+
+  // A later stage must never read as further along than the chain genuinely is
+  // — see src/ui/timeline.js for the failure this exists to stop.
+  clampMonotonic(stages);
 
   const doneCount = stages.filter((s) => s.state === 'done').length;
   const pct = Math.round((doneCount / stages.length) * 100);
@@ -587,12 +620,20 @@ export default function TaskScreen({ navigation, route }) {
             {view.windowEndsAt != null ? (
               <Text style={styles.countdown}>{countdown(view.windowEndsAt, now)}</Text>
             ) : null}
-            {!view.refund.eligible ? (
+            {!payable ? (
               <View style={styles.blockedBox}>
                 <Text style={styles.blockedTitle}>Refund on hold</Text>
                 {view.refund.reasons.map((r) => (
                   <Text key={r} style={styles.blockedReason}>• {r}</Text>
                 ))}
+                {/* The engine's reasons list omits the amount — it's enforced at
+                    release time, not in the eligibility gate — so state it here
+                    or an "eligible" task looks payable when it isn't. */}
+                {refundPaise == null ? (
+                  <Text style={styles.blockedReason}>
+                    • item price unknown, so the refund amount can’t be computed — a Fayr reviewer confirms it
+                  </Text>
+                ) : null}
               </View>
             ) : (
               <Text style={styles.eligible}>✓ Ready to release</Text>
