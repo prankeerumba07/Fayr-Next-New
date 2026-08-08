@@ -534,6 +534,11 @@ function eventPayload(event: EngineEvent): Prisma.InputJsonValue | undefined {
         hasOrder: event.evidence.order != null,
         hasDelivery: event.evidence.delivery != null,
         blocker: event.evidence.blocker ?? null,
+        // WHY this particular check found what it found. The task row keeps
+        // only the latest; the event log keeps every check, which is what makes
+        // "the 2nd fetch failed differently from the 1st" diagnosable at all.
+        reason: event.evidence.reason ?? null,
+        probe: (event.evidence.probe ?? null) as Prisma.InputJsonValue,
       };
     default:
       return undefined;

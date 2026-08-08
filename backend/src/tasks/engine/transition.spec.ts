@@ -86,6 +86,71 @@ describe('transition — forward progression', () => {
   });
 });
 
+// A miss is the ONLY outcome that leaves a task where it was, so it is the one
+// outcome that has to explain itself. These used to be silently dropped: the
+// Instamart dinner-set miss (2026-08-08) reached the backend with probe null
+// and no reason, and the only way left to tell "orders read, no match" from
+// "couldn't read orders at all" was the POST's Content-Length.
+describe('transition — a non-blocking miss keeps its diagnostics', () => {
+  const missEvidence = {
+    type: 'EVIDENCE' as const,
+    at: T0,
+    key: 'evidence:none:_',
+    evidence: {
+      blocker: null,
+      reason: "This product isn't in your Instamart orders yet.",
+      probe: { ordersFetched: true, ordersCount: 7, targetFound: false },
+    },
+  };
+
+  it('persists reason and probe without blocking or advancing', () => {
+    const t = transition(fresh(), missEvidence).task;
+    expect(t.state).toBe(STATES.CLAIMED);
+    expect(t.blocker).toBeNull();
+    expect(t.blockerReason).toBe(
+      "This product isn't in your Instamart orders yet.",
+    );
+    expect(t.probe).toEqual({
+      ordersFetched: true,
+      ordersCount: 7,
+      targetFound: false,
+    });
+  });
+
+  it('distinguishes the two miss kinds by their stored reason', () => {
+    const couldNotRead = transition(fresh(), {
+      type: 'EVIDENCE',
+      at: T0,
+      evidence: {
+        blocker: null,
+        reason: "Couldn't read your Instamart orders.",
+        probe: { ordersFetched: false },
+      },
+    }).task;
+    expect(couldNotRead.blockerReason).toBe(
+      "Couldn't read your Instamart orders.",
+    );
+    expect(couldNotRead.probe).toEqual({ ordersFetched: false });
+  });
+
+  it('a later successful read self-clears the stale reason and probe', () => {
+    const missed = transition(fresh(), missEvidence).task;
+    expect(missed.blockerReason).not.toBeNull();
+
+    const found = transition(missed, orderEvidence).task;
+    expect(found.state).toBe(STATES.PURCHASED);
+    expect(found.blockerReason).toBeNull();
+    expect(found.probe).toBeNull();
+  });
+
+  it('is still idempotent — a replayed miss key is a no-op', () => {
+    const once = transition(fresh(), missEvidence).task;
+    const twice = transition(once, missEvidence);
+    expect(twice.changed).toBe(false);
+    expect(twice.task.history).toHaveLength(once.history.length);
+  });
+});
+
 describe('transition — evidence source authority (OCR is the lowest tier)', () => {
   const EARLIER = T0;
   const LATER = T0 + 5 * DAY;

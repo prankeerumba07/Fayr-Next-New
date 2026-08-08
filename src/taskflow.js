@@ -577,7 +577,17 @@ const HANDLERS = {
         reason: e.blocker,
       };
     }
-    const patch = { blocker: null, blockerReason: null };
+    // A miss is NOT a blocker - the task waits rather than stalls (orderApiMiss,
+    // readQuickCommerceEvidence). It still carries WHY: `reason` (the sentence)
+    // and `probe` (the scraper counters). Both used to be dropped here, so a
+    // miss reached the backend carrying nothing to diagnose it with. Keep them;
+    // a successful read carries neither, so they self-clear. Mirrored in
+    // backend/src/tasks/engine/transition.ts - keep the two in step.
+    const patch = {
+      blocker: null,
+      blockerReason: e.reason || null,
+      probe: e.probe || null,
+    };
     if (e.review) patch.review = e.review;
     if (e.order) patch.order = e.order;
     if (e.delivery) patch.delivery = e.delivery;

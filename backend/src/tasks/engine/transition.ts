@@ -143,7 +143,19 @@ function onEvidence(task: EngineTask, evidence: Evidence): HandlerOutput {
     };
   }
 
-  const patch: Partial<EngineTask> = { blocker: null, blockerReason: null };
+  // A miss (nothing matched) is deliberately NOT a blocker — the task WAITS
+  // rather than stalls (see readQuickCommerceEvidence / orderApiMiss in
+  // src/taskflow.js). But it still carries diagnostics: `reason`, the human
+  // sentence saying WHICH miss it was, and `probe`, the scraper's counters.
+  // Both used to be dropped right here, on the one path every miss takes — so
+  // "why did this check find nothing" was invisible backend-side even though
+  // the device sent it and the DTO accepted it. Carry them. A successful read
+  // arrives with neither, so both self-clear instead of going stale.
+  const patch: Partial<EngineTask> = {
+    blocker: null,
+    blockerReason: e.reason ?? null,
+    probe: e.probe ?? null,
+  };
   if (e.review) patch.review = e.review;
   // Order & delivery carry a `source`: a LOWER-authority source (e.g. an
   // OCR-read screenshot) must never overwrite a fact a HIGHER-authority source

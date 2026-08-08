@@ -112,5 +112,30 @@ ok(w1===ev.delivery.at+10*DAY,'electronics -> 10 days from delivery');
 const td={...t,category:'unknown-thing'};
 ok(refundEligibility(td,after,pol).windowEndsAt===ev.delivery.at+7*DAY,'unknown category -> defaultDays');
 
+console.log('\n=== 10. a non-blocking miss keeps its diagnostics (reason + probe) ===');
+// A miss is the only outcome that leaves the task where it was, so it is the
+// one outcome that must explain itself. Both fields used to be dropped on this
+// exact path. Mirrors backend transition.spec.ts — keep the two in step.
+const missEv={ blocker:null, reason:"This product isn't in your Instamart orders yet.",
+  probe:{ordersFetched:true,ordersCount:7,targetFound:false}, review:null, order:null, delivery:null, returned:null };
+const tm=transition(createTask({id:'m',product:'Cello Dazzle Series Tropical Lagoon Dinner Set'}),
+  {type:'EVIDENCE',key:'evidence:none:_',evidence:missEv,at:1}).task;
+ok(tm.state===STATES.CLAIMED,'miss does not advance the task');
+ok(tm.blocker===null,'miss does not block the task');
+ok(tm.blockerReason===missEv.reason,'reason persisted: '+tm.blockerReason);
+ok(tm.probe && tm.probe.ordersFetched===true && tm.probe.targetFound===false,'probe persisted (ordersCount '+(tm.probe&&tm.probe.ordersCount)+')');
+// The distinction that needed Content-Length arithmetic to recover on 2026-08-08.
+const tm2=transition(createTask({id:'m2'}),{type:'EVIDENCE',key:'k2',
+  evidence:{...missEv,reason:"Couldn't read your Instamart orders.",probe:{ordersFetched:false}},at:1}).task;
+ok(tm2.blockerReason==="Couldn't read your Instamart orders.",'the OTHER miss kind is distinguishable');
+ok(tm2.probe.ordersFetched===false,'probe separates read-failed from no-match');
+// Stale diagnostics must not outlive the miss that produced them.
+const tm3=transition(tm,{type:'EVIDENCE',key:'ok',evidence:ev,at:2}).task;
+// The fixture carries order AND delivery, so a good read lands on DELIVERED.
+ok(tm3.order!==null && tm3.state===STATES.DELIVERED,'a later good read still advances (-> '+tm3.state+')');
+ok(tm3.blockerReason===null && tm3.probe===null,'success self-clears the stale reason + probe');
+const tm4=transition(tm,{type:'EVIDENCE',key:'evidence:none:_',evidence:missEv,at:3});
+ok(tm4.changed===false,'replayed miss key is a no-op (idempotent)');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);
