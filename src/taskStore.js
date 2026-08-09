@@ -13,7 +13,8 @@ import { File, Paths } from 'expo-file-system';
 import { createTask, transition, STATES } from './taskflow';
 import { toEvidenceDto } from './backend/evidenceDto';
 import { evidenceKey } from './backend/evidenceKey';
-import { claim as claimApi, listTasks } from './backend/tasksApi';
+import { claim as claimApi, listTasks, postTaskAction } from './backend/tasksApi';
+import { isTaskAction, alreadyApplied } from './backend/taskActions';
 
 const FILE = 'fayr-tasks-v3.json'; // v3: {campaignId: {taskId, authoritative}}
 
@@ -129,6 +130,26 @@ export function getTasks() {
   for (const cid of Object.keys(entries)) out[cid] = entries[cid].optimistic;
   return out;
 }
+// True while a task ACTION is in flight — the screen disables the buttons so a
+// second tap can't race the first.
+export function isPending(campaignId) {
+  const e = entries[campaignId];
+  return !!(e && e.pending);
+}
+// The last action failure for this task ('' when the last one succeeded). Shown
+// on screen: an action that silently does nothing is the exact bug this whole
+// change exists to remove.
+export function getActionError(campaignId) {
+  const e = entries[campaignId];
+  return (e && e.actionError) || null;
+}
+export function clearActionError(campaignId) {
+  const e = entries[campaignId];
+  if (e && e.actionError) {
+    e.actionError = null;
+    notify(campaignId);
+  }
+}
 
 // ── persistence ─────────────────────────────────────────────────────────────
 
@@ -222,16 +243,63 @@ export async function claim(campaignId) {
 
 // ── the sync seam ───────────────────────────────────────────────────────────
 
-// The ONLY way a task changes locally. Applies the optimistic transition for
-// instant feedback, then (for EVIDENCE on a claimed task) forwards the SAME
-// evidence to the backend; the authoritative response snaps the display via
-// applyAuthoritative. Non-EVIDENCE events stay local-only in Phase 1 (the
-// confirm/review/hold/release actions get their backend wiring in a later phase).
+// Run a task ACTION against the backend. Deliberately NOT the evidence pattern:
+//   - no optimistic commit. The local copy is never moved ahead of the server,
+//     so it cannot silently drift — the exact failure that let a tapped
+//     "I've written my review" vanish on the next fetch;
+//   - no offline queue. You cannot honestly release a refund offline, and a
+//     queued action replayed later against a changed state would just 409;
+//   - the authoritative response REPLACES the local copy via applyAuthoritative,
+//     the same seam evidence already uses.
+function runAction(campaignId, e, type) {
+  if (alreadyApplied(type, e.authoritative)) return;
+  e.pending = true;
+  e.actionError = null;
+  notify(campaignId);
+  Promise.resolve(postTaskAction(e.taskId, type))
+    .then((res) => {
+      e.pending = false;
+      if (res && res.ok && res.task) {
+        applyAuthoritative(res.task); // wholesale replace — no merge, no drift
+      } else {
+        // A 409 is the server's real answer ("cannot start hold from DELIVERED",
+        // "Order amount is unknown"). Show it verbatim rather than inventing copy.
+        e.actionError = (res && res.error) || 'Could not reach Fayr. Try again.';
+        notify(campaignId);
+      }
+    })
+    .catch(() => {
+      e.pending = false;
+      e.actionError = 'Could not reach Fayr. Try again.';
+      notify(campaignId);
+    });
+}
+
+// The ONLY way a task changes locally.
+//
+// EVIDENCE keeps the optimistic path: it follows a slow WebView fetch the user
+// has already left, so instant local feedback is worth the reconciliation.
+// The four ACTIONS are server-first (see runAction) — they are single taps on a
+// visible screen, so a brief pending state is cheaper than any risk of the
+// display claiming something the backend never agreed to.
 export function dispatch(campaignId, event) {
   let e = entries[campaignId];
   if (!e) {
     e = { taskId: null, authoritative: null, optimistic: freshTask(campaignId) };
     entries[campaignId] = e;
+  }
+
+  // Pre-flight ONLY for actions: run the local engine to catch an obviously
+  // invalid tap (and keep the instant "Not yet" alert) without committing it.
+  if (isTaskAction(event.type)) {
+    const pre = transition(e.optimistic, event);
+    if (pre.rejected) return pre;
+    if (!e.taskId) {
+      return { task: e.optimistic, changed: false, rejected: true,
+        reason: 'This task isn’t synced with Fayr yet.' };
+    }
+    runAction(campaignId, e, event.type);
+    return { task: e.optimistic, changed: false, reason: 'sent to Fayr' };
   }
 
   const res = transition(e.optimistic, event);

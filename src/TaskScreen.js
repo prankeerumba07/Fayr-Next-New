@@ -21,6 +21,7 @@ import { PLATFORMS } from './platforms';
 import { STATES, describe, createPolicy, BLOCKERS, SOURCES } from './taskflow';
 import {
   getTask, getAuthoritative, hasTask, subscribe, load, dispatch, reset,
+  isPending, getActionError, clearActionError,
 } from './taskStore';
 import { percentOfPaise, formatPaise } from './money';
 import * as campaignStore from './backend/campaignStore';
@@ -141,7 +142,7 @@ const REVIEW_VERIFY = {
 };
 
 // ── one timeline stage ──────────────────────────────────────────────────────
-function Stage({ stage, last }) {
+function Stage({ stage, last, busy }) {
   const { state, icon, title, sub, chip, action, auto } = stage;
   const done = state === 'done';
   const active = state === 'active';
@@ -202,9 +203,14 @@ function Stage({ stage, last }) {
             <TouchableOpacity
               onPress={action.onPress}
               activeOpacity={0.88}
-              style={styles.stageAction}
+              // Disabled while an action is in flight so a second tap can't
+              // race the first (two of the four routes take no idempotency key).
+              disabled={busy}
+              style={[styles.stageAction, busy && styles.stageActionBusy]}
             >
-              <Text style={styles.stageActionText}>{action.label} →</Text>
+              <Text style={styles.stageActionText}>
+                {busy ? 'Sending…' : `${action.label} →`}
+              </Text>
             </TouchableOpacity>
           ) : null}
 
@@ -228,20 +234,26 @@ export default function TaskScreen({ navigation, route }) {
   const [authoritative, setAuthoritative] = useState(campaignId ? getAuthoritative(campaignId) : null);
   const [claimed, setClaimed] = useState(campaignId ? hasTask(campaignId) : false);
   const [now, setNow] = useState(Date.now());
+  // An action in flight, and the server's own reason if the last one failed.
+  const [pending, setPending] = useState(false);
+  const [actionError, setActionError] = useState(null);
 
   useEffect(() => {
     if (!campaignId) return undefined;
     // React to updates for THIS campaign's task (optimistic + authoritative).
-    const un = subscribe((id) => {
-      if (id !== campaignId) return;
+    const sync = () => {
       setTask(getTask(campaignId));
       setAuthoritative(getAuthoritative(campaignId));
       setClaimed(hasTask(campaignId));
+      setPending(isPending(campaignId));
+      setActionError(getActionError(campaignId));
+    };
+    const un = subscribe((id) => {
+      if (id !== campaignId) return;
+      sync();
     });
     if (!getTask(campaignId)) load();
-    setTask(getTask(campaignId));
-    setAuthoritative(getAuthoritative(campaignId));
-    setClaimed(hasTask(campaignId));
+    sync();
     return un;
   }, [campaignId]);
 
@@ -255,7 +267,12 @@ export default function TaskScreen({ navigation, route }) {
     return () => clearInterval(t);
   }, []);
 
+  // A local pre-flight rejection is immediate and shown as an alert; a SERVER
+  // rejection arrives asynchronously and lands in actionError, rendered inline
+  // below. Either way the tap says something — an action that appears to work
+  // and quietly doesn't is the bug this whole path exists to remove.
   const act = useCallback((event) => {
+    clearActionError(campaignId);
     const res = dispatch(campaignId, event);
     if (res.rejected) Alert.alert('Not yet', res.reason);
   }, [campaignId]);
@@ -538,11 +555,26 @@ export default function TaskScreen({ navigation, route }) {
             </View>
           ))}
 
+          {/* The server's own words when an action was refused (409) or the
+              request never landed. Never swallowed. */}
+          {actionError ? (
+            <TouchableOpacity
+              style={styles.actionError}
+              onPress={() => clearActionError(campaignId)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.actionErrorTitle}>That didn’t go through</Text>
+              <Text style={styles.actionErrorBody}>{actionError}</Text>
+              <Text style={styles.actionErrorDismiss}>Tap to dismiss</Text>
+            </TouchableOpacity>
+          ) : null}
+          {pending ? <Text style={styles.pendingNote}>Sending to Fayr…</Text> : null}
+
           <Text style={styles.sectionHead}>Refund timeline</Text>
           <Text style={styles.sectionSub}>Updates automatically as your refund progresses</Text>
           <View style={{ marginTop: SPACE.lg }}>
             {stages.map((s, i) => (
-              <Stage key={s.key} stage={s} last={i === stages.length - 1} />
+              <Stage key={s.key} stage={s} last={i === stages.length - 1} busy={pending} />
             ))}
           </View>
 
@@ -648,11 +680,14 @@ export default function TaskScreen({ navigation, route }) {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.ghostBtn}
+            style={[styles.ghostBtn, pending && styles.ghostBtnBusy]}
             onPress={() => act({ type: 'CONFIRM_ORDER', key: 'confirm', at: Date.now() })}
             activeOpacity={0.8}
+            disabled={pending}
           >
-            <Text style={styles.ghostBtnText}>Yes, this is my order</Text>
+            <Text style={styles.ghostBtnText}>
+              {pending ? 'Sending…' : 'Yes, this is my order'}
+            </Text>
           </TouchableOpacity>
 
           {/* dev footer */}
@@ -741,6 +776,7 @@ const styles = StyleSheet.create({
     marginTop: 11, backgroundColor: '#248C08', borderRadius: RADIUS.md,
     paddingVertical: 11, alignItems: 'center',
   },
+  stageActionBusy: { backgroundColor: '#7FA96F' },
   stageActionText: { fontFamily: FONT.displaySemi, fontSize: 13.5, color: '#fff' },
   autoNote: { fontFamily: FONT.bodySemi, fontSize: 11, color: COLOR.purple, marginTop: 9 },
 
@@ -760,6 +796,15 @@ const styles = StyleSheet.create({
   blockedReason: { fontFamily: FONT.body, fontSize: 12, color: '#8a6a3a', lineHeight: 17 },
   eligible: { marginTop: 12, fontFamily: FONT.displaySemi, fontSize: 14, color: COLOR.refundInk },
 
+  actionError: {
+    backgroundColor: '#FFF1EE', borderWidth: 1, borderColor: '#F0BDB2',
+    borderRadius: RADIUS.md, padding: 12, marginBottom: SPACE.lg,
+  },
+  actionErrorTitle: { fontFamily: FONT.displaySemi, fontSize: 13, color: '#9E2B18' },
+  actionErrorBody: { fontFamily: FONT.body, fontSize: 12.5, color: '#7a1f1a', marginTop: 4, lineHeight: 17 },
+  actionErrorDismiss: { fontFamily: FONT.body, fontSize: 11, color: '#b08a82', marginTop: 6 },
+  pendingNote: { fontFamily: FONT.bodySemi, fontSize: 12, color: COLOR.purple, marginBottom: SPACE.md },
+
   gap: {
     backgroundColor: '#FFF4F4', borderWidth: 1, borderColor: '#F3CACA',
     borderRadius: RADIUS.md, padding: 12, marginBottom: SPACE.lg,
@@ -778,6 +823,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F1E6', borderRadius: RADIUS.md, paddingVertical: 14,
     alignItems: 'center', marginTop: SPACE.md,
   },
+  ghostBtnBusy: { opacity: 0.55 },
   ghostBtnText: { fontFamily: FONT.displaySemi, fontSize: 14, color: COLOR.ink },
   resetBtn: { alignItems: 'center', marginTop: SPACE.xl },
   resetText: { fontFamily: FONT.body, fontSize: 12, color: '#bbb' },

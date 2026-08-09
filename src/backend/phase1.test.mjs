@@ -4,6 +4,7 @@
 import { evidenceKey } from './evidenceKey.js';
 import { toEvidenceDto } from './evidenceDto.js';
 import { enqueue, remove, isEmpty, size } from './outbox.js';
+import { ACTION_PATHS, isTaskAction, alreadyApplied } from './taskActions.js';
 
 let pass = 0;
 let fail = 0;
@@ -82,6 +83,37 @@ ok(size(q) === 2, 're-enqueue same (taskId,key) replaces, no pile-up');
 ok(q.find((x) => x.key === 'k1').body.a === 99, 'replacement keeps the newest body');
 q = remove(q, 't1', 'k1');
 ok(size(q) === 1 && q[0].key === 'k2', 'remove drops exactly that entry');
+
+console.log('\n=== task actions: routes, routing, and the repeat-tap guard ===');
+// The four user-driven transitions, wired to the backend on 2026-08-09. Before
+// this they were local-only: a tapped "I've written my review" moved the screen
+// and nothing else, so the next evidence sync silently reverted it.
+ok(ACTION_PATHS.CONFIRM_ORDER === 'confirm-order', 'CONFIRM_ORDER -> POST /tasks/:id/confirm-order');
+ok(ACTION_PATHS.MARK_REVIEWED === 'reviewed', 'MARK_REVIEWED -> POST /tasks/:id/reviewed');
+ok(ACTION_PATHS.START_HOLD === 'start-hold', 'START_HOLD -> POST /tasks/:id/start-hold');
+ok(ACTION_PATHS.RELEASE_REFUND === 'release-refund', 'RELEASE_REFUND -> POST /tasks/:id/release-refund');
+ok(Object.keys(ACTION_PATHS).length === 4, 'exactly four actions, no accidental fifth');
+
+ok(isTaskAction('MARK_REVIEWED') && isTaskAction('RELEASE_REFUND'), 'actions are recognised as actions');
+ok(!isTaskAction('EVIDENCE'), 'EVIDENCE is NOT an action — it keeps the optimistic + outbox path');
+ok(!isTaskAction('VISIBILITY_CHECK') && !isTaskAction('nonsense'), 'unknown types are not routed as actions');
+
+// MARK_REVIEWED is the one that needs guarding: the route takes no idempotency
+// key and the engine ACCEPTS a repeat from REVIEWED, so a second tap would write
+// a duplicate audit row for no state change.
+ok(alreadyApplied('MARK_REVIEWED', { state: 'REVIEWED' }), 'skip MARK_REVIEWED when already REVIEWED');
+ok(alreadyApplied('MARK_REVIEWED', { state: 'HOLDING' }), 'skip MARK_REVIEWED when past it (HOLDING)');
+ok(alreadyApplied('MARK_REVIEWED', { state: 'REFUNDED' }), 'skip MARK_REVIEWED when past it (REFUNDED)');
+ok(!alreadyApplied('MARK_REVIEWED', { state: 'DELIVERED' }), 'DO send MARK_REVIEWED from DELIVERED — the real Blinkit case');
+ok(!alreadyApplied('MARK_REVIEWED', { state: 'CLAIMED' }), 'DO send MARK_REVIEWED from CLAIMED (server rejects it, honestly)');
+ok(!alreadyApplied('MARK_REVIEWED', null), 'no authoritative snapshot -> never skip (never guess)');
+ok(!alreadyApplied('MARK_REVIEWED', {}), 'snapshot without a state -> never skip');
+
+// The other three are unguarded ON PURPOSE — each for its own reason.
+ok(!alreadyApplied('START_HOLD', { state: 'HOLDING' }), 'START_HOLD unguarded: the server 409s a repeat');
+ok(!alreadyApplied('RELEASE_REFUND', { state: 'REFUNDED' }), 'RELEASE_REFUND unguarded: REFUNDED is terminal + release:<id> dedupes');
+ok(!alreadyApplied('CONFIRM_ORDER', { state: 'DELIVERED', orderConfirmed: true }),
+  'CONFIRM_ORDER unguarded: TaskResponse exposes no orderConfirmed, so a guard would be a guess');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
