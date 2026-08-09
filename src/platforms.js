@@ -1854,24 +1854,31 @@ const blinkit = {
   name: 'Blinkit',
   authCookies: ['gr_1_accessToken'],
   color: '#0C831F',
-  // Land DIRECTLY on Order History (like Zepto/Instamart) so the list loads and
-  // the discovery hook captures order_history without the user navigating.
+  // Land on the HOMEPAGE, not Order History.
   //
-  // CAVEAT (do not "fix" by reverting to home): Blinkit gates the account area
-  // behind a delivery-location selection. If this deep link ever shows a blank
-  // page with only a "Location" header, the saved delivery location was CLEARED
-  // (e.g. by a session wipe / clearSession) - not a code bug. Open blinkit.com
-  // home ONCE and set the delivery address; it persists in WebKit storage
-  // (localStorage/cookies) across relaunches, and Order History then opens
-  // directly again. (Zepto/Instamart don't hard-gate the deep link the same way.)
-  startUrl: 'https://blinkit.com/account/orders',
+  // This used to deep-link straight to /account/orders (like Zepto/Instamart),
+  // with a caveat here saying a blank page meant the saved delivery location had
+  // been cleared, and to fix it by setting the address on blinkit.com home once.
+  // A screen recording on 2026-08-09 disproved that remedy: the deep link renders
+  // an account shell with NO login option and NO navigation at all - no menu, no
+  // home link - and the location popup it offers reopens on the SAME page every
+  // time (the dimmed header behind it never changes, so the URL never changes).
+  // From that page, blinkit.com home is unreachable, which makes the documented
+  // fix impossible to perform and leaves the user with no way forward.
+  //
+  // So: land where login and navigation actually exist. The user sets their
+  // location, logs in, and walks to Account -> Orders through Blinkit's own UI.
+  // The interceptor below is unaffected - Blinkit is an SPA, so an in-app
+  // navigation reuses the same document and the hook (injected before content
+  // loads) keeps capturing into window.__fayrCalls the whole way.
+  startUrl: 'https://blinkit.com/',
   // Keep the interceptor: Blinkit's order data comes back as server-driven
   // "layout" widget trees (v1/layout/order_history + order_details). Those
   // endpoints need exact app headers/params the SPA computes, so instead of
   // re-fetching them blind we parse the real authenticated responses the hook
   // already captured while you browsed Account -> Orders.
   beforeLoadScript: discoveryHook(),
-  hint: 'Let your Orders list load, then tap "Fetch my reviews". (No need to open individual orders.)',
+  hint: 'Set your delivery location and log in, then open Account → Orders and let the list load before tapping "Fetch my reviews".',
   // Blinkit's WEB order_history layout gives full order facts (id, date, amount,
   // products, delivered/returned) but in our sample carried no star rating. A
   // rating, if the web surfaces one, appears on the order_DETAILS page - so we
