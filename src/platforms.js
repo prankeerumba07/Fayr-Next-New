@@ -2192,8 +2192,21 @@ const zepto = {
         orderDetailsCallsSeen: detailsSeen,
         ratedCount: rated.length,
         parsedCount: reviews.length,
-        // Show rated orders only when we have any; else everything for debugging.
-        reviews: rated.length ? rated : reviews
+        // ALWAYS every order, rated or not - rating is a FLAG on each entry
+        // (rating/published/reviewstatus), never a filter over the list.
+        //
+        // This used to be "rated.length ? rated : reviews", which silently
+        // dropped every unrated order the moment ANY order in the history had a
+        // star. That broke the core rule the other five platforms already
+        // follow: a PURCHASE is confirmed independently of whether it has been
+        // reviewed. Proven live on 2026-08-10 - a real, delivered, not-yet-rated
+        // Boldfit headband order was invisible to the matcher, and the task
+        // reported "This product isn't in your Zepto orders yet" while the
+        // orders had in fact been read.
+        //
+        // ratedCount above still reports how many carried a star, so the
+        // debugging signal the old filter was reaching for is not lost.
+        reviews: reviews
       });
     })()
   `
