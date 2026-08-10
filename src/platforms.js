@@ -1245,6 +1245,105 @@ function discoveryHook() {
   }
   setInterval(fayrAnnotateBlinkit, 1500);
 
+  // Blinkit: reach Order History with ZERO manual navigation.
+  //
+  // Zepto and Instamart deep-link straight to their orders route; Blinkit can't
+  // (see its startUrl comment - a cold /account/orders load renders a dead shell
+  // with no login and no way out). So we land on the homepage where login and
+  // navigation exist, and then walk Blinkit's own UI for the user - exactly what
+  // fayrOpenInstamartTab already does for Swiggy's Instamart tab.
+  //
+  // Why this cannot bring back that dead end:
+  //  - it never assigns location.href; it CLICKS a real in-page control, and
+  //    Blinkit is a Next.js SPA, so its router changes route with no document
+  //    load at all - there is no cold render to land in. The dead shell needed a
+  //    cold load of the orders URL; a client-side route inside an already
+  //    hydrated page cannot produce one,
+  //  - it is bounded (a few attempts), stops for good once the order list is
+  //    captured, and is silent: if no selector matches, the user taps through by
+  //    hand exactly as they do today. Worst case is the current behaviour.
+  //
+  // There is deliberately NO login check. The first version gated every click on
+  // a detectable auth token and, on a real device on 2026-08-10, never fired at
+  // all: the user was genuinely logged in the whole time, but Blinkit keeps its
+  // access token in an httpOnly cookie that document.cookie can never read, so
+  // the gate had no proof to find and correctly stayed silent rather than guess.
+  // An unobservable precondition is not a safeguard - it is an off switch. From
+  // the homepage the worst a click can do is open the account menu or land on
+  // Blinkit's own login screen, and both are recoverable in-page.
+  function fayrBlinkitOrdersLink(){
+    // 1. A real anchor to the orders route (what a Next.js <Link> renders).
+    var as = document.getElementsByTagName("a");
+    for (var i=0;i<as.length;i++){
+      var h = as[i].getAttribute("href") || "";
+      if (/\\/account\\/orders|\\/orders(\\?|$)/.test(h)) return as[i];
+    }
+    // 2. An SPA control whose whole label IS the orders entry.
+    var wanted = ["my orders", "orders", "order history", "your orders"];
+    var els = document.querySelectorAll("a,button,li,div,span,[role=button],[role=menuitem]");
+    for (var w=0; w<wanted.length; w++){
+      for (var j=0;j<els.length;j++){
+        var el = els[j];
+        if ((el.textContent || "").trim().toLowerCase() === wanted[w] && el.children.length <= 1) return el;
+      }
+    }
+    // 3. An accessibility/test label, for an icon-only entry. Anchored on both
+    //    ends so "reorder" and "reorder-history" can never match.
+    var lab = document.querySelectorAll("[aria-label],[data-testid]");
+    for (var m=0;m<lab.length;m++){
+      var al = (lab[m].getAttribute("aria-label") || "").trim().toLowerCase();
+      var dt = (lab[m].getAttribute("data-testid") || "").trim().toLowerCase();
+      if (/^(my |your )?orders?$/.test(al) || /^order[-_ ]?history$/.test(al)) return lab[m];
+      if (/^(my[-_]?)?orders?$/.test(dt) || /^order[-_]?history$/.test(dt)) return lab[m];
+    }
+    return null;
+  }
+  function fayrBlinkitAccountTrigger(){
+    // Orders normally sits behind the account drawer, so open that first.
+    var els = document.querySelectorAll("a,button,div,span,[role=button]");
+    for (var i=0;i<els.length;i++){
+      var el = els[i];
+      var t = (el.textContent || "").trim().toLowerCase();
+      if ((t === "account" || t === "my account" || t === "profile") && el.children.length <= 1) return el;
+      var a = ((el.getAttribute("aria-label") || "") + " " + (el.getAttribute("data-testid") || "")).toLowerCase();
+      if (/\\baccount\\b|\\bprofile\\b/.test(a)) return el;
+    }
+    return null;
+  }
+  var fayrBlinkitDone = false;
+  var fayrBlinkitLinkTries = 0;
+  var fayrBlinkitMenuTries = 0;
+  function fayrOpenBlinkitOrders(){
+    try {
+      if (fayrBlinkitDone) return;
+      if (!/blinkit\\.com/.test(location.host)) return;
+      // The authenticated order list is in hand - stop for good, rather than
+      // clicking over whatever the user chooses to do next.
+      var calls = window.__fayrCalls || [];
+      for (var i=0;i<calls.length;i++){
+        if (calls[i] && calls[i].url && calls[i].url.indexOf("/v1/layout/order_history") >= 0) { fayrBlinkitDone = true; return; }
+      }
+      if (fayrBlinkitLinkTries >= 3) return;
+      // Don't interrupt a flow that must not be interrupted. Everything else is
+      // fair game - reaching Order History is the entire purpose of this WebView.
+      //
+      // Deliberately a blocklist, not an allowlist of "/" + /account. Blinkit
+      // may well rewrite the homepage path once a delivery location is set, and
+      // an allowlist built on a path shape I have not actually observed would
+      // silently disable this whole function instead of failing loudly.
+      var p = location.pathname || "/";
+      if (/^\\/(checkout|cart|payment|pay)\\b/.test(p)) return;
+      if (/^\\/account\\/orders/.test(p)) return; // already there; the SPA fetches itself
+      var link = fayrBlinkitOrdersLink();
+      if (link) { fayrBlinkitLinkTries++; link.click(); return; }
+      if (fayrBlinkitMenuTries < 2) {
+        var acct = fayrBlinkitAccountTrigger();
+        if (acct) { fayrBlinkitMenuTries++; acct.click(); }
+      }
+    } catch(e){}
+  }
+  setInterval(fayrOpenBlinkitOrders, 1500);
+
   // Same idea for Instamart (Swiggy DASH): its web order list doesn't clearly
   // badge rated orders in the WebView. The DASH data has no product images to
   // anchor on, so we mark the order by finding a DOM element that shows the
