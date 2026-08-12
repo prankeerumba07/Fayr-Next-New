@@ -656,7 +656,22 @@ const amazon = {
                     // which may be server-rendered. Anything found here OVERWRITES the
                     // list-derived facts, and records source:"order-details".
                     var detailDbg = [];
-                    var probeIds = orderIds.slice(0, 6); // bound the fan-out
+                    // Bound the fan-out, but not so tightly that a real purchase
+                    // falls outside it. Raised 6 -> 10 on 2026-08-12 after a
+                    // CONFIRMED miss, not a guess: Nike shoes order
+                    // 408-5614193-1514764 sat outside the 6 most recent orders, so
+                    // its detail page was never fetched and the task reported
+                    // order_unreadable while the review itself matched fine. The
+                    // list surfaced 7 order ids and only 6 were probed.
+                    //
+                    // 10 is a deliberate ceiling, not an opening: these run through
+                    // Promise.all, so the number IS the concurrent request count
+                    // against Amazon, and pushing it higher risks the bot-detection
+                    // and re-auth wall that already makes this page unreliable
+                    // (~2 of every 6 detail pages come back empty). Anything past
+                    // 10 should move to sequential or paginated fetching instead of
+                    // widening this.
+                    var probeIds = orderIds.slice(0, 10);
                     return Promise.all(probeIds.map(function(oid){
                       var durl = "https://www.amazon.in/gp/your-account/order-details?orderID=" + oid;
                       return fetch(durl, { credentials:"include", headers:{ "accept":"*/*" } })
