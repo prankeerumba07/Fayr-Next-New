@@ -762,6 +762,7 @@ const amazon = {
                     // nothing about them may be emitted. Both values are injected by
                     // ConnectScreen from the campaign; neither defaults open.
                     var targetAsin = (typeof window !== "undefined" && window.__fayrTargetAsin) || null;
+                    var targetName = (typeof window !== "undefined" && window.__fayrTargetName) || null;
                     var debug = (typeof window !== "undefined" && window.__fayrDebugCapture === true);
 
                     // FAIL CLOSED. No campaign target and no explicit debug opt-in
@@ -783,6 +784,40 @@ const amazon = {
                     var surfaced = (targetAsin && !debug)
                       ? reviews.filter(function(r){ return r.asin === targetAsin; })
                       : reviews;
+
+                    // NAME FALLBACK — added 2026-08-12 after a live failure.
+                    //
+                    // Amazon issues a SEPARATE ASIN per size/colour variant, so the
+                    // ASIN on a campaign (taken from the listing) need not equal the
+                    // ASIN a review resolves to. Proven live: a Nike shoes task with
+                    // targetAsin B0F16FQFZY surfaced 0 of the account's reviews,
+                    // while a single-variant garment rack on the same account matched
+                    // first time. r.asin is also simply ABSENT when the permalink
+                    // fetch failed to yield a product link, which fails the exact
+                    // test just as silently.
+                    //
+                    // This stays a FILTER TO THE CAMPAIGN PRODUCT. It never widens to
+                    // "surface everything" - the privacy boundary above is that a
+                    // user's unrelated purchases must not leave the device, and a
+                    // name match honours that exactly as an ASIN match does. Scoring
+                    // is fkScore's proven method (same normalisation, same 0.6 bar
+                    // already used for Flipkart and quick-commerce), duplicated here
+                    // rather than shared because this script is a standalone string.
+                    var asinOnlyCount = surfaced.length;
+                    if (targetAsin && !debug && surfaced.length === 0 && targetName) {
+                      var azNrm = function(s){ return String(s==null?"":s).toLowerCase().replace(/[^a-z0-9]+/g," ").trim(); };
+                      var azScore = function(exp, cand){
+                        var e = azNrm(exp), c = azNrm(cand);
+                        if (!e || !c) return 0;
+                        if (c.indexOf(e) >= 0 || e.indexOf(c) >= 0) return 1;
+                        var toks = e.split(" ").filter(function(w){ return w.length > 2; });
+                        if (!toks.length) return 0;
+                        var h = 0;
+                        toks.forEach(function(w){ if (c.indexOf(w) >= 0) h++; });
+                        return h / toks.length;
+                      };
+                      surfaced = reviews.filter(function(r){ return azScore(targetName, r.name) >= 0.6; });
+                    }
 
                     // RAW SAMPLES (diagnostic only). The mapped review fields are
                     // a LOSSY view - notably no order amount is mapped at all, so
@@ -830,7 +865,21 @@ const amazon = {
                     // production, so the whole sample is attached only under the
                     // debug flag. Omitting the key entirely (rather than emptying it)
                     // means there is no shape to accidentally leak through later.
-                    var out = { accountId: id, targetAsin: targetAsin, count: surfaced.length, reviews: surfaced };
+                    // reviewsFound / asinOnlyCount are PRE-FILTER counts, and they are
+                    // the difference between two failures that used to look identical:
+                    // "no reviews on this account at all" (reviewsFound 0) versus
+                    // "reviews were read and the ASIN filter discarded every one"
+                    // (reviewsFound > 0, asinOnlyCount 0). Counts only - no titles, no
+                    // ids, nothing about products other than the campaign's.
+                    var out = {
+                      accountId: id,
+                      targetAsin: targetAsin,
+                      reviewsFound: reviews.length,
+                      asinOnlyCount: asinOnlyCount,
+                      nameFallbackUsed: asinOnlyCount === 0 && surfaced.length > 0,
+                      count: surfaced.length,
+                      reviews: surfaced
+                    };
                     if (debug) { out.__amazonOrdersSample = sample; }
 
                     // PRIVACY-SAFE DIAGNOSTICS - always on, including production.
