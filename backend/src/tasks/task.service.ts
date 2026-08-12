@@ -569,7 +569,11 @@ export class TaskService {
   private async persistDiagnostics(
     tx: Tx,
     taskId: string,
-    diagnostics: { probe: unknown; blockerReason: string | null },
+    diagnostics: {
+      probe: unknown;
+      blockerReason: string | null;
+      blocker: string | null;
+    },
   ): Promise<void> {
     const row = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
     const current =
@@ -584,6 +588,9 @@ export class TaskService {
           probe: (diagnostics.probe ?? null) as Prisma.InputJsonValue,
         },
         blockerReason: diagnostics.blockerReason,
+        // Must move with the reason. A stale blocker beside a fresh reason is a
+        // record that contradicts itself and costs a whole session to unpick.
+        blocker: diagnostics.blocker,
       },
     });
   }

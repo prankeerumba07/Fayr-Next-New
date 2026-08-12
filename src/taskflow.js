@@ -790,6 +790,9 @@ export function transition(task, event) {
       out.diagnostics = {
         probe: ev.evidence.probe || null,
         blockerReason: ev.evidence.reason || null,
+        // Moves WITH the reason. Leaving it stale produced a self-contradicting
+        // record: blocker order_unreadable next to "No matching review found".
+        blocker: ev.evidence.blocker || null,
       };
     }
     return out;

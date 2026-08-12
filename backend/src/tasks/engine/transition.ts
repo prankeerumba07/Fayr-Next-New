@@ -45,7 +45,17 @@ export interface TransitionResult {
    * caller updates these fields WITHOUT writing an event row, so a user
    * re-fetching ten times gets ten fresh diagnostics and zero log growth.
    */
-  diagnostics?: { probe: unknown; blockerReason: string | null };
+  diagnostics?: {
+    probe: unknown;
+    blockerReason: string | null;
+    /**
+     * Refreshed alongside the reason, NOT left behind. Omitting it produced a
+     * self-contradicting record on 2026-08-12: a Nike task showed
+     * blocker `order_unreadable` from an earlier attempt next to a reason from a
+     * later one ("No matching review found"), which are mutually exclusive paths.
+     */
+    blocker: string | null;
+  };
 }
 
 interface HandlerOutput {
@@ -74,6 +84,7 @@ export function transition(
             diagnostics: {
               probe: event.evidence.probe ?? null,
               blockerReason: event.evidence.reason ?? null,
+              blocker: event.evidence.blocker ?? null,
             },
           }
         : {}),

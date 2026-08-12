@@ -351,6 +351,8 @@ console.log('\n=== Idempotency: re-fetching the same order is a no-op, not a sec
   ok(dup.diagnostics != null, 'but it now carries diagnostics out');
   ok(dup.diagnostics.probe.reviewsSeen === 14, 'with the NEWEST probe, not the stale one');
   ok(dup.diagnostics.blockerReason === 'No matching review found for this task.', 'and the reason');
+  ok('blocker' in dup.diagnostics, 'and the BLOCKER moves with it — a stale blocker beside a fresh reason self-contradicts');
+  ok(dup.diagnostics.blocker === null, 'a non-blocking miss clears any earlier blocker rather than leaving it');
   ok(dup.task.state === first.task.state, 'state genuinely untouched');
 
   // Non-evidence duplicates must NOT invent diagnostics.
