@@ -34,6 +34,33 @@ export const GATING_STAGES = [
 ];
 
 /**
+ * The `confirmed` stage's own verdict — extracted from TaskScreen so it can be
+ * tested, since a React Native screen can't be imported under node.
+ *
+ * It exists because of a live failure (Flipkart heels, 2026-08-12): the stage
+ * read `done` as soon as a refund became *calculable*, and Stage renders a
+ * stage's action ONLY while it is 'active'. That single word hid the app's only
+ * RELEASE_REFUND button, so a task sat at HOLDING showing "Refund confirmed"
+ * with nothing to tap and zero rows in the ledger. Releasable is not released:
+ * only a real RELEASE_REFUND event may tick this stage off.
+ *
+ * @param {{refunded: boolean, eligible: boolean, hasAmount: boolean}} f
+ *   refunded  — a RELEASE_REFUND event has been applied (task.state REFUNDED)
+ *   eligible  — the engine's refund gate passes (HOLDING, published, window shut)
+ *   hasAmount — the charged amount resolved, so there is a number to release
+ */
+export function releaseStageState({ refunded, eligible, hasAmount }) {
+  if (refunded) return { state: 'done', chip: { label: 'Released', tone: 'ok' } };
+  if (!eligible) return { state: 'pending', chip: null };
+  // Eligible but no number: the engine would refuse with 'amount-unknown', so
+  // say the manual step out loud rather than offering a button with no amount.
+  if (!hasAmount) return { state: 'active', chip: { label: 'Needs staff check', tone: 'warn' } };
+  // Releasable. No chip — the action button already reads "Release ₹X to
+  // wallet", and any 'ok' chip here is the overclaim this function replaced.
+  return { state: 'active', chip: null };
+}
+
+/**
  * Clamp a built stage list so no stage ever reads as further along than the
  * chain genuinely is. Walks the gating stages in order; the first one whose own
  * condition isn't met is the FRONTIER and keeps exactly what it claims (usually

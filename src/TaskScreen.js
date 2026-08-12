@@ -28,7 +28,7 @@ import { resolveChargedPaise } from './chargedAmount';
 import * as campaignStore from './backend/campaignStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
 import { Card, RefundBadge, ProductImage } from './ui/primitives';
-import { clampMonotonic } from './ui/timeline';
+import { clampMonotonic, releaseStageState } from './ui/timeline';
 
 const POLICY = createPolicy();
 
@@ -357,6 +357,7 @@ export default function TaskScreen({ navigation, route }) {
   // pay. Anything claiming the refund is settled must require both.
   const payable = eligible && refundLabel != null;
   const amountNeedsStaff = hasOrder && refundLabel == null;
+  const release = releaseStageState({ refunded, eligible, hasAmount: refundLabel != null });
 
   const goMarketplace = () => navigation.navigate(campaign.marketplace, { campaignId });
 
@@ -383,7 +384,9 @@ export default function TaskScreen({ navigation, route }) {
       icon: '💸',
       title: 'Refund tracked',
       sub: refundLabel
-        ? `${refundLabel} reserved for your fayr Wallet`
+        // NOT "reserved" — nothing is set aside anywhere until RELEASE_REFUND
+        // posts the ledger entry. This stage only means the amount is known.
+        ? `Refund amount confirmed: ${refundLabel}`
         : amountNeedsStaff
           // Say the manual step out loud. This is the routine outcome on
           // quick-commerce, not an edge case, and the screen used to imply the
@@ -472,12 +475,11 @@ export default function TaskScreen({ navigation, route }) {
           : eligible
             ? 'Review is live and the window has closed'
             : 'Confirms when your review is live and the window closes',
-      state: refunded || payable ? 'done' : eligible ? 'active' : 'pending',
-      chip: refunded || payable
-        ? { label: 'Confirmed', tone: 'ok' }
-        : eligible && !refundLabel
-          ? { label: 'Needs staff check', tone: 'warn' }
-          : null,
+      // Releasable is NOT released. This used to read `done` the moment a
+      // refund became calculable, which hid the action below it (Stage draws an
+      // action only while a stage is 'active') — see releaseStageState.
+      state: release.state,
+      chip: release.chip,
       action: eligible && !refunded && refundLabel
         ? {
             label: `Release ${refundLabel} to wallet`,
@@ -668,7 +670,12 @@ export default function TaskScreen({ navigation, route }) {
             {view.windowEndsAt != null ? (
               <Text style={styles.countdown}>{countdown(view.windowEndsAt, now)}</Text>
             ) : null}
-            {!payable ? (
+            {/* `eligible` requires state HOLDING, so it goes FALSE the moment a
+                refund is released — without this branch a paid task read
+                "Refund on hold · state is REFUNDED, expected HOLDING". */}
+            {refunded ? (
+              <Text style={styles.eligible}>✓ Released to your wallet</Text>
+            ) : !payable ? (
               <View style={styles.blockedBox}>
                 <Text style={styles.blockedTitle}>Refund on hold</Text>
                 {view.refund.reasons.map((r) => (
