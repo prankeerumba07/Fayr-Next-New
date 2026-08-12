@@ -358,5 +358,73 @@ console.log('\n=== Idempotency: re-fetching the same order is a no-op, not a sec
   ok(dupAction.diagnostics === undefined, 'a duplicate ACTION carries no diagnostics');
 }
 
+// ---------------------------------------------------------------------------
+// ORDER-CARD CONSISTENCY across platforms. TaskScreen renders Order ID, order
+// date, an amount, a product photo and a status line. Order ID and date must be
+// present for EVERY platform that finds an order; the amount label legitimately
+// differs by what each marketplace exposes; image/statusText were rendered but
+// never populated outside quick-commerce.
+{
+  console.log('\n=== order card: ID + date everywhere, image/status now filled ===');
+
+  const az = readEvidence('amazon', {
+    reviewsFound: 1, asinOnlyCount: 1, count: 1,
+    reviews: [{
+      reviewid: 'R1', name: 'Nike Mens Promina Extra Wide Training Shoes',
+      asin: 'B0F16X1NQ7', published: true, orderid: '408-1509645-3524313',
+      orderdate: '2 June 2026', deliverydate: '8 June', itemamount: '938.00',
+      orderamount: '1326.00', imageurl: 'https://m.media-amazon.com/i/abc.jpg',
+      returnstatus: null,
+      // Required by the Gap-1 check: without ordersource === 'order-details' the
+      // reader reports order_unreadable rather than emitting nulls as data.
+      ordersource: SOURCES.ORDER_DETAILS,
+    }],
+  }, { product: 'Nike PROMINA Extra Wide Training Shoes', asin: 'B0F16FQFZY' });
+  ok(az.order != null && az.order.id === '408-1509645-3524313', 'amazon: order ID present');
+  ok(az.order.date != null, 'amazon: order date present');
+  ok(az.order.image === 'https://m.media-amazon.com/i/abc.jpg',
+    'amazon: product photo now mapped (was silently discarded)');
+
+  const fk = readFlipkartEvidence({
+    order: {
+      orderId: 'OD337767552058345100', orderDate: 1780820241075, deliveryDate: 1781064787000,
+      itemAmount: 367, orderAmount: 328, productName: 'MODRIXFASHION Women Heels',
+      returned: false, returnStatus: null, statusKey: 'DELIVERED',
+    },
+    orderProbe: { ordersFetched: true },
+  }, { product: 'Modrix Fashion Women Heels' });
+  ok(fk.order.id === 'OD337767552058345100', 'flipkart: order ID present');
+  ok(fk.order.date != null, 'flipkart: order date present');
+  ok(fk.order.statusText === 'DELIVERED',
+    'flipkart: status line now mapped from statusKey (was unread)');
+  ok(fk.order.image == null, 'flipkart: no thumbnail exists -> honestly absent, not faked');
+
+  // Quick-commerce was always the one that populated these; it must not regress.
+  // NB: the quick-commerce reader reads raw.reviews (each entry IS an order that
+  // may carry a rating), not raw.orders.
+  const qc = readEvidence('blinkit', {
+    reviews: [{
+      orderid: '2156871839', orderdate: '2026-06-01', productname: 'Nostrae By Ekhasa Chrysanthemum Artificial Flower Pot',
+      amount: '604', delivered: true, imageurl: 'https://cdn.grofers.com/x.jpg', statuscode: 'DELIVERED',
+    }],
+  }, { product: 'Nostrae By Ekhasa Chrysanthemum Artificial Flower Pot' });
+  if (qc.order) {
+    ok(qc.order.id === '2156871839', 'blinkit: order ID present');
+    ok(qc.order.date != null, 'blinkit: order date present');
+    ok(qc.order.image === 'https://cdn.grofers.com/x.jpg', 'blinkit: photo still populated');
+    ok(qc.order.statusText === 'DELIVERED', 'blinkit: status still populated');
+  } else {
+    ok(false, 'blinkit fixture failed to match — check the reader contract');
+  }
+
+  // The AMOUNT label differs by platform on purpose: Amazon/Flipkart know the
+  // item's own price, quick-commerce knows only the order total. That is honest
+  // degradation, not an inconsistency to paper over.
+  ok(az.order.itemPaise === 93800 && az.order.orderTotalPaise === 132600,
+    'amazon: both item and total known');
+  ok(qc.order && qc.order.itemPaise === null && qc.order.orderTotalPaise === 60400,
+    'blinkit: total only, item deliberately null');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

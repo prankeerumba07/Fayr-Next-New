@@ -94,6 +94,11 @@ function engineTaskFromResponse(tr) {
           // moment the authoritative response replaced the optimistic copy.
           match: tr.order.match || null,
           orderConfirmed: tr.order.orderConfirmed === true,
+          // TaskScreen renders both of these; dropping them here is why the
+          // order photo and status row never appeared for ANY platform once the
+          // authoritative snapshot landed.
+          image: tr.order.image || null,
+          statusText: tr.order.statusText || null,
         }
       : null,
     delivery: tr.delivery

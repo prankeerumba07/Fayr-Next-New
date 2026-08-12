@@ -39,6 +39,15 @@ export interface TaskResponse {
     product: string | null;
     date: string | null;
     source: string | null;
+    /**
+     * The order's own product photo and marketplace status line. Collected by the
+     * readers, sent, validated and STORED — but until now never returned, so the
+     * Task screen rendered `task.order.image` / `task.order.statusText` that were
+     * always undefined once the authoritative snapshot replaced the optimistic
+     * copy. Same class of bug as `match`: dropped at the boundary, not at source.
+     */
+    image: string | null;
+    statusText: string | null;
   } | null;
   delivery: { at: string; source: string | null } | null;
   review: {
@@ -115,6 +124,8 @@ export function toTaskResponse(
           // disarmed those warnings on every round trip.
           match: task.order.match ?? null,
           orderConfirmed: task.orderConfirmed === true,
+          image: task.order.image ?? null,
+          statusText: task.order.statusText ?? null,
         }
       : null,
     delivery: task.delivery

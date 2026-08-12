@@ -244,6 +244,13 @@ export function readAmazonEvidence(raw, target) {
       // means the item price is not trustworthy - surface it rather than pay it.
       itemAmountAmbiguous: review.itemamountambiguous === true,
       product: review.name || null,
+      // Already in the payload and previously discarded: the reviews list carries
+      // a product thumbnail, and the order-history graft adds a return status.
+      // The Task screen has always rendered both — Amazon just never filled them,
+      // which read as "Amazon shows less than quick-commerce" when in fact the
+      // data was there. No scraper change needed.
+      image: review.imageurl || null,
+      statusText: review.returnstatus || null,
       source: SOURCES.ORDER_DETAILS,
     },
     delivery: deliveryEpoch == null ? null : {
@@ -394,6 +401,11 @@ export function readFlipkartEvidence(raw, target) {
       amountSource: order.itemAmount != null ? 'flipkart-itemSellingPrice' : null,
       itemAmountAmbiguous: false,
       product: order.productName || (review && review.productname) || t.product || null,
+      // Flipkart's posted order already carries returnStatus and statusKey; only
+      // `returned` was ever read. statusKey is the fallback because it is present
+      // on a normal order too, where returnStatus is null. Flipkart exposes no
+      // per-order thumbnail, so image stays honestly absent rather than faked.
+      statusText: order.returnStatus || order.statusKey || null,
       // How this order was matched to the campaign (name + amount, no id). The
       // "is this your order?" screen shows this so a weak/ambiguous/amount-off
       // match is confirmed carefully rather than trusted blindly.
