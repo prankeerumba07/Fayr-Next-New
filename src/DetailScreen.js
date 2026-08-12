@@ -25,6 +25,7 @@ import {
 import { formatPaise } from './money';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW, estMaxRefundRupees } from './ui/theme';
 import { Card, RefundBadge, MarketplaceTag, ProductImage } from './ui/primitives';
+import { copyToClipboard } from './ui/clipboard';
 
 // Soft per-campaign hero tint (deterministic from the id) — the fayr palette's
 // pastels, standing in for the prototype's per-product theme colours.
@@ -111,6 +112,7 @@ export default function DetailScreen({ navigation, route }) {
   );
   const [claiming, setClaiming] = useState(false);
   const [faqOpen, setFaqOpen] = useState(-1);
+  const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -156,6 +158,21 @@ export default function DetailScreen({ navigation, route }) {
   const priceLabel =
     campaign.productPricePaise != null ? `₹${formatPaise(campaign.productPricePaise)}` : null;
 
+  // Copy the EXACT campaign product name — the same string the order matcher
+  // scores against, so what the user pastes into search is what we later try to
+  // match. Confirmation reverts after a moment so the button reads as an action
+  // again rather than a permanent state, and it only confirms on a real success.
+  const onCopyName = useCallback(() => {
+    if (!copyToClipboard(campaign.productName)) return;
+    setCopied(true);
+  }, [campaign.productName]);
+
+  useEffect(() => {
+    if (!copied) return undefined;
+    const t = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(t);
+  }, [copied]);
+
   // The real reservation deadline from the backend task (CLAIM_TTL_DAYS server
   // side — never a hardcoded "48 hours" here).
   const expiresAt = authoritative && authoritative.claimExpiresAt
@@ -171,6 +188,15 @@ export default function DetailScreen({ navigation, route }) {
         'Your refund releases after the marketplace return window closes.',
         'Your rating never affects your refund — only that the review is genuine and public.',
         `Claiming spends ${campaign.ticketCost} tickets; they return if the claim expires before you buy.`,
+        // Refund basis, set 2026-08-11. Any marketplace can show a per-item price
+        // above what was actually charged once a discount, bank offer or coupon
+        // lands, so the payout figure is the amount charged — see
+        // src/chargedAmount.js and backend charged-amount.ts, which enforce it.
+        'Refund is based on the FINAL amount you actually paid for this exact product - not the listed price, and not any higher price shown before a discount.',
+        'You may pay using any card, UPI, or bank offer available at checkout. These are allowed and do not affect your refund.',
+        'You may NOT use gift cards, wallet balance, or promotional credit issued by the marketplace to pay for this product. Orders paid this way are not eligible for a refund under this offer.',
+        'If your final order amount is lower than the listed price due to a marketplace discount, bank offer, or coupon, your refund is calculated on the lower amount you actually paid.',
+        'This is your responsibility to follow. Fayr checks the amount actually charged on your order, and pays out based on that number alone.',
       ];
 
   const FAQS = [
@@ -289,7 +315,11 @@ export default function DetailScreen({ navigation, route }) {
           </Section>
 
           <Section title="Terms & conditions">
-            {terms.map((t) => <Bullet key={t}>{t}</Bullet>)}
+            {/* Keyed by INDEX, not by the text. Terms are operator-authored free
+                text, so two identical lines are entirely possible — and keying by
+                the string made a duplicated sentence collide two React keys and
+                break this render. Position is the stable identity here. */}
+            {terms.map((t, i) => <Bullet key={i}>{t}</Bullet>)}
           </Section>
 
           <Section title="Frequently asked">
@@ -329,6 +359,28 @@ export default function DetailScreen({ navigation, route }) {
             </View>
             {reserveLeft ? <Text style={styles.reservedTime}>{reserveLeft}</Text> : null}
           </View>
+        ) : null}
+
+        {/* Sits immediately above "Buy on <marketplace>" because that button
+            lands the user on the marketplace HOMEPAGE, where their first act is
+            typing this product name into the search bar. Copying it removes the
+            typing and the typos — and a typo matters more here than it looks:
+            the campaign name is what the order matcher scores against, so a
+            mistyped search leads to buying a near-miss variant that then fails
+            to match. Only shown once claimed; before that there is nothing to
+            go and buy. */}
+        {claimed ? (
+          <TouchableOpacity
+            onPress={onCopyName}
+            style={styles.copyName}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={`Copy product name: ${campaign.productName}`}
+          >
+            <Text style={styles.copyNameText} numberOfLines={1}>
+              {copied ? '✓ Copied — paste it into search' : '⧉ Copy product name'}
+            </Text>
+          </TouchableOpacity>
         ) : null}
 
         <TouchableOpacity
@@ -440,6 +492,20 @@ const styles = StyleSheet.create({
   ctaClaimed: { backgroundColor: '#2E9E00' },
   ctaText: { fontFamily: FONT.displaySemi, fontSize: 15.5, color: '#fff' },
   ctaHint: { fontFamily: FONT.bodySemi, fontSize: 11, color: '#a8a08e', textAlign: 'center', marginTop: 9 },
+  // Quieter than the primary CTA on purpose — it is a helper for the button
+  // below it, not a competing action. Dashed border reads as "utility".
+  copyName: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    marginBottom: 8,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: COLOR.line,
+    backgroundColor: COLOR.surface,
+  },
+  copyNameText: { fontFamily: FONT.bodySemi, fontSize: 13, color: COLOR.ink },
   secondary: { alignItems: 'center', marginTop: 10 },
   secondaryText: { fontFamily: FONT.bodySemi, fontSize: 13, color: COLOR.ink },
 });
