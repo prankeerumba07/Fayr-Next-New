@@ -146,7 +146,27 @@ export function readAmazonEvidence(raw, target) {
   const reviews = (raw && raw.reviews) || [];
   const review = pickReview(reviews, t);
   if (!review) {
-    return { blocker: null, reason: 'No matching review found for this task.', review: null, order: null, delivery: null };
+    // WHY nothing matched. Four separate causes all produced the identical
+    // record - "No matching review found" with probe:null - and cost four
+    // sessions of guesswork. They are only distinguishable from these counts:
+    //
+    //   fetchError:'no_campaign_target' -> the script FAILED CLOSED on a missing
+    //     campaign ASIN and returned zero reviews before any name was scored
+    //     (platforms.js: `if (!targetAsin && !debug)`). Nothing to do with names.
+    //   reviewsSeen:0 with no fetchError -> the reviews page itself read empty.
+    //   namesResolved < reviewsSeen -> reviews came back but their permalinks
+    //     never yielded a product title, so productScore had nothing to compare
+    //     (a review with no name scores 0.00 no matter what the campaign says).
+    //   bestScore just under the bar -> a genuine name mismatch, the ONLY case
+    //     where changing the campaign productName can help.
+    return {
+      blocker: null,
+      reason: 'No matching review found for this task.',
+      review: null,
+      order: null,
+      delivery: null,
+      probe: amazonReviewProbe(raw, t, reviews),
+    };
   }
 
   const reviewFacts = {
@@ -279,6 +299,48 @@ function pickReview(reviews, target) {
 // Not-a-failure: no order yet just means the user hasn't bought it (or it hasn't
 // posted to their order history). The task stays CLAIMED and the UI waits - it
 // does NOT block. A blocker is reserved for a genuine read failure.
+// Diagnostic for an Amazon review miss. Pure counts and one truncated sample -
+// deliberately no review text, no order ids, nothing about products other than
+// the campaign's (the ASIN filter in platforms.js is a PRIVACY boundary, and a
+// probe must not become the leak it was added to explain).
+function amazonReviewProbe(raw, target, reviews) {
+  const list = reviews || [];
+  let bestScore = 0;
+  let bestCandidate = null;
+  let namesResolved = 0;
+  for (const r of list) {
+    const name = r && r.name;
+    if (name) namesResolved++;
+    if (!target || !target.product) continue;
+    const s = productScore(target.product, name);
+    if (s > bestScore) {
+      bestScore = s;
+      bestCandidate = String(name).slice(0, 80);
+    }
+  }
+  return {
+    // The script's own fail-closed signal, which used to be discarded entirely.
+    fetchError: (raw && raw.error) || null,
+    targetAsinSet: !!(target && target.asin),
+    targetProductSet: !!(target && target.product),
+    // POST-filter — what actually arrived for matching.
+    reviewsSeen: list.length,
+    // PRE-filter counts, which separate two failures that otherwise look
+    // identical: reviewsFound 0 = the account's reviews page read empty;
+    // reviewsFound > 0 with asinOnlyCount 0 = reviews WERE read and the
+    // exact-ASIN filter discarded every one (Amazon's per-variant ASINs).
+    reviewsFound: raw && typeof raw.reviewsFound === 'number' ? raw.reviewsFound : null,
+    asinOnlyCount: raw && typeof raw.asinOnlyCount === 'number' ? raw.asinOnlyCount : null,
+    nameFallbackUsed: raw && raw.nameFallbackUsed === true,
+    // What the script says it SURFACED after its campaign filter, when present.
+    surfacedCount: raw && typeof raw.count === 'number' ? raw.count : null,
+    namesResolved,
+    bestScore: Math.round(bestScore * 100) / 100,
+    bestCandidate,
+    nameThreshold: 0.6,
+  };
+}
+
 function orderApiMiss(probe, platformName, reviewFacts) {
   const fetched = probe && probe.ordersFetched === true;
   return {
@@ -707,7 +769,18 @@ export function transition(task, event) {
   const at = ev.at != null ? ev.at : Date.now();
 
   if (ev.key && task.applied[ev.key]) {
-    return { task, changed: false, reason: `duplicate event ignored (${ev.key})` };
+    // Diagnostics survive a duplicate. A probe describes the LAST ATTEMPT, not
+    // task state, so refreshing it is safe — and discarding it (what this used to
+    // do) meant a task that had already recorded one miss could never report a
+    // fresher one. Mirrors the backend's TransitionResult.diagnostics.
+    const out = { task, changed: false, reason: `duplicate event ignored (${ev.key})` };
+    if (ev.type === 'EVIDENCE' && ev.evidence) {
+      out.diagnostics = {
+        probe: ev.evidence.probe || null,
+        blockerReason: ev.evidence.reason || null,
+      };
+    }
+    return out;
   }
   const handler = HANDLERS[ev.type];
   if (!handler) return { task, changed: false, reason: `unknown event ${ev.type}` };

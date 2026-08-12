@@ -24,6 +24,7 @@ import {
   isPending, getActionError, clearActionError,
 } from './taskStore';
 import { percentOfPaise, formatPaise } from './money';
+import { resolveChargedPaise } from './chargedAmount';
 import * as campaignStore from './backend/campaignStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
 import { Card, RefundBadge, ProductImage } from './ui/primitives';
@@ -327,8 +328,14 @@ export default function TaskScreen({ navigation, route }) {
   // optimistic engine default (see nextStepGaps). `view` still drives the
   // countdown / refund-eligibility below.
   const gaps = nextStepGaps(authoritative, view);
-  const itemPaise = task.order ? task.order.itemPaise : null;
-  const refundPaise = itemPaise != null ? percentOfPaise(itemPaise, campaign.percent) : null;
+  // The refund is based on what was actually CHARGED, not a listed price — the
+  // two are different fields on different platforms, so never read itemPaise
+  // straight (see src/chargedAmount.js). When this can't be decided safely the
+  // screen shows "Needs staff check" rather than a number, which is exactly what
+  // the backend would do.
+  const charged = resolveChargedPaise(task.order);
+  const refundPaise = charged.paise != null ? percentOfPaise(charged.paise, campaign.percent) : null;
+  const itemPaise = task.order ? task.order.itemPaise : null; // display only
   const match = task.order && task.order.match;
 
   // ── real facts the timeline reads ────────────────────────────────────────
@@ -606,11 +613,20 @@ export default function TaskScreen({ navigation, route }) {
                   <>
                     <Row label="Item price" value={`₹${formatPaise(itemPaise)}`} />
                     {task.order.orderTotalPaise != null && task.order.orderTotalPaise !== itemPaise ? (
-                      // Show the contrast explicitly: the refund is a % of the ITEM,
-                      // not of an order total that may bundle unrelated products.
-                      <Text style={styles.contrast}>
-                        Order total ₹{formatPaise(task.order.orderTotalPaise)} — includes other items; refund uses the item price only
-                      </Text>
+                      // Say which of the two the refund actually uses, and why.
+                      // Both directions happen for real: a total ABOVE the item
+                      // price means other items/fees share the order, while a
+                      // total BELOW it means a discount landed and the listed
+                      // item price was never what the user paid.
+                      charged.basis === 'order-total-lower' ? (
+                        <Text style={styles.contrast}>
+                          You paid ₹{formatPaise(task.order.orderTotalPaise)} — less than the listed item price, so your refund is based on ₹{formatPaise(task.order.orderTotalPaise)}
+                        </Text>
+                      ) : (
+                        <Text style={styles.contrast}>
+                          Order total ₹{formatPaise(task.order.orderTotalPaise)} — includes other items; refund uses the item price only
+                        </Text>
+                      )
                     ) : null}
                   </>
                 ) : task.order.orderTotalPaise != null ? (

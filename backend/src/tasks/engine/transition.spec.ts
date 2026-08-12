@@ -389,3 +389,46 @@ describe('shouldRecheckVisibility', () => {
     expect(shouldRecheckVisibility(fresh(), T0 + 2 * DAY)).toBe(false);
   });
 });
+
+/**
+ * A duplicate-key EVIDENCE no-op must still surface the newest diagnostics.
+ * Live bug 2026-08-12: every Amazon miss keyed to `evidence:none:_`, so a task
+ * that had already missed once could never record why it missed again — the
+ * short-circuit returned before the handler ran and the probe was discarded.
+ */
+describe('duplicate evidence refreshes diagnostics', () => {
+  const evid = (probe: unknown, reason: string) => ({
+    type: 'EVIDENCE' as const,
+    key: 'evidence:none:nonames',
+    evidence: { reason, probe } as never,
+  });
+
+  it('reports no state change but carries the newest probe', () => {
+    const first = transition(
+      fresh(),
+      evid({ reviewsSeen: 12, namesResolved: 0 }, 'No matching review found for this task.'),
+    );
+    expect(first.changed).toBe(true);
+
+    const dup = transition(
+      first.task,
+      evid({ reviewsSeen: 14, namesResolved: 0 }, 'No matching review found for this task.'),
+    );
+    expect(dup.changed).toBe(false);
+    expect(dup.reason).toMatch(/duplicate event ignored/);
+    expect(dup.diagnostics).toBeDefined();
+    expect((dup.diagnostics!.probe as { reviewsSeen: number }).reviewsSeen).toBe(14);
+    expect(dup.diagnostics!.blockerReason).toBe('No matching review found for this task.');
+    expect(dup.task.state).toBe(first.task.state);
+  });
+
+  it('does NOT invent diagnostics for a duplicate non-evidence action', () => {
+    const first = transition(fresh(), evid({ reviewsSeen: 1, namesResolved: 0 }, 'x'));
+    const dupAction = transition(first.task, {
+      type: 'MARK_REVIEWED',
+      key: 'evidence:none:nonames',
+    });
+    expect(dupAction.changed).toBe(false);
+    expect(dupAction.diagnostics).toBeUndefined();
+  });
+});

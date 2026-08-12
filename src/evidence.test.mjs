@@ -252,5 +252,111 @@ console.log('\n=== Idempotency: re-fetching the same order is a no-op, not a sec
   ok(r1.changed === true && r2.changed === false, 'second identical evidence event ignored');
 }
 
+// ---------------------------------------------------------------------------
+// AMAZON MISS PROBE. Four different causes all produced the identical record
+// ("No matching review found", probe:null) and cost four sessions of guesswork.
+// The probe has to tell them apart from the record alone.
+{
+  console.log('\n=== Amazon miss probe: WHY nothing matched ===');
+  const target = { product: 'Lukzer Heavy-Duty Metal Garment Rack', asin: null };
+
+  // 1. The real 2026-08-12 failure: no campaign ASIN, so platforms.js failed
+  //    CLOSED and returned zero reviews before any name was scored.
+  const noTarget = readEvidence('amazon', {
+    error: 'no_campaign_target', reviews: [], count: 0,
+  }, target);
+  ok(noTarget.probe != null, 'a miss now carries a probe instead of null');
+  ok(noTarget.probe.fetchError === 'no_campaign_target', 'the fail-closed signal survives to the backend');
+  ok(noTarget.probe.targetAsinSet === false, 'records that no campaign ASIN was set');
+  ok(noTarget.probe.reviewsSeen === 0, 'zero reviews seen');
+  ok(noTarget.probe.bestScore === 0, 'no scoring happened at all');
+  ok(noTarget.order === null && noTarget.review === null, 'still an honest miss, no invented data');
+
+  // 2. Reviews came back, but their permalinks yielded no product title, so
+  //    productScore had nothing to compare and every score is 0.
+  const noNames = readEvidence('amazon', {
+    reviews: [{ reviewid: 'R1' }, { reviewid: 'R2' }], count: 2,
+  }, target);
+  ok(noNames.probe.reviewsSeen === 2, 'two reviews seen');
+  ok(noNames.probe.namesResolved === 0, 'but no product names resolved');
+  ok(noNames.probe.bestScore === 0, 'so the best score is 0, not a near miss');
+  ok(noNames.probe.fetchError === null, 'and it is NOT the fail-closed case');
+
+  // 3. A genuine name mismatch — the ONLY case where editing the campaign
+  //    productName can help. Distinguishable by a non-zero best score.
+  const mismatch = readEvidence('amazon', {
+    reviews: [{ reviewid: 'R1', name: 'Lukzer Metal Shoe Rack 5 Layer' }], count: 1,
+  }, target);
+  ok(mismatch.probe.namesResolved === 1, 'the name WAS resolved');
+  ok(mismatch.probe.bestScore > 0 && mismatch.probe.bestScore < 0.6,
+    `best score ${mismatch.probe.bestScore} is a near miss, under the 0.6 bar`);
+  ok(mismatch.probe.bestCandidate === 'Lukzer Metal Shoe Rack 5 Layer', 'names the losing candidate');
+  ok(mismatch.probe.nameThreshold === 0.6, 'states the bar it was judged against');
+
+  // The probe must not become the privacy leak it was added to explain.
+  const keys = Object.keys(noNames.probe).sort().join(',');
+  ok(!/reviewtext|reviewText|orderid|orderId/i.test(keys), 'probe carries no review text and no order ids');
+
+  // 4. PRE-filter counts. This is the distinction the 2026-08-12 Nike failure
+  //    could not make: reviewsSeen was 0 either way, because it counts the list
+  //    AFTER the on-device ASIN filter has already emptied it.
+  const asinAteThem = readEvidence('amazon', {
+    reviewsFound: 9, asinOnlyCount: 0, nameFallbackUsed: false, reviews: [], count: 0,
+  }, { product: 'Nike PROMINA', asin: 'B0F16FQFZY' });
+  ok(asinAteThem.probe.reviewsFound === 9, 'reviewsFound shows 9 reviews WERE read');
+  ok(asinAteThem.probe.asinOnlyCount === 0, 'and that the exact-ASIN filter kept none of them');
+  ok(asinAteThem.probe.reviewsSeen === 0, 'while reviewsSeen (post-filter) is still 0');
+  ok(asinAteThem.probe.targetAsinSet === true, 'with the ASIN definitely set');
+
+  // A genuinely empty account reads differently now, which is the whole point.
+  const trulyEmpty = readEvidence('amazon', {
+    reviewsFound: 0, asinOnlyCount: 0, reviews: [], count: 0,
+  }, { product: 'Nike PROMINA', asin: 'B0F16FQFZY' });
+  ok(trulyEmpty.probe.reviewsFound === 0, 'an empty reviews page reports reviewsFound 0');
+  ok(asinAteThem.probe.reviewsFound !== trulyEmpty.probe.reviewsFound,
+    'the two failures are now DISTINGUISHABLE from the record alone');
+
+  // And the fallback firing is recorded, so a name-matched pass is never mistaken
+  // for an exact-ASIN pass.
+  const viaName = readEvidence('amazon', {
+    reviewsFound: 9, asinOnlyCount: 0, nameFallbackUsed: true, count: 1,
+    reviews: [{ reviewid: 'R1', name: 'Nike PROMINA Extra Wide Training Shoes', asin: 'B0VARIANT9', published: true }],
+  }, { product: 'Nike PROMINA Extra Wide Training Shoes, Black/White', asin: 'B0F16FQFZY' });
+  ok(viaName.review != null, 'a variant-ASIN review is now matched by NAME');
+  ok(viaName.review.asin === 'B0VARIANT9', 'and it keeps the real variant ASIN it was found under');
+  ok(viaName.review.published === true, 'published survives the fallback path');
+}
+
+// ---------------------------------------------------------------------------
+// A DUPLICATE still refreshes diagnostics. Without this, a probe could only ever
+// land on a key's FIRST use — so a task that had already recorded one miss was
+// permanently undiagnosable, which is exactly what happened to the Nike task.
+{
+  console.log('\n=== duplicate evidence: no state change, but fresh diagnostics ===');
+  let t = createTask({ id: 't_dup', platform: 'amazon', product: 'Nike PROMINA' });
+  const key = 'evidence:none:nonames';
+  const first = transition(t, {
+    type: 'EVIDENCE', key,
+    evidence: { reason: 'No matching review found for this task.', probe: { reviewsSeen: 12, namesResolved: 0 } },
+  });
+  t = first.task;
+  ok(first.changed === true, 'first miss applies');
+
+  const dup = transition(t, {
+    type: 'EVIDENCE', key,
+    evidence: { reason: 'No matching review found for this task.', probe: { reviewsSeen: 14, namesResolved: 0 } },
+  });
+  ok(dup.changed === false, 'a repeat is still a no-op for STATE');
+  ok(/duplicate event ignored/.test(dup.reason), 'and still reports itself as a duplicate');
+  ok(dup.diagnostics != null, 'but it now carries diagnostics out');
+  ok(dup.diagnostics.probe.reviewsSeen === 14, 'with the NEWEST probe, not the stale one');
+  ok(dup.diagnostics.blockerReason === 'No matching review found for this task.', 'and the reason');
+  ok(dup.task.state === first.task.state, 'state genuinely untouched');
+
+  // Non-evidence duplicates must NOT invent diagnostics.
+  const dupAction = transition(t, { type: 'MARK_REVIEWED', key });
+  ok(dupAction.diagnostics === undefined, 'a duplicate ACTION carries no diagnostics');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

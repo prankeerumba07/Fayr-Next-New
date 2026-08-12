@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -11,6 +12,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InsufficientTicketsError } from '../tickets/ticket.types';
 import { TicketService } from '../tickets/ticket.service';
 import { WalletService } from '../wallet/wallet.service';
+import { resolveChargedPaise } from './engine/charged-amount';
+import { checkPlausibility } from './engine/evidence-plausibility';
 import type { Evidence } from './engine/evidence.types';
 import { computeRefundPaise } from './engine/money';
 import { policyForWindowDays } from './engine/return-policy';
@@ -35,7 +38,7 @@ type Tx = Prisma.TransactionClient;
 type ReleaseOutcome =
   | { status: 'released' | 'already'; task: TaskResponse }
   | { status: 'ineligible'; reasons: string[] }
-  | { status: 'amount-unknown' };
+  | { status: 'amount-unknown'; reason: string | null };
 
 /**
  * The authoritative owner of task state + the money/ticket effects around it.
@@ -175,13 +178,26 @@ export class TaskService {
     return toTaskResponse(row, row.campaign);
   }
 
-  /** Apply on-device evidence → advances CLAIMED → PURCHASED → DELIVERED. */
+  /**
+   * Apply on-device evidence → advances CLAIMED → PURCHASED → DELIVERED.
+   *
+   * This is the UNTRUSTED channel: the body is whatever the client sent, and the
+   * client also declares its own `source` tier. So it — and only it — runs the
+   * plausibility gate. `applyEvidence` deliberately does not: its other caller is
+   * the staff OCR approval flow, where a human has already reviewed the evidence
+   * and where an OCR delivery date is legitimately the upload time.
+   */
   submitEvidence(
     userId: string,
     taskId: string,
     dto: SubmitEvidenceDto,
   ): Promise<TaskResponse> {
-    return this.applyEvidence(userId, taskId, evidenceFromDto(dto), dto.key);
+    return this.runEvent(
+      userId,
+      taskId,
+      { type: 'EVIDENCE', evidence: evidenceFromDto(dto), key: dto.key },
+      { plausibility: true },
+    );
   }
 
   /**
@@ -228,8 +244,12 @@ export class TaskService {
         case 'already':
           return outcome.task;
         case 'amount-unknown':
+          // Carry the real reason: "amount-unknown" and "the item price sat
+          // above what was charged" need different handling by staff.
           throw new ConflictException(
-            'Order amount is unknown, cannot compute the refund',
+            `Order amount is unknown, cannot compute the refund${
+              outcome.reason ? ` (${outcome.reason})` : ''
+            }`,
           );
         case 'ineligible':
           throw new ConflictException(outcome.reasons.join('; '));
@@ -285,12 +305,41 @@ export class TaskService {
       return { status: 'ineligible', reasons: elig.reasons };
     }
 
-    const itemPaise = task.order?.itemPaise ?? null;
-    if (itemPaise == null) {
-      return { status: 'amount-unknown' };
+    // A DOUBTFUL order match must not pay out on a match score alone.
+    //
+    // Campaigns carry no product id, so an order is matched by name + amount.
+    // Two signals mean the matcher itself is unsure: `ambiguous` (several orders
+    // scored within 0.15 of the winner) and `amountOk === false` (the price
+    // disagrees with the campaign). Either one now REQUIRES the user's explicit
+    // "Yes, this is my order" before money moves.
+    //
+    // Until now `orderConfirmed` was written by CONFIRM_ORDER and read by
+    // nothing — a confirmation gate that gated nothing. A clean, unambiguous,
+    // amount-confirmed match still needs no tap, so this costs the good path
+    // nothing.
+    const match = task.order?.match ?? null;
+    const doubtful =
+      !!match && (match.ambiguous === true || match.amountOk === false);
+    if (doubtful && task.orderConfirmed !== true) {
+      return {
+        status: 'ineligible',
+        reasons: [
+          match.ambiguous === true
+            ? 'more than one order matched this product — confirm which one is yours'
+            : "the order price doesn't match the campaign — confirm this is your order",
+        ],
+      };
+    }
+
+    // A refund is based on the amount ACTUALLY CHARGED, never a listed price —
+    // see charged-amount.ts for why that is not the same field on every
+    // platform. Never read task.order.itemPaise directly here.
+    const charged = resolveChargedPaise(task.order);
+    if (charged.paise == null) {
+      return { status: 'amount-unknown', reason: charged.reason };
     }
     const refundPaise = computeRefundPaise(
-      itemPaise,
+      charged.paise,
       campaign.payoutPercent,
       campaign.payoutCapPaise,
     );
@@ -447,16 +496,37 @@ export class TaskService {
     userId: string,
     taskId: string,
     event: EngineEvent,
+    opts: { plausibility?: boolean } = {},
   ): Promise<TaskResponse> {
     return this.prisma.$transaction(async (tx) => {
       const { row, campaign } = await this.lockOwned(tx, userId, taskId);
       const task = toEngineTask(row, await this.loadAppliedKeys(tx, taskId));
+      // Refuse evidence that cannot be true, INSIDE the row lock so the anchored
+      // order the swap-check compares against can't shift under us.
+      if (opts.plausibility && event.type === 'EVIDENCE') {
+        const verdict = checkPlausibility(
+          event.evidence,
+          { productPricePaise: campaign.productPricePaise },
+          Date.now(),
+          task.order,
+        );
+        if (!verdict.ok) {
+          throw new BadRequestException(
+            `Evidence rejected as impossible: ${verdict.rejections.join(', ')}`,
+          );
+        }
+      }
       const result = transition(task, event);
       if (result.rejected) {
         throw new ConflictException(result.reason ?? 'transition rejected');
       }
       if (result.changed) {
         await this.persist(tx, task, result, event, campaign);
+      } else if (result.diagnostics) {
+        // A duplicate-key no-op still refreshes WHY the last attempt failed.
+        // Task state is untouched and NO event row is written, so re-fetching
+        // repeatedly costs nothing in the log but always leaves usable evidence.
+        await this.persistDiagnostics(tx, taskId, result.diagnostics);
       }
       const updated = await tx.task.findUniqueOrThrow({
         where: { id: taskId },
@@ -489,6 +559,33 @@ export class TaskService {
     return events
       .map((e) => e.idempotencyKey)
       .filter((k): k is string => k != null);
+  }
+
+  /**
+   * Write ONLY the diagnostics from a duplicate-key no-op: the probe (inside the
+   * evidence JSON) and blockerReason. Reads the row's current evidence and swaps
+   * those two fields, so no verified fact can be disturbed — and writes no event.
+   */
+  private async persistDiagnostics(
+    tx: Tx,
+    taskId: string,
+    diagnostics: { probe: unknown; blockerReason: string | null },
+  ): Promise<void> {
+    const row = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
+    const current =
+      row.evidence && typeof row.evidence === 'object' && !Array.isArray(row.evidence)
+        ? (row.evidence as Prisma.JsonObject)
+        : {};
+    await tx.task.update({
+      where: { id: taskId },
+      data: {
+        evidence: {
+          ...current,
+          probe: (diagnostics.probe ?? null) as Prisma.InputJsonValue,
+        },
+        blockerReason: diagnostics.blockerReason,
+      },
+    });
   }
 
   private async persist(

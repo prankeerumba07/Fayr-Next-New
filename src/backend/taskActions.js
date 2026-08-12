@@ -38,17 +38,25 @@ const RANKS = [
  *                     REFUNDED is terminal in transition(), attemptRelease
  *                     short-circuits to 'already', and the engine event carries
  *                     `release:<taskId>` so a replay hits the applied-key set.
- *   CONFIRM_ORDER   — deliberately NOT guarded. TaskResponse does not expose
- *                     `orderConfirmed`, so there is nothing authoritative to
- *                     test; a guard reading the local copy would be guessing,
- *                     and one that silently never fires is worse than none. A
- *                     repeat is state-safe, just noisy in the event log. Closing
- *                     it properly means adding the field to TaskResponse.
+ *   CONFIRM_ORDER   — NOW guarded. It used to be unguarded because TaskResponse
+ *                     exposed no `orderConfirmed`, leaving nothing authoritative
+ *                     to test — and a guard that silently never fires is worse
+ *                     than none. That gap was not theoretical: on 2026-08-10 a
+ *                     Zepto task logged TWO CONFIRM_ORDER events 909ms apart,
+ *                     the only duplicate (taskId,key) pair in the whole DB,
+ *                     because the route takes no idempotency key either. The
+ *                     field is now returned on `order`, so the guard reads a
+ *                     real server fact rather than guessing.
  */
 export function alreadyApplied(type, authoritative) {
   if (!authoritative || !authoritative.state) return false;
   if (type === 'MARK_REVIEWED') {
     return RANKS.indexOf(authoritative.state) >= RANKS.indexOf(STATES.REVIEWED);
+  }
+  if (type === 'CONFIRM_ORDER') {
+    // Strictly true-only: an absent field means "this server doesn't tell us",
+    // which must never be read as "already confirmed".
+    return authoritative.order != null && authoritative.order.orderConfirmed === true;
   }
   return false;
 }

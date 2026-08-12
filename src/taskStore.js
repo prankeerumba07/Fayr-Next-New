@@ -89,6 +89,11 @@ function engineTaskFromResponse(tr) {
           orderTotalPaise: numOf(tr.order.orderTotalPaise),
           product: tr.order.product,
           source: tr.order.source,
+          // Kept, not dropped: the confirm screen's ambiguity and price warnings
+          // are driven off `match`, and stripping it here made them vanish the
+          // moment the authoritative response replaced the optimistic copy.
+          match: tr.order.match || null,
+          orderConfirmed: tr.order.orderConfirmed === true,
         }
       : null,
     delivery: tr.delivery

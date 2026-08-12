@@ -1,10 +1,13 @@
 /**
  * The refund amount, in integer paise.
  *
- * The refundable figure is the VERIFIED item price (never the order total — see
- * the taskflow notes on merged carts). A campaign bounds it with a percentage
- * and an optional cap: min(itemPaise × payoutPercent / 100, cap). Integer
- * bigint maths throughout — the division floors, so we never over-pay a fraction.
+ * The refundable figure is the amount ACTUALLY CHARGED for the product. Callers
+ * must resolve it with `resolveChargedPaise` (see charged-amount.ts) rather than
+ * reaching for `order.itemPaise`, because on some platforms that field is the
+ * listed/selling price and sits ABOVE what was paid. A campaign then bounds it
+ * with a percentage and an optional cap: min(chargedPaise × payoutPercent / 100,
+ * cap). Integer bigint maths throughout — the division floors, so we never
+ * over-pay a fraction.
  */
 export function computeRefundPaise(
   itemPaise: bigint,

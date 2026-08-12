@@ -28,6 +28,14 @@ export interface TaskResponse {
     id: string | null;
     itemPaise: string | null;
     orderTotalPaise: string | null;
+    match?: {
+      score?: number | null;
+      amountOk?: boolean | null;
+      ambiguous?: boolean;
+      candidateCount?: number | null;
+    } | null;
+    /** True once the user has explicitly confirmed this is their order. */
+    orderConfirmed?: boolean;
     product: string | null;
     date: string | null;
     source: string | null;
@@ -102,6 +110,11 @@ export function toTaskResponse(
           product: task.order.product ?? null,
           date: isoEpoch(task.order.date),
           source: task.order.source ?? null,
+          // Returned so the "is this your order?" screen can still warn AFTER the
+          // authoritative response lands. Dropping it here is what silently
+          // disarmed those warnings on every round trip.
+          match: task.order.match ?? null,
+          orderConfirmed: task.orderConfirmed === true,
         }
       : null,
     delivery: task.delivery

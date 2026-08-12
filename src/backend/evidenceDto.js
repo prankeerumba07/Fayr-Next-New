@@ -26,6 +26,23 @@ function clean(obj) {
   return out;
 }
 
+// The match block, trimmed to what the DTO validates. `score` is bounded 0..1
+// server-side, so clamp rather than let a rounding artefact 400 the whole
+// submission and lose real evidence over a diagnostic field.
+function cleanMatch(m) {
+  const score = typeof m.score === 'number' && Number.isFinite(m.score)
+    ? Math.min(1, Math.max(0, m.score))
+    : undefined;
+  return clean({
+    score,
+    amountOk: typeof m.amountOk === 'boolean' ? m.amountOk : undefined,
+    ambiguous: m.ambiguous === true ? true : undefined,
+    candidateCount: Number.isInteger(m.candidateCount) && m.candidateCount >= 0
+      ? m.candidateCount
+      : undefined,
+  });
+}
+
 export function toEvidenceDto(evidence, key) {
   const e = evidence || {};
   const body = { key: key || evidenceKey(e) };
@@ -56,6 +73,10 @@ export function toEvidenceDto(evidence, key) {
       mrpPaise: paiseStr(e.order.mrpPaise),
       amountSource: e.order.amountSource ?? undefined,
       itemAmountAmbiguous: e.order.itemAmountAmbiguous ?? undefined,
+      // HOW the order was matched. Must survive the wire: the backend's refund
+      // gate refuses to release an ambiguous or amount-rejected match without an
+      // explicit user confirmation, and it can only see that from here.
+      match: e.order.match ? cleanMatch(e.order.match) : undefined,
       product: e.order.product ?? undefined,
       image: e.order.image ?? undefined,
       statusText: e.order.statusText ?? undefined,

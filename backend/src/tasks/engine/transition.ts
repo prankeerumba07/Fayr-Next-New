@@ -38,6 +38,14 @@ export interface TransitionResult {
   changed: boolean;
   rejected?: boolean;
   reason: string | null;
+  /**
+   * Diagnostics that should be SAVED even though nothing changed — set only on a
+   * duplicate-key no-op. A probe is information about the last attempt, not task
+   * state, so refreshing it is safe and must not count as a transition: the
+   * caller updates these fields WITHOUT writing an event row, so a user
+   * re-fetching ten times gets ten fresh diagnostics and zero log growth.
+   */
+  diagnostics?: { probe: unknown; blockerReason: string | null };
 }
 
 interface HandlerOutput {
@@ -58,6 +66,17 @@ export function transition(
       task,
       changed: false,
       reason: `duplicate event ignored (${event.key})`,
+      // Carry the newest diagnostics out even though the event is a no-op. The
+      // alternative — what this used to do — was to discard them, which meant a
+      // task that had already recorded a miss could never report a fresher one.
+      ...(event.type === 'EVIDENCE'
+        ? {
+            diagnostics: {
+              probe: event.evidence.probe ?? null,
+              blockerReason: event.evidence.reason ?? null,
+            },
+          }
+        : {}),
     };
   }
   if (task.state === STATES.REFUNDED) {

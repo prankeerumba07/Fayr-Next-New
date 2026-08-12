@@ -28,6 +28,28 @@ export interface EvidenceReview {
   permalink?: string | null;
 }
 
+/**
+ * HOW this order was matched to the campaign — campaigns carry no product id, so
+ * the match is a name score plus an amount cross-check (see matchOrderByNameAmount
+ * in src/verify.js). It is carried all the way to the refund gate because a
+ * DOUBTFUL match must not pay out on a user's tap alone: `ambiguous` (several
+ * orders scored within 0.15 of the winner) and `amountOk === false` (the price
+ * disagrees with the campaign) are the two signals that demand a human.
+ *
+ * Previously computed on-device and then thrown away at the wire boundary, which
+ * silently disarmed the "is this your order?" warnings the moment the
+ * authoritative response landed.
+ */
+export interface EvidenceOrderMatch {
+  /** 0..1 name-token overlap. null when the matcher did not run. */
+  score?: number | null;
+  /** true/false/null — null means the campaign or the order had no amount. */
+  amountOk?: boolean | null;
+  /** 2+ candidates within 0.15 of the best score and not amount-rejected. */
+  ambiguous?: boolean;
+  candidateCount?: number | null;
+}
+
 export interface EvidenceOrder {
   id: string | null;
   date?: number | null;
@@ -38,6 +60,7 @@ export interface EvidenceOrder {
   mrpPaise?: bigint | null;
   amountSource?: string | null;
   itemAmountAmbiguous?: boolean;
+  match?: EvidenceOrderMatch | null;
   product?: string | null;
   image?: string | null;
   statusText?: string | null;

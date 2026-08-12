@@ -3,10 +3,13 @@ import {
   IsBoolean,
   IsInt,
   IsIn,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
   Matches,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import type { Evidence } from '../engine/evidence.types';
@@ -40,6 +43,19 @@ class EvidenceReviewDto {
   @IsOptional() @IsString() permalink?: string;
 }
 
+/**
+ * How the order was matched to the campaign. Carried through to the refund gate:
+ * an `ambiguous` or amount-rejected match cannot be released without an explicit
+ * user confirmation. Bounds are deliberate — score is a ratio, and a candidate
+ * count is a small integer, so anything outside those is a malformed client.
+ */
+class EvidenceOrderMatchDto {
+  @IsOptional() @IsNumber() @Min(0) @Max(1) score?: number;
+  @IsOptional() @IsBoolean() amountOk?: boolean;
+  @IsOptional() @IsBoolean() ambiguous?: boolean;
+  @IsOptional() @IsInt() @Min(0) @Max(10000) candidateCount?: number;
+}
+
 class EvidenceOrderDto {
   @IsOptional() @IsString() id?: string;
   @IsOptional() @IsInt() date?: number; // epoch ms
@@ -49,6 +65,10 @@ class EvidenceOrderDto {
   @IsOptional() @Matches(PAISE) mrpPaise?: string;
   @IsOptional() @IsString() amountSource?: string;
   @IsOptional() @IsBoolean() itemAmountAmbiguous?: boolean;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => EvidenceOrderMatchDto)
+  match?: EvidenceOrderMatchDto;
   @IsOptional() @IsString() product?: string;
   @IsOptional() @IsString() image?: string;
   @IsOptional() @IsString() statusText?: string;
@@ -133,6 +153,14 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
           mrpPaise: toBig(dto.order.mrpPaise),
           amountSource: dto.order.amountSource ?? null,
           itemAmountAmbiguous: dto.order.itemAmountAmbiguous,
+          match: dto.order.match
+            ? {
+                score: dto.order.match.score ?? null,
+                amountOk: dto.order.match.amountOk ?? null,
+                ambiguous: dto.order.match.ambiguous === true,
+                candidateCount: dto.order.match.candidateCount ?? null,
+              }
+            : null,
           product: dto.order.product ?? null,
           image: dto.order.image ?? null,
           statusText: dto.order.statusText ?? null,

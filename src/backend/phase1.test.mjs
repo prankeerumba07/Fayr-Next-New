@@ -112,8 +112,107 @@ ok(!alreadyApplied('MARK_REVIEWED', {}), 'snapshot without a state -> never skip
 // The other three are unguarded ON PURPOSE — each for its own reason.
 ok(!alreadyApplied('START_HOLD', { state: 'HOLDING' }), 'START_HOLD unguarded: the server 409s a repeat');
 ok(!alreadyApplied('RELEASE_REFUND', { state: 'REFUNDED' }), 'RELEASE_REFUND unguarded: REFUNDED is terminal + release:<id> dedupes');
+// CONFIRM_ORDER is now guarded on a REAL server fact — TaskResponse returns
+// orderConfirmed on `order`. This is the live 2026-08-10 double-event (two
+// events 909ms apart on a Zepto task, the DB's only duplicate key).
+ok(alreadyApplied('CONFIRM_ORDER', { state: 'DELIVERED', order: { orderConfirmed: true } }),
+  'skip CONFIRM_ORDER when the server says it is already confirmed');
+ok(!alreadyApplied('CONFIRM_ORDER', { state: 'DELIVERED', order: { orderConfirmed: false } }),
+  'DO send CONFIRM_ORDER when not yet confirmed');
+ok(!alreadyApplied('CONFIRM_ORDER', { state: 'DELIVERED', order: {} }),
+  'absent field means "server does not say" -> never skip, never guess');
+ok(!alreadyApplied('CONFIRM_ORDER', { state: 'DELIVERED', order: null }),
+  'no order yet -> never skip');
 ok(!alreadyApplied('CONFIRM_ORDER', { state: 'DELIVERED', orderConfirmed: true }),
-  'CONFIRM_ORDER unguarded: TaskResponse exposes no orderConfirmed, so a guard would be a guess');
+  'the flag is read from order, not the task root — a top-level copy is ignored');
+
+console.log('\n=== miss keys are DIAGNOSIS-derived, so a task can fail twice differently ===');
+// Live bug, 2026-08-12: every miss collapsed to `evidence:none:_`. A Nike task
+// spent that key on 08-11; the next day's fetch was short-circuited before the
+// engine ran and left NO trace at all — no event, no probe, no updatedAt change.
+ok(evidenceKey({}) === 'evidence:none:_', 'no probe at all -> historical key, unchanged');
+ok(evidenceKey({ probe: null }) === 'evidence:none:_', 'null probe -> same');
+
+const kNoTarget = evidenceKey({ probe: { fetchError: 'no_campaign_target' } });
+const kEmpty = evidenceKey({ probe: { reviewsSeen: 0 } });
+const kNoNames = evidenceKey({ probe: { reviewsSeen: 12, namesResolved: 0 } });
+const kNear = evidenceKey({ probe: { reviewsSeen: 12, namesResolved: 12, bestScore: 0.5 } });
+ok(kNoTarget === 'evidence:none:err-no_campaign_target', 'fail-closed gets its own key');
+ok(kEmpty === 'evidence:none:empty', 'empty reviews page gets its own key');
+ok(kNoNames === 'evidence:none:nonames', 'no resolvable product names gets its own key');
+ok(kNear === 'evidence:none:score-0.5', 'a near-miss carries its score bucket');
+ok(new Set([kNoTarget, kEmpty, kNoNames, kNear, 'evidence:none:_']).size === 5,
+  'all five diagnoses are DISTINCT keys — no failure can swallow another');
+
+// Idempotency is the whole reason this is a key: an identical repeat must collapse.
+ok(evidenceKey({ probe: { reviewsSeen: 0 } }) === kEmpty, 'same diagnosis repeated -> same key');
+// ...but harmless count jitter must NOT mint a new key, or the log grows forever
+// every time the user writes an unrelated review.
+ok(evidenceKey({ probe: { reviewsSeen: 13, namesResolved: 0 } }) === kNoNames,
+  'reviewsSeen 12 -> 13 with the same diagnosis -> SAME key, no log growth');
+ok(evidenceKey({ probe: { reviewsSeen: 12, namesResolved: 12, bestScore: 0.54 } }) === kNear,
+  'score 0.50 vs 0.54 bucket together');
+ok(evidenceKey({ probe: { reviewsSeen: 12, namesResolved: 12, bestScore: 0.2 } }) !== kNear,
+  'but 0.2 (wrong product) is NOT the same as 0.5 (nearly there)');
+
+// THE NIKE CASE: an already-failed task must accept a fresh diagnostic.
+const staleKey = evidenceKey({});                       // what Nike already spent
+const freshKey = evidenceKey({ probe: { reviewsSeen: 12, namesResolved: 0 } });
+ok(staleKey !== freshKey,
+  'a task that already spent evidence:none:_ still applies a probe-bearing miss');
+
+// Success and blocker keys must be untouched by all of this.
+ok(evidenceKey({ order: ORDER, delivery: { at: 1, source: 'x' } }) === kDelivered,
+  'a real order key is unchanged');
+ok(evidenceKey({ blocker: 'order_unreadable', probe: { reviewsSeen: 0 } })
+  === 'evidence:blocker:order_unreadable', 'a blocker still keys by blocker, probe ignored');
+// An order WITHOUT an id is still a miss — it cannot be keyed by identity.
+ok(evidenceKey({ order: { itemPaise: 100, source: 'x' }, probe: { reviewsSeen: 0 } })
+  === 'evidence:none:empty', 'an id-less order falls back to the diagnosis key');
+
+console.log('\n=== order.match must SURVIVE the wire (it was dropped here) ===');
+// The confirm screen's ambiguity and price warnings are driven off `match`, and
+// the backend's refund gate now REFUSES to release a doubtful match without an
+// explicit confirmation. Dropping this field silently disarmed both.
+const dtoMatch = toEvidenceDto({
+  order: {
+    id: 'OD-1', itemPaise: 32800, source: 'order-history',
+    match: { score: 0.83, amountOk: false, ambiguous: true, candidateCount: 4 },
+  },
+});
+ok(dtoMatch.order.match != null, 'match is sent, not dropped');
+ok(dtoMatch.order.match.score === 0.83, 'score forwarded');
+ok(dtoMatch.order.match.amountOk === false, 'amountOk:false forwarded — the price warning');
+ok(dtoMatch.order.match.ambiguous === true, 'ambiguous forwarded — the "which order?" warning');
+ok(dtoMatch.order.match.candidateCount === 4, 'candidateCount forwarded');
+
+ok(!('match' in toEvidenceDto({ order: { id: 'X', source: 'order-history' } }).order),
+  'omitted entirely when the matcher never ran');
+
+// The DTO bounds score to 0..1; a rounding artefact must not 400 the whole
+// submission and lose real evidence over a diagnostic field.
+const clamped = toEvidenceDto({
+  order: { id: 'X', source: 'order-history', match: { score: 1.0000000002 } },
+});
+ok(clamped.order.match.score === 1, 'a score just over 1 is clamped, not rejected');
+const clampedLow = toEvidenceDto({
+  order: { id: 'X', source: 'order-history', match: { score: -0.0001 } },
+});
+ok(clampedLow.order.match.score === 0, 'a score just under 0 is clamped too');
+const junk = toEvidenceDto({
+  order: { id: 'X', source: 'order-history', match: { score: NaN, candidateCount: 1.5 } },
+});
+ok(!('score' in junk.order.match), 'NaN score dropped rather than sent');
+ok(!('candidateCount' in junk.order.match), 'non-integer candidateCount dropped');
+// amountOk is TRI-STATE: false is meaningful, null/undefined means "unknown".
+const okFalse = toEvidenceDto({
+  order: { id: 'X', source: 'order-history', match: { amountOk: false } },
+});
+ok(okFalse.order.match.amountOk === false, 'amountOk:false is preserved, not treated as absent');
+const okNull = toEvidenceDto({
+  order: { id: 'X', source: 'order-history', match: { amountOk: null } },
+});
+ok(!('amountOk' in okNull.order.match), 'amountOk:null omitted — unknown is not false');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
