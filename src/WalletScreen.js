@@ -23,6 +23,7 @@ import {
   addPayoutMethod, getPayoutMethods, getWithdrawals, requestWithdrawal,
 } from './backend/withdrawalsApi';
 import { walletView } from './ui/wallet';
+import { toDisplayUpper } from './ui/text';
 
 const money = (paise) => `₹${formatPaise(paise) || '0.00'}`;
 
@@ -122,12 +123,14 @@ export default function WalletScreen({ navigation }) {
     setBusy(true);
     setError(null);
     setNotice(null);
+    // pan and ifsc are already uppercase on screen (toDisplayUpper on every
+    // keystroke); trim only, so what was proofread is exactly what is sent.
     const res = await addPayoutMethod({
       type,
-      pan: pan.trim().toUpperCase(),
+      pan: pan.trim(),
       upiId: upiId.trim(),
       bankAccount: bankAccount.trim(),
-      ifsc: ifsc.trim().toUpperCase(),
+      ifsc: ifsc.trim(),
       accountName: accountName.trim(),
     });
     if (res.ok) {
@@ -236,12 +239,20 @@ export default function WalletScreen({ navigation }) {
                     placeholder="As printed on your passbook" autoCapitalize="words" maxLength={120} />
                   <Field label="Account number" value={bankAccount} onChangeText={setBankAccount}
                     placeholder="Account number" keyboardType="number-pad" maxLength={20} />
-                  <Field label="IFSC" value={ifsc} onChangeText={setIfsc}
+                  {/* Uppercased on screen, not just at submit — same reason as
+                      PAN below, and an IFSC is equally easy to mistype. */}
+                  <Field label="IFSC" value={ifsc} onChangeText={(t) => setIfsc(toDisplayUpper(t))}
                     placeholder="e.g. HDFC0001234" autoCapitalize="characters" maxLength={11} />
                 </>
               )}
 
-              <Field label="PAN" value={pan} onChangeText={setPan}
+              {/* toDisplayUpper, NOT autoCapitalize alone: that is only a hint to
+                  the keyboard, and devices that ignore it left a lowercase PAN on
+                  screen that was silently uppercased at submit. On a value that is
+                  permanently anchored and not editable from the app, what the user
+                  proofreads has to be what gets saved. autoCapitalize stays as a
+                  hint so the keyboard also SHOWS caps. */}
+              <Field label="PAN" value={pan} onChangeText={(t) => setPan(toDisplayUpper(t))}
                 placeholder="ABCDE1234F" autoCapitalize="characters" maxLength={10} />
               {/* Say why, and say it is permanent. PAN anchors one person to one
                   account (fraud loophole 1) — it is checked against every other
