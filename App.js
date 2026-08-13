@@ -11,6 +11,7 @@ import HomeScreen from './src/HomeScreen';
 import ConnectScreen from './src/ConnectScreen';
 import TaskScreen from './src/TaskScreen';
 import DetailScreen from './src/DetailScreen';
+import WalletScreen from './src/WalletScreen';
 import AuthScreen from './src/AuthScreen';
 import { PLATFORM_LIST } from './src/platforms';
 import { load as loadTask, applyAuthoritative, configureSync } from './src/taskStore';
@@ -109,6 +110,12 @@ export default function App() {
           <Stack.Screen
             name="Detail"
             component={DetailScreen}
+            options={{ headerShown: false }}
+          />
+          {/* The wallet owns its own gradient header and back button too. */}
+          <Stack.Screen
+            name="Wallet"
+            component={WalletScreen}
             options={{ headerShown: false }}
           />
           <Stack.Screen

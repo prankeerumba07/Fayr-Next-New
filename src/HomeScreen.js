@@ -87,11 +87,17 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.headerRow}>
           <Wordmark size={30} />
           <View style={styles.headerRight}>
-            <View style={styles.walletChip}>
+            {/* Tappable: this number was the only place a refund was visible,
+                with nowhere to go. It now opens the wallet. */}
+            <TouchableOpacity
+              style={styles.walletChip}
+              onPress={() => navigation.navigate('Wallet')}
+              activeOpacity={0.8}
+            >
               <Text style={styles.walletText}>
                 👛 ₹{wallet ? rupeesFromPaise(wallet.walletBalancePaise) : '—'}
               </Text>
-            </View>
+            </TouchableOpacity>
             <TicketPill count={wallet ? wallet.ticketBalance : null} />
           </View>
         </View>
