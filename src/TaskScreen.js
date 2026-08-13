@@ -713,14 +713,22 @@ export default function TaskScreen({ navigation, route }) {
             </Text>
           </TouchableOpacity>
 
-          {/* dev footer */}
-          <TouchableOpacity onPress={() => reset(campaignId)} style={styles.resetBtn}>
-            <Text style={styles.resetText}>Reset task (dev)</Text>
-          </TouchableOpacity>
-          <Text style={styles.history}>
-            {task.history.length} event(s) · state {task.state}
-            {task.blocker ? ` · blocked: ${task.blocker}` : ''}
-          </Text>
+          {/* Developer tools, gated. These used to render unconditionally: a real
+              user could wipe their own task with "Reset task (dev)", and the line
+              under it printed the raw state and blocker enum on the screen where
+              they check whether they are getting paid. __DEV__ is false in any
+              release build, so this is now invisible to users. */}
+          {__DEV__ ? (
+            <>
+              <TouchableOpacity onPress={() => reset(campaignId)} style={styles.resetBtn}>
+                <Text style={styles.resetText}>Reset task (dev)</Text>
+              </TouchableOpacity>
+              <Text style={styles.history}>
+                {task.history.length} event(s) · state {task.state}
+                {task.blocker ? ` · blocked: ${task.blocker}` : ''}
+              </Text>
+            </>
+          ) : null}
         </View>
       </ScrollView>
     </View>

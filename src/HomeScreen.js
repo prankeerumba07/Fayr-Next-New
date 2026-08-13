@@ -126,9 +126,13 @@ export default function HomeScreen({ navigation }) {
             <Text style={styles.loadingText}>Loading campaigns…</Text>
           </View>
         ) : campaigns.length === 0 ? (
-          <Text style={styles.empty}>
-            No campaigns yet. Create one in the admin tool, then reopen the app.
-          </Text>
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyIcon}>🛍️</Text>
+            <Text style={styles.emptyTitle}>No offers right now</Text>
+            <Text style={styles.empty}>
+              New products are added regularly. Check back soon.
+            </Text>
+          </View>
         ) : (
           campaigns.map((c) => (
             <CampaignRow
@@ -143,25 +147,31 @@ export default function HomeScreen({ navigation }) {
           ))
         )}
 
-        {/* Connect tiles kept as a testing/utility affordance — the prototype
-            folds connection into the task flow; these direct entries stay until
-            the verify handoff (Step D) makes them redundant. */}
-        <SectionTitle style={{ marginTop: SPACE.xl }}>Connect an account</SectionTitle>
-        {PLATFORM_LIST.map((p) => {
-          const c = campaignStore.forMarketplace(p.key);
-          return (
-            <TouchableOpacity
-              key={p.key}
-              style={[styles.connectTile, { borderColor: (PLATFORMS[p.key] || {}).color + '55' }]}
-              activeOpacity={0.85}
-              onPress={() => navigation.navigate(p.key, { campaignId: c ? c.id : null })}
-            >
-              <View style={[styles.connectDot, { backgroundColor: p.color }]} />
-              <Text style={styles.connectName}>{p.name}</Text>
-              <Text style={styles.connectCta}>Connect ›</Text>
-            </TouchableOpacity>
-          );
-        })}
+        {/* The raw "Connect an account" tiles are DEV-ONLY now. They opened a
+            marketplace WebView with no campaign attached, so the scraper failed
+            closed and the user landed on "Fetch failed" with nothing to do — a
+            testing shortcut shipped to users. Connecting belongs inside a task,
+            where there is a product to look for. */}
+        {__DEV__ ? (
+          <>
+            <SectionTitle style={{ marginTop: SPACE.xl }}>Connect an account (dev)</SectionTitle>
+            {PLATFORM_LIST.map((p) => {
+              const c = campaignStore.forMarketplace(p.key);
+              return (
+                <TouchableOpacity
+                  key={p.key}
+                  style={[styles.connectTile, { borderColor: (PLATFORMS[p.key] || {}).color + '55' }]}
+                  activeOpacity={0.85}
+                  onPress={() => navigation.navigate(p.key, { campaignId: c ? c.id : null })}
+                >
+                  <View style={[styles.connectDot, { backgroundColor: p.color }]} />
+                  <Text style={styles.connectName}>{p.name}</Text>
+                  <Text style={styles.connectCta}>Connect ›</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -189,6 +199,9 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   loadingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   loadingText: { fontFamily: FONT.body, fontSize: 14, color: COLOR.sub, marginLeft: 10 },
+  emptyBox: { alignItems: 'center', paddingVertical: 36, paddingHorizontal: SPACE.xl },
+  emptyIcon: { fontSize: 40 },
+  emptyTitle: { fontFamily: FONT.display, fontSize: 17, color: COLOR.ink, marginTop: 10, marginBottom: 6 },
   empty: { fontFamily: FONT.body, fontSize: 14, color: COLOR.sub, lineHeight: 20 },
 
   campaignCard: { marginBottom: 14, overflow: 'hidden' },
