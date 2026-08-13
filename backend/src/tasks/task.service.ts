@@ -12,7 +12,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InsufficientTicketsError } from '../tickets/ticket.types';
 import { TicketService } from '../tickets/ticket.service';
 import { WalletService } from '../wallet/wallet.service';
-import { resolveChargedPaise } from './engine/charged-amount';
+import {
+  chargedDisagreesWithCampaign,
+  resolveChargedPaise,
+} from './engine/charged-amount';
 import { checkPlausibility } from './engine/evidence-plausibility';
 import type { Evidence } from './engine/evidence.types';
 import { computeRefundPaise } from './engine/money';
@@ -305,39 +308,60 @@ export class TaskService {
       return { status: 'ineligible', reasons: elig.reasons };
     }
 
-    // A DOUBTFUL order match must not pay out on a match score alone.
-    //
-    // Campaigns carry no product id, so an order is matched by name + amount.
-    // Two signals mean the matcher itself is unsure: `ambiguous` (several orders
-    // scored within 0.15 of the winner) and `amountOk === false` (the price
-    // disagrees with the campaign). Either one now REQUIRES the user's explicit
-    // "Yes, this is my order" before money moves.
-    //
-    // Until now `orderConfirmed` was written by CONFIRM_ORDER and read by
-    // nothing — a confirmation gate that gated nothing. A clean, unambiguous,
-    // amount-confirmed match still needs no tap, so this costs the good path
-    // nothing.
-    const match = task.order?.match ?? null;
-    const doubtful =
-      !!match && (match.ambiguous === true || match.amountOk === false);
-    if (doubtful && task.orderConfirmed !== true) {
-      return {
-        status: 'ineligible',
-        reasons: [
-          match.ambiguous === true
-            ? 'more than one order matched this product — confirm which one is yours'
-            : "the order price doesn't match the campaign — confirm this is your order",
-        ],
-      };
-    }
-
     // A refund is based on the amount ACTUALLY CHARGED, never a listed price —
     // see charged-amount.ts for why that is not the same field on every
     // platform. Never read task.order.itemPaise directly here.
+    //
+    // Resolved BEFORE the doubtful gate on purpose: an unknown amount is its own
+    // outcome (a staff route), and must not be mistaken for "the price
+    // disagrees" by the check below.
     const charged = resolveChargedPaise(task.order);
     if (charged.paise == null) {
       return { status: 'amount-unknown', reason: charged.reason };
     }
+
+    // A DOUBTFUL order match must not pay out on a match score alone. Two
+    // signals mean this release deserves a human's eyes:
+    //
+    //   `ambiguous`  several orders scored within 0.15 of the winner by name.
+    //                Device-sourced and irreducibly so — only the WINNING
+    //                candidate ever leaves the WebView (a deliberate privacy
+    //                boundary), so the backend cannot recompute it.
+    //
+    //   price gap    what was actually CHARGED disagrees with the campaign's
+    //                price. This used to read the device's `match.amountOk`,
+    //                which compares listed-against-listed while the refund pays
+    //                the charged figure — so it fired on honest orders (the live
+    //                heels case: ₹367 sticker vs ₹328 charged on a ₹328
+    //                campaign) and was noise rather than a fraud signal. The
+    //                backend now computes it from the charged amount instead.
+    //
+    // Either one REQUIRES the user's explicit "Yes, this is my order" before
+    // money moves. A clean match at the right price still needs no tap.
+    //
+    // Two consequences of computing the price half here rather than trusting the
+    // device. It no longer requires a `match` object at all, so Amazon — which
+    // emits none — is covered for the first time. And it is retroactive: a task
+    // already sitting in HOLDING is judged on its stored amounts at release
+    // time, so a stale `amountOk` cannot decide anything, whether it was written
+    // by an old app build or erased by a later fetch.
+    const match = task.order?.match ?? null;
+    const priceDisagrees = chargedDisagreesWithCampaign(
+      charged.paise,
+      campaign.productPricePaise,
+    );
+    const doubtful = match?.ambiguous === true || priceDisagrees;
+    if (doubtful && task.orderConfirmed !== true) {
+      return {
+        status: 'ineligible',
+        reasons: [
+          match?.ambiguous === true
+            ? 'more than one order matched this product — confirm which one is yours'
+            : "the amount you paid doesn't match this offer — confirm this is your order",
+        ],
+      };
+    }
+
     const refundPaise = computeRefundPaise(
       charged.paise,
       campaign.payoutPercent,

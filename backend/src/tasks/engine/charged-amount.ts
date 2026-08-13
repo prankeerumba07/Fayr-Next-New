@@ -67,6 +67,49 @@ function gapIsImplausible(itemPaise: bigint, totalPaise: bigint): boolean {
   return totalPaise * 2n < itemPaise;
 }
 
+/**
+ * Tolerance for "is this the product the campaign is paying for?": a ₹2 floor OR
+ * 5%, whichever is larger. Deliberately the same shape as the device matcher's
+ * (src/verify.js:82-83) so the two do not disagree about what "close" means.
+ */
+const TOLERANCE_FLOOR_PAISE = 200n;
+const TOLERANCE_PERCENT = 5n;
+
+/**
+ * Does the amount ACTUALLY CHARGED disagree with the campaign's price?
+ *
+ * This replaces `match.amountOk` as the refund gate's price signal, and the
+ * difference is the whole point. `amountOk` is computed on the device by
+ * comparing the campaign's LISTED price against the marketplace's LISTED price
+ * (Flipkart's `itemSellingPrice`), while the refund is paid on the CHARGED
+ * figure. Those are different numbers on the same order: the live heels order
+ * carried a ₹367 sticker against ₹328 charged, so a campaign priced honestly at
+ * ₹328 read `amountOk: false` — 2.4x the tolerance — and every honest order
+ * tripped a gate meant to catch fraud. A signal that fires on the good path is
+ * not a fraud signal; it is noise that trains people to tap through.
+ *
+ * Comparing charged-against-campaign fires when what the user really paid does
+ * not match the offer, which is the thing actually worth a human's attention.
+ *
+ * @param chargedPaise  from resolveChargedPaise — never a raw itemPaise.
+ * @param campaignPaise the campaign's expected price. A missing or non-positive
+ *   price means there is nothing to compare, so no disagreement is asserted
+ *   rather than blocking every release (cf. the zero-cap trap, where a `0` that
+ *   meant "no limit" was read as a real limit and computed a ₹0 refund).
+ */
+export function chargedDisagreesWithCampaign(
+  chargedPaise: bigint,
+  campaignPaise: bigint | null | undefined,
+): boolean {
+  if (campaignPaise == null || campaignPaise <= 0n) return false;
+  const diff =
+    chargedPaise > campaignPaise
+      ? chargedPaise - campaignPaise
+      : campaignPaise - chargedPaise;
+  const pct = (campaignPaise * TOLERANCE_PERCENT) / 100n;
+  return diff > (pct > TOLERANCE_FLOOR_PAISE ? pct : TOLERANCE_FLOOR_PAISE);
+}
+
 export function resolveChargedPaise(
   order: EvidenceOrder | null | undefined,
 ): ChargedAmount {

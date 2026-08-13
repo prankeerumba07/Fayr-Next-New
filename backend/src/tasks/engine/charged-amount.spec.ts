@@ -1,4 +1,7 @@
-import { resolveChargedPaise } from './charged-amount';
+import {
+  chargedDisagreesWithCampaign,
+  resolveChargedPaise,
+} from './charged-amount';
 import type { EvidenceOrder } from './evidence.types';
 import { SOURCES } from './states';
 
@@ -93,5 +96,59 @@ describe('resolveChargedPaise', () => {
     expect(resolveChargedPaise(null).needsStaff).toBe(true);
     expect(resolveChargedPaise(undefined).paise).toBeNull();
     expect(resolveChargedPaise(order({})).reason).toBe('amount-unknown');
+  });
+});
+
+/**
+ * The refund gate's price signal. This replaced `match.amountOk`, which compared
+ * the campaign's LISTED price against the marketplace's LISTED price while the
+ * refund paid the CHARGED figure — so it fired on honest orders and was noise
+ * rather than a fraud signal.
+ */
+describe('chargedDisagreesWithCampaign', () => {
+  it('passes the live heels order that the OLD listed-vs-listed check rejected', () => {
+    // Real: OD337767552058345100. Sticker ₹367, charged ₹328, campaign priced
+    // honestly at ₹328. amountOk read false (|328−367| = 39 > 16.4) and every
+    // release needed a confirmation tap. On the charged basis it agrees exactly.
+    expect(chargedDisagreesWithCampaign(32800n, 32800n)).toBe(false);
+  });
+
+  it('fires when what was actually paid differs from the offer', () => {
+    // ₹999 charged against a ₹1,299 campaign: |30000| > max(200, 6495).
+    expect(chargedDisagreesWithCampaign(99900n, 129900n)).toBe(true);
+    // …and symmetrically when the user paid MORE than the offer says.
+    expect(chargedDisagreesWithCampaign(159900n, 129900n)).toBe(true);
+  });
+
+  it('allows a normal discount inside 5%', () => {
+    // ₹1,299 campaign → tolerance 6495 paise.
+    expect(chargedDisagreesWithCampaign(123405n, 129900n)).toBe(false); // exactly 5% off
+    expect(chargedDisagreesWithCampaign(123404n, 129900n)).toBe(true); // one paise past
+    expect(chargedDisagreesWithCampaign(129900n + 6495n, 129900n)).toBe(false);
+  });
+
+  it('uses the ₹2 floor on cheap items, where 5% would be absurdly tight', () => {
+    // ₹30 campaign: 5% is 150 paise, so the 200-paise floor governs.
+    expect(chargedDisagreesWithCampaign(3200n, 3000n)).toBe(false); // exactly ₹2 off
+    expect(chargedDisagreesWithCampaign(3201n, 3000n)).toBe(true);
+    expect(chargedDisagreesWithCampaign(2800n, 3000n)).toBe(false);
+  });
+
+  it('asserts no disagreement when there is nothing to compare', () => {
+    // A missing price must not block every release. And a campaign price of 0 is
+    // the zero-cap trap's sibling: read literally it would flag every order.
+    expect(chargedDisagreesWithCampaign(32800n, null)).toBe(false);
+    expect(chargedDisagreesWithCampaign(32800n, undefined)).toBe(false);
+    expect(chargedDisagreesWithCampaign(32800n, 0n)).toBe(false);
+    expect(chargedDisagreesWithCampaign(32800n, -1n)).toBe(false);
+  });
+
+  it('is exact at the boundary in both directions (integer bigint maths)', () => {
+    // 10000 campaign → tolerance 500. Equal-to-tolerance passes; one past fails.
+    expect(chargedDisagreesWithCampaign(9500n, 10000n)).toBe(false);
+    expect(chargedDisagreesWithCampaign(9499n, 10000n)).toBe(true);
+    expect(chargedDisagreesWithCampaign(10500n, 10000n)).toBe(false);
+    expect(chargedDisagreesWithCampaign(10501n, 10000n)).toBe(true);
+    expect(chargedDisagreesWithCampaign(0n, 10000n)).toBe(true); // a free item is not the offer
   });
 });

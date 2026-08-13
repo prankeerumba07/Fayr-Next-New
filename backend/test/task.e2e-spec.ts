@@ -265,6 +265,123 @@ describe('Task loop (e2e)', () => {
     ).toBe(2);
   });
 
+  /**
+   * The refund gate's price half, which had NO backend test before this — the
+   * single most sensitive money check in the service was covered only by
+   * device-side tests of the input it consumes.
+   *
+   * It also pins the fix for the erasable-match bug. The gate used to read the
+   * device's `match.amountOk`, so a later fetch of the same order (which replaces
+   * the order object wholesale among equal-authority sources) erased the refusal
+   * and re-opened the auto-refund path. The check now recomputes from the stored
+   * amounts at release time, so the erasure cannot decide anything: below, the
+   * second fetch deliberately carries NO match at all and the release still
+   * refuses.
+   */
+  it('refuses to release when the charged amount disagrees with the campaign, even after the match is erased', async () => {
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const campaign = await makeCampaign(); // productPricePaise 129900n
+    const claim = await request(server())
+      .post('/tasks')
+      .set('Authorization', bearer(token))
+      .send({ campaignId: campaign.id })
+      .expect(201);
+    const taskId = claim.body.id as string;
+    const deliveredAt = Date.now() - 30 * DAY; // window long closed
+
+    // First fetch: ₹999 charged against a ₹1,299 campaign, WITH a match saying
+    // the price is fine — the device's listed-vs-listed verdict, which the gate
+    // must no longer trust either way.
+    await request(server())
+      .post(`/tasks/${taskId}/evidence`)
+      .set('Authorization', bearer(token))
+      .send({
+        order: {
+          id: 'o1',
+          itemPaise: '99900',
+          source: 'order-history',
+          match: { score: 1, amountOk: true, ambiguous: false, candidateCount: 1 },
+        },
+        returned: false,
+      })
+      .expect(200);
+
+    // Second fetch of the SAME order with no match — a different idempotency key,
+    // so it applies and erases the stored match wholesale.
+    await request(server())
+      .post(`/tasks/${taskId}/evidence`)
+      .set('Authorization', bearer(token))
+      .send({
+        order: { id: 'o1', itemPaise: '99900', source: 'order-history' },
+        delivery: { at: deliveredAt, source: 'order-history' },
+        review: { published: true, product: 'boAt Rockerz 255 Pro+' },
+        returned: false,
+      })
+      .expect(200)
+      .expect((r) => expect(r.body.order.match ?? null).toBeNull());
+
+    await request(server())
+      .post(`/tasks/${taskId}/reviewed`)
+      .set('Authorization', bearer(token))
+      .expect(200);
+    await request(server())
+      .post(`/tasks/${taskId}/start-hold`)
+      .set('Authorization', bearer(token))
+      .expect(200);
+
+    // Eligible in every other respect, and no match to read — the release must
+    // still refuse, on the charged amount alone.
+    await request(server())
+      .post(`/tasks/${taskId}/release-refund`)
+      .set('Authorization', bearer(token))
+      .expect(409)
+      .expect((r) =>
+        expect(String(r.body.message)).toContain("the amount you paid doesn't match this offer"),
+      );
+    expect(await walletSvc.getUserBalance(userId)).toBe(0n);
+
+    // The user confirms it IS their order → the same release now succeeds and
+    // pays the charged figure, not the campaign's price.
+    await request(server())
+      .post(`/tasks/${taskId}/confirm-order`)
+      .set('Authorization', bearer(token))
+      .expect(200);
+    await request(server())
+      .post(`/tasks/${taskId}/release-refund`)
+      .set('Authorization', bearer(token))
+      .expect(200)
+      .expect((r) => expect(r.body.state).toBe('REFUNDED'));
+    expect(await walletSvc.getUserBalance(userId)).toBe(99900n);
+  });
+
+  it('releases without a confirmation tap when the charged amount matches the offer', async () => {
+    // The good path must cost nothing: the whole complaint about the old check
+    // was that it fired here too.
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const campaign = await makeCampaign();
+    const claim = await request(server())
+      .post('/tasks')
+      .set('Authorization', bearer(token))
+      .send({ campaignId: campaign.id })
+      .expect(201);
+    const taskId = claim.body.id as string;
+    await driveToHolding(token, taskId, Date.now() - 30 * DAY); // itemPaise 129900
+    await request(server())
+      .post(`/tasks/${taskId}/release-refund`)
+      .set('Authorization', bearer(token))
+      .expect(200)
+      .expect((r) => expect(r.body.state).toBe('REFUNDED'));
+    expect(await walletSvc.getUserBalance(userId)).toBe(129900n);
+    const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+    expect(task.state).toBe('REFUNDED');
+    // Never tapped, and never needed: the gate stayed quiet.
+    expect(
+      await prisma.taskEvent.count({ where: { taskId, type: 'CONFIRM_ORDER' } }),
+    ).toBe(0);
+  });
+
   it('rolls the claim back when the user cannot afford it', async () => {
     const { token } = await newUser(); // 0 tickets (no grant)
     const campaign = await makeCampaign();

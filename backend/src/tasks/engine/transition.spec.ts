@@ -204,6 +204,47 @@ describe('transition — evidence source authority (OCR is the lowest tier)', ()
     expect(t.order?.itemPaise).toBe(129900n);
     expect(t.order?.source).toBe('order-details');
   });
+
+  // The known limit of that carve-out, pinned so it cannot be mistaken for
+  // safety it does not provide. sourceRank is BINARY — only 'ocr' ranks low, so
+  // every scraper source ties and the incoming order replaces the incumbent
+  // WHOLESALE. A second fetch of the same order therefore erases whatever
+  // `match` the first one established.
+  //
+  // This used to matter for money: the refund gate read `match.amountOk`, so an
+  // erased `amountOk: false` silently re-opened the auto-refund path. The gate
+  // now recomputes the price question from the stored amounts at release time
+  // (chargedDisagreesWithCampaign), which is why this is documented as a
+  // limitation rather than a hole. `ambiguous` is the part that is still only
+  // device-sourced and still erasable — see the assertion below.
+  it('an equal-authority re-fetch REPLACES the stored match, erasing it', () => {
+    const t = drive(fresh(), [
+      {
+        type: 'EVIDENCE',
+        at: T0,
+        evidence: {
+          order: {
+            id: 'o1',
+            itemPaise: 129900n,
+            source: 'order-history',
+            match: { score: 1, amountOk: false, ambiguous: true, candidateCount: 2 },
+          },
+        },
+      },
+      // The same order read again — a purchase-only fetch followed by a
+      // purchase+delivery fetch mints a DIFFERENT idempotency key, so this
+      // applies rather than being deduped away.
+      {
+        type: 'EVIDENCE',
+        at: T0 + DAY,
+        evidence: { order: { id: 'o1', itemPaise: 129900n, source: 'order-history' } },
+      },
+    ]);
+    expect(t.order?.match ?? null).toBeNull();
+    // The amounts DO survive, which is what the release-time price check reads —
+    // so the money decision no longer depends on the erased field.
+    expect(t.order?.itemPaise).toBe(129900n);
+  });
 });
 
 describe('transition — guards & atomicity', () => {
