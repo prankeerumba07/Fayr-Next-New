@@ -7,6 +7,9 @@
 
 import { API_BASE } from './config';
 import { toE164 } from './format';
+// Safe direction: authSession imports nothing from here (or from http.js), so
+// this cannot form a cycle.
+import * as session from './authSession';
 
 async function post(path, body) {
   let res;
@@ -48,4 +51,28 @@ export function refreshTokens(refreshToken) {
 
 export function logout(refreshToken) {
   return post('/auth/logout', { refreshToken });
+}
+
+/**
+ * Log out properly: REVOKE the refresh token server-side, then forget the
+ * session locally.
+ *
+ * Clearing the keychain alone — which is all "Log out" used to do — left a live
+ * refresh token on the server that could still mint access tokens. `logout` and
+ * its endpoint both already existed; nothing called them.
+ *
+ * Revocation is best-effort by design. A user offline, or on a dead backend,
+ * must still be able to log out of the device, so a failed revoke never blocks
+ * the local clear. It is reported back so a caller can tell the difference
+ * rather than assume success: `{ revoked: boolean }`.
+ */
+export async function signOut() {
+  const refreshToken = session.getRefreshToken();
+  let revoked = false;
+  if (refreshToken) {
+    const res = await logout(refreshToken);
+    revoked = !!(res && res.ok);
+  }
+  await session.clearSession();
+  return { revoked };
 }

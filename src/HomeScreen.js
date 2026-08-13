@@ -5,7 +5,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PLATFORM_LIST, PLATFORMS } from './platforms';
-import { clearSession } from './backend/authSession';
+import { signOut } from './backend/authApi';
 import * as campaignStore from './backend/campaignStore';
 import { getWallet } from './backend/meApi';
 import { hasTask } from './taskStore';
@@ -110,7 +110,7 @@ export default function HomeScreen({ navigation }) {
             ))}
           </View>
         </View>
-        <TouchableOpacity onPress={() => clearSession()} style={styles.logout} activeOpacity={0.7}>
+        <TouchableOpacity onPress={() => signOut()} style={styles.logout} activeOpacity={0.7}>
           <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>
       </LinearGradient>
