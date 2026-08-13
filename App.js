@@ -12,6 +12,8 @@ import ConnectScreen from './src/ConnectScreen';
 import TaskScreen from './src/TaskScreen';
 import DetailScreen from './src/DetailScreen';
 import WalletScreen from './src/WalletScreen';
+import SupportScreen from './src/SupportScreen';
+import PolicyScreen from './src/PolicyScreen';
 import AuthScreen from './src/AuthScreen';
 import { PLATFORM_LIST } from './src/platforms';
 import { load as loadTask, applyAuthoritative, configureSync } from './src/taskStore';
@@ -112,6 +114,9 @@ export default function App() {
             component={DetailScreen}
             options={{ headerShown: false }}
           />
+          {/* Help and the policy documents own their headers as well. */}
+          <Stack.Screen name="Support" component={SupportScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="Policy" component={PolicyScreen} options={{ headerShown: false }} />
           {/* The wallet owns its own gradient header and back button too. */}
           <Stack.Screen
             name="Wallet"

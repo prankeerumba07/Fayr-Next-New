@@ -8,8 +8,10 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import PolicyScreen from './PolicyScreen';
 import { requestOtp, verifyOtp } from './backend/authApi';
 import { setSession } from './backend/authSession';
 import {
@@ -29,6 +31,8 @@ import {
 export default function AuthScreen({ onAuthed }) {
   const [step, setStep] = useState('mobile'); // 'mobile' | 'code'
   const [mobile, setMobile] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const [policyDoc, setPolicyDoc] = useState(null); // 'terms' | 'privacy' | null
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -129,10 +133,42 @@ export default function AuthScreen({ onAuthed }) {
                 />
               </View>
               {error ? <Text style={styles.error}>{error}</Text> : null}
+
+              {/* Consent BEFORE the account exists, not buried in a footnote.
+                  The clawback right in these terms is what makes the fraud model
+                  enforceable (CLAUDE.md loophole 3), and a right nobody was shown
+                  is not a right. Both documents are readable from here — agreeing
+                  to something you cannot open first is not consent. */}
               <TouchableOpacity
-                style={[styles.primaryBtn, (!mobileValid || busy) && styles.btnDisabled]}
+                style={styles.consentRow}
+                onPress={() => setAgreed((v) => !v)}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.checkbox, agreed && styles.checkboxOn]}>
+                  {agreed ? <Text style={styles.checkboxTick}>✓</Text> : null}
+                </View>
+                <Text style={styles.consentText}>
+                  I agree to the{' '}
+                  <Text
+                    style={styles.consentLink}
+                    onPress={() => setPolicyDoc('terms')}
+                  >
+                    Terms &amp; Conditions
+                  </Text>
+                  {' '}and{' '}
+                  <Text
+                    style={styles.consentLink}
+                    onPress={() => setPolicyDoc('privacy')}
+                  >
+                    Privacy Policy
+                  </Text>
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.primaryBtn, (!mobileValid || !agreed || busy) && styles.btnDisabled]}
                 onPress={send}
-                disabled={!mobileValid || busy}
+                disabled={!mobileValid || !agreed || busy}
                 activeOpacity={0.85}
               >
                 {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Send code</Text>}
@@ -186,6 +222,15 @@ export default function AuthScreen({ onAuthed }) {
           Your Fayr account. You&apos;ll connect your shopping accounts separately, later.
         </Text>
       </KeyboardAvoidingView>
+
+      {/* A modal, not a route: there is no navigator until you are signed in. */}
+      <Modal
+        visible={policyDoc != null}
+        animationType="slide"
+        onRequestClose={() => setPolicyDoc(null)}
+      >
+        <PolicyScreen doc={policyDoc} onClose={() => setPolicyDoc(null)} />
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -221,4 +266,13 @@ const styles = StyleSheet.create({
   note: { fontSize: 13, color: '#0C831F', marginTop: 14, lineHeight: 18 },
   error: { fontSize: 13, color: '#b3261e', marginTop: 14, lineHeight: 18 },
   footnote: { fontSize: 12, color: '#999', paddingHorizontal: 24, paddingBottom: 20, lineHeight: 18 },
+  consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 16, paddingRight: 4 },
+  checkbox: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: '#C9C9BE',
+    alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
+  checkboxOn: { backgroundColor: '#191919', borderColor: '#191919' },
+  checkboxTick: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  consentText: { flex: 1, fontSize: 13, color: '#5C5C5C', lineHeight: 19 },
+  consentLink: { color: '#191919', fontWeight: '600', textDecorationLine: 'underline' },
 });
