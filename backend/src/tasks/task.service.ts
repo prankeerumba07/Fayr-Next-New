@@ -159,6 +159,34 @@ export class TaskService {
     }
   }
 
+  /**
+   * Staff override for a held (platform, orderId) collision — see
+   * AdminTaskController for why a human, and not the user, decides this.
+   *
+   * Idempotent: approving twice is the same as approving once. It grants nothing
+   * on its own; it only stops the duplicate-order gate refusing, and every other
+   * refund condition still has to pass.
+   */
+  async allowDuplicateOrder(
+    taskId: string,
+  ): Promise<{ task: TaskResponse; userId: string; orderId: string | null }> {
+    const row = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { campaign: true },
+    });
+    if (!row) throw new NotFoundException('Task not found');
+    const updated = await this.prisma.task.update({
+      where: { id: taskId },
+      data: { duplicateOrderApproved: true },
+      include: { campaign: true },
+    });
+    return {
+      task: toTaskResponse(updated, updated.campaign),
+      userId: row.userId,
+      orderId: row.orderId,
+    };
+  }
+
   /** The caller's tasks, newest first. */
   async listForUser(userId: string): Promise<TaskResponse[]> {
     const rows = await this.prisma.task.findMany({
@@ -376,7 +404,7 @@ export class TaskService {
         },
         select: { id: true },
       });
-      if (alreadyPaid) {
+      if (alreadyPaid && !row.duplicateOrderApproved) {
         return {
           status: 'ineligible',
           reasons: [

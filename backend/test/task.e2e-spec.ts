@@ -432,6 +432,26 @@ describe('Task loop (e2e)', () => {
     expect(held.state).toBe('HOLDING'); // still live, nothing thrown away
     expect(held.orderId).toBe('o1'); // promoted column populated on every write
 
+    // The staff override closes the loop: a human answers "yes, this really is a
+    // second item in one basket" and the same release then succeeds. Without this
+    // the user was told a reviewer would check it and no reviewer had a button.
+    await prisma.task.update({
+      where: { id: taskB },
+      data: { duplicateOrderApproved: true },
+    });
+    await request(server())
+      .post(`/tasks/${taskB}/release-refund`)
+      .set('Authorization', bearer(token))
+      .expect(200)
+      .expect((r) => expect(r.body.state).toBe('REFUNDED'));
+    expect(await walletSvc.getUserBalance(userId)).toBe(259800n); // both now paid
+
+    // Put it back so the ticket assertion below reads the HELD world again.
+    await prisma.task.update({
+      where: { id: taskB },
+      data: { state: 'HOLDING', duplicateOrderApproved: false },
+    });
+
     // And the ticket half, same root cause and no extra machinery needed to show
     // it: markPaid grants COMPLETION_RETURN for every REFUNDED task the user has
     // (withdrawal.service.ts), so the count of REFUNDED tasks IS the number of

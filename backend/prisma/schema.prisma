@@ -255,6 +255,10 @@ model Task {
   /// purchase cannot be paid out on several campaigns unseen: the refund gate
   /// looks for a sibling task on the same (platform, orderId).
   orderId         String?
+  /// Staff answer to a held (platform, orderId) collision: this really is a
+  /// separate item in one basket, pay it. Set only by a SUPPORT/ADMIN override,
+  /// audited, and read only by the refund gate.
+  duplicateOrderApproved Boolean @default(false)
   returned        Boolean? // TRI-STATE: null = unknown, which the refund gate treats differently from false
   itemPaise       BigInt? // the VERIFIED refundable item price (never the order total)
   deliveredAt     DateTime?

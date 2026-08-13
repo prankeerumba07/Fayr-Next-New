@@ -117,6 +117,32 @@ describe('Staff roles / RBAC (e2e)', () => {
       });
     }
 
+    it('duplicate-order override: SUPPORT and ADMIN only, and a bad task is 404 not 403', async () => {
+      // POST, so it sits outside the GET matrix above. A passing role must reach
+      // the handler (404 on an unknown task); a failing role must never get that
+      // far. This is the button that lets one purchase be paid twice, so who can
+      // press it is worth pinning explicitly.
+      const unknownTask = '00000000-0000-0000-0000-0000000000ff';
+      for (const role of ALL_ROLES) {
+        const { token } = await tokenFor(role);
+        const expected = role === 'SUPPORT' || role === 'ADMIN' ? 404 : 403;
+        await request(server())
+          .post(`/admin/tasks/${unknownTask}/allow-duplicate-order`)
+          .set('authorization', `Bearer ${token}`)
+          .send({ reason: 'merged cart, two separate items' })
+          .expect(expected);
+      }
+    });
+
+    it('duplicate-order override requires a reason', async () => {
+      const { token } = await tokenFor('SUPPORT');
+      await request(server())
+        .post('/admin/tasks/00000000-0000-0000-0000-0000000000ff/allow-duplicate-order')
+        .set('authorization', `Bearer ${token}`)
+        .send({})
+        .expect(400); // the audit row is worthless without the reasoning
+    });
+
     it('ADMIN super-role passes a route it is not explicitly listed on', async () => {
       // /admin/questions is @Roles('SUPPORT') — ADMIN is not in the list but the
       // guard treats ADMIN as a super-role.
