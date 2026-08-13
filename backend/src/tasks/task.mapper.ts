@@ -108,6 +108,9 @@ export function toPromotedColumns(
   const w = windowEnd(task, policy);
   return {
     state: task.state,
+    // Promoted so the refund gate can ask "has this order already been paid
+    // out?" with an index instead of digging through JSONB.
+    orderId: task.order?.id ?? null,
     returned: task.returned,
     itemPaise: task.order?.itemPaise ?? null,
     deliveredAt: task.delivery ? new Date(task.delivery.at) : null,

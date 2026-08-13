@@ -345,6 +345,47 @@ export class TaskService {
     // already sitting in HOLDING is judged on its stored amounts at release
     // time, so a stale `amountOk` cannot decide anything, whether it was written
     // by an old app build or erased by a later fetch.
+    // ONE PURCHASE, ONE REFUND.
+    //
+    // Nothing used to stop a single real order being paid out on several
+    // campaigns: every claim gate is keyed on campaignId, never on the purchase.
+    // It was not theoretical — order OD337767552058345100 paid twice, 590.40
+    // against a 328 purchase, and it granted the +10 completion tickets twice as
+    // well (markPaid grants per REFUNDED task, so a second refunded task is a
+    // second grant).
+    //
+    // Keyed on (platform, orderId) because that is the only stable identity the
+    // evidence actually carries: no per-line-item id survives the wire on ANY
+    // platform, and the one per-item discriminator that does — a free-text
+    // product name — is the whole basket on Zepto. Line-item keying would need
+    // the frozen scraper to emit more.
+    //
+    // It HOLDS rather than refuses, and it holds at payout rather than rejecting
+    // the evidence, because a genuine multi-item basket legitimately backs more
+    // than one task: an Amazon merged cart is two products under one order
+    // number. Refusing the evidence would strand a real purchase with no route
+    // forward; holding it puts a human in front of the only case that matters.
+    const orderId = task.order?.id ?? null;
+    if (orderId != null) {
+      const alreadyPaid = await tx.task.findFirst({
+        where: {
+          id: { not: row.id },
+          platform: row.platform,
+          orderId,
+          state: STATES.REFUNDED,
+        },
+        select: { id: true },
+      });
+      if (alreadyPaid) {
+        return {
+          status: 'ineligible',
+          reasons: [
+            'this order has already been refunded on another offer — a Fayr reviewer needs to check it',
+          ],
+        };
+      }
+    }
+
     const match = task.order?.match ?? null;
     const priceDisagrees = chargedDisagreesWithCampaign(
       charged.paise,

@@ -382,6 +382,76 @@ describe('Task loop (e2e)', () => {
     ).toBe(0);
   });
 
+  /**
+   * ONE PURCHASE, ONE REFUND — and one completion grant.
+   *
+   * Live proof this was open: order OD337767552058345100 paid out twice, 590.40
+   * against a 328 purchase, and granted +10 completion tickets twice because
+   * markPaid grants per REFUNDED task.
+   */
+  it('holds the second refund on the same order, and so does not grant its tickets twice', async () => {
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId); // 15 tickets = 3 claims
+    const first = await makeCampaign({ title: 'Offer A' });
+    const second = await makeCampaign({ title: 'Offer B' });
+    const deliveredAt = Date.now() - 30 * DAY;
+
+    // Same real order number claimed against two different offers.
+    const driveBoth = async (campaignId: string): Promise<string> => {
+      const claim = await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId })
+        .expect(201);
+      const taskId = claim.body.id as string;
+      await driveToHolding(token, taskId, deliveredAt); // order id 'o1' both times
+      return taskId;
+    };
+    const taskA = await driveBoth(first.id);
+    const taskB = await driveBoth(second.id);
+
+    // The first pays normally.
+    await request(server())
+      .post(`/tasks/${taskA}/release-refund`)
+      .set('Authorization', bearer(token))
+      .expect(200)
+      .expect((r) => expect(r.body.state).toBe('REFUNDED'));
+    expect(await walletSvc.getUserBalance(userId)).toBe(129900n);
+
+    // The second is HELD, not refused outright — a human decides, because a
+    // genuine multi-item basket legitimately backs more than one task.
+    await request(server())
+      .post(`/tasks/${taskB}/release-refund`)
+      .set('Authorization', bearer(token))
+      .expect(409)
+      .expect((r) =>
+        expect(String(r.body.message)).toContain('already been refunded on another offer'),
+      );
+    expect(await walletSvc.getUserBalance(userId)).toBe(129900n); // not doubled
+    const held = await prisma.task.findUniqueOrThrow({ where: { id: taskB } });
+    expect(held.state).toBe('HOLDING'); // still live, nothing thrown away
+    expect(held.orderId).toBe('o1'); // promoted column populated on every write
+
+    // And the ticket half, same root cause and no extra machinery needed to show
+    // it: markPaid grants COMPLETION_RETURN for every REFUNDED task the user has
+    // (withdrawal.service.ts), so the count of REFUNDED tasks IS the number of
+    // grants. Held, not refunded → one grant, not two.
+    const refundedCount = await prisma.task.count({
+      where: { userId, state: 'REFUNDED' },
+    });
+    expect(refundedCount).toBe(1);
+
+    // Mirror that loop directly to prove the balance effect.
+    const before = await ticketsSvc.getBalance(userId);
+    for (const t of await prisma.task.findMany({
+      where: { userId, state: 'REFUNDED' },
+      select: { id: true },
+    })) {
+      await ticketsSvc.grantCompletion(userId, t.id);
+    }
+    expect(await ticketsSvc.getBalance(userId)).toBe(before + 10); // ONE grant
+  });
+
   it('rolls the claim back when the user cannot afford it', async () => {
     const { token } = await newUser(); // 0 tickets (no grant)
     const campaign = await makeCampaign();

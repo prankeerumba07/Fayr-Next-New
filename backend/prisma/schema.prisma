@@ -251,6 +251,10 @@ model Task {
   targetReviewId String?
 
   // Promoted, queryable projections of `evidence` (kept in sync on every write):
+  /// The marketplace order number. Promoted out of `evidence` so ONE real
+  /// purchase cannot be paid out on several campaigns unseen: the refund gate
+  /// looks for a sibling task on the same (platform, orderId).
+  orderId         String?
   returned        Boolean? // TRI-STATE: null = unknown, which the refund gate treats differently from false
   itemPaise       BigInt? // the VERIFIED refundable item price (never the order total)
   deliveredAt     DateTime?
@@ -279,6 +283,7 @@ model Task {
   @@index([campaignId])
   @@index([state, windowEndsAt]) // scheduler: holds whose return window has ended
   @@index([state, claimExpiresAt]) // scheduler: claims that expired unpurchased
+  @@index([platform, orderId]) // refund gate: has this order already been paid out?
   @@map("tasks")
 }
 
