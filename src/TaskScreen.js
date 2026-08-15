@@ -18,7 +18,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PLATFORMS } from './platforms';
-import { STATES, describe, createPolicy, BLOCKERS, SOURCES } from './taskflow';
+import { STATES, describe, createPolicy } from './taskflow';
 import {
   getTask, getAuthoritative, hasTask, subscribe, load, dispatch, reset,
   isPending, getActionError, clearActionError,
@@ -29,6 +29,8 @@ import * as campaignStore from './backend/campaignStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
 import { Card, RefundBadge, ProductImage } from './ui/primitives';
 import { clampMonotonic, releaseStageState } from './ui/timeline';
+import { closedInfo, explainBlocker, nextStepLine } from './ui/stages';
+import { StageChip } from './ui/stagebits';
 
 const POLICY = createPolicy();
 
@@ -65,17 +67,10 @@ function Row({ label, value, missing, hint }) {
 
 const STEPS = [STATES.CLAIMED, STATES.PURCHASED, STATES.DELIVERED, STATES.REVIEWED, STATES.HOLDING, STATES.REFUNDED];
 
-// Platform-neutral fallback text for a backend blocker when the server didn't
-// attach a specific reason. The server's blockerReason ALWAYS wins over these;
-// these only cover the "blocker set, reason null" edge, and are deliberately
-// not Amazon-worded.
-const BLOCKER_TEXT = {
-  [BLOCKERS.RECONNECT]: 'Sign in to your marketplace account again so we can read your orders.',
-  [BLOCKERS.ORDER_UNREADABLE]: "We couldn't read this order — connect your email so we can verify it from the confirmation.",
-  [BLOCKERS.NO_DELIVERY_DATE]: 'Delivery date not available yet.',
-  [BLOCKERS.REVIEW_NOT_PUBLIC]: 'Your review isn’t showing as public yet.',
-  [BLOCKERS.RETURNED]: 'This order looks returned, which blocks the refund.',
-};
+// Blocker copy now lives in src/ui/stages.js (explainBlocker), where it is
+// tested and where every blocker also carries the ONE thing to do next. The old
+// table here additionally told users to "connect your email" — a flow that does
+// not exist on the device — so it was dead-ending people as well as duplicating.
 
 // The "what's next" hints, derived from the AUTHORITATIVE backend snapshot (the
 // source of truth) rather than the optimistic engine's generic default. Rules:
@@ -86,21 +81,38 @@ const BLOCKER_TEXT = {
 //   3. With an order but no delivery, THAT hint is genuinely true — show it.
 //   4. No authoritative snapshot yet (offline / pre-first-sync): fall back to the
 //      optimistic engine's own gaps so the screen still says something useful.
-function nextStepGaps(authoritative, view) {
-  if (!authoritative) return view.gaps;
+function nextStepGaps(authoritative, view, platformName) {
+  if (!authoritative) {
+    return view.gaps.map((g) => ({
+      field: g.field,
+      title: g.message,
+      body: null,
+      cta: null,
+      action: null,
+    }));
+  }
   if (authoritative.blocker) {
+    const said = explainBlocker(authoritative.blocker, platformName);
     return [{
       field: 'blocker',
-      message:
-        authoritative.blockerReason ||
-        BLOCKER_TEXT[authoritative.blocker] ||
-        `Action needed: ${authoritative.blocker}`,
-      action: authoritative.blocker,
+      title: said.title,
+      // The server's own reason is more specific than any generic copy, so it
+      // wins as the body — but it is a SENTENCE under a plain-English heading,
+      // never the bare enum the screen used to print.
+      body: authoritative.blockerReason || said.body,
+      cta: said.cta,
+      action: said.action,
     }];
   }
   if (!authoritative.order) return [];
   if (!authoritative.delivery) {
-    return [{ field: 'delivery', message: 'Delivery date not available yet', action: SOURCES.DKIM }];
+    return [{
+      field: 'delivery',
+      title: 'No delivery date yet',
+      body: `${platformName || 'The marketplace'} has not published a delivery date for this order. Nothing is lost — we keep checking.`,
+      cta: null,
+      action: null,
+    }];
   }
   return [];
 }
@@ -327,7 +339,8 @@ export default function TaskScreen({ navigation, route }) {
   // Next-step hints come from the authoritative backend snapshot, not the
   // optimistic engine default (see nextStepGaps). `view` still drives the
   // countdown / refund-eligibility below.
-  const gaps = nextStepGaps(authoritative, view);
+  const gaps = nextStepGaps(authoritative, view, platformName);
+  const closed = closedInfo(authoritative || task);
   // The refund is based on what was actually CHARGED, not a listed price — the
   // two are different fields on different platforms, so never read itemPaise
   // straight (see src/chargedAmount.js). When this can't be decided safely the
@@ -546,21 +559,47 @@ export default function TaskScreen({ navigation, route }) {
             <Text style={styles.progressPct}>{pct}%</Text>
           </View>
 
-          {/* AUTHORITATIVE backend state — the source of truth behind the timeline */}
+          {/* What is happening, in words. This line used to print the raw state
+              and blocker enums — "✓ Verified state: HOLDING · ORDER_UNREADABLE" —
+              on the screen where someone checks whether they are getting paid. */}
           {authoritative ? (
             <Text style={styles.serverBadge}>
-              ✓ Verified state: {authoritative.state}
-              {authoritative.blocker ? ` · ${authoritative.blocker}` : ''}
+              {closed.closed ? closed.title : nextStepLine(authoritative)}
             </Text>
           ) : null}
         </LinearGradient>
 
         <View style={styles.body}>
-          {/* what's blocking / what's next, from the backend */}
-          {gaps.map((g) => (
+          {/* A CLOSED claim says so first and loudly. The server writes closedAt
+              + closeReason while leaving state at CLAIMED, so without this a dead
+              claim still rendered a live "Buy on Amazon, then check again". */}
+          {closed.closed ? (
+            <View style={[styles.gap, styles.gapClosed]}>
+              <StageChip label={closed.label} tone={closed.tone} />
+              <Text style={[styles.gapTitle, { marginTop: 8 }]}>{closed.title}</Text>
+              <Text style={styles.gapBody}>{closed.body}</Text>
+            </View>
+          ) : null}
+
+          {/* What is blocking this claim, said in the user's words plus the one
+              thing they can do about it. */}
+          {!closed.closed && gaps.map((g) => (
             <View key={g.field} style={styles.gap}>
-              <Text style={styles.gapTitle}>{g.message}</Text>
-              <Text style={styles.gapAction}>Next: {g.action}</Text>
+              <Text style={styles.gapTitle}>{g.title}</Text>
+              {g.body ? <Text style={styles.gapBody}>{g.body}</Text> : null}
+              {g.cta ? (
+                <TouchableOpacity
+                  style={styles.gapCta}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    if (g.action === 'reconnect') goMarketplace();
+                    else if (g.action === 'upload') navigation.navigate('ProofUpload', { campaignId });
+                    else navigation.navigate('Support', { taskId: authoritative && authoritative.id });
+                  }}
+                >
+                  <Text style={styles.gapCtaText}>{g.cta} ›</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           ))}
 
@@ -840,8 +879,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF4F4', borderWidth: 1, borderColor: '#F3CACA',
     borderRadius: RADIUS.md, padding: 12, marginBottom: SPACE.lg,
   },
-  gapTitle: { fontFamily: FONT.body, fontSize: 13, color: '#7a1f1a', lineHeight: 18 },
-  gapAction: { fontFamily: FONT.bodySemi, fontSize: 12, color: '#b3261e', marginTop: 6 },
+  gapClosed: { backgroundColor: '#FBFBEF', borderColor: COLOR.line },
+  gapTitle: { fontFamily: FONT.displaySemi, fontSize: 14.5, color: '#7a1f1a', lineHeight: 20 },
+  gapBody: { fontFamily: FONT.body, fontSize: 13, color: '#7a1f1a', lineHeight: 19, marginTop: 4, opacity: 0.9 },
+  gapCta: {
+    alignSelf: 'flex-start', marginTop: 10, backgroundColor: '#b3261e',
+    borderRadius: RADIUS.sm, paddingHorizontal: 14, paddingVertical: 9,
+  },
+  gapCtaText: { fontFamily: FONT.displaySemi, fontSize: 12.5, color: '#fff' },
 
   cardTitle: { fontFamily: FONT.displaySemi, fontSize: 16, color: COLOR.ink, marginBottom: 8 },
   cardBody: { fontFamily: FONT.body, fontSize: 14, color: COLOR.sub, lineHeight: 20 },

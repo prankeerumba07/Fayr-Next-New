@@ -15,6 +15,7 @@ import { toEvidenceDto } from './backend/evidenceDto';
 import { evidenceKey } from './backend/evidenceKey';
 import { claim as claimApi, listTasks, postTaskAction } from './backend/tasksApi';
 import { isTaskAction, alreadyApplied } from './backend/taskActions';
+import { preferTask } from './ui/tasklist';
 
 const FILE = 'fayr-tasks-v3.json'; // v3: {campaignId: {taskId, authoritative}}
 
@@ -226,9 +227,18 @@ export async function refreshFromBackend() {
 
 // Store a backend TaskResponse as the truth for its campaign, and snap the
 // optimistic copy to it so the display can't drift from the server.
+//
+// The map is keyed by campaignId, so a campaign the user has claimed TWICE has
+// two candidate tasks for one slot. GET /tasks arrives newest-first, so plain
+// assignment let the LAST write — the oldest, already-closed task — win, and a
+// user who re-claimed saw "This claim expired" over their live claim. preferTask
+// decides instead: an open task always beats a closed one, then newer wins.
 export function applyAuthoritative(tr) {
   if (!tr || !tr.campaign || !tr.campaign.id) return;
   const cid = tr.campaign.id;
+  const current = entries[cid] ? entries[cid].authoritative : null;
+  const winner = preferTask(current, tr);
+  if (winner !== tr) return; // an older/closed row lost — leave the display alone
   entries[cid] = {
     taskId: tr.id,
     authoritative: tr,

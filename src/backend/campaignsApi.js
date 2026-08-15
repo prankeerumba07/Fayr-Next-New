@@ -31,6 +31,22 @@ export function normalizeCampaign(c) {
   };
 }
 
+// GET /campaigns/:id → { ok, status, campaign|null }. Never throws.
+//
+// The LIST endpoint only returns ACTIVE campaigns, so once ops pauses or ends a
+// campaign it vanishes from the store — and every screen that resolved a task's
+// campaign through the cache showed a blank product for a claim the user still
+// has money riding on. This endpoint returns a campaign in ANY status, which is
+// exactly what an already-claimed task needs.
+export async function getCampaign(id) {
+  if (!id) return { ok: false, status: 0, campaign: null };
+  const res = await authedFetch(`/campaigns/${id}`, { method: 'GET' });
+  if (!res.ok || !res.body || !res.body.id) {
+    return { ok: false, status: res.status, campaign: null };
+  }
+  return { ok: true, status: res.status, campaign: normalizeCampaign(res.body) };
+}
+
 // GET /campaigns → { ok, status, campaigns:[normalized] }. Never throws.
 export async function listCampaigns() {
   const res = await authedFetch('/campaigns', { method: 'GET' });
