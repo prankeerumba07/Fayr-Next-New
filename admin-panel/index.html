@@ -95,22 +95,84 @@
     .pill-info    { color: var(--info);    background: color-mix(in srgb, var(--info) 15%, transparent); }
     .pill-neutral { color: var(--neutral); background: color-mix(in srgb, var(--neutral) 16%, transparent); }
 
-    /* ── Layout ───────────────────────────────────────────────────────────── */
+    /* ── Console layout ───────────────────────────────────────────────────────
+       A fixed sidebar and a scrolling work pane. The sidebar never scrolls with
+       the content: an operator working a queue should always be able to see what
+       else is waiting.                                                        */
+    .shell { display: flex; height: 100vh; overflow: hidden; }
+
+    .sidebar {
+      flex: 0 0 232px; display: flex; flex-direction: column;
+      background: var(--surface); border-right: 1px solid var(--border);
+      padding: 16px 12px 12px; overflow-y: auto;
+    }
+    .brand { font-weight: 800; letter-spacing: -.02em; font-size: 20px; padding: 0 10px 16px; }
+    .brand .dot { color: var(--accent); }
+    .brand-sub {
+      font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--muted); margin-left: 7px; vertical-align: 3px;
+    }
+    .sidebar nav { flex: 1; }
+    .nav-group { margin-bottom: 18px; }
+    .nav-head {
+      font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+      color: var(--muted); padding: 0 10px 6px;
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border-radius: 8px; cursor: pointer;
+      font-weight: 600; color: var(--muted); line-height: 1.3;
+    }
+    .nav-item:hover { background: var(--surface-2); color: var(--text); }
+    .nav-item.active { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+    .nav-glyph { width: 18px; text-align: center; font-size: 13px; opacity: .85; }
+    .nav-label { flex: 1; min-width: 0; }
+    .nav-badge {
+      background: var(--accent); color: var(--accent-fg);
+      border-radius: 999px; padding: 1px 7px; font-size: 11px; font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .nav-item.active .nav-badge { background: var(--accent); color: var(--accent-fg); }
+    .sidebar-foot { border-top: 1px solid var(--border); padding-top: 10px; }
+    .who { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .who-avatar {
+      flex: 0 0 30px; height: 30px; border-radius: 999px;
+      background: var(--surface-2); color: var(--text);
+      display: grid; place-items: center; font-size: 11.5px; font-weight: 700;
+    }
+    .who .email {
+      font-weight: 600; font-size: 12.5px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .role-tag {
+      font-size: 10px; font-weight: 700; letter-spacing: .07em;
+      color: var(--muted); text-transform: uppercase;
+    }
+
+    .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
     header.top {
-      position: sticky; top: 0; z-index: 5;
-      display: flex; align-items: center; gap: 14px;
-      padding: 12px 22px; background: var(--surface);
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 24px; background: var(--surface);
       border-bottom: 1px solid var(--border);
     }
-    .brand { font-weight: 800; letter-spacing: -.01em; font-size: 16px; }
-    .brand .dot { color: var(--accent); }
+    .top-title { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+    .top-sub { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
     .spacer { flex: 1; }
-    .who { text-align: right; line-height: 1.25; }
-    .who .email { font-weight: 600; }
-    .tabs { display: flex; gap: 4px; padding: 10px 22px 0; }
-    .tab { padding: 8px 14px; border-radius: 8px 8px 0 0; font-weight: 600; color: var(--muted); cursor: pointer; border: 1px solid transparent; border-bottom: none; }
-    .tab.active { color: var(--text); background: var(--surface); border-color: var(--border); }
-    main { max-width: 1000px; margin: 0 auto; padding: 20px 22px 80px; }
+    .quickfind {
+      width: 260px; padding: 7px 11px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+      font-family: inherit; font-size: 13px;
+    }
+    .quickfind:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    main { flex: 1; overflow-y: auto; max-width: 1080px; width: 100%; padding: 20px 24px 80px; }
+
+    @media (max-width: 860px) {
+      .shell { flex-direction: column; height: auto; overflow: visible; }
+      .sidebar { flex: 0 0 auto; width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+      .sidebar nav { display: flex; gap: 16px; flex-wrap: wrap; }
+      .pane { overflow: visible; }
+      .quickfind { width: 160px; }
+    }
 
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 16px; }
     .card > h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); display: flex; align-items: center; gap: 8px; }
@@ -394,6 +456,17 @@
       saveSession();
       render();
       loadForScreen(state.screen);
+      primeBadges();
+    }
+
+    // Load the queues this role can see, so the sidebar counts mean something on
+    // arrival instead of appearing one at a time as tabs are opened. Failures are
+    // swallowed: a badge that cannot be counted simply does not show, and each
+    // screen still reports its own errors properly when opened.
+    function primeBadges() {
+      if (roleCanSee("withdrawals") && state.withdrawals.items === null && !state.withdrawals.loading) loadWithdrawals();
+      if (roleCanSee("queue") && state.queue.items === null && !state.queue.loading) loadQueue();
+      if (roleCanSee("verifications") && state.verifications.items === null && !state.verifications.loading) loadVerifications();
     }
     function logout(msg) {
       state.token = null; state.staff = null;
@@ -531,29 +604,121 @@
       return h("div", { class: "login-wrap" }, h("div", { class: "card login-card" }, form));
     }
 
-    function Header() {
-      return h("header", { class: "top" },
-        h("div", { class: "brand" }, "Fayr ", h("span", { class: "dot" }, "·"), " Support"),
-        h("div", { class: "spacer" }),
-        h("div", { class: "who" },
-          h("div", { class: "email" }, state.staff ? state.staff.email : ""),
-          h("div", { class: "muted", style: "font-size:12px" }, state.staff ? state.staff.role : "")),
-        h("button", { class: "btn btn-sm btn-ghost", onclick: function () { logout(); } }, "Log out")
-      );
+    // ── Console shell ───────────────────────────────────────────────────────
+    // The navigation is GROUPED rather than a flat strip, because the seven areas
+    // are not peers: three are work queues someone is expected to clear, two are
+    // things you maintain, two are things you look at. A queue with items waiting
+    // carries a count, so an operator can see where the work is without opening
+    // each one.
+    var NAV_GROUPS = [
+      ["Queues", [
+        ["withdrawals", "Withdrawals", "₹"],
+        ["queue", "Questions", "✉"],
+        ["verifications", "Screenshots", "▣"],
+      ]],
+      ["Catalogue", [
+        ["campaigns", "Campaigns", "◈"],
+        ["staff", "Staff", "◍"],
+      ]],
+      ["Insight", [
+        ["reports", "Reports", "◱"],
+        ["search", "Find a user", "⌕"],
+      ]],
+    ];
+
+    // How many items are waiting in each queue. Null until that queue has been
+    // loaded once — a badge showing 0 when nothing has been counted would be a
+    // claim we cannot make.
+    function pendingCount(id) {
+      if (id === "withdrawals") {
+        if (!state.withdrawals.items) return null;
+        return state.withdrawals.items.filter(function (w) { return w.status === "REQUESTED"; }).length;
+      }
+      if (id === "queue") {
+        if (!state.queue.items) return null;
+        return state.queue.items.filter(function (q) { return q.status !== "CLOSED"; }).length;
+      }
+      if (id === "verifications") {
+        if (!state.verifications.items) return null;
+        return state.verifications.total != null
+          ? state.verifications.total
+          : state.verifications.items.length;
+      }
+      return null;
     }
 
-    function Tabs() {
-      function tab(id, label) {
-        return h("div", {
-          class: "tab" + (state.screen === id ? " active" : ""),
-          role: "button", tabindex: "0",
-          onclick: function () { switchTab(id); },
-          onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(id); } }
-        }, label);
+    function Sidebar() {
+      var groups = NAV_GROUPS.map(function (g) {
+        var items = g[1].filter(function (d) { return roleCanSee(d[0]); });
+        if (!items.length) return null; // a role that owns nothing here sees no heading
+        return h("div", { class: "nav-group" },
+          h("div", { class: "nav-head" }, g[0]),
+          h("div", null, items.map(function (d) {
+            var id = d[0], count = pendingCount(id);
+            return h("div", {
+              class: "nav-item" + (state.screen === id ? " active" : ""),
+              role: "button", tabindex: "0",
+              onclick: function () { switchTab(id); },
+              onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(id); } }
+            },
+              h("span", { class: "nav-glyph" }, d[2]),
+              h("span", { class: "nav-label" }, d[1]),
+              count ? h("span", { class: "nav-badge" }, String(count)) : null);
+          })));
+      }).filter(Boolean);
+
+      return h("aside", { class: "sidebar" },
+        h("div", { class: "brand" }, "fayr", h("span", { class: "dot" }, "."), h("span", { class: "brand-sub" }, "ops")),
+        h("nav", null, groups),
+        h("div", { class: "sidebar-foot" },
+          h("div", { class: "who" },
+            h("div", { class: "who-avatar" }, initialsOf(state.staff)),
+            h("div", { style: "min-width:0" },
+              h("div", { class: "email", title: state.staff ? state.staff.email : "" }, state.staff ? state.staff.email : ""),
+              h("div", { class: "role-tag" }, state.staff ? state.staff.role : ""))),
+          h("button", { class: "btn btn-sm btn-ghost", style: "width:100%;margin-top:8px", onclick: function () { logout(); } }, "Log out")));
+    }
+
+    function initialsOf(staff) {
+      if (!staff) return "?";
+      var src = staff.name || staff.email || "?";
+      var parts = String(src).replace(/@.*/, "").split(/[.\s_-]+/).filter(Boolean);
+      return ((parts[0] || "?")[0] + (parts[1] ? parts[1][0] : "")).toUpperCase();
+    }
+
+    var SCREEN_TITLE = {
+      withdrawals: ["Withdrawals", "Money leaving Fayr. Approve, reject, then mark paid once the transfer is out."],
+      queue: ["Questions", "Users waiting on an answer. Oldest first."],
+      verifications: ["Screenshot verifications", "Tier-3 supporting evidence. Nothing here approves itself."],
+      campaigns: ["Campaigns", "The offers users can claim."],
+      reports: ["Reports", "Counts and totals, downloadable as a spreadsheet."],
+      search: ["Find a user", "Look someone up by mobile number."],
+      staff: ["Staff accounts", "Who can sign in here, and what they can reach."],
+      user: ["User", "Everything Fayr holds on one person."]
+    };
+
+    function Topbar() {
+      var t = SCREEN_TITLE[state.screen] || ["", ""];
+      return h("header", { class: "top" },
+        h("div", { style: "min-width:0" },
+          h("h1", { class: "top-title" }, t[0]),
+          h("div", { class: "top-sub" }, t[1])),
+        h("div", { class: "spacer" }),
+        // A jump-to-user box on every screen: the commonest ops task starts with
+        // a person, and hunting for the right tab first is friction.
+        roleCanSee("search") ? QuickFind() : null);
+    }
+
+    function QuickFind() {
+      var input = h("input", { class: "quickfind", type: "search", placeholder: "Jump to a user by mobile…", "aria-label": "Find a user by mobile number" });
+      function go(e) {
+        e.preventDefault();
+        var v = input.value.trim();
+        if (!v) return;
+        state.screen = "search";
+        doSearch(v); // owns the search slice + the re-render
       }
-      var defs = [["withdrawals", "Withdrawals"], ["queue", "Open questions"], ["verifications", "Verifications"], ["campaigns", "Campaigns"], ["reports", "Reports"], ["search", "Search user"], ["staff", "Staff"]];
-      var tabs = defs.filter(function (d) { return roleCanSee(d[0]); }).map(function (d) { return tab(d[0], d[1]); });
-      return h("div", { class: "tabs" }, tabs);
+      return h("form", { onsubmit: go }, input);
     }
     function switchTab(id) {
       campaignForm = null; // don't carry a half-filled campaign form across tabs
@@ -1188,6 +1353,9 @@
       try {
         var resp = await api("GET", "/admin/verifications");
         v.items = (resp && resp.items) || [];
+        // The queue is PAGED, so items.length is one page — the badge must show
+        // the server's total or it silently under-reports the backlog.
+        v.total = resp && typeof resp.total === "number" ? resp.total : v.items.length;
       } catch (e) { v.error = e.message; }
       v.loading = false; render();
     }
@@ -1595,9 +1763,9 @@
       else if (state.screen === "search") content = SearchScreen();
       else if (state.screen === "staff") content = StaffScreen();
       else if (state.screen === "user") content = UserScreen();
-      return h("div", null, Header(),
-        state.screen !== "user" ? Tabs() : null,
-        h("main", null, content));
+      return h("div", { class: "shell" },
+        Sidebar(),
+        h("div", { class: "pane" }, Topbar(), h("main", null, content)));
     }
 
     // ── Mount / boot ────────────────────────────────────────────────────────
@@ -1611,7 +1779,7 @@
         try {
           var me = await api("GET", "/admin/auth/me");
           state.staff = me; state.view = "app"; state.screen = defaultScreen(); saveSession();
-          render(); loadForScreen(state.screen); return;
+          render(); loadForScreen(state.screen); primeBadges(); return;
         } catch (e) { /* 401 already routed to logout(); other errors fall through */ }
       }
       state.view = "login"; render();
