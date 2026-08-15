@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { fontMap } from './src/ui/fonts';
 
@@ -15,6 +16,11 @@ import WalletScreen from './src/WalletScreen';
 import SupportScreen from './src/SupportScreen';
 import PolicyScreen from './src/PolicyScreen';
 import AuthScreen from './src/AuthScreen';
+import MyProductsScreen from './src/MyProductsScreen';
+import EarningsScreen from './src/EarningsScreen';
+import ProfileScreen from './src/ProfileScreen';
+import ProofUploadScreen from './src/ProofUploadScreen';
+import BottomNav from './src/ui/BottomNav';
 import { PLATFORM_LIST } from './src/platforms';
 import { load as loadTask, applyAuthoritative, configureSync } from './src/taskStore';
 import * as authSession from './src/backend/authSession';
@@ -23,6 +29,25 @@ import * as evidenceSync from './src/backend/evidenceSync';
 import { postEvidence } from './src/backend/tasksApi';
 
 const Stack = createNativeStackNavigator();
+const Tabs = createBottomTabNavigator();
+
+// The four tabs from the design's BottomNav, in the design's order. They are the
+// app's ROOT: everything else (a task, the wallet, help, a marketplace WebView)
+// pushes on top of them, so the bar is present exactly where the design shows it
+// and absent on the screens the design draws without it.
+function TabsRoot() {
+  return (
+    <Tabs.Navigator
+      screenOptions={{ headerShown: false }}
+      tabBar={(props) => <BottomNav {...props} />}
+    >
+      <Tabs.Screen name="Home" component={HomeScreen} />
+      <Tabs.Screen name="MyProducts" component={MyProductsScreen} />
+      <Tabs.Screen name="Earnings" component={EarningsScreen} />
+      <Tabs.Screen name="Profile" component={ProfileScreen} />
+    </Tabs.Navigator>
+  );
+}
 
 // Resolve the campaign for THIS navigation from the backend-loaded store: the
 // specific one passed in route params (Task screen → marketplace), else the
@@ -104,8 +129,8 @@ export default function App() {
         <StatusBar style="dark" />
         <Stack.Navigator>
           <Stack.Screen
-            name="Home"
-            component={HomeScreen}
+            name="Tabs"
+            component={TabsRoot}
             options={{ headerShown: false }}
           />
           {/* Campaign detail owns its own hero + back button, so no nav header. */}
@@ -117,6 +142,8 @@ export default function App() {
           {/* Help and the policy documents own their headers as well. */}
           <Stack.Screen name="Support" component={SupportScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Policy" component={PolicyScreen} options={{ headerShown: false }} />
+          {/* Screenshot proof — the tier-3 fallback when the scraper can't read. */}
+          <Stack.Screen name="ProofUpload" component={ProofUploadScreen} options={{ headerShown: false }} />
           {/* The wallet owns its own gradient header and back button too. */}
           <Stack.Screen
             name="Wallet"

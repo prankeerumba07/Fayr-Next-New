@@ -5,7 +5,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PLATFORM_LIST, PLATFORMS } from './platforms';
-import { signOut } from './backend/authApi';
 import * as campaignStore from './backend/campaignStore';
 import { getWallet } from './backend/meApi';
 import { hasTask } from './taskStore';
@@ -110,14 +109,13 @@ export default function HomeScreen({ navigation }) {
             ))}
           </View>
         </View>
-        <TouchableOpacity onPress={() => signOut()} style={styles.logout} activeOpacity={0.7}>
-          <Text style={styles.logoutText}>Log out</Text>
-        </TouchableOpacity>
       </LinearGradient>
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={{ padding: SPACE.lg, paddingBottom: insets.bottom + 32 }}
+        // The tab bar now sits over the bottom of this screen; its own safe-area
+        // padding is already applied there, so the list only needs to clear it.
+        contentContainerStyle={{ padding: SPACE.lg, paddingBottom: SPACE.xxl }}
       >
         <SectionTitle>Products for you</SectionTitle>
         {!loaded ? (
@@ -193,8 +191,6 @@ const styles = StyleSheet.create({
   dots: { flexDirection: 'row', gap: 5, marginTop: 10 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(25,25,25,0.25)' },
   dotActive: { width: 16, backgroundColor: COLOR.ink },
-  logout: { position: 'absolute', right: SPACE.lg, bottom: 8 },
-  logoutText: { fontFamily: FONT.bodySemi, fontSize: 12, color: '#8a7a10' },
 
   scroll: { flex: 1 },
   loadingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
