@@ -40,8 +40,13 @@ function refreshOnce() {
 export async function authedFetch(path, options = {}) {
   const attempt = async () => {
     const token = session.getAccessToken();
+    // A FormData body MUST set its own content-type, because only the runtime
+    // knows the multipart boundary it generated. Forcing application/json here
+    // made every file upload arrive as an unparseable body — so the JSON default
+    // applies to everything EXCEPT multipart.
+    const isMultipart = typeof FormData !== 'undefined' && options.body instanceof FormData;
     const headers = {
-      'content-type': 'application/json',
+      ...(isMultipart ? null : { 'content-type': 'application/json' }),
       ...(options.headers || {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     };

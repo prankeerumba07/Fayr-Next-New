@@ -26,7 +26,13 @@
     "plugins": [
       "expo-secure-store",
       "./plugins/withFmtConsteval",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Fayr needs your photo library so you can send a screenshot of your order or review as proof. Only the image you pick is uploaded."
+        }
+      ]
     ]
   }
 }
