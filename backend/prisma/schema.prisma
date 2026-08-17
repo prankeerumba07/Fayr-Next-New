@@ -38,6 +38,18 @@ model User {
   // PAN anchor (fraud loophole 1): at most one account per PAN. Nullable until the
   // user first cashes out; @unique makes the one-user-per-PAN rule a DB invariant.
   pan       String?    @unique
+  // ── Profile, collected by the first-run setup sequence ───────────────────
+  // All optional: an account is fully usable before setup runs, and a user who
+  // skips or abandons setup must never be locked out of the app. `setupDoneAt`
+  // is what the app checks to decide whether to show the sequence again — a
+  // non-null name is NOT the same thing, because a user may finish setup while
+  // declining to give a name.
+  name        String?
+  ageBand     String? // one of AGE_BANDS; a band, never a date of birth
+  gender      String? // one of GENDERS, includes "Prefer not to say"
+  categories  String[] @default([]) // shopping interests, drives the feed later
+  platforms   String[] @default([]) // marketplaces they already shop on
+  setupDoneAt DateTime?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
