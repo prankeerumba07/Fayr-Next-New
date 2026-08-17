@@ -17,7 +17,8 @@
 // shown an order that cannot qualify; the decision here is the authoritative one
 // and applies identically to scraped, screenshot/OCR and manually-typed dates.
 
-import { DAY } from './states';
+import type { Evidence } from './evidence.types';
+import { BLOCKERS, DAY } from './states';
 
 /**
  * A user who finds an offer, opens the marketplace, buys, and only THEN comes
@@ -120,4 +121,69 @@ export function lookbackDays(
   const spanMs = Math.max(0, now - window.floor);
   const days = Math.ceil(spanMs / DAY) + 1; // +1 so the floor's own day is included
   return Math.max(1, Math.min(days, maxDays));
+}
+
+/**
+ * What the user is told. Two rules that must hold for every line here:
+ *
+ *  1. It must read as a RULE, not a glitch. "We couldn't read your order" made a
+ *     deliberate refusal look like a broken scraper.
+ *  2. It must say what to do next — or say plainly that there is nothing to do.
+ *     Never leave someone guessing about their money.
+ *
+ * No upload can change a date, so neither message offers one.
+ */
+export const OUT_OF_WINDOW_MESSAGE: Record<
+  Exclude<OrderWindowVerdict, 'ok'>,
+  string
+> = {
+  'before-claim':
+    'You bought this before you claimed the offer, so it doesn’t qualify. '
+    + 'Only orders placed after you claim can be refunded. To earn a refund, '
+    + 'claim the offer first, then buy the product.',
+  'after-deadline':
+    'You bought this after the time to buy had run out, so it doesn’t qualify. '
+    + 'Claim the offer again if it is still open, then buy within the deadline.',
+};
+
+export interface WindowScreenResult {
+  evidence: Evidence;
+  verdict: OrderWindowVerdict;
+  /** True when the order was refused and stripped from the evidence. */
+  refused: boolean;
+}
+
+/**
+ * THE ENFORCEMENT POINT. Applied to every evidence submission regardless of
+ * source, so scraped, screenshot/OCR and typed dates are all bound identically —
+ * deliberately NOT behind the opt-in plausibility flag, which the staff OCR path
+ * turns off.
+ *
+ * An out-of-window order is STRIPPED rather than 400'd: the submission still
+ * lands as an audit record, the task carries an honest blocker the screen can
+ * explain, and — the part that matters for money — the order never becomes the
+ * task's anchor, so no itemPaise or orderId is written and nothing can compute a
+ * refund from it.
+ *
+ * The delivery goes with it: a delivery date for an order that does not qualify
+ * is not evidence of anything. The review is kept, because it is harmless
+ * information and cannot advance the task on its own.
+ */
+export function screenEvidenceByWindow(
+  evidence: Evidence,
+  window: OrderWindow,
+): WindowScreenResult {
+  const verdict = checkOrderWindow(evidence.order?.date ?? null, window);
+  if (verdict === 'ok') return { evidence, verdict, refused: false };
+  return {
+    verdict,
+    refused: true,
+    evidence: {
+      ...evidence,
+      order: null,
+      delivery: null,
+      blocker: BLOCKERS.ORDER_OUT_OF_WINDOW,
+      reason: OUT_OF_WINDOW_MESSAGE[verdict],
+    },
+  };
 }

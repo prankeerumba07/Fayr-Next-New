@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -17,6 +18,7 @@ import {
   resolveChargedPaise,
 } from './engine/charged-amount';
 import { checkPlausibility } from './engine/evidence-plausibility';
+import { orderWindow, screenEvidenceByWindow } from './engine/order-window';
 import type { Evidence } from './engine/evidence.types';
 import { computeRefundPaise } from './engine/money';
 import { policyForWindowDays } from './engine/return-policy';
@@ -55,6 +57,7 @@ type ReleaseOutcome =
  */
 @Injectable()
 export class TaskService {
+  private readonly logger = new Logger(TaskService.name);
   private readonly claimTtlDays: number;
 
   constructor(
@@ -609,7 +612,36 @@ export class TaskService {
           );
         }
       }
-      const result = transition(task, event);
+
+      // THE DATE RULE — the campaign must have caused the purchase.
+      //
+      // Deliberately OUTSIDE the `opts.plausibility` flag: that flag is turned off
+      // by the staff OCR-approval path, so putting the rule inside it would let a
+      // screenshot of a January order in through a door the scraper is barred
+      // from. This runs for EVERY evidence event whatever its source, which is
+      // what makes the rule authoritative rather than a scraper convention — and
+      // what will bind manual entry automatically when it exists.
+      let effective = event;
+      if (event.type === 'EVIDENCE') {
+        const screened = screenEvidenceByWindow(
+          event.evidence,
+          orderWindow({
+            claimedAt: row.createdAt.getTime(),
+            campaignCreatedAt: campaign.createdAt.getTime(),
+            claimExpiresAt: row.claimExpiresAt?.getTime() ?? null,
+          }),
+        );
+        if (screened.refused) {
+          // The submission still lands as an audit record, and the task carries a
+          // blocker the screen explains — but the order never becomes the anchor,
+          // so no itemPaise or orderId is written and no refund can be computed.
+          this.logger.warn(
+            `order out of window (${screened.verdict}) on task ${taskId}`,
+          );
+          effective = { ...event, evidence: screened.evidence };
+        }
+      }
+      const result = transition(task, effective);
       if (result.rejected) {
         throw new ConflictException(result.reason ?? 'transition rejected');
       }

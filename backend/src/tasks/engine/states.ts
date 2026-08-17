@@ -36,6 +36,13 @@ export const BLOCKERS = {
   NO_DELIVERY_DATE: 'no_delivery_date',
   REVIEW_NOT_PUBLIC: 'review_not_public',
   RETURNED: 'returned',
+  /**
+   * The order is real and readable — it simply predates the claim (or postdates
+   * the purchase deadline). A RULE, not a failure, and unfixable by any upload:
+   * distinct from ORDER_UNREADABLE precisely so the screen can say so and NOT
+   * offer a screenshot that cannot help.
+   */
+  ORDER_OUT_OF_WINDOW: 'order_out_of_window',
 } as const;
 
 export type BlockerName = (typeof BLOCKERS)[keyof typeof BLOCKERS];
