@@ -739,4 +739,67 @@ describe('Task loop (e2e)', () => {
       ).toBe(1);
     });
   });
+
+  // A user must not be able to ASSERT evidence about themselves. Anyone can type
+  // "I paid ₹5,000" or upload a doctored invoice, so every asserted source has to
+  // arrive through the staff-approval funnel — never straight off the device.
+  describe('asserted evidence sources are refused on the user endpoint', () => {
+    let token: string;
+    let taskId: string;
+
+    beforeEach(async () => {
+      const user = await newUser();
+      token = user.token;
+      await ticketsSvc.grantSignup(user.id);
+      const campaign = await makeCampaign();
+      const res = await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id })
+        .expect(201);
+      taskId = res.body.id;
+    });
+
+    for (const source of ['manual', 'invoice', 'ocr']) {
+      it(`rejects an order claiming source "${source}"`, async () => {
+        await request(server())
+          .post(`/tasks/${taskId}/evidence`)
+          .set('Authorization', bearer(token))
+          .send({ order: { id: 'made-up', itemPaise: '500000', source } })
+          .expect(400);
+      });
+
+      it(`rejects a delivery claiming source "${source}"`, async () => {
+        await request(server())
+          .post(`/tasks/${taskId}/evidence`)
+          .set('Authorization', bearer(token))
+          .send({ delivery: { at: Date.now(), source } })
+          .expect(400);
+      });
+    }
+
+    it('still accepts the attested scraper sources', async () => {
+      // The SAME order id throughout: changing it mid-task legitimately trips the
+      // plausibility guard (order-id-changed), which is a different rule from the
+      // one under test here.
+      for (const source of ['order-details', 'order-history', 'dkim']) {
+        await request(server())
+          .post(`/tasks/${taskId}/evidence`)
+          .set('Authorization', bearer(token))
+          .send({ order: { id: 'o-attested', itemPaise: '129900', source } })
+          .expect(200);
+      }
+    });
+
+    it('leaves no typed amount on the task after a rejected submission', async () => {
+      await request(server())
+        .post(`/tasks/${taskId}/evidence`)
+        .set('Authorization', bearer(token))
+        .send({ order: { id: 'made-up', itemPaise: '500000', source: 'manual' } })
+        .expect(400);
+      const row = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      expect(row.itemPaise).toBeNull();
+      expect(row.orderId).toBeNull();
+    });
+  });
 });

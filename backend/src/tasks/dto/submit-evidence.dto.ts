@@ -14,20 +14,29 @@ import {
 } from 'class-validator';
 import type { Evidence } from '../engine/evidence.types';
 import {
+  ATTESTED_SOURCES,
   BLOCKERS,
-  SOURCES,
   type BlockerName,
   type SourceName,
 } from '../engine/states';
 
 const BLOCKER_VALUES = Object.values(BLOCKERS);
 /**
- * Sources a USER may claim on submitted evidence — every source EXCEPT `ocr`.
- * `ocr` is the lowest tier and is minted only by the staff verification approve
- * action (a screenshot a staff member has reviewed); letting a user self-declare
- * `source: 'ocr'` here would smuggle a fragment past that mandatory human gate.
+ * Sources a USER may claim on submitted evidence: the ATTESTED ones only — what a
+ * machine read off the marketplace itself (a DKIM-signed email, or the scraper
+ * reading the account's own pages on-device).
+ *
+ * Every ASSERTED source — `manual`, `invoice`, `ocr` — is refused here, because
+ * all three are values the user chose: anyone can type "I paid ₹5,000", and a
+ * doctored screenshot or PDF extracts perfectly cleanly. They are minted ONLY by
+ * the staff verification approve action, so refusing them here is what makes the
+ * human gate mandatory rather than merely conventional.
+ *
+ * This used to allow-list everything except `ocr`, which left `manual` (a source
+ * that already existed) fully user-submittable — and, before the authority
+ * ranking was tiered, able to overwrite genuine scraped order data outright.
  */
-const SOURCE_VALUES = Object.values(SOURCES).filter((s) => s !== SOURCES.OCR);
+const SOURCE_VALUES: readonly string[] = ATTESTED_SOURCES;
 /** Integer paise as a decimal string — money crosses the wire as a string. */
 const PAISE = /^\d+$/;
 
