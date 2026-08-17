@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
@@ -15,7 +15,7 @@ import DetailScreen from './src/DetailScreen';
 import WalletScreen from './src/WalletScreen';
 import SupportScreen from './src/SupportScreen';
 import PolicyScreen from './src/PolicyScreen';
-import AuthScreen from './src/AuthScreen';
+import FirstRunFlow from './src/firstrun/FirstRunFlow';
 import MyProductsScreen from './src/MyProductsScreen';
 import EarningsScreen from './src/EarningsScreen';
 import ProfileScreen from './src/ProfileScreen';
@@ -72,7 +72,7 @@ function makeConnectScreen(platform) {
 // the user's identity WITH THE BACKEND — separate from the marketplace logins
 // that happen later inside the WebView. `authState`:
 //   'loading' — still reading the keychain (brief splash);
-//   'out'     — no valid session → AuthScreen;
+//   'out'     — no valid session → the first-run journey;
 //   'in'      — signed in → the existing Home/Task/marketplace stack.
 export default function App() {
   const [authState, setAuthState] = React.useState('loading');
@@ -102,23 +102,35 @@ export default function App() {
     loadTask();
   }, [authState]);
 
-  if (authState === 'loading' || !fontsLoaded) {
+  // Before a session exists the app runs the design's first-run journey —
+  // Splash → Onboarding → AuthLanding → PhoneEntry → Otp. The splash IS the
+  // session-restore wait, so there is no separate grey loading screen any more;
+  // `sessionRestoring` keeps it on screen until the keychain read finishes,
+  // which stops a signed-in user seeing a flash of sign-in.
+  //
+  // Fonts still gate the very first paint, because the splash is typography.
+  if (authState !== 'in') {
+    if (!fontsLoaded) {
+      return (
+        <SafeAreaProvider>
+          <StatusBar style="dark" />
+          <View style={styles.splash} />
+        </SafeAreaProvider>
+      );
+    }
     return (
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        <View style={styles.splash}>
-          <Text style={styles.splashBrand}>fayr</Text>
-          <ActivityIndicator size="large" color="#111" />
-        </View>
+        <FirstRunFlow sessionRestoring={authState === 'loading'} />
       </SafeAreaProvider>
     );
   }
 
-  if (authState === 'out') {
+  if (!fontsLoaded) {
     return (
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        <AuthScreen />
+        <View style={styles.splash} />
       </SafeAreaProvider>
     );
   }
@@ -177,12 +189,5 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  splashBrand: {
-    fontSize: 40,
-    fontWeight: '800',
-    color: '#111',
-    letterSpacing: -1,
-    marginBottom: 20,
   },
 });
