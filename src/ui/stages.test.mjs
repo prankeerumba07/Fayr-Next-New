@@ -113,5 +113,34 @@ console.log('\n=== 6. the next-step line replaces "Next: <source>" ===');
   ok(TONES.includes(taskStage({ state: STATES.CLAIMED }).tone), 'stage tones come from the design palette');
 }
 
+console.log('\n=== 7. an out-of-window order reads as a RULE, not a glitch ===');
+{
+  // The backend refuses an order placed before the user claimed the offer and
+  // sends back `order_out_of_window`. The screen must say WHY in plain words —
+  // and must not offer a screenshot, because no picture can change a date.
+  ok(BLOCKERS.ORDER_OUT_OF_WINDOW === 'order_out_of_window',
+    'the device knows the blocker the backend actually sends');
+
+  const e = explainBlocker(BLOCKERS.ORDER_OUT_OF_WINDOW, 'Amazon');
+  const text = `${e.title} ${e.body}`;
+  ok(e.title !== 'This claim needs a check', 'it has its own words, not the catch-all');
+  ok(/before/i.test(e.title), 'the title names the cause: it came before the offer');
+  ok(/doesn’t qualify|does not qualify/.test(text), 'says plainly that it does not qualify');
+
+  // The whole reason this blocker is separate from order_unreadable.
+  ok(e.cta === null && e.action === null, 'NO button — there is nothing to do about a date');
+  ok(!/screenshot|upload|photo|invoice/i.test(text),
+    'never offers proof that cannot possibly help');
+  ok(explainBlocker(BLOCKERS.ORDER_UNREADABLE, 'Amazon').action === 'upload',
+    '  ...while an unreadable order still does offer one (they must differ)');
+
+  // Must not read as breakage. "We could not read your order" was the dishonest
+  // copy this replaces: it made a deliberate refusal look like a broken scraper.
+  ok(!/could not read|couldn’t read|error|failed|went wrong/i.test(text),
+    'never reads as an error or a failure');
+  ok(/claim/i.test(e.body), 'and says what to do next instead of dead-ending');
+  ok(e.body.length > 60, 'it explains, rather than just labelling');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exitCode = 1;

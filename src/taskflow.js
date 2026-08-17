@@ -52,6 +52,11 @@ export const BLOCKERS = {
   NO_DELIVERY_DATE: 'no_delivery_date',
   REVIEW_NOT_PUBLIC: 'review_not_public',
   RETURNED: 'returned',
+  // Set by the BACKEND, never by this reader: the order is real and readable, it
+  // simply predates the claim (or postdates the purchase deadline). Kept separate
+  // from ORDER_UNREADABLE so the screen can say "this is a rule" and offer no
+  // screenshot — no picture can change a date. See backend order-window.ts.
+  ORDER_OUT_OF_WINDOW: 'order_out_of_window',
 };
 
 // Where a fact came from. Never let an unsourced value into the flow.

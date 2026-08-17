@@ -145,6 +145,23 @@ export function explainBlocker(blocker, platformName) {
         cta: null,
         action: null,
       };
+    case 'order_out_of_window':
+      // A RULE, not a glitch — and the one blocker with deliberately no way out.
+      // The old copy for this case was "We could not read this order", which made
+      // a decision we made on purpose look like our scraper breaking, and sent
+      // the user off to upload a screenshot that could never help. The body is
+      // normally replaced by the backend's own sentence (blockerReason), which
+      // distinguishes "before you claimed" from "after the deadline"; this is the
+      // safe fallback if it ever arrives without one.
+      return {
+        title: 'This purchase came before the offer',
+        body:
+          'You bought this before you claimed the offer, so it doesn’t qualify. '
+          + 'Only orders placed after you claim can be refunded. To earn a refund, '
+          + 'claim the offer first, then buy the product.',
+        cta: null,
+        action: null,
+      };
     case 'returned':
       return {
         title: 'This order was returned',
