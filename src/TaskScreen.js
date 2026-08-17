@@ -30,6 +30,7 @@ import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
 import { Card, RefundBadge, ProductImage } from './ui/primitives';
 import { clampMonotonic, releaseStageState } from './ui/timeline';
 import { closedInfo, explainBlocker, nextStepLine } from './ui/stages';
+import { goBackOrHome } from './ui/nav';
 import { StageChip } from './ui/stagebits';
 
 const POLICY = createPolicy();
@@ -530,7 +531,7 @@ export default function TaskScreen({ navigation, route }) {
           style={[styles.header, { paddingTop: insets.top + 8 }]}
         >
           <View style={styles.headerTop}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back} activeOpacity={0.8}>
+            <TouchableOpacity onPress={() => goBackOrHome(navigation)} style={styles.back} activeOpacity={0.8}>
               <Text style={styles.backIcon}>←</Text>
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Task status</Text>

@@ -24,6 +24,7 @@ import {
 } from './backend/withdrawalsApi';
 import { walletView } from './ui/wallet';
 import { toDisplayUpper } from './ui/text';
+import { goBackOrHome } from './ui/nav';
 
 const money = (paise) => `₹${formatPaise(paise) || '0.00'}`;
 
@@ -152,7 +153,7 @@ export default function WalletScreen({ navigation }) {
           style={[styles.header, { paddingTop: insets.top + 8 }]}
         >
           <View style={styles.headerRow}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back} activeOpacity={0.8}>
+            <TouchableOpacity onPress={() => goBackOrHome(navigation)} style={styles.back} activeOpacity={0.8}>
               <Text style={styles.backIcon}>←</Text>
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Your wallet</Text>

@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from './ui/theme';
 import { POLICY_VERSION, PRIVACY, TERMS } from './ui/policy';
+import { goBackOrHome } from './ui/nav';
 
 /**
  * Works both as a navigator route AND as a modal inside AuthScreen — which is
@@ -39,7 +40,7 @@ export default function PolicyScreen({ navigation, route, doc: docProp, onClose 
       >
         <View style={styles.headerRow}>
           <TouchableOpacity
-            onPress={() => (onClose ? onClose() : navigation.goBack())}
+            onPress={() => (onClose ? onClose() : goBackOrHome(navigation))}
             style={styles.back}
             activeOpacity={0.8}
           >

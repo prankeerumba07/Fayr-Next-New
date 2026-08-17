@@ -26,6 +26,7 @@ import { formatPaise } from './money';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW, estMaxRefundRupees } from './ui/theme';
 import { Card, RefundBadge, MarketplaceTag, ProductImage } from './ui/primitives';
 import { copyToClipboard } from './ui/clipboard';
+import { goBackOrHome } from './ui/nav';
 
 // Soft per-campaign hero tint (deterministic from the id) — the fayr palette's
 // pastels, standing in for the prototype's per-product theme colours.
@@ -220,7 +221,7 @@ export default function DetailScreen({ navigation, route }) {
           style={[styles.hero, { paddingTop: insets.top + 8 }]}
         >
           <TouchableOpacity
-            onPress={() => navigation.goBack()}
+            onPress={() => goBackOrHome(navigation)}
             style={styles.back}
             activeOpacity={0.8}
           >

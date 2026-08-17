@@ -27,6 +27,7 @@ import { getTaskId } from './taskStore';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from './ui/theme';
 import { StageChip } from './ui/stagebits';
 import { SUPPORTING_ONLY, WHAT_TO_CAPTURE, proofView } from './ui/proof';
+import { goBackOrHome } from './ui/nav';
 
 const KIND_ORDER = ['PURCHASE', 'DELIVERY', 'REVIEW'];
 
@@ -108,7 +109,7 @@ export default function ProofUploadScreen({ navigation, route }) {
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back} activeOpacity={0.8}>
+          <TouchableOpacity onPress={() => goBackOrHome(navigation)} style={styles.back} activeOpacity={0.8}>
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Send a screenshot</Text>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
@@ -22,6 +22,8 @@ import ProfileScreen from './src/ProfileScreen';
 import ProofUploadScreen from './src/ProofUploadScreen';
 import BottomNav from './src/ui/BottomNav';
 import { PLATFORM_LIST } from './src/platforms';
+import { goHome } from './src/ui/nav';
+import { COLOR, FONT } from './src/ui/theme';
 import { load as loadTask, applyAuthoritative, configureSync } from './src/taskStore';
 import * as authSession from './src/backend/authSession';
 import * as campaignStore from './src/backend/campaignStore';
@@ -65,6 +67,35 @@ function makeConnectScreen(platform) {
       undefined;
     return <ConnectScreen {...props} platform={platform} campaign={campaign} />;
   };
+}
+
+// A guaranteed one-tap exit out of a marketplace, in the native header — the
+// place a WebView can never cover or swallow.
+//
+// Reported live: after logging out of Amazon inside Connect Marketplaces there
+// was no way back to Home and the app had to be force-quit. Two separate things
+// make that possible, and this closes the second:
+//   1. the back arrow can only step back ONE screen, and the screen underneath a
+//      marketplace is often another marketplace-ish dead end (Home → Amazon →
+//      Task → back lands you inside Amazon's website again);
+//   2. there was exactly ONE way out, so anything wrong with it left no way out.
+// The default back arrow is deliberately KEPT — this sits beside it, so a normal
+// step-back still works and there is always a second, unconditional exit.
+function MarketplaceHomeButton({ navigation }) {
+  return (
+    <TouchableOpacity
+      onPress={() => goHome(navigation)}
+      style={styles.headerExit}
+      activeOpacity={0.7}
+      // Generous target: this is the control someone reaches for when they feel
+      // stuck, which is the worst moment to miss a small tap area.
+      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      accessibilityRole="button"
+      accessibilityLabel="Back to Fayr home"
+    >
+      <Text style={styles.headerExitText}>Fayr home</Text>
+    </TouchableOpacity>
+  );
 }
 
 // A Fayr-account session gates the whole app: the marketplace/task screens are
@@ -174,7 +205,14 @@ export default function App() {
               key={p.key}
               name={p.key}
               component={makeConnectScreen(p)}
-              options={{ title: p.name, headerTintColor: p.color }}
+              options={({ navigation }) => ({
+                title: p.name,
+                headerTintColor: p.color,
+                // "‹ Fayr", not "‹ Back": inside a marketplace's own website the
+                // user needs to know which app the arrow leaves TO.
+                headerBackTitle: 'Fayr',
+                headerRight: () => <MarketplaceHomeButton navigation={navigation} />,
+              })}
             />
           ))}
         </Stack.Navigator>
@@ -184,6 +222,8 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  headerExit: { paddingVertical: 6, paddingHorizontal: 4 },
+  headerExitText: { fontFamily: FONT.displaySemi, fontSize: 14.5, color: COLOR.ink },
   splash: {
     flex: 1,
     backgroundColor: '#fafafa',

@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { Card, Pill } from './ui/primitives';
+import { goBackOrHome } from './ui/nav';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from './ui/theme';
 import {
   askQuestion, getQuestion, listQuestions, replyToQuestion,
@@ -122,7 +123,7 @@ export default function SupportScreen({ navigation, route }) {
   }, [reply, active, load]);
 
   const goBack = () => {
-    if (view === 'list') navigation.goBack();
+    if (view === 'list') goBackOrHome(navigation);
     else { setView('list'); setError(null); }
   };
 
