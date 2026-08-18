@@ -4,8 +4,7 @@ import { TicketModule } from '../tickets/ticket.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { DevSmsSender } from './sms/dev-sms-sender';
-import { SMS_SENDER } from './sms/sms-sender';
+import { smsSenderProvider } from './sms/sms.provider';
 import { TokenService } from './token.service';
 
 /**
@@ -15,8 +14,10 @@ import { TokenService } from './token.service';
  * TTL are passed per-call from validated config, so there is no place for a
  * hardcoded fallback secret to hide.
  *
- * The SMS sender is bound to the dev (console) implementation. Swapping in a real
- * provider for production is a one-line change here and nowhere else.
+ * The SMS sender is chosen by SMS_PROVIDER at boot (see sms/sms.provider.ts), not
+ * hardcoded here. Unset means the console sender, so a fresh clone runs the whole
+ * auth flow offline; a named provider with incomplete credentials refuses to boot
+ * rather than degrading silently to the console.
  */
 @Module({
   imports: [JwtModule.register({}), TicketModule],
@@ -25,7 +26,7 @@ import { TokenService } from './token.service';
     AuthService,
     TokenService,
     JwtAuthGuard,
-    { provide: SMS_SENDER, useClass: DevSmsSender },
+    smsSenderProvider,
   ],
   // Exported so later feature modules can guard their routes and (rarely) mint
   // or revoke tokens. JwtModule is re-exported too, so JwtAuthGuard's own
