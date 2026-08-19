@@ -203,6 +203,68 @@ describe('MessageCentralSmsSender — never deliver two codes for one request', 
     await expect(sender.sendOtp(MOBILE, CODE)).rejects.toThrow();
   });
 
+  it('treats an UNPARSEABLE 200 body as a failure, not a success', async () => {
+    // The exact hole an adversarial review found: both halves of the success guard
+    // read body.json, which is null when parsing fails — and `undefined != null` is
+    // FALSE, so the second half short-circuits before it ever compares. A gateway
+    // HTML page or a plain-text "Success" counted as delivered, with no trace: the
+    // provider-reference line only logs when a transactionId is present.
+    const sender = build();
+    fetchMock.mockResolvedValueOnce(TOKEN_OK).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve('<html><body>Service temporarily unavailable</body></html>'),
+    });
+    await expect(sender.sendOtp(MOBILE, CODE)).rejects.toThrow();
+  });
+
+  it('treats a plain-text 200 body as a failure too', async () => {
+    const sender = build();
+    fetchMock
+      .mockResolvedValueOnce(TOKEN_OK)
+      .mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('Success') });
+    // Even a body that SAYS success: we cannot read a delivery id out of it, so we
+    // must not claim the code is on its way.
+    await expect(sender.sendOtp(MOBILE, CODE)).rejects.toThrow();
+  });
+
+  it('treats an empty 200 body as a failure', async () => {
+    const sender = build();
+    fetchMock
+      .mockResolvedValueOnce(TOKEN_OK)
+      .mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('') });
+    await expect(sender.sendOtp(MOBILE, CODE)).rejects.toThrow();
+  });
+
+  it('leaves a trace when it refuses an unreadable body — never silent', async () => {
+    const lines: string[] = [];
+    for (const level of ['log', 'warn', 'error'] as const) {
+      jest.spyOn(Logger.prototype, level).mockImplementation(((...a: unknown[]) => {
+        lines.push(a.map(String).join(' '));
+      }) as never);
+    }
+    const sender = build();
+    fetchMock
+      .mockResolvedValueOnce(TOKEN_OK)
+      .mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('<html>nope</html>') });
+    await expect(sender.sendOtp(MOBILE, CODE)).rejects.toThrow();
+    const all = lines.join('\n');
+    expect(all).toMatch(/could not be read as JSON/i);
+    expect(all).not.toContain(CODE);
+    // And it must NOT claim the code was sent.
+    expect(all).not.toMatch(/code sent/);
+  });
+
+  it('a missing responseCode with a valid body is still accepted', async () => {
+    // Not every documented response carries responseCode; a readable JSON body with
+    // no error must stay a success, or a working provider looks broken.
+    const sender = build();
+    fetchMock
+      .mockResolvedValueOnce(TOKEN_OK)
+      .mockResolvedValueOnce(json({ message: 'SUCCESS', data: { transactionId: 'x-1' } }));
+    await expect(sender.sendOtp(MOBILE, CODE)).resolves.toBeUndefined();
+  });
+
   it('refuses a number outside the configured country rather than mangling it', async () => {
     const sender = build();
     fetchMock.mockResolvedValue(SEND_OK);

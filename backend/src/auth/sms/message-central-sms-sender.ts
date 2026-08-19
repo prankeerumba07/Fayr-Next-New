@@ -142,9 +142,29 @@ export class MessageCentralSmsSender implements SmsSender {
     }
     // A 200 is not a success on its own: the provider reports failures inside the
     // body, and treating one as sent would leave the user waiting for nothing.
-    const errorMessage = body.json?.data?.errorMessage;
-    const responseCode = body.json?.responseCode;
-    if (errorMessage || (responseCode != null && Number(responseCode) !== 200)) {
+    //
+    // AN UNREADABLE BODY IS A FAILURE. This used to fall through to 'sent': both
+    // checks below read body.json, which is null when parsing fails, and
+    // `undefined != null` is FALSE in JS so the second check short-circuited before
+    // comparing anything. A gateway HTML page, a proxy interstitial, or a
+    // plain-text 'Success' therefore counted as delivered — and left no trace,
+    // because the provider-reference line only logs when a transactionId is
+    // present. We cannot confirm a send we cannot read, so we do not claim it.
+    if (body.json == null) {
+      this.logger.error(
+        `send response could not be read as JSON (HTTP ${res.status}): `
+        + `${body.raw.length ? scrubForLog(body.raw).slice(0, 300) : '(empty body)'}`,
+      );
+      throw new ServiceUnavailableException(USER_FACING_FAILURE);
+    }
+    const errorMessage = body.json.data?.errorMessage;
+    const responseCode = body.json.responseCode;
+    // Strict !== undefined: a documented response may legitimately omit
+    // responseCode, and `!= null` was the loose comparison that hid the bug above.
+    if (
+      errorMessage
+      || (responseCode !== undefined && responseCode !== null && Number(responseCode) !== 200)
+    ) {
       this.logger.error(`send refused by provider: ${scrubForLog(body.raw)}`);
       throw new ServiceUnavailableException(USER_FACING_FAILURE);
     }
