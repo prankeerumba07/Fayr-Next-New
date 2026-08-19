@@ -1,4 +1,4 @@
-import { HttpException, UnauthorizedException } from '@nestjs/common';
+import { HttpException, Logger as NestLogger, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { AuthService } from '../auth.service';
 import { OTP_MAX_ATTEMPTS, OTP_RESEND_COOLDOWN_SECONDS } from '../auth.constants';
@@ -139,6 +139,55 @@ describe.each([['dev'], ['messagecentral']])(
       prisma.otpChallenge.findFirst.mockResolvedValue(null);
       await service.requestOtp(MOBILE);
       expect(String(spy.mock.calls[0][1])).toMatch(/^\d{6}$/);
+    });
+
+    it('sends NOTHING for a BLOCKED account — the block sits above the sender', async () => {
+      // This test is the one the docblock above always claimed existed and did
+      // not. Without it, requestOtp loaded the user row, threw away `status`, and
+      // spent real SMS money on an account the fraud team had already blocked.
+      const spy = jest.spyOn(sms, 'sendOtp');
+      const { service, prisma } = build(sms);
+      prisma.otpChallenge.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', mobile: MOBILE, status: 'BLOCKED' });
+
+      await service.requestOtp(MOBILE);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('answers a BLOCKED account exactly as it answers a normal one', async () => {
+      // Indistinguishable on purpose: a different status, body or error would turn
+      // this endpoint into a way to discover which numbers are blocked.
+      const { service, prisma } = build(sms);
+      prisma.otpChallenge.findFirst.mockResolvedValue(null);
+
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', mobile: MOBILE, status: 'ACTIVE' });
+      const active = await service.requestOtp(MOBILE);
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', mobile: MOBILE, status: 'BLOCKED' });
+      const blocked = await service.requestOtp(MOBILE);
+
+      expect(blocked).toEqual(active);
+    });
+
+    it('still writes the challenge for a BLOCKED account, so the cooldown applies', async () => {
+      // Skipping the row would leave a blocked number free to hammer the endpoint,
+      // and would make the two cases distinguishable by timing.
+      const { service, prisma } = build(sms);
+      prisma.otpChallenge.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', mobile: MOBILE, status: 'BLOCKED' });
+      await service.requestOtp(MOBILE);
+      expect(prisma.otpChallenge.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('never names the number in the blocked-account log line', async () => {
+      const lines: string[] = [];
+      jest.spyOn(NestLogger.prototype, 'warn').mockImplementation(((...a: unknown[]) => {
+        lines.push(a.map(String).join(' '));
+      }) as never);
+      const { service, prisma } = build(sms);
+      prisma.otpChallenge.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1', mobile: MOBILE, status: 'BLOCKED' });
+      await service.requestOtp(MOBILE);
+      expect(lines.join('\n')).not.toContain('9876543210');
     });
 
     it('stores only a HASH of the code, never the code itself', async () => {

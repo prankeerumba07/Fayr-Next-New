@@ -26,6 +26,10 @@ class CapturingSmsSender implements SmsSender {
   last(mobile: string): string | undefined {
     return this.codes.get(mobile);
   }
+  /** Forget a number, so a later assertion can prove nothing NEW was sent. */
+  clear(mobile: string): void {
+    this.codes.delete(mobile);
+  }
 }
 
 describe('Auth + health (e2e)', () => {
@@ -270,37 +274,71 @@ describe('Auth + health (e2e)', () => {
   });
 
   describe('blocked accounts', () => {
-    it('rejects login for a BLOCKED user but still burns the code', async () => {
+    // The test that used to live here was called "rejects login for a BLOCKED user
+    // but still burns the code", and it asserted that requesting a code for a
+    // blocked number returned 200 AND delivered a code. That encoded a bug: the
+    // block check sat only in verifyOtp, after delivery, so a blocked account could
+    // spend real SMS money every cooldown window. Both properties are now tested
+    // separately, and the delivery one is inverted.
+
+    it('sends no code at all, and looks exactly like a normal request', async () => {
       const mobile = newMobile();
-      // First login to create the user, then block them.
+      await request(server()).post('/auth/otp/request').send({ mobile }).expect(200);
+      const first = sms.last(mobile)!;
       await request(server())
+        .post('/auth/otp/verify')
+        .send({ mobile, code: first })
+        .expect(200);
+      await prisma.user.update({ where: { mobile }, data: { status: 'BLOCKED' } });
+      // Clear the prior challenge so the resend cooldown doesn't refuse the next
+      // request (equivalent to the cooldown window having elapsed).
+      await prisma.otpChallenge.deleteMany({ where: { mobile } });
+      sms.clear(mobile);
+
+      const res = await request(server())
         .post('/auth/otp/request')
         .send({ mobile })
         .expect(200);
+
+      // Nothing delivered — this is the defect being fixed.
+      expect(sms.last(mobile)).toBeUndefined();
+      // ...but indistinguishable from a normal success, so the endpoint cannot be
+      // used to discover which numbers are blocked.
+      expect(res.body).toEqual({
+        expiresInSeconds: expect.any(Number),
+        resendInSeconds: expect.any(Number),
+      });
+      // The challenge row is still written, so the cooldown applies identically.
+      const rows = await prisma.otpChallenge.count({ where: { mobile } });
+      expect(rows).toBe(1);
+    });
+
+    it('refuses a correct code, and consumes it, once the account is blocked', async () => {
+      const mobile = newMobile();
+      await request(server()).post('/auth/otp/request').send({ mobile }).expect(200);
       const code1 = sms.last(mobile)!;
       await request(server())
         .post('/auth/otp/verify')
         .send({ mobile, code: code1 })
         .expect(200);
-      await prisma.user.update({
-        where: { mobile },
-        data: { status: 'BLOCKED' },
-      });
-      // Clear the prior challenge so the resend cooldown doesn't block the next
-      // request (equivalent to the cooldown window having elapsed).
-      await prisma.otpChallenge.deleteMany({ where: { mobile } });
 
-      // A new OTP for the blocked user verifies the code but is refused (403).
-      await request(server())
-        .post('/auth/otp/request')
-        .send({ mobile })
-        .expect(200);
+      // Take the SECOND code while the account is still usable, then block — the
+      // property under test is what verify does, not what request delivers.
+      await prisma.otpChallenge.deleteMany({ where: { mobile } });
+      await request(server()).post('/auth/otp/request').send({ mobile }).expect(200);
       const code2 = sms.last(mobile)!;
+      await prisma.user.update({ where: { mobile }, data: { status: 'BLOCKED' } });
+
       const res = await request(server())
         .post('/auth/otp/verify')
         .send({ mobile, code: code2 })
         .expect(403);
       expect(res.body.message).toBe('Account is blocked');
+
+      // Consumed regardless, so a correct code is strictly single-use even for a
+      // blocked account — no replaying it if the block is later lifted.
+      const challenge = await prisma.otpChallenge.findFirst({ where: { mobile } });
+      expect(challenge!.consumedAt).not.toBeNull();
     });
   });
 });
