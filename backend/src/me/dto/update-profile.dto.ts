@@ -92,4 +92,25 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsBoolean()
   setupDone?: boolean;
+
+  /**
+   * The affirmative act, from the setup sequence's "I UNDERSTAND — CONTINUE".
+   *
+   * Only `true` means anything. `false` is IGNORED rather than treated as a
+   * withdrawal: withdrawing consent is a separate, deliberate act with its own
+   * consequences, not a side effect of a profile PATCH that happens to omit a tick.
+   */
+  @IsOptional()
+  @IsBoolean()
+  acceptTerms?: boolean;
+
+  /**
+   * WHICH document was agreed to. Required whenever acceptTerms is true — an
+   * unversioned consent record proves nothing, so the request is refused rather
+   * than stored in a state that cannot be defended.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, 40)
+  termsVersion?: string;
 }

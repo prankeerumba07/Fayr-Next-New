@@ -1,4 +1,11 @@
-import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Patch,
+  UseGuards,
+} from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -28,6 +35,9 @@ export interface MyProfileResponse {
   categories: string[];
   platforms: string[];
   setupDone: boolean;
+  /** Which terms version is on record, and when it was agreed to. Null until then. */
+  termsVersion: string | null;
+  termsAcceptedAt: string | null;
   /** Whether a PAN is on file — never the PAN itself. */
   hasPan: boolean;
 }
@@ -85,6 +95,8 @@ export class MeController {
       categories?: string[];
       platforms?: string[];
       setupDoneAt?: Date;
+      termsVersion?: string;
+      termsAcceptedAt?: Date;
     } = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
     if (dto.ageBand !== undefined) data.ageBand = dto.ageBand;
@@ -93,6 +105,24 @@ export class MeController {
     // otherwise be stored twice and skew any later use of these lists.
     if (dto.categories !== undefined) data.categories = [...new Set(dto.categories)];
     if (dto.platforms !== undefined) data.platforms = [...new Set(dto.platforms)];
+
+    // CONSENT, RECORDED. Only `true` counts; `false` is ignored rather than read as
+    // a withdrawal, which is a separate deliberate act. The version is mandatory
+    // because an unversioned record cannot show WHAT was agreed to, and the
+    // timestamp is set HERE, on the server — a client-supplied one would prove
+    // nothing. A later version replaces the record, which is the correct behaviour
+    // when the terms change; nothing can clear it.
+    if (dto.acceptTerms === true) {
+      const version = (dto.termsVersion ?? '').trim();
+      if (version.length === 0) {
+        throw new BadRequestException(
+          'termsVersion is required when acceptTerms is true: a consent record '
+          + 'without a version cannot show what was agreed to.',
+        );
+      }
+      data.termsVersion = version;
+      data.termsAcceptedAt = new Date();
+    }
 
     const row = await this.prisma.user.findUniqueOrThrow({
       where: { id: user.id },
@@ -122,6 +152,8 @@ function toProfileResponse(row: {
   categories: string[];
   platforms: string[];
   setupDoneAt: Date | null;
+  termsVersion: string | null;
+  termsAcceptedAt: Date | null;
   pan: string | null;
 }): MyProfileResponse {
   return {
@@ -134,6 +166,10 @@ function toProfileResponse(row: {
     categories: row.categories,
     platforms: row.platforms,
     setupDone: row.setupDoneAt != null,
+    // Returned so the app can tell whether consent is on record and for WHICH
+    // version — that is how a terms change becomes visible rather than assumed.
+    termsVersion: row.termsVersion,
+    termsAcceptedAt: row.termsAcceptedAt ? row.termsAcceptedAt.toISOString() : null,
     // The PAN itself never leaves the server on a profile read — only whether
     // one exists, which is all any screen needs to know.
     hasPan: row.pan != null,

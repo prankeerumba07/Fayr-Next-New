@@ -50,6 +50,14 @@ model User {
   categories  String[] @default([]) // shopping interests, drives the feed later
   platforms   String[] @default([]) // marketplaces they already shop on
   setupDoneAt DateTime?
+
+  // CONSENT AS A RECORD, NOT A SCREEN.
+  // Under the DPDP Act a claim of consent with no timestamp and no version is
+  // worthless: you cannot show WHAT was agreed to or WHEN. Both are written by the
+  // SERVER when the user takes the affirmative action in setup — a client-supplied
+  // timestamp would prove nothing. Nullable because a user exists before consenting.
+  termsVersion    String?
+  termsAcceptedAt DateTime?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
