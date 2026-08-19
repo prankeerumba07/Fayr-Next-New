@@ -15,6 +15,7 @@
  *
  * Usage:  npm run sms:test -- +919876543210            (uses SMS_PROVIDER from .env)
  *         npm run sms:test -- +919876543210 2factor    (test ONE provider, no edit)
+ *         npm run sms:test -- +919876543210 twilio
  */
 import { config as loadDotenv } from 'dotenv';
 import { resolve } from 'node:path';
@@ -113,6 +114,14 @@ async function main(): Promise<void> {
     console.log(`     senderId   ${env.MESSAGECENTRAL_SENDER_ID}`);
     console.log(`     type       ${env.MESSAGECENTRAL_MESSAGE_TYPE}`);
     console.log(`     country    +${env.MESSAGECENTRAL_COUNTRY_CODE}`);
+  } else if (env.SMS_PROVIDER === 'twilio') {
+    console.log(`     endpoint   ${env.TWILIO_BASE_URL}`);
+    console.log(
+      `     sends as   ${env.TWILIO_MESSAGING_SERVICE_SID || env.TWILIO_FROM_NUMBER}`,
+    );
+    console.log(`     country    +${env.TWILIO_COUNTRY_CODE}`);
+    console.log('     REMINDER   on a trial, the recipient must be in Verified Caller IDs');
+    console.log('                and India must be enabled in Geo Permissions.');
   } else {
     console.log(`     endpoint   ${env.TWOFACTOR_BASE_URL}`);
     console.log(
@@ -138,6 +147,8 @@ async function main(): Promise<void> {
     env.MESSAGECENTRAL_CUSTOMER_ID,
     env.MESSAGECENTRAL_EMAIL,
     env.TWOFACTOR_API_KEY,
+    env.TWILIO_AUTH_TOKEN,
+    env.TWILIO_ACCOUNT_SID,
   ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
   global.fetch = (async (input: Parameters<typeof realFetch>[0], init?: RequestInit) => {
     const url = String(input);

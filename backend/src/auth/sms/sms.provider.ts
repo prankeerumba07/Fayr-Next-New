@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { type Env, isBase64 } from '../../config/env.validation';
 import { DevSmsSender } from './dev-sms-sender';
 import { MessageCentralSmsSender } from './message-central-sms-sender';
+import { TwilioSmsSender } from './twilio-sms-sender';
 import { TwoFactorSmsSender } from './two-factor-sms-sender';
 import { SMS_SENDER, type SmsSender } from './sms-sender';
 
@@ -27,6 +28,7 @@ export const BOOT_LINE = {
   messagecentral:
     'Active sender: MESSAGE CENTRAL — real SMS will be sent to real phones',
   '2factor': 'Active sender: 2FACTOR — real SMS will be sent to real phones',
+  twilio: 'Active sender: TWILIO — real SMS will be sent to real phones',
 } as const;
 
 const KNOWN = Object.keys(BOOT_LINE).join(', ');
@@ -35,6 +37,7 @@ const KNOWN = Object.keys(BOOT_LINE).join(', ');
 const REAL_PROVIDER_KEYS = [
   'MESSAGECENTRAL_CUSTOMER_ID',
   'TWOFACTOR_API_KEY',
+  'TWILIO_ACCOUNT_SID',
 ] as const;
 
 /** Credentials that Message Central cannot work without. */
@@ -112,6 +115,29 @@ export function createSmsSender(config: ConfigService<Env, true>): SmsSender {
     }
     const sender = new TwoFactorSmsSender(config);
     logger.log(BOOT_LINE['2factor']);
+    return sender;
+  }
+
+  if (provider === 'twilio') {
+    for (const name of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN'] as const) {
+      const value = config.get(name, { infer: true });
+      if (typeof value !== 'string' || value.trim().length === 0) {
+        throw new Error(
+          `${name} is required when SMS_PROVIDER=twilio. `
+          + 'Set it in backend/.env, or set SMS_PROVIDER=dev to print codes to the console instead.',
+        );
+      }
+    }
+    const from = String(config.get('TWILIO_FROM_NUMBER', { infer: true }) ?? '').trim();
+    const service = String(config.get('TWILIO_MESSAGING_SERVICE_SID', { infer: true }) ?? '').trim();
+    if (from.length === 0 && service.length === 0) {
+      throw new Error(
+        'TWILIO_FROM_NUMBER (or TWILIO_MESSAGING_SERVICE_SID) is required when '
+        + 'SMS_PROVIDER=twilio. It is the number the code is sent from.',
+      );
+    }
+    const sender = new TwilioSmsSender(config);
+    logger.log(BOOT_LINE.twilio);
     return sender;
   }
 

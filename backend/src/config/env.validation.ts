@@ -129,7 +129,9 @@ export const envSchema = z.object({
   // no 'auto' or 'fallback' value on purpose: silently degrading to the console
   // sender is how someone ends up demoing to founders believing texts are going
   // out when they are not.
-  SMS_PROVIDER: z.enum(['dev', 'messagecentral', '2factor']).default('dev'),
+  SMS_PROVIDER: z
+    .enum(['dev', 'messagecentral', '2factor', 'twilio'])
+    .default('dev'),
 
   // Message Central (MessageNow). Optional at the schema level because 'dev'
   // must need no credentials at all — a fresh clone has to run offline. The
@@ -199,6 +201,28 @@ export const envSchema = z.object({
   // rather than edit code if this account wants the other one.
   TWOFACTOR_NUMBER_FORMAT: z.enum(['e164', 'national']).default('e164'),
   TWOFACTOR_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
+
+  // Twilio Programmable Messaging. We supply the body and the code — never Twilio
+  // Verify, which generates and validates its own.
+  //
+  // TRIAL SHAPE, WHICH DRIVES THE ERROR HANDLING: 100 free messages, recipients must
+  // be added to Verified Caller IDs (at most 5), 30-day expiry. A send to an
+  // unverified number fails with Twilio 21608, and India must be enabled in Geo
+  // Permissions or it fails with 21408. Both are translated into instructions.
+  TWILIO_BASE_URL: z.string().url().default('https://api.twilio.com'),
+  TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
+  // Secret. Sent as Basic auth in a HEADER, never in a URL, and never logged.
+  TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
+  // The Twilio number the message comes from. Required unless a Messaging Service
+  // is used instead.
+  TWILIO_FROM_NUMBER: z.string().default(''),
+  // Optional alternative sender. Their API takes one OR the other, not both.
+  TWILIO_MESSAGING_SERVICE_SID: z.string().default(''),
+  TWILIO_COUNTRY_CODE: z
+    .string()
+    .regex(/^\d{1,3}$/, 'TWILIO_COUNTRY_CODE must be 1-3 digits')
+    .default('91'),
+  TWILIO_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
 });
 
 
@@ -225,6 +249,37 @@ const withCrossFieldRules = envSchema.superRefine((env, ctx) => {
         'SMS_PROVIDER=dev is refused when NODE_ENV=production: the console sender '
         + 'writes live login codes into the log and sends no SMS. Name a real provider.',
     });
+  }
+
+  if (env.SMS_PROVIDER === 'twilio') {
+    const required: Array<[string, string | undefined]> = [
+      ['TWILIO_ACCOUNT_SID', env.TWILIO_ACCOUNT_SID],
+      ['TWILIO_AUTH_TOKEN', env.TWILIO_AUTH_TOKEN],
+    ];
+    for (const [name, value] of required) {
+      if (value == null || value.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [name],
+          message: `${name} is required when SMS_PROVIDER=twilio`,
+        });
+      }
+    }
+    // One sender is mandatory, and neither is required on its own — so the rule is
+    // "at least one", stated as such rather than as two confusing failures.
+    if (
+      env.TWILIO_FROM_NUMBER.trim().length === 0
+      && env.TWILIO_MESSAGING_SERVICE_SID.trim().length === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['TWILIO_FROM_NUMBER'],
+        message:
+          'TWILIO_FROM_NUMBER (or TWILIO_MESSAGING_SERVICE_SID) is required when '
+          + 'SMS_PROVIDER=twilio',
+      });
+    }
+    return;
   }
 
   if (env.SMS_PROVIDER === '2factor') {

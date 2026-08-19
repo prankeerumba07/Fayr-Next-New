@@ -4,6 +4,7 @@ import { AuthService } from '../auth.service';
 import { OTP_MAX_ATTEMPTS, OTP_RESEND_COOLDOWN_SECONDS } from '../auth.constants';
 import { DevSmsSender } from './dev-sms-sender';
 import { MessageCentralSmsSender } from './message-central-sms-sender';
+import { TwilioSmsSender } from './twilio-sms-sender';
 import { TwoFactorSmsSender } from './two-factor-sms-sender';
 import type { SmsSender } from './sms-sender';
 
@@ -35,6 +36,13 @@ const ENV: Record<string, unknown> = {
   TWOFACTOR_COUNTRY_CODE: '91',
   TWOFACTOR_NUMBER_FORMAT: 'e164',
   TWOFACTOR_TIMEOUT_MS: 15000,
+  TWILIO_BASE_URL: 'https://api.twilio.com',
+  TWILIO_ACCOUNT_SID: 'ACaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  TWILIO_AUTH_TOKEN: 'f0e9d8c7b6a5f0e9d8c7b6a5f0e9d8c7',
+  TWILIO_FROM_NUMBER: '+15550001111',
+  TWILIO_MESSAGING_SERVICE_SID: '',
+  TWILIO_COUNTRY_CODE: '91',
+  TWILIO_TIMEOUT_MS: 15000,
 };
 
 /**
@@ -53,9 +61,13 @@ function stubNetwork(): void {
           responseCode: 200,
           token: 'jwt-token',
           data: { transactionId: 'txn-1', errorMessage: null },
-          // ...and 2Factor's, so one stub satisfies both.
+          // ...2Factor's...
           Status: 'Success',
           Details: 'session-id',
+          // ...and Twilio's, so one stub satisfies every sender.
+          sid: 'SM0123456789abcdef',
+          status: 'queued',
+          error_code: null,
         }),
       ),
   }) as never;
@@ -65,6 +77,7 @@ function makeSender(name: string): SmsSender {
   const config = { get: (k: string) => ENV[k] } as never;
   if (name === 'dev') return new DevSmsSender();
   if (name === '2factor') return new TwoFactorSmsSender(config);
+  if (name === 'twilio') return new TwilioSmsSender(config);
   return new MessageCentralSmsSender(config);
 }
 
@@ -88,7 +101,7 @@ function build(sms: SmsSender) {
   return { service, prisma };
 }
 
-describe.each([['dev'], ['messagecentral'], ['2factor']])(
+describe.each([['dev'], ['messagecentral'], ['2factor'], ['twilio']])(
   'security behaviour is identical — sender: %s',
   (name) => {
     let sms: SmsSender;

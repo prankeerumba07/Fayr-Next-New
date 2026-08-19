@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { DevSmsSender } from './dev-sms-sender';
 import { MessageCentralSmsSender } from './message-central-sms-sender';
+import { TwilioSmsSender } from './twilio-sms-sender';
 import { TwoFactorSmsSender } from './two-factor-sms-sender';
 import { BOOT_LINE, createSmsSender } from './sms.provider';
 
@@ -24,6 +25,11 @@ const FULL: Record<string, unknown> = {
   MESSAGECENTRAL_MESSAGE_TYPE: 'TRANSACTION',
   MESSAGECENTRAL_TIMEOUT_MS: 15000,
   MESSAGECENTRAL_TOKEN_TTL_MINUTES: 30,
+  TWILIO_BASE_URL: 'https://api.twilio.com',
+  TWILIO_FROM_NUMBER: '',
+  TWILIO_MESSAGING_SERVICE_SID: '',
+  TWILIO_COUNTRY_CODE: '91',
+  TWILIO_TIMEOUT_MS: 15000,
 };
 
 const cfg = (over: Record<string, unknown> = {}) =>
@@ -83,6 +89,41 @@ describe('createSmsSender — selection', () => {
     let made: unknown = null;
     try { made = createSmsSender(cfg({ SMS_PROVIDER: '2factor' })); } catch { /* expected */ }
     expect(made).toBeNull();
+  });
+
+  it("uses Twilio for 'twilio'", () => {
+    expect(
+      createSmsSender(cfg({
+        SMS_PROVIDER: 'twilio',
+        TWILIO_ACCOUNT_SID: 'ACxx',
+        TWILIO_AUTH_TOKEN: 'tok',
+        TWILIO_FROM_NUMBER: '+15550001111',
+      })),
+    ).toBeInstanceOf(TwilioSmsSender);
+  });
+
+  it('refuses to boot for twilio without a SID or token, naming the variable', () => {
+    const base = { SMS_PROVIDER: 'twilio', TWILIO_FROM_NUMBER: '+15550001111' };
+    expect(() => createSmsSender(cfg({ ...base, TWILIO_AUTH_TOKEN: 'tok' })))
+      .toThrow('TWILIO_ACCOUNT_SID');
+    expect(() => createSmsSender(cfg({ ...base, TWILIO_ACCOUNT_SID: 'ACxx' })))
+      .toThrow('TWILIO_AUTH_TOKEN');
+  });
+
+  it('refuses to boot for twilio with no sender at all, naming both options', () => {
+    const err = caught(() => createSmsSender(cfg({
+      SMS_PROVIDER: 'twilio', TWILIO_ACCOUNT_SID: 'ACxx', TWILIO_AUTH_TOKEN: 'tok',
+      TWILIO_FROM_NUMBER: '', TWILIO_MESSAGING_SERVICE_SID: '',
+    })));
+    expect(err!.message).toContain('TWILIO_FROM_NUMBER');
+    expect(err!.message).toContain('TWILIO_MESSAGING_SERVICE_SID');
+  });
+
+  it('accepts a Messaging Service instead of a from-number', () => {
+    expect(() => createSmsSender(cfg({
+      SMS_PROVIDER: 'twilio', TWILIO_ACCOUNT_SID: 'ACxx', TWILIO_AUTH_TOKEN: 'tok',
+      TWILIO_FROM_NUMBER: '', TWILIO_MESSAGING_SERVICE_SID: 'MGxx',
+    }))).not.toThrow();
   });
 
   it('THROWS on an unknown provider name — never falls back to dev', () => {
