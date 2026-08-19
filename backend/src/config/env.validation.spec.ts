@@ -146,6 +146,55 @@ describe('validateEnv — 2Factor', () => {
   });
 });
 
+describe('validateEnv — Twilio and Fast2SMS', () => {
+  it('accepts a complete Twilio configuration', () => {
+    const env = validateEnv({
+      ...BASE, SMS_PROVIDER: 'twilio', TWILIO_ACCOUNT_SID: 'ACxx',
+      TWILIO_AUTH_TOKEN: 'tok', TWILIO_FROM_NUMBER: '+15550001111',
+    });
+    expect(env.SMS_PROVIDER).toBe('twilio');
+    expect(env.TWILIO_BASE_URL).toBe('https://api.twilio.com');
+  });
+
+  it('refuses Twilio without a SID, a token, or any sender — naming each', () => {
+    const full: Record<string, string> = {
+      ...BASE, SMS_PROVIDER: 'twilio', TWILIO_ACCOUNT_SID: 'ACxx',
+      TWILIO_AUTH_TOKEN: 'tok', TWILIO_FROM_NUMBER: '+15550001111',
+    };
+    for (const key of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN']) {
+      const raw = { ...full };
+      delete raw[key];
+      expect(caught(() => validateEnv(raw))!.message).toContain(key);
+    }
+    const noSender = { ...full, TWILIO_FROM_NUMBER: '' };
+    const err = caught(() => validateEnv(noSender));
+    expect(err!.message).toContain('TWILIO_FROM_NUMBER');
+    expect(err!.message).toContain('TWILIO_MESSAGING_SERVICE_SID');
+  });
+
+  it('accepts a Messaging Service in place of a from-number', () => {
+    expect(() => validateEnv({
+      ...BASE, SMS_PROVIDER: 'twilio', TWILIO_ACCOUNT_SID: 'ACxx',
+      TWILIO_AUTH_TOKEN: 'tok', TWILIO_MESSAGING_SERVICE_SID: 'MGxx',
+    })).not.toThrow();
+  });
+
+  it('accepts a complete Fast2SMS configuration and refuses a missing key', () => {
+    expect(validateEnv({ ...BASE, SMS_PROVIDER: 'fast2sms', FAST2SMS_API_KEY: 'k' }).SMS_PROVIDER)
+      .toBe('fast2sms');
+    expect(caught(() => validateEnv({ ...BASE, SMS_PROVIDER: 'fast2sms' }))!.message)
+      .toContain('FAST2SMS_API_KEY');
+  });
+
+  it('gates each provider on ITS OWN variables only', () => {
+    // A Fast2SMS key must not satisfy Twilio, and vice versa.
+    expect(caught(() => validateEnv({ ...BASE, SMS_PROVIDER: 'twilio', FAST2SMS_API_KEY: 'k' })))
+      .toBeDefined();
+    expect(() => validateEnv({ ...BASE, SMS_PROVIDER: 'fast2sms', FAST2SMS_API_KEY: 'k' }))
+      .not.toThrow();
+  });
+});
+
 describe('isBase64 — the boot gate on a pasted credential', () => {
   it('accepts a properly padded value', () => {
     expect(isBase64(Buffer.from('password').toString('base64'))).toBe(true);

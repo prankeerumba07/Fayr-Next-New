@@ -4,6 +4,7 @@ import { AuthService } from '../auth.service';
 import { OTP_MAX_ATTEMPTS, OTP_RESEND_COOLDOWN_SECONDS } from '../auth.constants';
 import { DevSmsSender } from './dev-sms-sender';
 import { MessageCentralSmsSender } from './message-central-sms-sender';
+import { Fast2SmsSender } from './fast2sms-sms-sender';
 import { TwilioSmsSender } from './twilio-sms-sender';
 import { TwoFactorSmsSender } from './two-factor-sms-sender';
 import type { SmsSender } from './sms-sender';
@@ -43,6 +44,10 @@ const ENV: Record<string, unknown> = {
   TWILIO_MESSAGING_SERVICE_SID: '',
   TWILIO_COUNTRY_CODE: '91',
   TWILIO_TIMEOUT_MS: 15000,
+  FAST2SMS_BASE_URL: 'https://www.fast2sms.com',
+  FAST2SMS_API_KEY: 'Xy9AbCdEfGhIjKlMnOpQrStUvWxYz012345',
+  FAST2SMS_COUNTRY_CODE: '91',
+  FAST2SMS_TIMEOUT_MS: 15000,
 };
 
 /**
@@ -64,10 +69,13 @@ function stubNetwork(): void {
           // ...2Factor's...
           Status: 'Success',
           Details: 'session-id',
-          // ...and Twilio's, so one stub satisfies every sender.
+          // ...Twilio's...
           sid: 'SM0123456789abcdef',
           status: 'queued',
           error_code: null,
+          // ...and Fast2SMS's, so one stub satisfies every sender.
+          return: true,
+          request_id: 'lwdtp7cjyqxvfe9',
         }),
       ),
   }) as never;
@@ -78,6 +86,7 @@ function makeSender(name: string): SmsSender {
   if (name === 'dev') return new DevSmsSender();
   if (name === '2factor') return new TwoFactorSmsSender(config);
   if (name === 'twilio') return new TwilioSmsSender(config);
+  if (name === 'fast2sms') return new Fast2SmsSender(config);
   return new MessageCentralSmsSender(config);
 }
 
@@ -101,7 +110,7 @@ function build(sms: SmsSender) {
   return { service, prisma };
 }
 
-describe.each([['dev'], ['messagecentral'], ['2factor'], ['twilio']])(
+describe.each([['dev'], ['messagecentral'], ['2factor'], ['twilio'], ['fast2sms']])(
   'security behaviour is identical — sender: %s',
   (name) => {
     let sms: SmsSender;

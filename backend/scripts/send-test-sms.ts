@@ -16,6 +16,7 @@
  * Usage:  npm run sms:test -- +919876543210            (uses SMS_PROVIDER from .env)
  *         npm run sms:test -- +919876543210 2factor    (test ONE provider, no edit)
  *         npm run sms:test -- +919876543210 twilio
+ *         npm run sms:test -- +919876543210 fast2sms
  */
 import { config as loadDotenv } from 'dotenv';
 import { resolve } from 'node:path';
@@ -122,6 +123,11 @@ async function main(): Promise<void> {
     console.log(`     country    +${env.TWILIO_COUNTRY_CODE}`);
     console.log('     REMINDER   on a trial, the recipient must be in Verified Caller IDs');
     console.log('                and India must be enabled in Geo Permissions.');
+  } else if (env.SMS_PROVIDER === 'fast2sms') {
+    console.log(`     endpoint   ${env.FAST2SMS_BASE_URL}/dev/bulkV2`);
+    console.log('     route      q (Quick SMS — no DLT, random numeric sender)');
+    console.log(`     country    +${env.FAST2SMS_COUNTRY_CODE}`);
+    console.log('     REMINDER   about Rs 5 a message, so Rs 50 of credit is roughly ten.');
   } else {
     console.log(`     endpoint   ${env.TWOFACTOR_BASE_URL}`);
     console.log(
@@ -149,6 +155,7 @@ async function main(): Promise<void> {
     env.TWOFACTOR_API_KEY,
     env.TWILIO_AUTH_TOKEN,
     env.TWILIO_ACCOUNT_SID,
+    env.FAST2SMS_API_KEY,
   ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
   global.fetch = (async (input: Parameters<typeof realFetch>[0], init?: RequestInit) => {
     const url = String(input);

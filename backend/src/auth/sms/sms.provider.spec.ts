@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { DevSmsSender } from './dev-sms-sender';
 import { MessageCentralSmsSender } from './message-central-sms-sender';
+import { Fast2SmsSender } from './fast2sms-sms-sender';
 import { TwilioSmsSender } from './twilio-sms-sender';
 import { TwoFactorSmsSender } from './two-factor-sms-sender';
 import { BOOT_LINE, createSmsSender } from './sms.provider';
@@ -30,6 +31,9 @@ const FULL: Record<string, unknown> = {
   TWILIO_MESSAGING_SERVICE_SID: '',
   TWILIO_COUNTRY_CODE: '91',
   TWILIO_TIMEOUT_MS: 15000,
+  FAST2SMS_BASE_URL: 'https://www.fast2sms.com',
+  FAST2SMS_COUNTRY_CODE: '91',
+  FAST2SMS_TIMEOUT_MS: 15000,
 };
 
 const cfg = (over: Record<string, unknown> = {}) =>
@@ -124,6 +128,17 @@ describe('createSmsSender — selection', () => {
       SMS_PROVIDER: 'twilio', TWILIO_ACCOUNT_SID: 'ACxx', TWILIO_AUTH_TOKEN: 'tok',
       TWILIO_FROM_NUMBER: '', TWILIO_MESSAGING_SERVICE_SID: 'MGxx',
     }))).not.toThrow();
+  });
+
+  it("uses Fast2SMS for 'fast2sms'", () => {
+    expect(createSmsSender(cfg({ SMS_PROVIDER: 'fast2sms', FAST2SMS_API_KEY: 'k' })))
+      .toBeInstanceOf(Fast2SmsSender);
+  });
+
+  it('refuses to boot for fast2sms with no API key, naming the variable', () => {
+    expect(() => createSmsSender(cfg({ SMS_PROVIDER: 'fast2sms' }))).toThrow('FAST2SMS_API_KEY');
+    expect(() => createSmsSender(cfg({ SMS_PROVIDER: 'fast2sms', FAST2SMS_API_KEY: ' ' })))
+      .toThrow('FAST2SMS_API_KEY');
   });
 
   it('THROWS on an unknown provider name — never falls back to dev', () => {
@@ -237,7 +252,7 @@ describe('createSmsSender — the one boot line', () => {
     expect(BOOT_LINE.messagecentral).not.toMatch(/\bDEV\b|2FACTOR/);
     expect(BOOT_LINE['2factor']).not.toMatch(/\bDEV\b|MESSAGE CENTRAL/);
     // Every real sender must warn that texts are actually going out.
-    for (const key of ['messagecentral', '2factor'] as const) {
+    for (const key of ['messagecentral', '2factor', 'twilio', 'fast2sms'] as const) {
       expect(BOOT_LINE[key]).toMatch(/real SMS/i);
     }
   });

@@ -130,7 +130,7 @@ export const envSchema = z.object({
   // sender is how someone ends up demoing to founders believing texts are going
   // out when they are not.
   SMS_PROVIDER: z
-    .enum(['dev', 'messagecentral', '2factor', 'twilio'])
+    .enum(['dev', 'messagecentral', '2factor', 'twilio', 'fast2sms'])
     .default('dev'),
 
   // Message Central (MessageNow). Optional at the schema level because 'dev'
@@ -223,6 +223,19 @@ export const envSchema = z.object({
     .regex(/^\d{1,3}$/, 'TWILIO_COUNTRY_CODE must be 1-3 digits')
     .default('91'),
   TWILIO_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
+
+  // Fast2SMS, Quick route (route=q): no DLT, random numeric sender, about Rs 5 a
+  // message — so the Rs 50 free credit is roughly TEN messages.
+  //
+  // Their key goes in an `authorization` HEADER. We POST rather than GET precisely so
+  // it never appears in a URL, which would reach logs and proxies.
+  FAST2SMS_BASE_URL: z.string().url().default('https://www.fast2sms.com'),
+  FAST2SMS_API_KEY: z.string().min(1).optional(),
+  FAST2SMS_COUNTRY_CODE: z
+    .string()
+    .regex(/^\d{1,3}$/, 'FAST2SMS_COUNTRY_CODE must be 1-3 digits')
+    .default('91'),
+  FAST2SMS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
 });
 
 
@@ -249,6 +262,17 @@ const withCrossFieldRules = envSchema.superRefine((env, ctx) => {
         'SMS_PROVIDER=dev is refused when NODE_ENV=production: the console sender '
         + 'writes live login codes into the log and sends no SMS. Name a real provider.',
     });
+  }
+
+  if (env.SMS_PROVIDER === 'fast2sms') {
+    if (env.FAST2SMS_API_KEY == null || env.FAST2SMS_API_KEY.trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['FAST2SMS_API_KEY'],
+        message: 'FAST2SMS_API_KEY is required when SMS_PROVIDER=fast2sms',
+      });
+    }
+    return;
   }
 
   if (env.SMS_PROVIDER === 'twilio') {

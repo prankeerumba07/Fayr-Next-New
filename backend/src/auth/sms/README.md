@@ -6,15 +6,46 @@ the per-number cooldown, the 5-attempt lock, the per-IP throttle, the block chec
 — lives in `AuthService`, **above** this layer. Changing provider therefore cannot
 change security behaviour, and `security-parity.spec.ts` exists to keep it that way.
 
+## Where we stand — one honest table
+
+| Provider | Status | Free allowance | What blocks it today |
+|---|---|---|---|
+| **Message Central** | Authenticates, **cannot send** | n/a | Their `/verification/v3/send` returns 400 *"Support for Old MessageNow/VerifyNow-WA is discontinued"*. Their published docs still document that endpoint. No public docs for the "new platform". |
+| **2Factor** | **Built, never tested** | ₹ trial credit | No API key yet — their anti-abuse system temporarily banned the signup after a second OTP request seconds after the first. Not permanent. |
+| **Twilio** | **Built, never tested** | 100 messages, 30 days | Needs an account. Recipient must be in **Verified Caller IDs** (max 5), and **India must be enabled in Geo Permissions**. Fails 21608 and 21408 respectively. |
+| **Fast2SMS** | **Built, never tested** | ₹50 ≈ **10 messages** | Needs an account. Their code 999 may also require one ₹100 wallet transaction before the API works at all. |
+| **Dev (console)** | Working | unlimited | Sends nothing. **Refused under NODE_ENV=production.** |
+
+**Four providers, so one vendor's signup can never block the demo again.** Not one of
+them has actually delivered a message yet — the only end-to-end proof is
+`npm run sms:test`, and it has so far only proved Message Central is dead.
+
+### The standing gap, in plain terms
+
+**None of these is DLT-registered.** Every one of them is on an international or
+"quick" route, which means all four are:
+
+- valid for **genuinely user-triggered OTP only**;
+- **suspendable or filterable without notice**, with no recourse from our side;
+- limited to **small free quotas** (100 Twilio messages, ~10 Fast2SMS messages);
+- delivering from a **random numeric sender**, not a Fayr-branded header.
+
+**A DLT-registered Indian route is required before we have real users.** That is a
+legal action in the company's name — PAN, GSTIN, TAN, CIN, a director's authorisation
+letter, about ₹5,000 + GST, roughly 3–7 working days. Deliberately not started. This
+is a **known gap**, listed as one in the security document.
+
 ## Which sender is live
 
 Set by `SMS_PROVIDER` in `backend/.env`:
 
 | Value | Sender | Behaviour |
 |---|---|---|
-| unset / `dev` | `DevSmsSender` | Prints the code in the server terminal. **No SMS.** |
-| `2factor` | `TwoFactorSmsSender` | Real SMS via 2Factor.in. |
-| `messagecentral` | `MessageCentralSmsSender` | **Currently non-functional — see below.** |
+| unset / `dev` | `DevSmsSender` | Prints the code in the terminal. **No SMS.** Refused in production. |
+| `twilio` | `TwilioSmsSender` | Programmable Messaging, our own body. |
+| `fast2sms` | `Fast2SmsSender` | Quick route (`route=q`), no DLT. |
+| `2factor` | `TwoFactorSmsSender` | `SMS/{phone}/{otp}` route, our own code. |
+| `messagecentral` | `MessageCentralSmsSender` | **Non-functional — see the table above.** |
 
 One line is printed at boot naming the active sender (`BOOT_LINE` in
 `sms.provider.ts`). That line is the only reliable way to know which one is live.
@@ -65,6 +96,8 @@ Both vendors offer a mode that generates the OTP for you, and both are refused:
 |---|---|---|---|
 | Message Central | MessageNow (our text) | VerifyNow | It generates AND verifies its own OTP |
 | 2Factor | `SMS/{phone}/{otp}` | `AUTOGEN` | It invents the code |
+| Twilio | Programmable Messaging | Twilio Verify | It generates AND verifies its own OTP |
+| Fast2SMS | Quick route (`route=q`) | their OTP route | It templates a code it controls |
 
 A provider-generated code never matches the hash we stored, so the cooldown, the
 5-attempt lock and the block check would all be bypassed and the provider would
@@ -129,3 +162,48 @@ One plain sentence, with no provider name, status code or internal enum:
 Note that the challenge row is written **before** the send, so the 30-second
 cooldown applies even to a failed attempt. "Wait a moment" is therefore literally
 accurate, and deliberately worded that way.
+
+## Twilio and Fast2SMS specifics worth knowing before debugging one
+
+**Twilio — a 201 is not delivery.** `status` can be `failed` or `undelivered`, and
+`error_code` can be set on an otherwise-successful create. Both are checked. The two
+trial failures are translated into instructions rather than left as numbers:
+
+| Code | What it really means |
+|---|---|
+| **21608** | The number is not in **Verified Caller IDs**. Console → Phone Numbers → Manage → Verified Caller IDs. Max 5 on a trial. |
+| **21408** | **Geo Permissions** disabled for the region. Console → Messaging → Settings → Geo Permissions, enable India, accept the high-risk dialog. |
+| 21606 | The From number cannot send SMS. |
+| 21610 | The recipient replied STOP and is unsubscribed. |
+| 20003 | Credentials rejected — check `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`. |
+
+**Twilio and DLT.** India's DLT registration applies to the **domestic** route. A
+non-Indian account reaching +91 goes over the international (ILDO) route, which is
+outside DLT — at the cost of a random numeric sender, higher price and poorer
+deliverability. Confirmed against current guidance 2026-08-19.
+
+**Fast2SMS — their failure body shape is NOT published.** The error-code *list* is
+(27 codes, every one a test case), but no example failure body is documented anywhere
+we could find. So `return === true` is the **only** success signal, checked strictly —
+`'true'`, `1` and a missing field are all failures. Inverting that is exactly how a
+failure gets reported as a delivered code.
+
+Two Fast2SMS codes an OTP flow will genuinely meet:
+- **995** — repeated sends to the same number. **An OTP resend can trip this.**
+- **999** — they may require one ₹100 wallet transaction before the API works at all,
+  which the free credit alone may not satisfy.
+
+## Credentials never reach a log
+
+Each provider hides its secrets somewhere different, and each needed its own handling:
+
+| Provider | Where the secret is | How it is kept out of logs |
+|---|---|---|
+| Message Central | `key` **query param**; the token is **in the response body** | `scrubUrlForLog` drops the param; `scrubBodyForLog` drops JWTs and secret-named keys |
+| 2Factor | API key and code in the **URL path** | `scrubUrlForLog` hides credential-shaped path segments |
+| Twilio | **Basic auth header** (never in the URL) | header only; the token is passed to `scrubBodyForLog` as a literal, because hex has no digit runs |
+| Fast2SMS | **`authorization` header** | we POST rather than GET so it never enters a URL |
+
+A response body can *be* the credential — Message Central's token endpoint returns it,
+and a JWT contains no runs of four digits, so digit masking alone left it intact. That
+was a real leak, found by an adversarial review, and it is why `scrubBodyForLog` exists.

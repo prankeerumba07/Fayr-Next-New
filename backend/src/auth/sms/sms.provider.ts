@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { type Env, isBase64 } from '../../config/env.validation';
 import { DevSmsSender } from './dev-sms-sender';
 import { MessageCentralSmsSender } from './message-central-sms-sender';
+import { Fast2SmsSender } from './fast2sms-sms-sender';
 import { TwilioSmsSender } from './twilio-sms-sender';
 import { TwoFactorSmsSender } from './two-factor-sms-sender';
 import { SMS_SENDER, type SmsSender } from './sms-sender';
@@ -29,6 +30,7 @@ export const BOOT_LINE = {
     'Active sender: MESSAGE CENTRAL — real SMS will be sent to real phones',
   '2factor': 'Active sender: 2FACTOR — real SMS will be sent to real phones',
   twilio: 'Active sender: TWILIO — real SMS will be sent to real phones',
+  fast2sms: 'Active sender: FAST2SMS — real SMS will be sent to real phones',
 } as const;
 
 const KNOWN = Object.keys(BOOT_LINE).join(', ');
@@ -38,6 +40,7 @@ const REAL_PROVIDER_KEYS = [
   'MESSAGECENTRAL_CUSTOMER_ID',
   'TWOFACTOR_API_KEY',
   'TWILIO_ACCOUNT_SID',
+  'FAST2SMS_API_KEY',
 ] as const;
 
 /** Credentials that Message Central cannot work without. */
@@ -138,6 +141,19 @@ export function createSmsSender(config: ConfigService<Env, true>): SmsSender {
     }
     const sender = new TwilioSmsSender(config);
     logger.log(BOOT_LINE.twilio);
+    return sender;
+  }
+
+  if (provider === 'fast2sms') {
+    const key = config.get('FAST2SMS_API_KEY', { infer: true });
+    if (typeof key !== 'string' || key.trim().length === 0) {
+      throw new Error(
+        'FAST2SMS_API_KEY is required when SMS_PROVIDER=fast2sms. '
+        + 'Set it in backend/.env, or set SMS_PROVIDER=dev to print codes to the console instead.',
+      );
+    }
+    const sender = new Fast2SmsSender(config);
+    logger.log(BOOT_LINE.fast2sms);
     return sender;
   }
 
