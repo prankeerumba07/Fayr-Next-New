@@ -7,14 +7,21 @@
 // app just says "network request failed" with no hint that the address is why.
 //
 // THE FIX. Metro already knows the right host: the phone downloaded the JS bundle
-// from it seconds ago. React Native exposes that URL as
-// NativeModules.SourceCode.scriptURL, so the backend host can be derived from it
-// on every launch. Nothing to type, nothing to keep in sync, and a network change
-// fixes itself on the next reload.
+// from it seconds ago. So the backend host is derived from it on every launch —
+// nothing to type, nothing to keep in sync, and a network change fixes itself on
+// the next reload.
 //
-// Deliberately NOT expo-constants: it is not installed here, and adding it would
-// mean a native rebuild. SourceCode is core React Native — no new dependency, and
-// a Metro reload is enough.
+// WHICH SOURCE, AND WHY IT CHANGED. The first version read
+// NativeModules.SourceCode.scriptURL. That works in a dev build but is ALWAYS NULL
+// IN EXPO GO, because Expo Go runs bridgeless (New Architecture) and SourceCode is
+// a legacy bridge module (react-native/src/private/specs_DEPRECATED). app.json's
+// newArchEnabled:false governs dev builds only, not Expo Go — which is exactly why
+// this was invisible on the simulator and failed on a real phone with
+// "Could not work out this machine's address from Metro".
+//
+// expo-constants is the supported route and ships inside Expo Go, so no native
+// rebuild. Order: hostUri, then experienceUrl, then scriptURL (still correct in a
+// dev build), then give up loudly.
 //
 // Pure, so it can be tested under node (same reason as src/ui/stages.js).
 
@@ -49,25 +56,30 @@ function isReachableHost(hostname) {
  * Returns `source` and `warning` as well as `base` so the app can say which of
  * the three happened. Silence here is what made the last failure hard to read.
  */
-export function apiBaseFrom({ envBase, scriptURL, apiPort = DEFAULT_API_PORT } = {}) {
+export function apiBaseFrom({
+  envBase,
+  hostUri,
+  experienceUrl,
+  scriptURL,
+  apiPort = DEFAULT_API_PORT,
+} = {}) {
   const trimmed = typeof envBase === 'string' ? envBase.trim() : '';
   if (trimmed) {
     return { base: trimmed.replace(/\/+$/, ''), source: 'env', warning: null };
   }
 
-  let parsed = null;
-  try {
-    if (typeof scriptURL === 'string' && scriptURL) parsed = new URL(scriptURL);
-  } catch {
-    parsed = null; // a release bundle path, or nothing at all
-  }
+  // Every place Metro's host might be, best first. hostUri is 'host:port' with no
+  // scheme; experienceUrl is 'exp://host:port'; scriptURL is a full bundle URL.
+  const parsed =
+    parseHostUri(hostUri)
+    || parseUrlish(experienceUrl)
+    || parseUrlish(scriptURL);
 
   if (parsed && isReachableHost(parsed.hostname)) {
-    // Metro's own port (8081/19000/…) is replaced, never reused: the bundle
-    // server and the API are different processes on the same machine.
-    const scheme = parsed.protocol === 'https:' ? 'https' : 'http';
+    // Metro's own port (8081/19000/…) is replaced, never reused: the bundle server
+    // and the API are different processes on the same machine.
     return {
-      base: `${scheme}://${parsed.host.replace(/:\d+$/, '')}:${apiPort}`,
+      base: `${parsed.scheme}://${parsed.hostname}:${apiPort}`,
       source: 'metro',
       warning: null,
     };
@@ -95,4 +107,37 @@ export function apiBaseFrom({ envBase, scriptURL, apiPort = DEFAULT_API_PORT } =
       + `localhost:${apiPort}. That works on a simulator only. On a real phone, set `
       + 'EXPO_PUBLIC_FAYR_API_BASE.',
   };
+}
+
+/**
+ * Parse expo-constants' `hostUri`: 'host:port' or bare 'host', with no scheme.
+ * Always http — Metro serves the bundle over plain HTTP in development.
+ */
+function parseHostUri(hostUri) {
+  if (typeof hostUri !== 'string') return null;
+  const raw = hostUri.trim();
+  if (!raw) return null;
+  // Reuse the URL parser by giving it the scheme it needs, so IPv6 brackets and
+  // odd ports are handled by the platform rather than by a regex here.
+  try {
+    const url = new URL(`http://${raw.replace(/^[a-z]+:\/\//i, '')}`);
+    if (!url.hostname) return null;
+    return { hostname: url.hostname, scheme: 'http' };
+  } catch {
+    return null;
+  }
+}
+
+/** Parse anything URL-shaped: 'exp://host:port' or a full bundle URL. */
+function parseUrlish(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const url = new URL(value.trim());
+    if (!url.hostname) return null;
+    // exp:// is Expo's own scheme; the API is reached over http(s).
+    const scheme = url.protocol === 'https:' ? 'https' : 'http';
+    return { hostname: url.hostname, scheme };
+  } catch {
+    return null;
+  }
 }
