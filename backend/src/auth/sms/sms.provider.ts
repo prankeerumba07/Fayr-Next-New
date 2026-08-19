@@ -31,6 +31,12 @@ export const BOOT_LINE = {
 
 const KNOWN = Object.keys(BOOT_LINE).join(', ');
 
+/** Credentials whose presence means someone intended to send real messages. */
+const REAL_PROVIDER_KEYS = [
+  'MESSAGECENTRAL_CUSTOMER_ID',
+  'TWOFACTOR_API_KEY',
+] as const;
+
 /** Credentials that Message Central cannot work without. */
 const MC_REQUIRED = [
   'MESSAGECENTRAL_CUSTOMER_ID',
@@ -45,6 +51,27 @@ export function createSmsSender(config: ConfigService<Env, true>): SmsSender {
   const logger = new Logger('SmsSender');
 
   if (provider === 'dev') {
+    // Second of the two gates (the env schema is the first). The console sender
+    // logs live codes, so production is refused outright rather than warned about.
+    if (String(config.get('NODE_ENV', { infer: true })) === 'production') {
+      throw new Error(
+        'SMS_PROVIDER=dev is refused when NODE_ENV=production: the console sender '
+        + 'writes live login codes into the log and sends no SMS. Name a real provider.',
+      );
+    }
+    // Credentials present but dev selected is the mistake that produces a healthy
+    // looking process and no texts. Outside production it is legitimate (offline
+    // work), so warn rather than refuse — but never pass in silence.
+    const configured = REAL_PROVIDER_KEYS.filter((k) => {
+      const v = config.get(k, { infer: true });
+      return typeof v === 'string' && v.trim().length > 0;
+    });
+    if (configured.length > 0) {
+      logger.warn(
+        `SMS_PROVIDER=dev, but credentials are configured (${configured.join(', ')}). `
+        + 'No SMS will be sent. Set SMS_PROVIDER to a real provider to use them.',
+      );
+    }
     logger.log(BOOT_LINE.dev);
     return new DevSmsSender();
   }

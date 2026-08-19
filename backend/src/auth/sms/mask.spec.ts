@@ -1,4 +1,4 @@
-import { maskMobile, scrubForLog, scrubUrlForLog } from './mask';
+import { maskMobile, scrubBodyForLog, scrubForLog, scrubUrlForLog } from './mask';
 
 /**
  * A login code and a phone number are both credentials. Neither may reach a log
@@ -147,5 +147,55 @@ describe('scrubUrlForLog — secrets in the PATH, not just the query', () => {
   it('leaves an ordinary path alone', () => {
     expect(scrubUrlForLog('https://cpaas.messagecentral.com/verification/v3/send'))
       .toBe('https://cpaas.messagecentral.com/verification/v3/send');
+  });
+});
+
+describe('scrubBodyForLog — a response body can BE the credential', () => {
+  it('removes a JWT, which no digit rule can catch', () => {
+    // Message Central's token endpoint returns the credential in its body. A JWT
+    // contains no 4-digit runs, so scrubForLog left it completely intact — and the
+    // test script printed it and told the operator the output was safe to share.
+    const body = '{"status":200,"token":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhYmMifQ.sIgNaTuRe"}';
+    const out = scrubBodyForLog(body);
+    expect(out).not.toContain('eyJhbGciOiJIUzI1NiJ9');
+    expect(out).not.toContain('sIgNaTuRe');
+  });
+
+  it('removes the value of any secret-named key, whatever shape it holds', () => {
+    for (const key of ['token', 'authToken', 'key', 'password', 'apiKey', 'secret']) {
+      const out = scrubBodyForLog(`{"${key}":"s3cr3t-value-here","ok":true}`);
+      expect(out).not.toContain('s3cr3t-value-here');
+      expect(out).toContain('ok');
+    }
+  });
+
+  it('is case-insensitive about the key name', () => {
+    expect(scrubBodyForLog('{"AuthToken":"abcdefgh"}')).not.toContain('abcdefgh');
+    expect(scrubBodyForLog('{"TOKEN":"abcdefgh"}')).not.toContain('abcdefgh');
+  });
+
+  it('still masks digits, so a code or number in the body is caught too', () => {
+    const out = scrubBodyForLog('{"mobileNumber":"9876543210","otp":"483920"}');
+    expect(out).not.toContain('9876543210');
+    expect(out).not.toContain('483920');
+  });
+
+  it('keeps what makes a failure diagnosable', () => {
+    const out = scrubBodyForLog(
+      '{"Status":"Error","Details":"Access Denied - Balance is too low"}',
+    );
+    expect(out).toContain('Balance is too low');
+    expect(out).toContain('Error');
+  });
+
+  it('handles a non-JSON body without throwing', () => {
+    expect(scrubBodyForLog('<html>gateway timeout</html>')).toContain('gateway timeout');
+    expect(scrubBodyForLog('')).toBe('');
+    expect(scrubBodyForLog(undefined as unknown as string)).toBe('');
+  });
+
+  it('redacts extra literal secrets it is handed', () => {
+    const out = scrubBodyForLog('{"who":"me@example.com"}', { secrets: ['me@example.com'] });
+    expect(out).not.toContain('me@example.com');
   });
 });

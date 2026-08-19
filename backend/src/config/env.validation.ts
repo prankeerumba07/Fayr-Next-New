@@ -211,6 +211,22 @@ export const envSchema = z.object({
  * and no text. Each message names the exact variable so the fix needs no guessing.
  */
 const withCrossFieldRules = envSchema.superRefine((env, ctx) => {
+  // THE CONSOLE SENDER MUST NEVER REACH PRODUCTION.
+  //
+  // 'dev' is the default and .env.example ships the literal line SMS_PROVIDER=dev,
+  // so the realistic failure is a deploy that fills in real credentials and never
+  // edits that line: it boots clean, sends nothing, and writes every live code into
+  // the production log. "NEVER wire this in production" was only ever a comment.
+  if (env.NODE_ENV === 'production' && env.SMS_PROVIDER === 'dev') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['SMS_PROVIDER'],
+      message:
+        'SMS_PROVIDER=dev is refused when NODE_ENV=production: the console sender '
+        + 'writes live login codes into the log and sends no SMS. Name a real provider.',
+    });
+  }
+
   if (env.SMS_PROVIDER === '2factor') {
     if (env.TWOFACTOR_API_KEY == null || env.TWOFACTOR_API_KEY.trim().length === 0) {
       ctx.addIssue({

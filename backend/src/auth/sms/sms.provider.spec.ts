@@ -130,29 +130,63 @@ describe('createSmsSender — refuse to boot on incomplete credentials', () => {
   });
 });
 
+describe('createSmsSender — the console sender is refused in production', () => {
+  it('throws for dev under NODE_ENV=production', () => {
+    expect(() => createSmsSender(cfg({ NODE_ENV: 'production', SMS_PROVIDER: 'dev' })))
+      .toThrow(/production/i);
+  });
+
+  it('throws for an absent provider under NODE_ENV=production', () => {
+    expect(() => createSmsSender(cfg({ NODE_ENV: 'production', SMS_PROVIDER: undefined })))
+      .toThrow(/SMS_PROVIDER/);
+  });
+
+  it('logs nothing when it refuses — no line claiming a sender is active', () => {
+    const lines = captureLogs();
+    expect(() => createSmsSender(cfg({ NODE_ENV: 'production', SMS_PROVIDER: 'dev' }))).toThrow();
+    expect(lines).toHaveLength(0);
+  });
+
+  it('allows a real provider in production', () => {
+    expect(
+      createSmsSender(cfg({ NODE_ENV: 'production', SMS_PROVIDER: '2factor', TWOFACTOR_API_KEY: 'k' })),
+    ).toBeInstanceOf(TwoFactorSmsSender);
+  });
+
+  it('warns when real credentials sit beside SMS_PROVIDER=dev', () => {
+    // The realistic mistake: credentials filled in, the provider line left at dev.
+    // Not fatal outside production, but it must not pass in silence.
+    const lines = captureLogs();
+    createSmsSender(cfg({ SMS_PROVIDER: 'dev', TWOFACTOR_API_KEY: 'a-real-looking-key' }));
+    expect(lines.join('\n')).toMatch(/credentials|configured/i);
+  });
+});
+
 describe('createSmsSender — the one boot line', () => {
+  /** The boot lines only — other diagnostics may legitimately share the terminal. */
+  const bootLines = (lines: string[]) => lines.filter((l) => l.startsWith('Active sender:'));
+
   it('says the console sender is active and that no SMS is sent', () => {
     const lines = captureLogs();
     createSmsSender(cfg({ SMS_PROVIDER: 'dev' }));
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toBe(BOOT_LINE.dev);
-    expect(lines[0]).toMatch(/no SMS is sent/i);
+    // Exactly ONE boot line, always — that line is the operator's only reliable
+    // signal about which postman is live.
+    expect(bootLines(lines)).toEqual([BOOT_LINE.dev]);
+    expect(BOOT_LINE.dev).toMatch(/no SMS is sent/i);
   });
 
   it('says Message Central is active and that real texts will go out', () => {
     const lines = captureLogs();
     createSmsSender(cfg());
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toBe(BOOT_LINE.messagecentral);
-    expect(lines[0]).toMatch(/real SMS/i);
+    expect(bootLines(lines)).toEqual([BOOT_LINE.messagecentral]);
+    expect(BOOT_LINE.messagecentral).toMatch(/real SMS/i);
   });
 
   it('says 2Factor is active and that real texts will go out', () => {
     const lines = captureLogs();
     createSmsSender(cfg({ SMS_PROVIDER: '2factor', TWOFACTOR_API_KEY: 'a-key-value' }));
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toBe(BOOT_LINE['2factor']);
-    expect(lines[0]).toMatch(/real SMS/i);
+    expect(bootLines(lines)).toEqual([BOOT_LINE['2factor']]);
+    expect(BOOT_LINE['2factor']).toMatch(/real SMS/i);
   });
 
   it('no two boot lines can be mistaken for one another', () => {

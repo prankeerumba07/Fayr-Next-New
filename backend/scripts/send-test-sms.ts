@@ -22,7 +22,7 @@ import { randomInt } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { validateEnv } from '../src/config/env.validation';
 import { createSmsSender } from '../src/auth/sms/sms.provider';
-import { maskMobile, scrubForLog, scrubUrlForLog } from '../src/auth/sms/mask';
+import { maskMobile, scrubBodyForLog, scrubForLog, scrubUrlForLog } from '../src/auth/sms/mask';
 
 const E164 = /^\+[1-9]\d{7,14}$/;
 
@@ -129,9 +129,14 @@ async function main(): Promise<void> {
   let calls = 0;
   // Every credential this run could put in a URL. 2Factor carries its API key in
   // the PATH, so query-string redaction alone would print it in full.
+  // Every credential this run could put in a URL **or in a response body**. The
+  // token endpoint RETURNS a credential, and a JWT has no digit runs, so digit
+  // masking alone left it printed in full — and this script then told the operator
+  // the output was safe to paste into a chat. Found by an adversarial review.
   const knownSecrets = [
     env.MESSAGECENTRAL_PASSWORD_BASE64,
     env.MESSAGECENTRAL_CUSTOMER_ID,
+    env.MESSAGECENTRAL_EMAIL,
     env.TWOFACTOR_API_KEY,
   ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
   global.fetch = (async (input: Parameters<typeof realFetch>[0], init?: RequestInit) => {
@@ -147,7 +152,9 @@ async function main(): Promise<void> {
       const clone = res.clone();
       const text = await clone.text().catch(() => '');
       console.log(`  ← ${res.status} ${res.statusText} in ${Date.now() - started}ms`);
-      console.log(`     body: ${text.length ? scrubForLog(text) : '(empty)'}`);
+      console.log(
+        `     body: ${text.length ? scrubBodyForLog(text, { secrets: knownSecrets }) : '(empty)'}`,
+      );
       if (!text.trim().startsWith('{') && text.length) {
         console.log('     NOTE: that body is not JSON. Tell Claude — it changes how this is read.');
       }
@@ -186,7 +193,9 @@ async function main(): Promise<void> {
     console.error('  RESULT: the provider did NOT accept the message.');
     console.error(`\n  What the user would see: "${err instanceof Error ? err.message : String(err)}"`);
     console.error('\n  The ← lines above carry the reason. Send them to Claude as they are —');
-    console.error('  they are already scrubbed of the code, the password and your number.');
+    console.error('  The code, your number, the API keys, the password, the account email');
+    console.error('  and any auth token are all redacted from them. Even so, read them');
+    console.error('  before you paste: no redaction catches everything a vendor might return.');
     console.error('════════════════════════════════════════════════════════════\n');
     process.exit(2);
   }

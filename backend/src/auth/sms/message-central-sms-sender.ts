@@ -2,7 +2,7 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.validation';
 import { OTP_TTL_SECONDS } from '../auth.constants';
-import { maskMobile, scrubForLog } from './mask';
+import { maskMobile, scrubBodyForLog, scrubForLog } from './mask';
 import { splitMobile } from './phone';
 import type { SmsSender } from './sms-sender';
 
@@ -138,7 +138,7 @@ export class MessageCentralSmsSender implements SmsSender {
 
     const body = await this.readBody(res);
     if (!res.ok) {
-      this.logger.error(`send rejected (HTTP ${res.status}): ${scrubForLog(body.raw)}`);
+      this.logger.error(`send rejected (HTTP ${res.status}): ${scrubBodyForLog(body.raw)}`);
       throw new ServiceUnavailableException(USER_FACING_FAILURE);
     }
     // A 200 is not a success on its own: the provider reports failures inside the
@@ -154,7 +154,7 @@ export class MessageCentralSmsSender implements SmsSender {
     if (body.json == null) {
       this.logger.error(
         `send response could not be read as JSON (HTTP ${res.status}): `
-        + `${body.raw.length ? scrubForLog(body.raw).slice(0, 300) : '(empty body)'}`,
+        + `${body.raw.length ? scrubBodyForLog(body.raw).slice(0, 300) : '(empty body)'}`,
       );
       throw new ServiceUnavailableException(USER_FACING_FAILURE);
     }
@@ -166,7 +166,7 @@ export class MessageCentralSmsSender implements SmsSender {
       errorMessage
       || (responseCode !== undefined && responseCode !== null && Number(responseCode) !== 200)
     ) {
-      this.logger.error(`send refused by provider: ${scrubForLog(body.raw)}`);
+      this.logger.error(`send refused by provider: ${scrubBodyForLog(body.raw)}`);
       throw new ServiceUnavailableException(USER_FACING_FAILURE);
     }
 
@@ -205,7 +205,7 @@ export class MessageCentralSmsSender implements SmsSender {
     const token = body.json?.token ?? body.json?.data?.token;
     if (!res.ok || typeof token !== 'string' || token.length === 0) {
       this.logger.error(
-        `no usable token in the provider response (HTTP ${res.status}): ${scrubForLog(body.raw)}`,
+        `no usable token in the provider response (HTTP ${res.status}): ${scrubBodyForLog(body.raw)}`,
       );
       throw new ServiceUnavailableException(USER_FACING_FAILURE);
     }

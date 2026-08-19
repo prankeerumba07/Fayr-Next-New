@@ -82,6 +82,35 @@ describe('validateEnv — SMS provider', () => {
   });
 });
 
+describe('validateEnv — the console sender must never reach production', () => {
+  // Found by an adversarial review. 'dev' is the DEFAULT, .env.example ships the
+  // literal line SMS_PROVIDER=dev, and nothing refused it in production — so a
+  // deploy that filled in real credentials but never edited that line would boot
+  // clean, send no SMS, and print every live code into the production log.
+  it('refuses SMS_PROVIDER=dev when NODE_ENV=production', () => {
+    const err = caught(() => validateEnv({ ...BASE, NODE_ENV: 'production', SMS_PROVIDER: 'dev' }));
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('SMS_PROVIDER');
+    expect(err!.message).toMatch(/production/i);
+  });
+
+  it('refuses an ABSENT SMS_PROVIDER in production too — the default is the trap', () => {
+    const err = caught(() => validateEnv({ ...BASE, NODE_ENV: 'production' }));
+    expect(err!.message).toContain('SMS_PROVIDER');
+  });
+
+  it('allows a real provider in production', () => {
+    expect(() =>
+      validateEnv({ ...BASE, NODE_ENV: 'production', SMS_PROVIDER: '2factor', TWOFACTOR_API_KEY: 'k' }),
+    ).not.toThrow();
+  });
+
+  it('still allows dev in development and test — a fresh clone must run offline', () => {
+    expect(() => validateEnv({ ...BASE, NODE_ENV: 'development' })).not.toThrow();
+    expect(() => validateEnv({ ...BASE, NODE_ENV: 'test' })).not.toThrow();
+  });
+});
+
 describe('validateEnv — 2Factor', () => {
   it('accepts a complete 2Factor configuration', () => {
     const env = validateEnv({ ...BASE, SMS_PROVIDER: '2factor', TWOFACTOR_API_KEY: 'k' });

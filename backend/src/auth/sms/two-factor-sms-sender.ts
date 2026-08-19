@@ -1,7 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.validation';
-import { maskMobile, scrubForLog, scrubUrlForLog } from './mask';
+import { maskMobile, scrubBodyForLog, scrubForLog } from './mask';
 import { splitMobile } from './phone';
 import type { SmsSender } from './sms-sender';
 
@@ -88,7 +88,6 @@ export class TwoFactorSmsSender implements SmsSender {
     if (this.templateName) parts.push(encodeURIComponent(this.templateName));
     const url = parts.join('/');
     // Never the raw URL: it carries the API key AND the code.
-    const safeUrl = scrubUrlForLog(url, { secrets: [this.apiKey] });
 
     let res: Response;
     try {
@@ -100,7 +99,7 @@ export class TwoFactorSmsSender implements SmsSender {
     } catch (err) {
       // Timeout or network error. NEVER retried — the message may already be on its
       // way, and a second attempt would put a different code on the same phone.
-      this.logger.error(`send failed (${safeUrl}): ${this.describe(err)}`);
+      this.logger.error(`send failed (${url}): ${this.describe(err)}`);
       throw new ServiceUnavailableException(USER_FACING_FAILURE);
     }
 
@@ -123,7 +122,7 @@ export class TwoFactorSmsSender implements SmsSender {
     if (body == null) {
       this.logger.error(
         `send response could not be read as JSON (HTTP ${res.status}): `
-        + `${raw.length ? scrubForLog(raw).slice(0, 300) : '(empty body)'}`,
+        + `${raw.length ? scrubBodyForLog(raw).slice(0, 300) : '(empty body)'}`,
       );
       throw new ServiceUnavailableException(USER_FACING_FAILURE);
     }
@@ -135,7 +134,7 @@ export class TwoFactorSmsSender implements SmsSender {
       // to the user.
       this.logger.error(
         `send refused by provider (HTTP ${res.status}): `
-        + `Status=${status || '(none)'} Details=${scrubForLog(String(body.Details ?? ''))}`,
+        + `Status=${status || '(none)'} Details=${scrubBodyForLog(String(body.Details ?? ''))}`,
       );
       throw new ServiceUnavailableException(USER_FACING_FAILURE);
     }

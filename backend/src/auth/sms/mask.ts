@@ -118,3 +118,33 @@ function redactLiterals(text: string, secrets?: readonly string[]): string {
   }
   return out;
 }
+
+/** JSON keys whose VALUE is a credential, whatever it looks like. */
+const SECRET_KEYS = /"(token|authtoken|auth_token|key|apikey|api_key|password|secret|authorization)"\s*:\s*"[^"]*"/gi;
+
+/** A JWT: three base64url segments. No digit rule can catch one. */
+const JWT_LIKE = /\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]+/g;
+
+/**
+ * A provider RESPONSE BODY made safe to log.
+ *
+ * scrubForLog is not enough here, and the gap was real: Message Central's token
+ * endpoint returns the credential IN ITS BODY, and a JWT contains no runs of four
+ * digits, so digit masking left it completely intact. The test script printed that
+ * body and then told the operator the output was safe to paste into a chat.
+ *
+ * So: the value of any secret-named key goes, JWT-shaped strings go, and only then
+ * are digits masked. Everything else survives — a provider's `Details` or `message`
+ * is usually the entire reason we are reading the body.
+ */
+export function scrubBodyForLog(
+  raw: string,
+  options: { secrets?: readonly string[] } = {},
+): string {
+  if (typeof raw !== 'string' || raw.length === 0) return '';
+  let out = raw
+    .replace(SECRET_KEYS, (match) => `${match.slice(0, match.indexOf(':') + 1)}"(hidden)"`)
+    .replace(JWT_LIKE, '(hidden)');
+  out = redactLiterals(out, options.secrets);
+  return scrubForLog(out);
+}
