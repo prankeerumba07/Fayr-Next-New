@@ -16,6 +16,7 @@ import WalletScreen from './src/WalletScreen';
 import SupportScreen from './src/SupportScreen';
 import PolicyScreen from './src/PolicyScreen';
 import FirstRunFlow from './src/firstrun/FirstRunFlow';
+import SetupFlow from './src/setup/SetupFlow';
 import MyProductsScreen from './src/MyProductsScreen';
 import EarningsScreen from './src/EarningsScreen';
 import ProfileScreen from './src/ProfileScreen';
@@ -28,6 +29,8 @@ import { load as loadTask, applyAuthoritative, configureSync } from './src/taskS
 import * as authSession from './src/backend/authSession';
 import * as campaignStore from './src/backend/campaignStore';
 import * as evidenceSync from './src/backend/evidenceSync';
+import { getProfile } from './src/backend/meApi';
+import { isSetupNeeded } from './src/ui/setup';
 import { postEvidence } from './src/backend/tasksApi';
 
 const Stack = createNativeStackNavigator();
@@ -107,6 +110,14 @@ function MarketplaceHomeButton({ navigation }) {
 //   'in'      — signed in → the existing Home/Task/marketplace stack.
 export default function App() {
   const [authState, setAuthState] = React.useState('loading');
+  // The setup sequence runs ONCE, between verifying the code and the feed. Before
+  // this, verifying dropped the user straight onto the campaign list and the whole
+  // journey in the design was never reached.
+  //
+  // `profile` is null while GET /me is in flight and again after a sign-out.
+  // `setupState`: 'unknown' — not asked yet; 'needed' — run it; 'done' — the app.
+  const [profile, setProfile] = React.useState(null);
+  const [setupState, setSetupState] = React.useState('unknown');
   // Gate first paint on the design fonts too, so no screen flashes in a
   // fallback face before Poppins/Alexandria/Inter resolve.
   const [fontsLoaded] = useFonts(fontMap);
@@ -114,9 +125,16 @@ export default function App() {
   // Subscribe FIRST (so login/logout/dead-refresh all flip the gate on their
   // own), then hydrate the persisted session once at startup.
   React.useEffect(() => {
-    const unsub = authSession.subscribe((s) =>
-      setAuthState(s && s.accessToken ? 'in' : 'out'),
-    );
+    const unsub = authSession.subscribe((s) => {
+      const signedIn = !!(s && s.accessToken);
+      setAuthState(signedIn ? 'in' : 'out');
+      // Forget the profile on sign-out, so the next user is never gated by the
+      // previous one's answers.
+      if (!signedIn) {
+        setProfile(null);
+        setSetupState('unknown');
+      }
+    });
     authSession.hydrate();
     return unsub;
   }, []);
@@ -131,6 +149,23 @@ export default function App() {
     evidenceSync.start();
     campaignStore.load();
     loadTask();
+
+    // Ask the SERVER whether setup is needed. Deriving it from the server's
+    // setupDoneAt latch — rather than anything on the device — is what stops a
+    // returning user ever seeing onboarding again, on any device.
+    let alive = true;
+    getProfile().then((res) => {
+      if (!alive) return;
+      if (!res.ok) {
+        // Could not ask. Do NOT show setup on a guess: a wrongly-repeated setup is
+        // worse than a delayed one, and the next launch will ask again.
+        setSetupState('done');
+        return;
+      }
+      setProfile(res.profile);
+      setSetupState(isSetupNeeded(res.profile) ? 'needed' : 'done');
+    });
+    return () => { alive = false; };
   }, [authState]);
 
   // Before a session exists the app runs the design's first-run journey —
@@ -157,11 +192,27 @@ export default function App() {
     );
   }
 
-  if (!fontsLoaded) {
+  if (!fontsLoaded || setupState === 'unknown') {
     return (
       <SafeAreaProvider>
         <StatusBar style="dark" />
         <View style={styles.splash} />
+      </SafeAreaProvider>
+    );
+  }
+
+  // Setup owns the whole screen while it runs: it is a sequence, not a tab, and the
+  // design draws it without the bottom bar. "Do this later" leaves for the app with
+  // every answer already saved, so it resumes on the next launch.
+  if (setupState === 'needed') {
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="dark" />
+        <SetupFlow
+          profile={profile}
+          onFinished={(saved) => { setProfile(saved); setSetupState('done'); }}
+          onLater={() => setSetupState('done')}
+        />
       </SafeAreaProvider>
     );
   }
