@@ -58,6 +58,14 @@ export class MessageCentralSmsSender implements SmsSender {
   private readonly timeoutMs: number;
   private readonly tokenTtlMs: number;
   private cached: CachedToken | null = null;
+  /**
+   * The authentication in progress, if any. This sender is a SINGLETON, so several
+   * logins can arrive at once with an empty cache; without this they would each
+   * authenticate separately against a provider that rate-limits auth. Concurrent
+   * callers now share one fetch. Not a correctness fix — no caller could ever get a
+   * wrong code — but measurable waste on the exact path a demo hammers.
+   */
+  private inFlight: Promise<string> | null = null;
 
   constructor(config: ConfigService<Env, true>) {
     const read = (k: keyof Env): string =>
@@ -178,6 +186,18 @@ export class MessageCentralSmsSender implements SmsSender {
   /** A cached token, fetched only when absent or past its cache lifetime. */
   private async token(): Promise<string> {
     if (this.cached && this.cached.expiresAt > Date.now()) return this.cached.token;
+    // Single-flight: join an authentication already under way rather than starting a
+    // second one. Cleared on both success and failure, so one failed attempt cannot
+    // poison later requests with a rejected promise.
+    if (this.inFlight) return this.inFlight;
+    this.inFlight = this.fetchToken().finally(() => {
+      this.inFlight = null;
+    });
+    return this.inFlight;
+  }
+
+  /** The actual authentication call. Only ever entered through token(). */
+  private async fetchToken(): Promise<string> {
 
     const url = new URL(this.baseUrl + TOKEN_PATH);
     url.searchParams.set('customerId', this.customerId);

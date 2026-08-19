@@ -327,3 +327,77 @@ describe('MessageCentralSmsSender — what it is allowed to say out loud', () =>
     expect(shown).toMatch(/try again/i);
   });
 });
+
+describe('MessageCentralSmsSender — one shared instance, many requests', () => {
+  // The sender is a SINGLETON (smsSenderProvider is default-scoped), so `cached` is
+  // shared mutable state across every concurrent login. Both adversarial reviews
+  // attacked this and neither ever verified it, so here it is reasoned out directly.
+  const deferred = () => {
+    let resolve = (_v: unknown) => {};
+    const promise = new Promise((r) => { resolve = r; });
+    return { promise, resolve };
+  };
+
+  it('fetches the token ONCE when two sends race with an empty cache', async () => {
+    const sender = build();
+    const gate = deferred();
+    fetchMock.mockImplementation((url: string) =>
+      String(url).includes('/auth/v1/')
+        ? gate.promise.then(() => TOKEN_OK)
+        : Promise.resolve(SEND_OK));
+
+    const a = sender.sendOtp(MOBILE, '111111');
+    const b = sender.sendOtp(MOBILE, '222222');
+    // Both are now waiting on the token. Release it.
+    gate.resolve(null);
+    await Promise.all([a, b]);
+
+    // Without single-flight both callers authenticate, doubling the calls against a
+    // provider that rate-limits auth. Not a wrong code — just waste we can avoid.
+    expect(tokenCalls()).toHaveLength(1);
+    expect(sendCalls()).toHaveLength(2);
+  });
+
+  it('still delivers both codes when they race', async () => {
+    const sender = build();
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(String(url).includes('/auth/v1/') ? TOKEN_OK : SEND_OK));
+    await Promise.all([sender.sendOtp(MOBILE, '111111'), sender.sendOtp(MOBILE, '222222')]);
+    expect(sendCalls()).toHaveLength(2);
+    // Two requests, two sends — never one, and never three.
+  });
+
+  it('a 401 on one request does not discard a token another just refreshed', async () => {
+    const sender = build();
+    // Prime the cache.
+    fetchMock.mockResolvedValueOnce(TOKEN_OK).mockResolvedValueOnce(SEND_OK);
+    await sender.sendOtp(MOBILE, '111111');
+    expect(tokenCalls()).toHaveLength(1);
+
+    // Now one request is rejected and re-authenticates; a second, later request must
+    // reuse the NEW token rather than triggering a third authentication.
+    fetchMock
+      .mockResolvedValueOnce(json({}, 401))
+      .mockResolvedValueOnce(TOKEN_OK_2)
+      .mockResolvedValueOnce(SEND_OK)
+      .mockResolvedValueOnce(SEND_OK);
+    await sender.sendOtp(MOBILE, '222222');
+    await sender.sendOtp(MOBILE, '333333');
+
+    expect(tokenCalls()).toHaveLength(2);
+    const last = sendCalls()[sendCalls().length - 1];
+    expect((last[1] as { headers: Record<string, string> }).headers.authToken).toBe('jwt-token-2');
+  });
+
+  it('never lets a failed authentication poison the cache for later requests', async () => {
+    const sender = build();
+    // First attempt: the token endpoint fails outright.
+    fetchMock.mockResolvedValueOnce(json({ message: 'nope' }, 500));
+    await expect(sender.sendOtp(MOBILE, '111111')).rejects.toThrow();
+
+    // A later request must be able to authenticate cleanly rather than inheriting a
+    // half-set cache or a rejected in-flight promise.
+    fetchMock.mockResolvedValueOnce(TOKEN_OK).mockResolvedValueOnce(SEND_OK);
+    await expect(sender.sendOtp(MOBILE, '222222')).resolves.toBeUndefined();
+  });
+});
