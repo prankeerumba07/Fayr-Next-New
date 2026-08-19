@@ -44,3 +44,33 @@ export function scrubForLog(text: string): string {
 
 /** True when a digit run of this length could be a secret. Exported for tests. */
 export const isSecretLength = (n: number): boolean => n >= SECRET_LIKE;
+
+/** Query parameters whose VALUE is a secret. Removed, never masked. */
+const SECRET_PARAMS = new Set(['key', 'message', 'password', 'authtoken', 'token']);
+
+/**
+ * A provider URL made safe to print.
+ *
+ * This exists because the send URL carries BOTH secrets in its query string: the
+ * login code (in `message`) and the base-64 console password (in `key`). Masking
+ * digits is not enough for those two — the whole value goes, so nothing can be
+ * inferred from its length or its non-digit characters. Everything else is kept,
+ * because a failure has to stay diagnosable.
+ */
+export function scrubUrlForLog(url: string): string {
+  if (typeof url !== 'string') return '';
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return scrubForLog(url);
+  }
+  for (const [name] of [...parsed.searchParams]) {
+    if (SECRET_PARAMS.has(name.toLowerCase())) {
+      parsed.searchParams.set(name, '(hidden)');
+    }
+  }
+  // Everything that survives still goes through the digit scrubber, so an echoed
+  // phone number is masked rather than printed.
+  return scrubForLog(decodeURIComponent(parsed.toString()));
+}

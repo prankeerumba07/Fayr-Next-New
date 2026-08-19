@@ -1,4 +1,4 @@
-import { maskMobile, scrubForLog } from './mask';
+import { maskMobile, scrubForLog, scrubUrlForLog } from './mask';
 
 /**
  * A login code and a phone number are both credentials. Neither may reach a log
@@ -60,5 +60,49 @@ describe('scrubForLog', () => {
 
   it('handles a non-string safely', () => {
     expect(scrubForLog(undefined as unknown as string)).toBe('');
+  });
+});
+
+describe('scrubUrlForLog', () => {
+  const SEND =
+    'https://cpaas.messagecentral.com/verification/v3/send?countryCode=91'
+    + '&mobileNumber=9876543210&message=483920%20is%20your%20Fayr%20code.&senderId=FAYRIN';
+  const TOKEN =
+    'https://cpaas.messagecentral.com/auth/v1/authentication/token'
+    + '?customerId=C-0001&key=cGFzc3dvcmQ=&scope=NEW&country=91&email=dev@example.com';
+
+  it('removes the login code, which travels in the query string', () => {
+    expect(scrubUrlForLog(SEND)).not.toContain('483920');
+  });
+
+  it('removes the base-64 password entirely — not masked, GONE', () => {
+    const out = scrubUrlForLog(TOKEN);
+    expect(out).not.toContain('cGFzc3dvcmQ=');
+    // A masked password would still leak its length; the value must not appear.
+    expect(out).toMatch(/key=\(hidden\)/);
+  });
+
+  it('masks the phone number but keeps the last two digits', () => {
+    const out = scrubUrlForLog(SEND);
+    expect(out).not.toContain('9876543210');
+    expect(out).toContain('10');
+  });
+
+  it('keeps the parts that make a failure diagnosable', () => {
+    const out = scrubUrlForLog(SEND);
+    expect(out).toContain('/verification/v3/send');
+    expect(out).toContain('countryCode=91');
+    expect(out).toContain('senderId=FAYRIN');
+  });
+
+  it('hides the whole message parameter, not just its digits', () => {
+    // "is your Fayr code" is harmless, but the parameter is where the secret
+    // lives — treat the entire value as secret rather than trusting a digit rule.
+    expect(scrubUrlForLog(SEND)).toMatch(/message=\(hidden\)/);
+  });
+
+  it('does not throw on a string that is not a URL', () => {
+    expect(scrubUrlForLog('not a url at all')).toBe('not a url at all');
+    expect(scrubUrlForLog(undefined as unknown as string)).toBe('');
   });
 });
