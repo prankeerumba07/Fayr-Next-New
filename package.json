@@ -31,7 +31,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "test": "node src/taskflow.test.mjs && node src/bridge.test.mjs && node src/taskstatus-wiring.test.mjs && node src/session.test.mjs && node src/match.test.mjs && node src/evidence.test.mjs && node src/ui/timeline.test.mjs && node src/ui/wallet.test.mjs && node src/ui/stages.test.mjs && node src/ui/nav.test.mjs && node src/backend/apiBase.test.mjs && node src/ui/support.test.mjs && node src/ui/policy.test.mjs && node src/ui/tasklist.test.mjs && node src/ui/proof.test.mjs && node src/ui/text.test.mjs && node src/firstrun/firstrun.test.mjs && node src/chargedAmount.test.mjs && node src/backend/format.test.mjs && node src/backend/phase1.test.mjs",
+    "test": "node src/taskflow.test.mjs && node src/bridge.test.mjs && node src/taskstatus-wiring.test.mjs && node src/session.test.mjs && node src/match.test.mjs && node src/evidence.test.mjs && node src/ui/timeline.test.mjs && node src/ui/wallet.test.mjs && node src/ui/otp.test.mjs && node src/ui/stages.test.mjs && node src/ui/nav.test.mjs && node src/backend/apiBase.test.mjs && node src/ui/support.test.mjs && node src/ui/policy.test.mjs && node src/ui/tasklist.test.mjs && node src/ui/proof.test.mjs && node src/ui/text.test.mjs && node src/firstrun/firstrun.test.mjs && node src/chargedAmount.test.mjs && node src/backend/format.test.mjs && node src/backend/phase1.test.mjs",
     "web:preview:build": "esbuild web-preview/entry.jsx --bundle --outfile=web-preview/bundle.js --format=iife",
     "web:preview": "npm run web:preview:build && python3 -m http.server 8000 --bind 0.0.0.0 --directory web-preview"
   },

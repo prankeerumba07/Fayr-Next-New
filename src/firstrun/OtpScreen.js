@@ -15,6 +15,7 @@ import {
   TouchableOpacity, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { fillOtp } from '../ui/otp';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from '../ui/theme';
 import { Ghost, Pill, hSub, hTitle } from '../ui/brand';
 import { requestOtp, verifyOtp } from '../backend/authApi';
@@ -77,13 +78,16 @@ export default function OtpScreen({ mobile, resendIn, onBack, onVerified, onSupp
     setError(String(msg) || 'That code didn’t match.');
   };
 
+  // One path for every way digits can arrive: a keystroke, a paste, the iOS
+  // keyboard suggestion, or Android sms-otp autofill. The old version kept only
+  // the LAST character of whatever it was given, so a six-digit autofill left one
+  // digit in one box. See src/ui/otp.js.
   const setAt = (i, v) => {
-    const d = v.replace(/\D/g, '').slice(-1);
-    const next = [...digits];
-    next[i] = d;
-    setDigits(next);
-    if (d && i < N - 1 && refs.current[i + 1].current) refs.current[i + 1].current.focus();
-    if (next.every((x) => x)) submit(next.join(''));
+    const r = fillOtp(digits, i, v);
+    setDigits(r.digits);
+    const target = refs.current[r.focus] && refs.current[r.focus].current;
+    if (target) target.focus();
+    if (r.complete) submit(r.digits.join(''));
   };
 
   const resend = async () => {
@@ -151,6 +155,14 @@ export default function OtpScreen({ mobile, resendIn, onBack, onVerified, onSupp
               autoFocus={i === 0}
               value={v}
               keyboardType="number-pad"
+              // iOS shows the code above the keyboard for this; Android fills it
+              // from the SMS for autoComplete="sms-otp". Neither needs DLT or an
+              // app hash — that was only ever about Android's silent SMS
+              // Retriever, which stays a later problem.
+              textContentType="oneTimeCode"
+              autoComplete="sms-otp"
+              importantForAutofill="yes"
+              autoCorrect={false}
               onChangeText={(t) => setAt(i, t)}
               onKeyPress={({ nativeEvent }) => {
                 if (nativeEvent.key === 'Backspace' && !v && i > 0 && refs.current[i - 1].current) {
@@ -161,7 +173,7 @@ export default function OtpScreen({ mobile, resendIn, onBack, onVerified, onSupp
                 styles.box,
                 { borderColor: fails > 0 && !v ? COLOR.red : v ? COLOR.green : COLOR.line },
               ]}
-              maxLength={1}
+              maxLength={N}
               textAlign="center"
             />
           ))}
