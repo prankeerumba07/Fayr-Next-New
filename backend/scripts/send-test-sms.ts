@@ -13,14 +13,15 @@
  * WHAT IT IS NOT. The code it sends is NOT stored in the database, so it cannot be
  * used to log in. This proves delivery only.
  *
- * Usage:  npm run sms:test -- +919876543210
+ * Usage:  npm run sms:test -- +919876543210            (uses SMS_PROVIDER from .env)
+ *         npm run sms:test -- +919876543210 2factor    (test ONE provider, no edit)
  */
 import { config as loadDotenv } from 'dotenv';
 import { resolve } from 'node:path';
 import { randomInt } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { validateEnv } from '../src/config/env.validation';
-import { MessageCentralSmsSender } from '../src/auth/sms/message-central-sms-sender';
+import { createSmsSender } from '../src/auth/sms/sms.provider';
 import { maskMobile, scrubForLog, scrubUrlForLog } from '../src/auth/sms/mask';
 
 const E164 = /^\+[1-9]\d{7,14}$/;
@@ -72,6 +73,15 @@ async function main(): Promise<void> {
   }
   console.log(`  2. Sending to ${maskMobile(mobile)} (masked here on purpose).`);
 
+  // An optional second argument tests ONE provider without editing .env. It is
+  // applied before validation, so a name with missing credentials fails the same
+  // way the server would at boot rather than halfway through a send.
+  const providerArg = process.argv[3];
+  if (providerArg) {
+    process.env.SMS_PROVIDER = providerArg;
+    console.log(`     provider overridden for this run: ${providerArg}`);
+  }
+
   // ── Step 3: read backend/.env through the SAME validator the server uses ──
   const envPath = resolve(__dirname, '..', '.env');
   loadDotenv({ path: envPath });
@@ -88,28 +98,49 @@ async function main(): Promise<void> {
     );
   }
 
-  if (env.SMS_PROVIDER !== 'messagecentral') {
+  if (env.SMS_PROVIDER === 'dev') {
     die(
-      `SMS_PROVIDER is "${env.SMS_PROVIDER}", not "messagecentral"`,
+      'SMS_PROVIDER is "dev"',
       'The console sender does not send anything, so there would be nothing to test.',
-      'Set SMS_PROVIDER=messagecentral in backend/.env.',
+      'Pass a provider for this run: npm run sms:test -- '
+      + `${mobile} 2factor   (or set SMS_PROVIDER in backend/.env)`,
     );
   }
-  console.log('  4. Credentials present and well-formed (values never printed).');
-  console.log(`     provider   ${env.MESSAGECENTRAL_BASE_URL}`);
-  console.log(`     senderId   ${env.MESSAGECENTRAL_SENDER_ID}`);
-  console.log(`     type       ${env.MESSAGECENTRAL_MESSAGE_TYPE}`);
-  console.log(`     country    +${env.MESSAGECENTRAL_COUNTRY_CODE}`);
+  console.log(`  4. Credentials present and well-formed (values never printed).`);
+  console.log(`     sender     ${env.SMS_PROVIDER}`);
+  if (env.SMS_PROVIDER === 'messagecentral') {
+    console.log(`     endpoint   ${env.MESSAGECENTRAL_BASE_URL}`);
+    console.log(`     senderId   ${env.MESSAGECENTRAL_SENDER_ID}`);
+    console.log(`     type       ${env.MESSAGECENTRAL_MESSAGE_TYPE}`);
+    console.log(`     country    +${env.MESSAGECENTRAL_COUNTRY_CODE}`);
+  } else {
+    console.log(`     endpoint   ${env.TWOFACTOR_BASE_URL}`);
+    console.log(
+      `     template   ${env.TWOFACTOR_TEMPLATE_NAME || "(account default — no name given)"}`,
+    );
+    console.log(`     number     ${env.TWOFACTOR_NUMBER_FORMAT}`);
+    console.log(`     country    +${env.TWOFACTOR_COUNTRY_CODE}`);
+  }
 
   // ── Step 4: watch every HTTP call the real sender makes ──────────────────
   // Instrumentation AROUND the real class, not a reimplementation of it. The URL
   // carries the code and the base-64 password, so it is redacted before printing.
   const realFetch = global.fetch;
   let calls = 0;
+  // Every credential this run could put in a URL. 2Factor carries its API key in
+  // the PATH, so query-string redaction alone would print it in full.
+  const knownSecrets = [
+    env.MESSAGECENTRAL_PASSWORD_BASE64,
+    env.MESSAGECENTRAL_CUSTOMER_ID,
+    env.TWOFACTOR_API_KEY,
+  ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
   global.fetch = (async (input: Parameters<typeof realFetch>[0], init?: RequestInit) => {
     const url = String(input);
     calls += 1;
-    console.log(`\n  ${calls}⇒ HTTP ${init?.method ?? 'GET'}  ${scrubUrlForLog(url)}`);
+    console.log(
+      `\n  ${calls}⇒ HTTP ${init?.method ?? 'GET'}  `
+      + `${scrubUrlForLog(url, { secrets: knownSecrets })}`,
+    );
     const started = Date.now();
     try {
       const res = await realFetch(input as never, init);
@@ -131,10 +162,19 @@ async function main(): Promise<void> {
   }) as typeof global.fetch;
 
   // ── Step 5: send, through the real class ────────────────────────────────
-  console.log('\n  5. Calling MessageCentralSmsSender.sendOtp — the real code path.');
-  const sender = new MessageCentralSmsSender({
-    get: (key: string) => (env as unknown as Record<string, unknown>)[key],
-  } as never);
+  console.log('\n  5. Building the sender through the real factory, then sending.');
+  let sender: { sendOtp(mobile: string, code: string): Promise<void> };
+  try {
+    sender = createSmsSender({
+      get: (key: string) => (env as unknown as Record<string, unknown>)[key],
+    } as never);
+  } catch (err) {
+    die(
+      'The sender refused to start',
+      err instanceof Error ? err.message : String(err),
+      'Fix the variable named above in backend/.env, then run this again.',
+    );
+  }
 
   // Never printed, never stored. This code cannot log anyone in.
   const code = String(randomInt(0, 1_000_000)).padStart(6, '0');

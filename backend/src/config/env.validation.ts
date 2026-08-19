@@ -129,7 +129,7 @@ export const envSchema = z.object({
   // no 'auto' or 'fallback' value on purpose: silently degrading to the console
   // sender is how someone ends up demoing to founders believing texts are going
   // out when they are not.
-  SMS_PROVIDER: z.enum(['dev', 'messagecentral']).default('dev'),
+  SMS_PROVIDER: z.enum(['dev', 'messagecentral', '2factor']).default('dev'),
 
   // Message Central (MessageNow). Optional at the schema level because 'dev'
   // must need no credentials at all — a fresh clone has to run offline. The
@@ -178,6 +178,27 @@ export const envSchema = z.object({
     .min(1)
     .max(1440)
     .default(30),
+
+  // 2Factor.in. Optional at the schema level for the same reason as above; the
+  // conditional requirement is in the superRefine below.
+  //
+  // NOTE the shape of their API: the key and the login code are PATH segments, not
+  // query parameters, so any URL that goes near a log must be redacted by
+  // scrubUrlForLog — see two-factor-sms-sender.ts.
+  TWOFACTOR_BASE_URL: z.string().url().default('https://2factor.in'),
+  TWOFACTOR_API_KEY: z.string().min(1).optional(),
+  // Optional. Empty means the account's DEFAULT approved template. A named template
+  // must already be approved in their dashboard, or every send returns
+  // Status:"Error" — which is why this is a setting and not a hardcoded name.
+  TWOFACTOR_TEMPLATE_NAME: z.string().default(''),
+  TWOFACTOR_COUNTRY_CODE: z
+    .string()
+    .regex(/^\d{1,3}$/, 'TWOFACTOR_COUNTRY_CODE must be 1-3 digits')
+    .default('91'),
+  // Their docs show +91XXXXXXXXXX; plain national is also widely accepted. Switch
+  // rather than edit code if this account wants the other one.
+  TWOFACTOR_NUMBER_FORMAT: z.enum(['e164', 'national']).default('e164'),
+  TWOFACTOR_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
 });
 
 
@@ -190,6 +211,16 @@ export const envSchema = z.object({
  * and no text. Each message names the exact variable so the fix needs no guessing.
  */
 const withCrossFieldRules = envSchema.superRefine((env, ctx) => {
+  if (env.SMS_PROVIDER === '2factor') {
+    if (env.TWOFACTOR_API_KEY == null || env.TWOFACTOR_API_KEY.trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['TWOFACTOR_API_KEY'],
+        message: 'TWOFACTOR_API_KEY is required when SMS_PROVIDER=2factor',
+      });
+    }
+    return;
+  }
   if (env.SMS_PROVIDER !== 'messagecentral') return;
 
   const required: Array<[keyof typeof env, string | undefined]> = [

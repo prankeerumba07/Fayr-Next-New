@@ -48,29 +48,73 @@ export const isSecretLength = (n: number): boolean => n >= SECRET_LIKE;
 /** Query parameters whose VALUE is a secret. Removed, never masked. */
 const SECRET_PARAMS = new Set(['key', 'message', 'password', 'authtoken', 'token']);
 
+/** A UUID, which is the shape of every API key we deal with. */
+const UUID_LIKE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Long, mixed-case-or-digit tokens in a path are credentials far more often than not. */
+function looksLikeCredential(segment: string): boolean {
+  if (UUID_LIKE.test(segment)) return true;
+  if (segment.length < 20) return false;
+  return /[A-Za-z]/.test(segment) && /[0-9]/.test(segment);
+}
+
 /**
  * A provider URL made safe to print.
  *
- * This exists because the send URL carries BOTH secrets in its query string: the
- * login code (in `message`) and the base-64 console password (in `key`). Masking
- * digits is not enough for those two — the whole value goes, so nothing can be
- * inferred from its length or its non-digit characters. Everything else is kept,
- * because a failure has to stay diagnosable.
+ * Two providers, two different hiding places, and BOTH have to be covered:
+ *
+ *  - Message Central puts the login code in `message` and the base-64 console
+ *    password in `key` — both QUERY parameters.
+ *  - 2Factor puts the API key AND the login code in the PATH:
+ *      /API/V1/<api-key>/SMS/+91XXXXXXXXXX/<code>/<template>
+ *    so query-only redaction would print a live credential in full.
+ *
+ * Secrets are REMOVED, not masked, so nothing can be inferred from their length.
+ * Everything else survives, because a failure has to stay diagnosable — the host,
+ * the route and a template name are all useful and none of them is sensitive.
+ *
+ * `secrets` is belt-and-braces on top of the heuristic: pass any literal value you
+ * know is a credential and it goes regardless of what shape it happens to be.
  */
-export function scrubUrlForLog(url: string): string {
+export function scrubUrlForLog(
+  url: string,
+  options: { secrets?: readonly string[] } = {},
+): string {
   if (typeof url !== 'string') return '';
+
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    return scrubForLog(url);
+    return scrubForLog(redactLiterals(url, options.secrets));
   }
+
   for (const [name] of [...parsed.searchParams]) {
     if (SECRET_PARAMS.has(name.toLowerCase())) {
       parsed.searchParams.set(name, '(hidden)');
     }
   }
-  // Everything that survives still goes through the digit scrubber, so an echoed
-  // phone number is masked rather than printed.
-  return scrubForLog(decodeURIComponent(parsed.toString()));
+
+  // Path segments: hide anything credential-shaped. A 6-digit code and a phone
+  // number are left to the digit scrubber below, which masks both.
+  parsed.pathname = parsed.pathname
+    .split('/')
+    .map((segment) => (looksLikeCredential(segment) ? '(hidden)' : segment))
+    .join('/');
+
+  const printable = decodeURIComponent(parsed.toString());
+  return scrubForLog(redactLiterals(printable, options.secrets));
+}
+
+/** Remove exact known-secret substrings, whatever shape they are. */
+function redactLiterals(text: string, secrets?: readonly string[]): string {
+  if (!secrets || secrets.length === 0) return text;
+  let out = text;
+  for (const secret of secrets) {
+    if (typeof secret !== 'string') continue;
+    const trimmed = secret.trim();
+    if (trimmed.length === 0) continue;
+    out = out.split(trimmed).join('(hidden)');
+  }
+  return out;
 }

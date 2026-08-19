@@ -82,6 +82,41 @@ describe('validateEnv — SMS provider', () => {
   });
 });
 
+describe('validateEnv — 2Factor', () => {
+  it('accepts a complete 2Factor configuration', () => {
+    const env = validateEnv({ ...BASE, SMS_PROVIDER: '2factor', TWOFACTOR_API_KEY: 'k' });
+    expect(env.SMS_PROVIDER).toBe('2factor');
+    expect(env.TWOFACTOR_BASE_URL).toBe('https://2factor.in');
+    expect(env.TWOFACTOR_NUMBER_FORMAT).toBe('e164');
+    // Empty means "the account's default approved template", not "missing".
+    expect(env.TWOFACTOR_TEMPLATE_NAME).toBe('');
+  });
+
+  it('refuses to boot without TWOFACTOR_API_KEY, naming it', () => {
+    const err = caught(() => validateEnv({ ...BASE, SMS_PROVIDER: '2factor' }));
+    expect(err!.message).toContain('TWOFACTOR_API_KEY');
+    expect(err!.message).toMatch(/SMS_PROVIDER=2factor/);
+  });
+
+  it('does NOT demand Message Central credentials when 2factor is selected', () => {
+    // Each provider is gated on its own variables only.
+    expect(() =>
+      validateEnv({ ...BASE, SMS_PROVIDER: '2factor', TWOFACTOR_API_KEY: 'k' }),
+    ).not.toThrow();
+  });
+
+  it('does NOT demand a 2Factor key when Message Central is selected', () => {
+    expect(() => validateEnv({ ...BASE, ...MC })).not.toThrow();
+  });
+
+  it('rejects an unknown number format', () => {
+    const err = caught(() =>
+      validateEnv({ ...BASE, SMS_PROVIDER: '2factor', TWOFACTOR_API_KEY: 'k', TWOFACTOR_NUMBER_FORMAT: 'plus91' }),
+    );
+    expect(err!.message).toContain('TWOFACTOR_NUMBER_FORMAT');
+  });
+});
+
 describe('isBase64 — the boot gate on a pasted credential', () => {
   it('accepts a properly padded value', () => {
     expect(isBase64(Buffer.from('password').toString('base64'))).toBe(true);

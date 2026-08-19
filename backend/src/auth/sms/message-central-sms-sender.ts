@@ -3,6 +3,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.validation';
 import { OTP_TTL_SECONDS } from '../auth.constants';
 import { maskMobile, scrubForLog } from './mask';
+import { splitMobile } from './phone';
 import type { SmsSender } from './sms-sender';
 
 /**
@@ -213,21 +214,22 @@ export class MessageCentralSmsSender implements SmsSender {
   }
 
   /**
-   * The E.164 number split into the national part the provider expects
-   * alongside a separate countryCode. A number outside the configured country is
-   * REFUSED rather than reshaped — Fayr is India-only, so a foreign number here
-   * means something upstream is wrong, and guessing where to cut the digits could
-   * text an unrelated person.
+   * The national part the provider expects alongside a separate countryCode.
+   *
+   * A number outside the configured country is REFUSED rather than reshaped — Fayr
+   * is India-only, so a foreign number here means something upstream is wrong, and
+   * guessing where to cut the digits could text an unrelated person. The split
+   * itself lives in phone.ts so every sender uses the same rule.
    */
   private nationalNumber(mobile: string): string {
-    const digits = String(mobile ?? '').replace(/\D/g, '');
-    if (!digits.startsWith(this.countryCode)) {
+    const split = splitMobile(mobile, this.countryCode);
+    if (split == null) {
       this.logger.error(
         `refusing to send to ${maskMobile(mobile)} — not a +${this.countryCode} number`,
       );
       throw new ServiceUnavailableException(USER_FACING_FAILURE);
     }
-    return digits.slice(this.countryCode.length);
+    return split.national;
   }
 
   /** The message. Short, plain, and it says not to share the code. */

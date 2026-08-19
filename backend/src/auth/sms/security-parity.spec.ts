@@ -4,6 +4,7 @@ import { AuthService } from '../auth.service';
 import { OTP_MAX_ATTEMPTS, OTP_RESEND_COOLDOWN_SECONDS } from '../auth.constants';
 import { DevSmsSender } from './dev-sms-sender';
 import { MessageCentralSmsSender } from './message-central-sms-sender';
+import { TwoFactorSmsSender } from './two-factor-sms-sender';
 import type { SmsSender } from './sms-sender';
 
 /**
@@ -28,6 +29,12 @@ const ENV: Record<string, unknown> = {
   MESSAGECENTRAL_MESSAGE_TYPE: 'TRANSACTION',
   MESSAGECENTRAL_TIMEOUT_MS: 15000,
   MESSAGECENTRAL_TOKEN_TTL_MINUTES: 30,
+  TWOFACTOR_BASE_URL: 'https://2factor.in',
+  TWOFACTOR_API_KEY: 'a1b2c3d4-5e6f-11ee-be56-0242ac120002',
+  TWOFACTOR_TEMPLATE_NAME: '',
+  TWOFACTOR_COUNTRY_CODE: '91',
+  TWOFACTOR_NUMBER_FORMAT: 'e164',
+  TWOFACTOR_TIMEOUT_MS: 15000,
 };
 
 /**
@@ -42,17 +49,23 @@ function stubNetwork(): void {
     text: () =>
       Promise.resolve(
         JSON.stringify({
+          // Message Central's shape...
           responseCode: 200,
           token: 'jwt-token',
           data: { transactionId: 'txn-1', errorMessage: null },
+          // ...and 2Factor's, so one stub satisfies both.
+          Status: 'Success',
+          Details: 'session-id',
         }),
       ),
   }) as never;
 }
 
 function makeSender(name: string): SmsSender {
+  const config = { get: (k: string) => ENV[k] } as never;
   if (name === 'dev') return new DevSmsSender();
-  return new MessageCentralSmsSender({ get: (k: string) => ENV[k] } as never);
+  if (name === '2factor') return new TwoFactorSmsSender(config);
+  return new MessageCentralSmsSender(config);
 }
 
 function build(sms: SmsSender) {
@@ -75,7 +88,7 @@ function build(sms: SmsSender) {
   return { service, prisma };
 }
 
-describe.each([['dev'], ['messagecentral']])(
+describe.each([['dev'], ['messagecentral'], ['2factor']])(
   'security behaviour is identical — sender: %s',
   (name) => {
     let sms: SmsSender;

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { type Env, isBase64 } from '../../config/env.validation';
 import { DevSmsSender } from './dev-sms-sender';
 import { MessageCentralSmsSender } from './message-central-sms-sender';
+import { TwoFactorSmsSender } from './two-factor-sms-sender';
 import { SMS_SENDER, type SmsSender } from './sms-sender';
 
 /**
@@ -25,6 +26,7 @@ export const BOOT_LINE = {
   dev: 'Active sender: DEV — the code is printed in this terminal, no SMS is sent',
   messagecentral:
     'Active sender: MESSAGE CENTRAL — real SMS will be sent to real phones',
+  '2factor': 'Active sender: 2FACTOR — real SMS will be sent to real phones',
 } as const;
 
 const KNOWN = Object.keys(BOOT_LINE).join(', ');
@@ -68,6 +70,21 @@ export function createSmsSender(config: ConfigService<Env, true>): SmsSender {
     }
     const sender = new MessageCentralSmsSender(config);
     logger.log(BOOT_LINE.messagecentral);
+    return sender;
+  }
+
+  if (provider === '2factor') {
+    // Same order as above: validate BEFORE logging, so a boot line never promises
+    // real SMS and then crashes.
+    const key = config.get('TWOFACTOR_API_KEY', { infer: true });
+    if (typeof key !== 'string' || key.trim().length === 0) {
+      throw new Error(
+        'TWOFACTOR_API_KEY is required when SMS_PROVIDER=2factor. '
+        + 'Set it in backend/.env, or set SMS_PROVIDER=dev to print codes to the console instead.',
+      );
+    }
+    const sender = new TwoFactorSmsSender(config);
+    logger.log(BOOT_LINE['2factor']);
     return sender;
   }
 

@@ -106,3 +106,46 @@ describe('scrubUrlForLog', () => {
     expect(scrubUrlForLog(undefined as unknown as string)).toBe('');
   });
 });
+
+describe('scrubUrlForLog — secrets in the PATH, not just the query', () => {
+  // 2Factor puts the API KEY and the login CODE in the path:
+  //   https://2factor.in/API/V1/<api-key>/SMS/+91XXXXXXXXXX/<code>/<template>
+  // Query-string redaction alone would print both in full.
+  const KEY = 'a1b2c3d4-5e6f-11ee-be56-0242ac120002';
+  const URL2F = `https://2factor.in/API/V1/${KEY}/SMS/+919876543210/483920/FayrLogin`;
+
+  it('hides an API key that sits in the path', () => {
+    expect(scrubUrlForLog(URL2F)).not.toContain(KEY);
+  });
+
+  it('hides the login code in the path', () => {
+    expect(scrubUrlForLog(URL2F)).not.toContain('483920');
+  });
+
+  it('masks the phone number in the path', () => {
+    expect(scrubUrlForLog(URL2F)).not.toContain('9876543210');
+  });
+
+  it('keeps what makes a failure diagnosable', () => {
+    const out = scrubUrlForLog(URL2F);
+    expect(out).toContain('2factor.in');
+    expect(out).toContain('/SMS/');
+    expect(out).toContain('FayrLogin'); // a template name is not a secret
+  });
+
+  it('also removes any literal secret it is handed, whatever shape it is', () => {
+    const out = scrubUrlForLog('https://x.test/API/short/go', { secrets: ['short'] });
+    expect(out).not.toMatch(/\/short\//);
+    expect(out).toContain('(hidden)');
+  });
+
+  it('ignores empty or blank entries in the secrets list', () => {
+    const url = 'https://x.test/API/v1/go';
+    expect(scrubUrlForLog(url, { secrets: ['', '   ', undefined as unknown as string] })).toBe(url);
+  });
+
+  it('leaves an ordinary path alone', () => {
+    expect(scrubUrlForLog('https://cpaas.messagecentral.com/verification/v3/send'))
+      .toBe('https://cpaas.messagecentral.com/verification/v3/send');
+  });
+});
