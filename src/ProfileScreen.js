@@ -28,9 +28,11 @@ import { getWallet } from './backend/meApi';
 import { getWithdrawals } from './backend/withdrawalsApi';
 import { listTasks } from './backend/tasksApi';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE, groupIndian } from './ui/theme';
+// ONE definition of which withdrawals have left the balance, and one of the
+// all-time total — shared with the Earnings screen rather than restated here.
+import { ON_THE_WAY, allTimeEarningsPaise } from './ui/wallet';
 import { POLICY_VERSION } from './ui/policy';
 
-const ON_THE_WAY = ['REQUESTED', 'APPROVED'];
 const REVIEWED_STATES = ['REVIEWED', 'HOLDING', 'REFUNDED'];
 
 function Row({ icon, title, sub, onPress, danger, last }) {
@@ -72,13 +74,14 @@ export default function ProfileScreen({ navigation }) {
     return unfocus;
   }, [navigation, load]);
 
-  // Same arithmetic as the Earnings screen, so the two screens can never disagree:
-  // everything earned = what is withdrawable + what has been paid + what is moving.
+  // The SAME FUNCTION as the Earnings screen, not the same arithmetic written
+  // twice — "same arithmetic" in two files is precisely how two screens come to
+  // disagree about one number.
   const sum = (arr) => arr.reduce((s, x) => s + Number(x.amountPaise || 0), 0);
   const paidPaise = sum(withdrawals.filter((w) => w.status === 'PAID'));
   const movingPaise = sum(withdrawals.filter((w) => ON_THE_WAY.includes(w.status)));
   const balancePaise = wallet ? Number(wallet.walletBalancePaise || 0) : 0;
-  const totalPaise = balancePaise + paidPaise + movingPaise;
+  const totalPaise = allTimeEarningsPaise({ wallet, withdrawals });
   const reviewed = tasks.filter((t) => REVIEWED_STATES.includes(t.state)).length;
 
   const doLogout = () => {

@@ -21,8 +21,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getWallet } from './backend/meApi';
 import { getWithdrawals } from './backend/withdrawalsApi';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE, groupIndian } from './ui/theme';
-
-const ON_THE_WAY = ['REQUESTED', 'APPROVED'];
+// ONE definition of which withdrawals have left the balance, and one of the
+// all-time total. Both used to be re-declared here and again in ProfileScreen,
+// which is three copies of a fact that feeds a money figure — the same shape of
+// defect as a price shown by one route and paid by another.
+import { ON_THE_WAY, allTimeEarningsPaise } from './ui/wallet';
 const rupees = (paise) => groupIndian(Math.floor(Number(paise || 0) / 100));
 
 function StatCard({ icon, tint, label, value, style }) {
@@ -57,7 +60,12 @@ export default function EarningsScreen({ navigation }) {
   const paid = sum(withdrawals.filter((w) => w.status === 'PAID'));
   const pending = sum(withdrawals.filter((w) => ON_THE_WAY.includes(w.status)));
   const balance = wallet ? Number(wallet.walletBalancePaise || 0) : 0;
-  const allTime = balance + paid + pending;
+  // The headline figure. Derived, not fetched — no endpoint reports it — and
+  // correct only while a withdrawal request removes the money from the balance at
+  // REQUEST time. src/ui/wallet.js explains why that can drift and
+  // src/ui/earnings.test.mjs fails if it does, rather than leaving a user to read
+  // a number that is too big and believe it.
+  const allTime = allTimeEarningsPaise({ wallet, withdrawals });
 
   return (
     <View style={styles.root}>

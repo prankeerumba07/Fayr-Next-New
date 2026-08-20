@@ -115,3 +115,50 @@ export function walletView(input) {
     history,
   };
 }
+
+/**
+ * Statuses where the money has REACHED the user and will never come back.
+ *
+ * Separate from ON_THE_WAY on purpose: both have left the available balance, but
+ * only one of them is finished.
+ */
+export const SETTLED = ['PAID'];
+
+/**
+ * EVERYTHING THIS USER HAS EVER EARNED — the headline figure on Earnings.
+ *
+ * There is no server endpoint for this. It is derived on the device from three
+ * separate numbers, and it is only correct because of ONE INVARIANT:
+ *
+ *     requesting a withdrawal immediately posts a USER→PAYOUT reserve leg, so
+ *     the wallet balance NO LONGER CONTAINS any requested, approved or paid
+ *     withdrawal.
+ *
+ * Given that, everything ever credited = what is left + what is on its way +
+ * what has been paid. Rejected and failed withdrawals are excluded because their
+ * reserve was reversed back INTO the balance, so counting them would count the
+ * same rupee twice.
+ *
+ * WHY THIS CAN DRIFT, and what breaks it: the invariant is not enforced anywhere.
+ * It is a property of when the ledger legs are posted. If withdrawal accounting
+ * ever changes so that money leaves the balance at PAID time instead of at
+ * request time — which is exactly what reconciling the PAYOUT account invites —
+ * then requested and approved withdrawals would still be sitting in the balance
+ * and this figure would silently DOUBLE-COUNT them. Nobody would see an error.
+ * A user would see a number that is too big, believe it, and be wrong.
+ *
+ * So it is pinned by test rather than left to be discovered. If you are here
+ * because a test named for this failed: the fix is not to change the test's
+ * expectation, it is to decide whether this figure should still be derived on
+ * the device at all, or whether the server should now report it.
+ */
+export function allTimeEarningsPaise(input) {
+  const i = input || {};
+  const availablePaise = toPaise(i.wallet && i.wallet.walletBalancePaise);
+  const list = Array.isArray(i.withdrawals) ? i.withdrawals : [];
+  const sum = (statuses) =>
+    list
+      .filter((w) => w && statuses.includes(w.status))
+      .reduce((total, w) => total + toPaise(w.amountPaise), 0);
+  return availablePaise + sum(SETTLED) + sum(ON_THE_WAY);
+}
