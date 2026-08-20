@@ -309,6 +309,246 @@ describe('Staff quantity confirmation (e2e)', () => {
     expect(meta.reason).toBe('order page shows one unit');
   });
 
+  describe('the queue a reviewer works from', () => {
+    it('lists a task whose refund is held on the unit count, with what the reader saw', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnQuantity(user.token);
+      const support = await tokenFor('SUPPORT');
+
+      const res = await request(server())
+        .get('/admin/tasks/awaiting-amount')
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+
+      expect(res.body.total).toBe(1);
+      const item = res.body.items[0];
+      expect(item.taskId).toBe(taskId);
+      // Everything a reviewer needs to make an obvious call WITHOUT opening the
+      // marketplace order themselves.
+      expect(item.orderId).toBe('Q-HELD-1');
+      expect(item.itemPaise).toBe('129900');
+      expect(item.platform).toBe('AMAZON');
+      expect(item.quantity).toBeNull();
+      expect(item.heldReason).toBe('quantity-unknown');
+      // Plain words, not an enum: this is read by a person and sometimes read OUT
+      // to the user on the phone.
+      expect(item.heldExplanation).toMatch(/how many units/i);
+      expect(item.heldExplanation).not.toMatch(/quantity-unknown/);
+      expect(item.campaignTitle).toBe('Review the thing');
+    });
+
+    it('passes on what the reader OBSERVED but refused to assert', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const campaign = await prisma.campaign.create({
+        data: {
+          platform: 'AMAZON', status: 'ACTIVE', title: 'Observed', productName: 'x',
+          category: 'electronics', productPricePaise: 38800n, payoutPercent: 100, ticketCost: 5,
+        },
+      });
+      const created = await request(server())
+        .post('/tasks')
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({ campaignId: campaign.id })
+        .expect(201);
+      await request(server())
+        .post(`/tasks/${created.body.id}/evidence`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({
+          order: {
+            id: 'OBS-1', date: Date.now(), itemPaise: '38800',
+            quantityObserved: 3, quantityReason: 'multi-unit-amount-unclear',
+            source: 'order-details',
+          },
+        })
+        .expect(200);
+
+      const support = await tokenFor('SUPPORT');
+      const res = await request(server())
+        .get('/admin/tasks/awaiting-amount')
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      const item = res.body.items.find(
+        (i: { orderId: string }) => i.orderId === 'OBS-1',
+      );
+      expect(item.quantityObserved).toBe(3);
+      expect(item.quantityReason).toBe('multi-unit-amount-unclear');
+    });
+
+    it('leaves out tasks nobody needs to look at', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      // A task with a KNOWN quantity is payable, so it is not work.
+      const campaign = await prisma.campaign.create({
+        data: {
+          platform: 'AMAZON', status: 'ACTIVE', title: 'Fine', productName: 'x',
+          category: 'electronics', productPricePaise: 38800n, payoutPercent: 100, ticketCost: 5,
+        },
+      });
+      const created = await request(server())
+        .post('/tasks')
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({ campaignId: campaign.id })
+        .expect(201);
+      await request(server())
+        .post(`/tasks/${created.body.id}/evidence`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({
+          order: { id: 'FINE-1', date: Date.now(), itemPaise: '38800', quantity: 1, source: 'order-details' },
+        })
+        .expect(200);
+
+      const support = await tokenFor('SUPPORT');
+      const res = await request(server())
+        .get('/admin/tasks/awaiting-amount')
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      expect(res.body.items.map((i: { orderId: string }) => i.orderId)).not.toContain('FINE-1');
+    });
+
+    it('drops out of the queue once the count is confirmed', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnQuantity(user.token);
+      const support = await tokenFor('SUPPORT');
+      await request(server())
+        .post(`/admin/tasks/${taskId}/quantity`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ quantity: 1, reason: 'single unit' })
+        .expect(200);
+      const res = await request(server())
+        .get('/admin/tasks/awaiting-amount')
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      expect(res.body.total).toBe(0);
+    });
+
+    it('is SUPPORT and ADMIN only', async () => {
+      const roles: StaffRole[] = ['SUPPORT', 'FINANCE', 'OPERATIONS', 'ADMIN'];
+      for (const role of roles) {
+        const staff = await tokenFor(role);
+        const allowed = role === 'SUPPORT' || role === 'ADMIN';
+        await request(server())
+          .get('/admin/tasks/awaiting-amount')
+          .set('authorization', `Bearer ${staff.token}`)
+          .expect(allowed ? 200 : 403);
+      }
+    });
+  });
+
+  describe('what will actually be paid, before confirming', () => {
+    it('previews the refund through the SAME resolver the payout uses', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnQuantity(user.token);
+      const support = await tokenFor('SUPPORT');
+
+      const one = await request(server())
+        .get(`/admin/tasks/${taskId}/quantity-preview?quantity=1`)
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      expect(one.body.payable).toBe(true);
+      expect(one.body.chargedPaise).toBe('129900');
+      expect(one.body.refundPaise).toBe('129900');
+
+      const three = await request(server())
+        .get(`/admin/tasks/${taskId}/quantity-preview?quantity=3`)
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      expect(three.body.payable).toBe(true);
+      expect(three.body.refundPaise).toBe('43300'); // 129900 / 3
+
+      // And the preview must AGREE with what confirming actually does.
+      const applied = await request(server())
+        .post(`/admin/tasks/${taskId}/quantity`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ quantity: 3, reason: 'three units on the page' })
+        .expect(200);
+      expect(applied.body.refund.amountPaise).toBe(three.body.refundPaise);
+    });
+
+    it('says plainly when a number would still not be payable', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const campaign = await prisma.campaign.create({
+        data: {
+          platform: 'AMAZON', status: 'ACTIVE', title: 'Odd', productName: 'x',
+          category: 'electronics', productPricePaise: 100n, payoutPercent: 100, ticketCost: 5,
+        },
+      });
+      const created = await request(server())
+        .post('/tasks')
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({ campaignId: campaign.id })
+        .expect(201);
+      const taskId = created.body.id as string;
+      await request(server())
+        .post(`/tasks/${taskId}/evidence`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({ order: { id: 'ODD-1', date: Date.now(), itemPaise: '100', source: 'order-details' } })
+        .expect(200);
+
+      const support = await tokenFor('SUPPORT');
+      const res = await request(server())
+        .get(`/admin/tasks/${taskId}/quantity-preview?quantity=3`)
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      expect(res.body.payable).toBe(false);
+      expect(res.body.refundPaise).toBeNull();
+      expect(res.body.heldReason).toBe('quantity-not-divisible');
+      expect(res.body.heldExplanation).not.toMatch(/quantity-not-divisible/);
+    });
+
+    it('honours the campaign payout cap, including a cap of zero', async () => {
+      // The cap is where the "shown versus paid" defect lived on the device. The
+      // preview must not grow its own private calculation that forgets it.
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      for (const [cap, expected] of [
+        [50000n, '50000'],
+        [0n, '0'],
+      ] as [bigint, string][]) {
+        const campaign = await prisma.campaign.create({
+          data: {
+            platform: 'AMAZON', status: 'ACTIVE', title: 'Capped', productName: 'x',
+            category: 'electronics', productPricePaise: 129900n, payoutPercent: 100,
+            ticketCost: 5, payoutCapPaise: cap,
+          },
+        });
+        const created = await request(server())
+          .post('/tasks')
+          .set('Authorization', `Bearer ${user.token}`)
+          .send({ campaignId: campaign.id })
+          .expect(201);
+        await request(server())
+          .post(`/tasks/${created.body.id}/evidence`)
+          .set('Authorization', `Bearer ${user.token}`)
+          .send({ order: { id: `CAP-${cap}`, date: Date.now(), itemPaise: '129900', source: 'order-details' } })
+          .expect(200);
+        const support = await tokenFor('SUPPORT');
+        const res = await request(server())
+          .get(`/admin/tasks/${created.body.id}/quantity-preview?quantity=1`)
+          .set('authorization', `Bearer ${support.token}`)
+          .expect(200);
+        expect(res.body.refundPaise).toBe(expected);
+      }
+    });
+
+    it('rejects a quantity it would never accept on the write path', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnQuantity(user.token);
+      const support = await tokenFor('SUPPORT');
+      for (const q of ['0', '-1', '2.5', '1000', 'two', '']) {
+        await request(server())
+          .get(`/admin/tasks/${taskId}/quantity-preview?quantity=${q}`)
+          .set('authorization', `Bearer ${support.token}`)
+          .expect(400);
+      }
+    });
+  });
+
   it('does not move any money by itself', async () => {
     // The whole point of the hold is that a person decides the AMOUNT. Deciding
     // it must not also pay it: the return window, the published review and the

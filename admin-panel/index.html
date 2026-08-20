@@ -263,8 +263,14 @@
         loading: false, error: null, items: null, notice: null,
         selId: null, detail: null, detailLoading: false, detailError: null,
         imgUrl: null, imgLoading: false, busy: false, actionError: null
-      }
+      },
+      // Refunds waiting on somebody stating how many units were bought. A work
+      // queue, so it carries a badge count like the others.
+      amounts: { loading: false, error: null, items: null, total: null, busy: null, actionError: null, notice: null }
     };
+    function freshAmounts() {
+      return { loading: false, error: null, items: null, total: null, busy: null, actionError: null, notice: null };
+    }
     // A fresh, empty verifications slice — used at init and on logout.
     function freshVerifications() {
       return {
@@ -280,6 +286,7 @@
       withdrawals: ["FINANCE", "ADMIN"],
       queue: ["SUPPORT", "ADMIN"],
       verifications: ["SUPPORT", "ADMIN"],
+      amounts: ["SUPPORT", "ADMIN"],
       campaigns: ["OPERATIONS", "ADMIN"],
       reports: ["OPERATIONS", "FINANCE", "ADMIN"],
       search: ["SUPPORT", "FINANCE", "ADMIN"],
@@ -291,7 +298,7 @@
     }
     // The tab a role lands on after login: the first one it's allowed to see.
     function defaultScreen() {
-      var order = ["withdrawals", "queue", "verifications", "campaigns", "reports", "search", "staff"];
+      var order = ["withdrawals", "queue", "verifications", "amounts", "campaigns", "reports", "search", "staff"];
       for (var i = 0; i < order.length; i++) if (roleCanSee(order[i])) return order[i];
       return "search";
     }
@@ -303,6 +310,7 @@
       else if (id === "staff" && state.staffMgmt.items === null && !state.staffMgmt.loading) loadStaff();
       else if (id === "campaigns" && state.campaigns.items === null && !state.campaigns.loading) loadCampaigns();
       else if (id === "reports" && state.reports.data === null && !state.reports.loading) openReports();
+      else if (id === "amounts" && state.amounts.items === null && !state.amounts.loading) loadAmounts();
     }
     function saveSession() {
       if (state.token) sessionStorage.setItem(SS + "token", state.token);
@@ -467,6 +475,7 @@
       if (roleCanSee("withdrawals") && state.withdrawals.items === null && !state.withdrawals.loading) loadWithdrawals();
       if (roleCanSee("queue") && state.queue.items === null && !state.queue.loading) loadQueue();
       if (roleCanSee("verifications") && state.verifications.items === null && !state.verifications.loading) loadVerifications();
+      if (roleCanSee("amounts") && state.amounts.items === null && !state.amounts.loading) loadAmounts();
     }
     function logout(msg) {
       state.token = null; state.staff = null;
@@ -480,6 +489,7 @@
       state.user = { loading: false, error: null, data: null, from: "search" };
       if (state.verifications.imgUrl) URL.revokeObjectURL(state.verifications.imgUrl);
       state.verifications = freshVerifications();
+      state.amounts = freshAmounts();
       campaignForm = null;
       saveSession();
       render();
@@ -615,6 +625,7 @@
         ["withdrawals", "Withdrawals", "₹"],
         ["queue", "Questions", "✉"],
         ["verifications", "Screenshots", "▣"],
+        ["amounts", "Unit counts", "#"],
       ]],
       ["Catalogue", [
         ["campaigns", "Campaigns", "◈"],
@@ -643,6 +654,10 @@
         return state.verifications.total != null
           ? state.verifications.total
           : state.verifications.items.length;
+      }
+      if (id === "amounts") {
+        if (!state.amounts.items) return null;
+        return state.amounts.total != null ? state.amounts.total : state.amounts.items.length;
       }
       return null;
     }
@@ -690,6 +705,7 @@
       withdrawals: ["Withdrawals", "Money leaving Fayr. Approve, reject, then mark paid once the transfer is out."],
       queue: ["Questions", "Users waiting on an answer. Oldest first."],
       verifications: ["Screenshot verifications", "Tier-3 supporting evidence. Nothing here approves itself."],
+      amounts: ["Unit counts", "Refunds waiting on how many units were bought. Nothing here pays until someone says."],
       campaigns: ["Campaigns", "The offers users can claim."],
       reports: ["Reports", "Counts and totals, downloadable as a spreadsheet."],
       search: ["Find a user", "Look someone up by mobile number."],
@@ -1400,6 +1416,216 @@
       } catch (e) { v.actionError = e.message; v.busy = false; render(); }
     }
 
+    // ── Unit counts ─────────────────────────────────────────────────────────
+    // A refund is for ONE unit, so an amount with no unit count cannot be paid.
+    // Almost no marketplace page states one, which means holds are the ordinary
+    // case rather than the exception — and a hold nobody can see is the same dead
+    // end as a hold nobody can clear. This is the queue that closes both.
+    //
+    // Everything a reviewer needs is on the card: what the order says, what the
+    // reader saw, what it refused to assert, and what will actually be paid if
+    // they enter a number. They should not have to open the marketplace order to
+    // make an obvious call.
+    async function loadAmounts() {
+      var a = state.amounts;
+      a.loading = true; a.error = null; render();
+      try {
+        var resp = await api("GET", "/admin/tasks/awaiting-amount");
+        a.items = (resp && resp.items) || [];
+        a.total = resp && typeof resp.total === "number" ? resp.total : a.items.length;
+      } catch (e) { a.error = e.message; }
+      a.loading = false; render();
+    }
+
+    // Why a page said nothing, or what it said that we refused. Plain words: the
+    // reviewer needs to know whether to trust the page or distrust the reader.
+    var QTY_REASON_TEXT = {
+      "not-stated": "The order page did not state a unit count at all. That is normal — most single-unit orders show no count.",
+      "picker": "A quantity DROPDOWN was found instead of a stated count. Its first option is not what was bought, so it was refused.",
+      "conflicting": "Two different counts were found in the same item row, so neither could be trusted.",
+      "implausible": "A count was found but it could not be right.",
+      "partial": "Some of the order records stated a count and some did not, so they could not be added up.",
+      "no-item-container": "The item's own row could not be located on the page, so nothing could be read from it.",
+      "multi-unit-amount-unclear": "A count above one WAS read. It is not used automatically because we cannot yet tell whether the price beside it is for one unit or for the whole line — that is the call you are making."
+    };
+
+    function AmountCard(it) {
+      var a = state.amounts;
+      var already = it.quantity != null;
+
+      // Inputs live in this closure and are never re-rendered while being typed
+      // in: the panel re-renders wholesale, which would drop focus and clear the
+      // field mid-word. The preview line is updated by touching the node.
+      var qtyIn = h("input", {
+        type: "number", min: "1", max: "100", step: "1",
+        value: already ? String(it.quantity) : "1",
+        style: "width:88px", "aria-label": "How many units"
+      });
+      var reasonIn = h("input", {
+        type: "text", maxlength: "500",
+        placeholder: "What did you see? e.g. order page shows one unit",
+        "aria-label": "Why this count"
+      });
+      var previewLine = h("div", { class: "muted", style: "font-size:12.5px;margin-top:6px" });
+      var msg = h("div");
+      var btn = h("button", { class: "btn btn-sm btn-primary", type: "submit" },
+        already ? "Save correction" : "Confirm count");
+
+      // The reason is REQUIRED and has no default. An audit row that says nothing
+      // is worse than none, because it looks like diligence.
+      function syncBtn() {
+        var okReason = reasonIn.value.trim().length >= 3;
+        btn.disabled = !okReason || a.busy === it.taskId;
+        btn.title = okReason ? "" : "Say what you saw before saving";
+      }
+      reasonIn.oninput = syncBtn;
+
+      var timer = null, seq = 0;
+      function refreshPreview() {
+        var q = parseInt(qtyIn.value, 10);
+        if (!(q >= 1 && q <= 100)) {
+          previewLine.textContent = "Enter a whole number of units, 1 to 100.";
+          return;
+        }
+        previewLine.textContent = "Working out what this pays…";
+        var mine = ++seq;
+        // THE SAME ONE ROUTE as everything else. The panel deliberately does not
+        // multiply the amount by the percentage itself: three money defects so far
+        // have come from a second route to one number, and a preview that
+        // disagreed with the action would be the fourth.
+        api("GET", "/admin/tasks/" + it.taskId + "/quantity-preview?quantity=" + q)
+          .then(function (p) {
+            if (mine !== seq) return; // a later keystroke already won
+            if (p.payable) {
+              previewLine.textContent = "This pays " + rupees(p.refundPaise)
+                + " — " + it.payoutPercent + "% of " + rupees(p.chargedPaise)
+                + (it.payoutCapPaise != null ? ", capped at " + rupees(it.payoutCapPaise) : "");
+            } else {
+              previewLine.textContent = "This still would not pay: " + p.heldExplanation;
+            }
+          })
+          .catch(function (e) {
+            if (mine !== seq) return;
+            previewLine.textContent = "Could not work out what this pays: " + e.message;
+          });
+      }
+      qtyIn.oninput = function () {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(refreshPreview, 250);
+      };
+      refreshPreview();
+      syncBtn();
+
+      async function onSubmit(ev) {
+        ev.preventDefault();
+        var q = parseInt(qtyIn.value, 10);
+        msg.textContent = "";
+        if (!(q >= 1 && q <= 100)) {
+          msg.appendChild(h("div", { class: "flash flash-err", style: "margin-top:8px" }, "Enter a whole number of units, 1 to 100."));
+          return;
+        }
+        if (reasonIn.value.trim().length < 3) {
+          msg.appendChild(h("div", { class: "flash flash-err", style: "margin-top:8px" }, "Say what you saw — this goes on the record for this payout."));
+          return;
+        }
+        a.busy = it.taskId; a.actionError = null; btn.disabled = true;
+        try {
+          await api("POST", "/admin/tasks/" + it.taskId + "/quantity", {
+            quantity: q, reason: reasonIn.value.trim()
+          });
+          a.busy = null;
+          a.notice = "Saved. " + (already ? "Corrected to " : "Set to ") + q
+            + (q === 1 ? " unit" : " units") + " on task " + it.taskId.slice(0, 8) + ".";
+          await loadAmounts();
+        } catch (e) {
+          a.busy = null;
+          msg.textContent = "";
+          msg.appendChild(h("div", { class: "flash flash-err", style: "margin-top:8px" }, e.message));
+          syncBtn();
+        }
+      }
+
+      var facts = h("div", { class: "row", style: "gap:18px;flex-wrap:wrap;margin-top:8px;font-size:12.5px" },
+        factCell("Order", h("span", { class: "mono" }, it.orderId || "—")),
+        factCell("Amount on the line", rupees(it.itemPaise)),
+        factCell("Order total", rupees(it.orderTotalPaise)),
+        factCell("Ordered", fmtDay(it.orderDate)),
+        factCell("Stage", it.state));
+
+      var readerSaw = h("div", { style: "margin-top:10px" },
+        h("div", { class: "nav-head", style: "padding:0 0 4px" }, "What the reader saw"),
+        h("div", { style: "font-size:12.5px" },
+          QTY_REASON_TEXT[it.quantityReason] || "No reading was recorded for this order."),
+        it.quantityObserved != null
+          ? h("div", { style: "font-size:12.5px;margin-top:4px" },
+              h("strong", null, "The page stated " + it.quantityObserved
+                + (it.quantityObserved === 1 ? " unit" : " units") + "."),
+              " Check it before accepting it.")
+          : null);
+
+      var correction = already
+        ? h("div", { class: "flash flash-err", style: "margin-top:10px;font-size:12.5px" },
+            "A count of " + it.quantity + " is already on file. Saving a different number is a correction, and both numbers go on the record.")
+        : null;
+
+      return h("div", { class: "card" },
+        h("div", { class: "row", style: "justify-content:space-between;align-items:flex-start" },
+          h("div", { style: "min-width:0" },
+            h("div", { class: "row", style: "gap:8px;align-items:center" },
+              pill("held", "bad"),
+              pill(it.platform, "info"),
+              pill(it.state, "neutral")),
+            h("div", { style: "margin-top:6px;font-weight:600" }, it.campaignTitle || "—"),
+            h("div", { class: "muted", style: "margin-top:2px;font-size:12.5px" }, it.productName || "")),
+          h("div", { style: "text-align:right" },
+            h("button", {
+              class: "btn btn-sm btn-ghost",
+              onclick: function () { loadUser(it.user.id, "amounts"); }
+            }, "Open user →"),
+            h("div", { class: "muted mono", style: "margin-top:6px;font-size:11.5px" },
+              "task " + it.taskId.slice(0, 8)))),
+        // The hold, in plain words, ABOVE the controls — so the reason to act and
+        // the way to act are in one place.
+        h("div", { class: "flash flash-info", style: "margin-top:10px;font-size:13px" }, it.heldExplanation),
+        facts,
+        readerSaw,
+        correction,
+        h("form", { onsubmit: onSubmit, style: "margin-top:12px" },
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;align-items:flex-end" },
+            h("label", { class: "field", style: "flex:0 0 auto" }, h("span", null, "How many units"), qtyIn),
+            h("label", { class: "field", style: "flex:1;min-width:220px" }, h("span", null, "Why — required"), reasonIn),
+            btn),
+          previewLine,
+          msg));
+    }
+
+    // One labelled fact. Kept tiny and local so the card reads as a card.
+    function factCell(label, value) {
+      return h("div", null,
+        h("div", { class: "nav-head", style: "padding:0 0 2px" }, label),
+        h("div", null, value));
+    }
+
+    function AmountsScreen() {
+      var a = state.amounts;
+      var body;
+      if (a.loading && !a.items) body = h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading…");
+      else if (a.error) body = h("div", { class: "flash flash-err" }, a.error);
+      else if (!a.items || a.items.length === 0) {
+        body = h("div", { class: "empty" }, "No refunds are waiting on a unit count.");
+      } else {
+        body = h("div", null, a.items.map(AmountCard));
+      }
+      return h("div", null,
+        a.notice ? h("div", { class: "flash flash-info", style: "margin-bottom:12px" }, a.notice) : null,
+        a.actionError ? h("div", { class: "flash flash-err", style: "margin-bottom:12px" }, a.actionError) : null,
+        h("div", { class: "muted", style: "font-size:12.5px;margin-bottom:12px" },
+          "A refund is for one unit. When the order page does not say how many units were bought, "
+          + "the refund is held rather than guessed — entering the count here releases it to the "
+          + "normal checks. Nothing here pays money by itself."),
+        body);
+    }
+
     function VerificationsScreen() {
       var v = state.verifications;
       if (v.selId && (v.detail || v.detailLoading || v.detailError)) return VerificationDetail();
@@ -1758,6 +1984,7 @@
       if (state.screen === "withdrawals") content = WithdrawalsScreen();
       else if (state.screen === "queue") content = QueueScreen();
       else if (state.screen === "verifications") content = VerificationsScreen();
+      else if (state.screen === "amounts") content = AmountsScreen();
       else if (state.screen === "campaigns") content = CampaignsScreen();
       else if (state.screen === "reports") content = ReportsScreen();
       else if (state.screen === "search") content = SearchScreen();

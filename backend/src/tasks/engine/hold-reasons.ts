@@ -48,3 +48,45 @@ export function explainHold(reason: string | null | undefined): string {
   if (reason == null) return FALLBACK;
   return HOLD_MESSAGES[reason] ?? FALLBACK;
 }
+
+/**
+ * The same holds, said to the STAFF MEMBER who has to clear them.
+ *
+ * A separate map on purpose. The user-facing wording above is reassurance —
+ * "nothing is lost, you do not need to do anything" — which is exactly wrong in
+ * front of the person whose job it is to do something. These say what is missing
+ * and what to look at. They live in this file so the two cannot drift apart.
+ *
+ * Still plain words, never an enum: a reviewer reads these out to users on the
+ * phone.
+ */
+const STAFF_HOLD_MESSAGES: Record<string, string> = {
+  'quantity-unknown':
+    'The order does not say how many units were bought, and a refund is for one '
+    + 'unit. Open the order page, count the units on this product, and enter it.',
+  'quantity-not-divisible':
+    'The amount does not divide evenly by the unit count on file, so no per-unit '
+    + 'figure can be taken from it. Check the order page and enter the real count.',
+  'quantity-implausible':
+    'The unit count on file cannot be right. Check the order page and enter the '
+    + 'real count.',
+  'amount-unknown':
+    'No price could be read for this item, so there is nothing to take a '
+    + 'percentage of. The unit count alone will not release this one.',
+  'item-price-above-total-and-ambiguous':
+    'The item price sits above the order total and the reader found more than one '
+    + 'amount in the row, so neither figure can be trusted.',
+  'amount-gap-implausible':
+    'The item price and the order total are too far apart to be a discount — most '
+    + 'likely several products share one total, or promotional credit was used.',
+};
+
+const STAFF_FALLBACK =
+  'This refund is held and needs a person to decide it. The reason was not '
+  + 'recognised, which is itself worth looking at.';
+
+/** A held release, in words the reviewer clearing it can act on. */
+export function explainHoldForStaff(reason: string | null | undefined): string {
+  if (reason == null) return STAFF_FALLBACK;
+  return STAFF_HOLD_MESSAGES[reason] ?? STAFF_FALLBACK;
+}

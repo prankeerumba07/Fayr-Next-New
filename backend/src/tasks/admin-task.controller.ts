@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { AdminAuditService } from '../admin/admin-audit.service';
@@ -16,7 +18,12 @@ import { RolesGuard } from '../admin/guards/roles.guard';
 import { StaffAuthGuard } from '../admin/guards/staff-auth.guard';
 import type { AuthenticatedStaff } from '../admin/staff.types';
 import { AllowDuplicateOrderDto } from './dto/allow-duplicate-order.dto';
+import { QuantityPreviewQuery } from './dto/quantity-preview.query';
 import { SetQuantityDto } from './dto/set-quantity.dto';
+import type {
+  AwaitingAmountResponse,
+  QuantityPreviewResponse,
+} from './awaiting-amount.response';
 import type { TaskResponse } from './task.response';
 import { TaskService } from './task.service';
 
@@ -48,6 +55,32 @@ export class AdminTaskController {
     private readonly tasks: TaskService,
     private readonly audit: AdminAuditService,
   ) {}
+
+  /**
+   * The work queue. Declared BEFORE the ':id/...' routes so the literal segment
+   * is never read as a task id.
+   *
+   * This exists so a held refund is DISCOVERABLE. A hold nobody can see is the
+   * same dead end as a hold nobody can clear: the app tells the user a reviewer
+   * will look at it, and until there was a queue no reviewer knew there was
+   * anything to look at.
+   */
+  @Get('awaiting-amount')
+  listAwaitingAmount(): Promise<AwaitingAmountResponse> {
+    return this.tasks.listAwaitingAmount();
+  }
+
+  /**
+   * What a given count would actually pay, before anyone commits to it. Read-only
+   * and audit-free on purpose: it is a calculator, not a decision.
+   */
+  @Get(':id/quantity-preview')
+  previewQuantity(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: QuantityPreviewQuery,
+  ): Promise<QuantityPreviewResponse> {
+    return this.tasks.previewQuantity(id, query.quantity);
+  }
 
   @Post(':id/allow-duplicate-order')
   @HttpCode(HttpStatus.OK)

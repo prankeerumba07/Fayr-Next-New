@@ -32,6 +32,13 @@ import {
 } from './engine/transition';
 import type { EngineTask } from './engine/task-state';
 import { toEngineTask, toEvidenceJson, toPromotedColumns } from './task.mapper';
+import {
+  toAwaitingAmountItem,
+  toQuantityPreview,
+  type AwaitingAmountItem,
+  type AwaitingAmountResponse,
+  type QuantityPreviewResponse,
+} from './awaiting-amount.response';
 import { toTaskResponse, type TaskResponse } from './task.response';
 import {
   evidenceFromDto,
@@ -189,6 +196,46 @@ export class TaskService {
       userId: row.userId,
       orderId: row.orderId,
     };
+  }
+
+  /**
+   * Every refund waiting on somebody stating a unit count.
+   *
+   * "Held on the count" is decided by running the REAL resolver over each task,
+   * not by a SQL predicate on the evidence JSON. A predicate would be a second
+   * definition of the same decision, and second routes to one answer are exactly
+   * what has produced every money defect found so far. The SQL narrows to rows
+   * that could possibly qualify; the resolver decides.
+   */
+  async listAwaitingAmount(): Promise<AwaitingAmountResponse> {
+    const rows = await this.prisma.task.findMany({
+      // A refund is only in question once an order exists, and a REFUNDED task is
+      // already paid. Everything else is decided by the resolver below.
+      where: {
+        orderId: { not: null },
+        state: { in: ['PURCHASED', 'DELIVERED', 'REVIEWED', 'HOLDING'] },
+      },
+      include: { campaign: true, user: { select: { id: true, mobile: true } } },
+      orderBy: { createdAt: 'asc' }, // oldest first: someone has waited longest
+      take: 200,
+    });
+    const items = rows
+      .map((row) => toAwaitingAmountItem(row))
+      .filter((item): item is AwaitingAmountItem => item !== null);
+    return { items, total: items.length };
+  }
+
+  /** What confirming a given unit count would actually pay. Changes nothing. */
+  async previewQuantity(
+    taskId: string,
+    quantity: number,
+  ): Promise<QuantityPreviewResponse> {
+    const row = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { campaign: true },
+    });
+    if (!row) throw new NotFoundException('Task not found');
+    return toQuantityPreview(row, quantity);
   }
 
   /**
