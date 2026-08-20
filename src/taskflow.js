@@ -241,6 +241,11 @@ export function readAmazonEvidence(raw, target) {
       // and 938.00; refunding 90% of the total for the 388.00 item would pay
       // ~3.4x. Integer paise, string-parsed - see money.js.
       itemPaise: toPaise(review.itemamount),
+      // QUANTITY IS UNKNOWN, and said so explicitly rather than left absent.
+      // No marketplace page we read exposes the unit count, so the figure above is
+      // a LINE TOTAL of unknown size. The refund refuses rather than assuming 1 —
+      // see chargedAmount.js. Set this the moment a reader can genuinely read it.
+      quantity: null,
       // Audit only. Deliberately NOT called `amount` so nothing can reach for it
       // by habit and pay out the wrong number.
       orderTotalPaise: toPaise(review.orderamount),
@@ -402,6 +407,11 @@ export function readFlipkartEvidence(raw, target) {
       // (moneyDataBag.itemSellingPrice), verified 2026-07-15 - never orderAmount,
       // which is the order total and can bundle unrelated items. Whole rupees.
       itemPaise: toPaise(order.itemAmount),
+      // QUANTITY IS UNKNOWN, and said so explicitly rather than left absent.
+      // No marketplace page we read exposes the unit count, so the figure above is
+      // a LINE TOTAL of unknown size. The refund refuses rather than assuming 1 —
+      // see chargedAmount.js. Set this the moment a reader can genuinely read it.
+      quantity: null,
       orderTotalPaise: toPaise(order.orderAmount),
       amountSource: order.itemAmount != null ? 'flipkart-itemSellingPrice' : null,
       itemAmountAmbiguous: false,

@@ -18,6 +18,7 @@ import {
   resolveChargedPaise,
 } from './engine/charged-amount';
 import { checkPlausibility } from './engine/evidence-plausibility';
+import { explainHold } from './engine/hold-reasons';
 import { orderWindow, screenEvidenceByWindow } from './engine/order-window';
 import type { Evidence } from './engine/evidence.types';
 import { computeRefundPaise } from './engine/money';
@@ -278,13 +279,16 @@ export class TaskService {
         case 'already':
           return outcome.task;
         case 'amount-unknown':
-          // Carry the real reason: "amount-unknown" and "the item price sat
-          // above what was charged" need different handling by staff.
-          throw new ConflictException(
-            `Order amount is unknown, cannot compute the refund${
-              outcome.reason ? ` (${outcome.reason})` : ''
-            }`,
+          // PLAIN WORDS, NOT AN ENUM. This used to throw
+          // "Order amount is unknown, cannot compute the refund (quantity-unknown)"
+          // straight at the user — an internal name on the screen where someone
+          // checks whether they are getting their money. The machine-readable
+          // reason still goes to the log and the staff queue; the person gets a
+          // sentence that says what is happening and that nothing is lost.
+          this.logger.warn(
+            `release held on task ${taskId}: ${outcome.reason ?? 'amount-unknown'}`,
           );
+          throw new ConflictException(explainHold(outcome.reason));
         case 'ineligible':
           throw new ConflictException(outcome.reasons.join('; '));
       }

@@ -15,32 +15,76 @@
 // So: total >= item -> item; total < item -> total; and the two cases we refuse
 // to guess go to staff.
 
+/**
+ * Above this a "quantity" is far more likely a misread field than a real basket,
+ * and dividing by it would produce an absurdly small refund that looked legitimate.
+ */
+const MAX_PLAUSIBLE_QUANTITY = 100;
+
 /** Pure, integer paise in and out. `order` is the device's task.order shape. */
 export function resolveChargedPaise(order) {
-  const item = order && order.itemPaise != null ? order.itemPaise : null;
+  const staff = (reason) => ({ paise: null, basis: null, needsStaff: true, reason });
+
+  // A STATED per-unit price is evidence rather than inference, so it wins — and it
+  // makes the quantity irrelevant, because a refund is always for ONE unit.
+  const unit = order && order.unitPricePaise != null ? order.unitPricePaise : null;
+  if (unit != null) {
+    if (unit <= 0) return staff('amount-unknown');
+    return { paise: unit, basis: 'unit-price', needsStaff: false, reason: null };
+  }
+
+  // Otherwise we are working from a LINE figure. `itemPaise` is the historic,
+  // ambiguous name for the same thing and is read as a line total — the safe
+  // reading, because treating a line total as a unit price overpays.
+  const line = order && order.lineTotalPaise != null
+    ? order.lineTotalPaise
+    : (order && order.itemPaise != null ? order.itemPaise : null);
   const total = order && order.orderTotalPaise != null ? order.orderTotalPaise : null;
   const ambiguous = !!(order && order.itemAmountAmbiguous === true);
 
-  const staff = (reason) => ({ paise: null, basis: null, needsStaff: true, reason });
+  // Never fall back to a bare order total: on quick-commerce it can cover a whole
+  // basket, so paying it would refund several products for one review.
+  if (line == null) return staff('amount-unknown');
 
-  // Never fall back to a bare order total: on quick-commerce it can cover a
-  // whole basket, so paying it would refund several products for one review.
-  if (item == null) return staff('amount-unknown');
-
+  let lineCharged;
+  let basis;
   if (total == null) {
-    return { paise: item, basis: 'item-price-only', needsStaff: false, reason: null };
+    lineCharged = line;
+    basis = 'item-price-only';
+  } else if (total >= line) {
+    lineCharged = line;
+    basis = 'item-price';
+  } else if (ambiguous) {
+    return staff('item-price-above-total-and-ambiguous');
+  } else if (total * 2 < line) {
+    // A gap this large is not a coupon: more likely several products on one total,
+    // or marketplace gift-card/wallet/promo credit, which the terms make ineligible.
+    return staff('amount-gap-implausible');
+  } else {
+    lineCharged = total;
+    basis = 'order-total-lower';
   }
-  if (total >= item) {
-    return { paise: item, basis: 'item-price', needsStaff: false, reason: null };
-  }
-  // The item figure exceeds what the order was charged, so it can't be the paid
-  // price. Prefer the total — but only where we can justify it.
-  if (ambiguous) return staff('item-price-above-total-and-ambiguous');
-  // A gap this large is not a coupon: more likely several products on one total,
-  // or marketplace gift-card/wallet/promo credit, which the terms make
-  // ineligible outright. Under-paying is unfair and over-paying is worse, so
-  // neither is guessed.
-  if (total * 2 < item) return staff('amount-gap-implausible');
 
-  return { paise: total, basis: 'order-total-lower', needsStaff: false, reason: null };
+  // QUANTITY. NEVER ASSUME 1. A line total carries as many units as were bought,
+  // so paying a percentage of it without knowing how many pays a multiple of what
+  // the campaign intended. No reader captures quantity today, so this refuses far
+  // more often than it pays — deliberately. Refusing costs a staff review;
+  // guessing costs money.
+  const quantity = order && order.quantity != null ? order.quantity : null;
+  if (quantity == null) return staff('quantity-unknown');
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_PLAUSIBLE_QUANTITY) {
+    return staff('quantity-implausible');
+  }
+  if (quantity === 1) {
+    return { paise: lineCharged, basis, needsStaff: false, reason: null };
+  }
+  // More than one unit: the refund is for ONE of them, and only exact division is
+  // accepted — rounding real money either way is not a silent decision.
+  if (lineCharged % quantity !== 0) return staff('quantity-not-divisible');
+  return {
+    paise: lineCharged / quantity,
+    basis: 'unit-from-line-total',
+    needsStaff: false,
+    reason: null,
+  };
 }

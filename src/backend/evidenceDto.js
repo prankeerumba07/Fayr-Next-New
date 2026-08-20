@@ -69,6 +69,15 @@ export function toEvidenceDto(evidence, key) {
       date: e.order.date ?? undefined,
       dateRaw: e.order.dateRaw ?? undefined,
       itemPaise: paiseStr(e.order.itemPaise),
+      // The explicit money pair. itemPaise is the historic ambiguous name and is
+      // read as a LINE TOTAL by the backend, so these two say which is which.
+      unitPricePaise: paiseStr(e.order.unitPricePaise),
+      lineTotalPaise: paiseStr(e.order.lineTotalPaise),
+      // Only sent when a reader genuinely read it. Absent means UNKNOWN, and the
+      // backend never reads unknown as 1 — it holds the refund for a human.
+      ...(Number.isInteger(e.order.quantity) && e.order.quantity >= 1
+        ? { quantity: e.order.quantity }
+        : null),
       orderTotalPaise: paiseStr(e.order.orderTotalPaise),
       mrpPaise: paiseStr(e.order.mrpPaise),
       amountSource: e.order.amountSource ?? undefined,

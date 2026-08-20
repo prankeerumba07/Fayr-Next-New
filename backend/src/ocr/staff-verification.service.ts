@@ -150,6 +150,7 @@ export class StaffVerificationService {
     id: string,
     reason: string | undefined,
     itemPaise?: bigint | null,
+    quantity?: number | null,
   ): Promise<ReviewResultResponse> {
     const s = this.reviewable(await this.load(id));
 
@@ -160,6 +161,9 @@ export class StaffVerificationService {
       s.screenshot.uploadedAt,
       {
         staffItemPaise: itemPaise ?? null,
+        // The units the reviewer read off the image. This is what unblocks a refund
+        // that a line total alone cannot justify.
+        staffQuantity: quantity ?? null,
         // Never let OCR downgrade a public-visibility flag a higher tier set.
         reviewAlreadyPublished: s.screenshot.task.reviewPublished === true,
       },

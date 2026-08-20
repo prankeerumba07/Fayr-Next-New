@@ -1,4 +1,5 @@
 import type { Campaign, Task } from '@prisma/client';
+import { resolveChargedPaise } from './engine/charged-amount';
 import { computeRefundPaise } from './engine/money';
 import { policyForWindowDays } from './engine/return-policy';
 import type { TaskStateName } from './engine/states';
@@ -27,6 +28,8 @@ export interface TaskResponse {
   order: {
     id: string | null;
     itemPaise: string | null;
+    /** Units on the line. NULL = unknown, which is never read as 1. */
+    quantity: number | null;
     orderTotalPaise: string | null;
     match?: {
       score?: number | null;
@@ -85,11 +88,22 @@ export function toTaskResponse(
   const policy = policyForWindowDays(campaign.returnWindowDays);
   const elig = refundEligibility(task, now, policy);
 
-  const itemPaise = task.order?.itemPaise ?? null;
+  // THE SCREEN MUST NEVER PROMISE A NUMBER THE PAYOUT WOULD REFUSE.
+  //
+  // This used to read task.order.itemPaise DIRECTLY — the one thing attemptRelease
+  // explicitly warns against — so the amount shown bypassed every money rule. It
+  // could show a listed price where the payout would pay the charged one (the live
+  // Flipkart case: 367 shown, 328 paid), and with the quantity rule it would show a
+  // line total's worth for an order whose units we cannot count.
+  //
+  // Both now come from the same resolver, so display and payout agree by
+  // construction. needsStaff means no number is shown at all, which is honest: a
+  // figure a human still has to confirm is not a promise we can make.
+  const charged = resolveChargedPaise(task.order);
   const amountPaise =
-    itemPaise != null
+    charged.paise != null
       ? computeRefundPaise(
-          itemPaise,
+          charged.paise,
           campaign.payoutPercent,
           campaign.payoutCapPaise,
         )
@@ -111,7 +125,12 @@ export function toTaskResponse(
     order: task.order
       ? {
           id: task.order.id,
-          itemPaise: itemPaise != null ? itemPaise.toString() : null,
+          // The raw line figure, for display and support. Distinct from the refund
+          // basis above on purpose: this is what the order says, that is what we
+          // would actually pay.
+          itemPaise:
+            task.order.itemPaise != null ? task.order.itemPaise.toString() : null,
+          quantity: task.order.quantity ?? null,
           orderTotalPaise:
             task.order.orderTotalPaise != null
               ? task.order.orderTotalPaise.toString()

@@ -54,8 +54,40 @@ export interface EvidenceOrder {
   id: string | null;
   date?: number | null;
   dateRaw?: string | null;
-  /** The REFUNDABLE figure — the item's own paid price, never the order total. */
+  /**
+   * ── THE MONEY FIELDS, NAMED SO THEY CANNOT BE CONFUSED ────────────────────
+   *
+   * `itemPaise` is the historic name and it is AMBIGUOUS: on some platforms it is
+   * what one unit cost, on others what the whole line cost. That difference is
+   * real money — a line total for three units refunded as a unit price pays about
+   * three times what the campaign intended — so the two are now separate fields
+   * and `itemPaise` is read as a LINE TOTAL, which is the safe reading.
+   *
+   * @deprecated Prefer lineTotalPaise or unitPricePaise. Kept because it is the
+   * wire field every existing reader, row and task already uses.
+   */
   itemPaise?: bigint | null;
+  /**
+   * What ONE unit was charged. Set only where the page genuinely states a
+   * per-unit figure. When present, quantity does not matter: a refund is for one
+   * unit of the product, so this is the basis and nothing has to be inferred.
+   */
+  unitPricePaise?: bigint | null;
+  /**
+   * What the whole LINE was charged — unit price times quantity. On its own this
+   * is not enough to pay from, because without the quantity we cannot tell one
+   * unit at this price from three at a third of it.
+   */
+  lineTotalPaise?: bigint | null;
+  /**
+   * How many units of the product this line covers.
+   *
+   * NULL means UNKNOWN, and unknown is NEVER treated as 1. No marketplace reader
+   * captures this today — the word "quantity" appears nowhere in platforms.js,
+   * extract.js, verify.js or taskflow.js — so unknown is the honest value, and a
+   * line total with an unknown quantity goes to a human instead of paying out.
+   */
+  quantity?: number | null;
   orderTotalPaise?: bigint | null;
   mrpPaise?: bigint | null;
   amountSource?: string | null;

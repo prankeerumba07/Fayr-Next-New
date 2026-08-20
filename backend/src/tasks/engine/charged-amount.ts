@@ -37,6 +37,10 @@ import type { EvidenceOrder } from './evidence.types';
 
 /** Why a figure was chosen, recorded so a payout can be explained later. */
 export type ChargedBasis =
+  /** The page stated what ONE unit cost. Quantity is then irrelevant. */
+  | 'unit-price'
+  /** One unit's cost, divided out of the line total by a KNOWN quantity. */
+  | 'unit-from-line-total'
   /** The item's own charged line. The total was >= it (fees, or a merged cart). */
   | 'item-price'
   /** No total to cross-check against, so the item figure stands alone. */
@@ -66,6 +70,13 @@ export interface ChargedAmount {
 function gapIsImplausible(itemPaise: bigint, totalPaise: bigint): boolean {
   return totalPaise * 2n < itemPaise;
 }
+
+/**
+ * Above this, a "quantity" is far more likely to be a misread field than a real
+ * basket — and dividing by it would produce an absurdly small refund that looked
+ * legitimate. Refuse instead.
+ */
+const MAX_PLAUSIBLE_QUANTITY = 100;
 
 /**
  * Tolerance for "is this the product the campaign is paying for?": a ₹2 floor OR
@@ -113,10 +124,6 @@ export function chargedDisagreesWithCampaign(
 export function resolveChargedPaise(
   order: EvidenceOrder | null | undefined,
 ): ChargedAmount {
-  const item = order?.itemPaise ?? null;
-  const total = order?.orderTotalPaise ?? null;
-  const ambiguous = order?.itemAmountAmbiguous === true;
-
   const staff = (reason: string): ChargedAmount => ({
     paise: null,
     basis: null,
@@ -124,35 +131,65 @@ export function resolveChargedPaise(
     reason,
   });
 
-  // No per-item figure at all. Note we do NOT fall back to the order total:
-  // on quick-commerce that total can cover several products, so paying it would
-  // refund the whole basket for one reviewed item. This is the pre-existing
-  // quick-commerce/Myntra behaviour, unchanged.
-  if (item == null) {
-    return staff('amount-unknown');
+  // A STATED per-unit price is evidence, not inference, so it wins outright — and
+  // it makes the quantity irrelevant, because a refund is always for one unit.
+  const unit = order?.unitPricePaise ?? null;
+  if (unit != null) {
+    if (unit <= 0n) return staff('amount-unknown');
+    return { paise: unit, basis: 'unit-price', needsStaff: false, reason: null };
   }
 
-  // Nothing to cross-check against — the item figure is all we have.
+  // Otherwise we are working from a LINE figure. `itemPaise` is the historic,
+  // ambiguous name for the same thing and is read as a line total, which is the
+  // safe reading — see evidence.types.ts.
+  const line = order?.lineTotalPaise ?? order?.itemPaise ?? null;
+  const total = order?.orderTotalPaise ?? null;
+  const ambiguous = order?.itemAmountAmbiguous === true;
+
+  // Never fall back to a bare order total: on quick-commerce it can cover a whole
+  // basket, so paying it would refund several products for one review.
+  if (line == null) return staff('amount-unknown');
+
+  // The order-total cross-check, unchanged, applied to the LINE figure.
+  let lineCharged: bigint;
+  let basis: ChargedBasis;
   if (total == null) {
-    return { paise: item, basis: 'item-price-only', needsStaff: false, reason: null };
-  }
-
-  // The total is at or above the item price: fees, shipping, or other items in
-  // the same order. The item's own line IS the charged amount for this product.
-  if (total >= item) {
-    return { paise: item, basis: 'item-price', needsStaff: false, reason: null };
-  }
-
-  // From here the item figure EXCEEDS what the order was charged, so it cannot
-  // be the paid price. The total is the better figure — but only when we can
-  // justify it.
-  if (ambiguous) {
-    // The item figure is already flagged untrustworthy AND sits above the
-    // charge. Two unknowns stacked; don't pick a winner.
+    lineCharged = line;
+    basis = 'item-price-only';
+  } else if (total >= line) {
+    lineCharged = line;
+    basis = 'item-price';
+  } else if (ambiguous) {
     return staff('item-price-above-total-and-ambiguous');
-  }
-  if (gapIsImplausible(item, total)) {
+  } else if (gapIsImplausible(line, total)) {
     return staff('amount-gap-implausible');
+  } else {
+    lineCharged = total;
+    basis = 'order-total-lower';
   }
-  return { paise: total, basis: 'order-total-lower', needsStaff: false, reason: null };
+
+  // ── QUANTITY. NEVER ASSUME 1. ─────────────────────────────────────────────
+  // A line total carries as many units as were bought. Refunding a percentage of
+  // it without knowing how many pays a multiple of what the campaign intended.
+  // No reader captures quantity today, so this refuses far more often than it
+  // pays — deliberately. Refusing costs a staff review; guessing costs money.
+  const quantity = order?.quantity ?? null;
+  if (quantity == null) return staff('quantity-unknown');
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_PLAUSIBLE_QUANTITY) {
+    return staff('quantity-implausible');
+  }
+  if (quantity === 1) {
+    return { paise: lineCharged, basis, needsStaff: false, reason: null };
+  }
+
+  // More than one unit: the refund is for ONE of them. Only exact division is
+  // accepted — rounding real money in either direction is not a silent decision.
+  const q = BigInt(quantity);
+  if (lineCharged % q !== 0n) return staff('quantity-not-divisible');
+  return {
+    paise: lineCharged / q,
+    basis: 'unit-from-line-total',
+    needsStaff: false,
+    reason: null,
+  };
 }

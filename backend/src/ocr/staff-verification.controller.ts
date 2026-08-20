@@ -84,6 +84,7 @@ export class StaffVerificationController {
       id,
       dto.reason,
       dto.itemPaise != null ? BigInt(dto.itemPaise) : null,
+      dto.quantity ?? null,
     );
   }
 

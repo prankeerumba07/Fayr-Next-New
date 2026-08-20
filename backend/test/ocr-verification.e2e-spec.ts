@@ -187,7 +187,7 @@ describe('OCR verification (e2e)', () => {
     await request(server())
       .post(`/admin/verifications/${submissionId}/approve`)
       .set('Authorization', bearer(support))
-      .send({ reason: 'Order page checked', itemPaise: '129900' })
+      .send({ reason: 'Order page checked', itemPaise: '129900', quantity: 1 })
       .expect(200)
       .expect((r) => expect(r.body.status).toBe('APPROVED'));
 
@@ -227,7 +227,7 @@ describe('OCR verification (e2e)', () => {
       .post(`/tasks/${taskId}/evidence`)
       .set('Authorization', bearer(token))
       .send({
-        order: { id: 'o1', itemPaise: '129900', source: 'order-details' },
+        order: { id: 'o1', itemPaise: '129900', quantity: 1, source: 'order-details' },
         delivery: { at: earlier, source: 'order-details' },
         returned: false,
       })

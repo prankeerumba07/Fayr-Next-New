@@ -25,9 +25,11 @@ import type { EngineTask } from './engine/task-state';
 /** The order as stored in JSON — money fields are strings (or null). */
 type StoredOrder = Omit<
   EvidenceOrder,
-  'itemPaise' | 'orderTotalPaise' | 'mrpPaise'
+  'itemPaise' | 'unitPricePaise' | 'lineTotalPaise' | 'orderTotalPaise' | 'mrpPaise'
 > & {
   itemPaise: string | null;
+  unitPricePaise: string | null;
+  lineTotalPaise: string | null;
   orderTotalPaise: string | null;
   mrpPaise: string | null;
 };
@@ -53,6 +55,11 @@ function orderToStored(order: EvidenceOrder | null): StoredOrder | null {
   return {
     ...order,
     itemPaise: bigintOrNull(order.itemPaise),
+    // EVERY money field must be listed here. A bigint spread through untouched
+    // reaches JSON.stringify and throws "Do not know how to serialize a BigInt" —
+    // a 500 on evidence submission, which is how these two were caught.
+    unitPricePaise: bigintOrNull(order.unitPricePaise),
+    lineTotalPaise: bigintOrNull(order.lineTotalPaise),
     orderTotalPaise: bigintOrNull(order.orderTotalPaise),
     mrpPaise: bigintOrNull(order.mrpPaise),
   };
@@ -63,6 +70,8 @@ function orderFromStored(order: StoredOrder | null): EvidenceOrder | null {
   return {
     ...order,
     itemPaise: parseBigint(order.itemPaise),
+    unitPricePaise: parseBigint(order.unitPricePaise),
+    lineTotalPaise: parseBigint(order.lineTotalPaise),
     orderTotalPaise: parseBigint(order.orderTotalPaise),
     mrpPaise: parseBigint(order.mrpPaise),
   };

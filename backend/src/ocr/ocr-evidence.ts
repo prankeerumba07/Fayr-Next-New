@@ -19,6 +19,8 @@ export interface FragmentCampaign {
  */
 export interface ApprovalContext {
   staffItemPaise?: bigint | null;
+  /** Units the reviewer read off the screenshot. Undefined = still unknown. */
+  staffQuantity?: number | null;
   reviewAlreadyPublished?: boolean;
 }
 
@@ -70,6 +72,10 @@ export function evidenceFragmentFor(
         date: safeDateMs(ex?.orderDate),
         dateRaw: ex?.orderDate ?? null,
         itemPaise, // null = unknown; refund stays blocked until a real figure lands
+        // The reviewer's count, read off the image. Undefined stays UNKNOWN, never
+        // 1 — a line total with no quantity holds the refund for a human, and this
+        // is the one path where a human can actually answer the question.
+        quantity: ctx.staffQuantity ?? null,
         amountSource,
         product: ex?.productName ?? campaign.productName,
         statusText: ex?.deliveryStatus ?? null,

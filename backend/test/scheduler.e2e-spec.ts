@@ -81,7 +81,7 @@ describe('Scheduler (e2e)', () => {
       userId,
       t.id,
       ev({
-        order: { id: 'o1', itemPaise: '129900', source: 'order-details' },
+        order: { id: 'o1', itemPaise: '129900', quantity: 1, source: 'order-details' },
         returned: false,
       }),
     );

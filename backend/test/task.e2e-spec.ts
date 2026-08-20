@@ -74,7 +74,7 @@ describe('Task loop (e2e)', () => {
       .post(`/tasks/${taskId}/evidence`)
       .set('Authorization', bearer(token))
       .send({
-        order: { id: 'o1', itemPaise: '129900', source: 'order-details' },
+        order: { id: 'o1', itemPaise: '129900', quantity: 1, source: 'order-details' },
         returned: false,
       })
       .expect(200);
@@ -151,7 +151,7 @@ describe('Task loop (e2e)', () => {
       .post(`/tasks/${taskId}/evidence`)
       .set('Authorization', bearer(token))
       .send({
-        order: { id: 'o1', itemPaise: '129900', source: 'order-details' },
+        order: { id: 'o1', itemPaise: '129900', quantity: 1, source: 'order-details' },
         returned: false,
       })
       .expect(200)
@@ -220,7 +220,7 @@ describe('Task loop (e2e)', () => {
     // Purchase-only check, keyed as the on-device sync layer keys it.
     const purchaseBody = {
       key: 'evidence:o1:o',
-      order: { id: 'o1', itemPaise: '129900', source: 'order-details' },
+      order: { id: 'o1', itemPaise: '129900', quantity: 1, source: 'order-details' },
       returned: false,
     };
     await request(server())
@@ -254,7 +254,7 @@ describe('Task loop (e2e)', () => {
       .set('Authorization', bearer(token))
       .send({
         key: 'evidence:o1:od',
-        order: { id: 'o1', itemPaise: '129900', source: 'order-details' },
+        order: { id: 'o1', itemPaise: '129900', quantity: 1, source: 'order-details' },
         delivery: { at: Date.now() - 30 * DAY, source: 'order-details' },
         returned: false,
       })
@@ -299,7 +299,7 @@ describe('Task loop (e2e)', () => {
       .send({
         order: {
           id: 'o1',
-          itemPaise: '99900',
+          itemPaise: '99900', quantity: 1,
           source: 'order-history',
           match: { score: 1, amountOk: true, ambiguous: false, candidateCount: 1 },
         },
@@ -313,7 +313,7 @@ describe('Task loop (e2e)', () => {
       .post(`/tasks/${taskId}/evidence`)
       .set('Authorization', bearer(token))
       .send({
-        order: { id: 'o1', itemPaise: '99900', source: 'order-history' },
+        order: { id: 'o1', itemPaise: '99900', quantity: 1, source: 'order-history' },
         delivery: { at: deliveredAt, source: 'order-history' },
         review: { published: true, product: 'boAt Rockerz 255 Pro+' },
         returned: false,
@@ -552,7 +552,7 @@ describe('Task loop (e2e)', () => {
       .post(`/tasks/${taskId}/evidence`)
       .set('Authorization', bearer(token))
       .send({
-        order: { id: 'o1', itemPaise: '129900', source: 'order-details' },
+        order: { id: 'o1', itemPaise: '129900', quantity: 1, source: 'order-details' },
         returned: false,
       })
       .expect(200);
@@ -765,7 +765,7 @@ describe('Task loop (e2e)', () => {
         await request(server())
           .post(`/tasks/${taskId}/evidence`)
           .set('Authorization', bearer(token))
-          .send({ order: { id: 'made-up', itemPaise: '500000', source } })
+          .send({ order: { id: 'made-up', itemPaise: '500000', quantity: 1, source } })
           .expect(400);
       });
 
@@ -786,7 +786,7 @@ describe('Task loop (e2e)', () => {
         await request(server())
           .post(`/tasks/${taskId}/evidence`)
           .set('Authorization', bearer(token))
-          .send({ order: { id: 'o-attested', itemPaise: '129900', source } })
+          .send({ order: { id: 'o-attested', itemPaise: '129900', quantity: 1, source } })
           .expect(200);
       }
     });
@@ -795,7 +795,7 @@ describe('Task loop (e2e)', () => {
       await request(server())
         .post(`/tasks/${taskId}/evidence`)
         .set('Authorization', bearer(token))
-        .send({ order: { id: 'made-up', itemPaise: '500000', source: 'manual' } })
+        .send({ order: { id: 'made-up', itemPaise: '500000', quantity: 1, source: 'manual' } })
         .expect(400);
       const row = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
       expect(row.itemPaise).toBeNull();

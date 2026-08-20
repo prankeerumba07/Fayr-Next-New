@@ -1,4 +1,12 @@
-import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 /** Integer paise as a decimal string — money crosses the wire as a string. */
 const PAISE = /^\d+$/;
@@ -26,4 +34,20 @@ export class ApproveDecisionDto extends ReviewDecisionDto {
   @IsOptional()
   @Matches(PAISE, { message: 'itemPaise must be integer paise as a string' })
   itemPaise?: string;
+
+  /**
+   * HOW MANY UNITS the screenshot shows.
+   *
+   * This is the one path where a human can actually answer the question: no
+   * marketplace reader captures quantity, so a line total normally holds the refund
+   * for a manual check. A reviewer looking at the image can read the units off it,
+   * and supplying it here is what unblocks the payout — without anyone guessing.
+   *
+   * Omitted still means UNKNOWN, never 1.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  quantity?: number;
 }

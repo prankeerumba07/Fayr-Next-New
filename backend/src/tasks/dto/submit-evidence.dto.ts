@@ -69,9 +69,20 @@ class EvidenceOrderDto {
   @IsOptional() @IsString() id?: string;
   @IsOptional() @IsInt() date?: number; // epoch ms
   @IsOptional() @IsString() dateRaw?: string;
+  /** @deprecated Ambiguous by history; read as a LINE TOTAL. Prefer the two below. */
   @IsOptional() @Matches(PAISE) itemPaise?: string;
+  /** What ONE unit cost. When present the quantity does not matter. */
+  @IsOptional() @Matches(PAISE) unitPricePaise?: string;
+  /** What the whole line cost. Needs a quantity before it can pay anything. */
+  @IsOptional() @Matches(PAISE) lineTotalPaise?: string;
   @IsOptional() @Matches(PAISE) orderTotalPaise?: string;
   @IsOptional() @Matches(PAISE) mrpPaise?: string;
+  /**
+   * Units on this line. Absent means UNKNOWN, which is never read as 1 — a line
+   * total with an unknown quantity cannot pay out (see charged-amount.ts).
+   * Bounded so a misread field cannot become an absurd divisor.
+   */
+  @IsOptional() @IsInt() @Min(1) @Max(100) quantity?: number;
   @IsOptional() @IsString() amountSource?: string;
   @IsOptional() @IsBoolean() itemAmountAmbiguous?: boolean;
   @IsOptional()
@@ -158,8 +169,11 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
           date: dto.order.date ?? null,
           dateRaw: dto.order.dateRaw ?? null,
           itemPaise: toBig(dto.order.itemPaise),
+          unitPricePaise: toBig(dto.order.unitPricePaise),
+          lineTotalPaise: toBig(dto.order.lineTotalPaise),
           orderTotalPaise: toBig(dto.order.orderTotalPaise),
           mrpPaise: toBig(dto.order.mrpPaise),
+          quantity: dto.order.quantity ?? null,
           amountSource: dto.order.amountSource ?? null,
           itemAmountAmbiguous: dto.order.itemAmountAmbiguous,
           match: dto.order.match

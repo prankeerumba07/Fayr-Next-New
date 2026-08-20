@@ -9,6 +9,11 @@ import { SOURCES } from './states';
  * Refunds are based on the amount ACTUALLY CHARGED, never a listed price.
  * Every case below is built from a real observed record, not invented numbers.
  * Mirrors src/chargedAmount.test.mjs — keep the two in step.
+ *
+ * NOTE ON `quantity: 1` BELOW. These cases were written when "one line means one
+ * unit" was an unstated assumption. That assumption is exactly what the quantity
+ * rule removes, so each case now says it OUT LOUD. Nothing about what they assert
+ * has changed — only that they no longer rely on a default that no longer exists.
  */
 const order = (o: Partial<EvidenceOrder>): EvidenceOrder => ({
   id: 'ORD-1',
@@ -21,7 +26,7 @@ describe('resolveChargedPaise', () => {
     // Real: heels order OD337767552058345100 — itemSellingPrice 36700 against an
     // order total of 32800. The old itemPaise-only rule would have paid ₹39 over.
     const r = resolveChargedPaise(
-      order({ itemPaise: 36700n, orderTotalPaise: 32800n, itemAmountAmbiguous: false }),
+      order({ quantity: 1, itemPaise: 36700n, orderTotalPaise: 32800n, itemAmountAmbiguous: false }),
     );
     expect(r.paise).toBe(32800n);
     expect(r.basis).toBe('order-total-lower');
@@ -30,19 +35,19 @@ describe('resolveChargedPaise', () => {
 
   it('does NOT let a merged cart drag the refund up (Amazon)', () => {
     // Real: order 408-1509645-3524313 totals 1326.00 over items 388.00 + 938.00.
-    const r = resolveChargedPaise(order({ itemPaise: 38800n, orderTotalPaise: 132600n }));
+    const r = resolveChargedPaise(order({ quantity: 1, itemPaise: 38800n, orderTotalPaise: 132600n }));
     expect(r.paise).toBe(38800n);
     expect(r.basis).toBe('item-price');
   });
 
   it('is unchanged when the two figures agree', () => {
-    const r = resolveChargedPaise(order({ itemPaise: 14300n, orderTotalPaise: 14300n }));
+    const r = resolveChargedPaise(order({ quantity: 1, itemPaise: 14300n, orderTotalPaise: 14300n }));
     expect(r.paise).toBe(14300n);
     expect(r.basis).toBe('item-price');
   });
 
   it('uses the item price alone when there is no total to cross-check', () => {
-    const r = resolveChargedPaise(order({ itemPaise: 14300n, orderTotalPaise: null }));
+    const r = resolveChargedPaise(order({ quantity: 1, itemPaise: 14300n, orderTotalPaise: null }));
     expect(r.paise).toBe(14300n);
     expect(r.basis).toBe('item-price-only');
   });
@@ -50,7 +55,7 @@ describe('resolveChargedPaise', () => {
   it('never auto-pays a bare order total (quick-commerce baskets)', () => {
     // Blinkit flower pot: ₹604 total across a multi-item order, no item price.
     const r = resolveChargedPaise(
-      order({ itemPaise: null, orderTotalPaise: 60400n, itemAmountAmbiguous: true }),
+      order({ quantity: 1, itemPaise: null, orderTotalPaise: 60400n, itemAmountAmbiguous: true }),
     );
     expect(r.paise).toBeNull();
     expect(r.needsStaff).toBe(true);
@@ -59,21 +64,21 @@ describe('resolveChargedPaise', () => {
 
   it('sends an ambiguous item price above the total to staff, not a coin flip', () => {
     const r = resolveChargedPaise(
-      order({ itemPaise: 36700n, orderTotalPaise: 32800n, itemAmountAmbiguous: true }),
+      order({ quantity: 1, itemPaise: 36700n, orderTotalPaise: 32800n, itemAmountAmbiguous: true }),
     );
     expect(r.paise).toBeNull();
     expect(r.reason).toBe('item-price-above-total-and-ambiguous');
   });
 
   it('sends an implausible gap to staff rather than guessing', () => {
-    const r = resolveChargedPaise(order({ itemPaise: 500000n, orderTotalPaise: 20000n }));
+    const r = resolveChargedPaise(order({ quantity: 1, itemPaise: 500000n, orderTotalPaise: 20000n }));
     expect(r.paise).toBeNull();
     expect(r.reason).toBe('amount-gap-implausible');
   });
 
   it('treats exactly 50% off as payable, and a hair past it as staff', () => {
-    expect(resolveChargedPaise(order({ itemPaise: 20000n, orderTotalPaise: 10000n })).paise).toBe(10000n);
-    expect(resolveChargedPaise(order({ itemPaise: 20001n, orderTotalPaise: 10000n })).paise).toBeNull();
+    expect(resolveChargedPaise(order({ quantity: 1, itemPaise: 20000n, orderTotalPaise: 10000n })).paise).toBe(10000n);
+    expect(resolveChargedPaise(order({ quantity: 1, itemPaise: 20001n, orderTotalPaise: 10000n })).paise).toBeNull();
   });
 
   it('never returns a figure above either input', () => {
@@ -84,7 +89,7 @@ describe('resolveChargedPaise', () => {
       [20000n, 10000n],
     ];
     for (const [item, total] of cases) {
-      const r = resolveChargedPaise(order({ itemPaise: item, orderTotalPaise: total }));
+      const r = resolveChargedPaise(order({ quantity: 1, itemPaise: item, orderTotalPaise: total }));
       if (r.paise != null) {
         expect(r.paise <= item).toBe(true);
         expect(r.paise <= (total > item ? item : total)).toBe(true);
@@ -95,7 +100,7 @@ describe('resolveChargedPaise', () => {
   it('degrades safely on a missing order', () => {
     expect(resolveChargedPaise(null).needsStaff).toBe(true);
     expect(resolveChargedPaise(undefined).paise).toBeNull();
-    expect(resolveChargedPaise(order({})).reason).toBe('amount-unknown');
+    expect(resolveChargedPaise(order({ quantity: 1,})).reason).toBe('amount-unknown');
   });
 });
 
@@ -150,5 +155,113 @@ describe('chargedDisagreesWithCampaign', () => {
     expect(chargedDisagreesWithCampaign(10500n, 10000n)).toBe(false);
     expect(chargedDisagreesWithCampaign(10501n, 10000n)).toBe(true);
     expect(chargedDisagreesWithCampaign(0n, 10000n)).toBe(true); // a free item is not the offer
+  });
+});
+
+/**
+ * QUANTITY. The money question nobody was asking.
+ *
+ * No marketplace reader captures how many units were bought — verified: the string
+ * "quantity" appears nowhere in platforms.js, extract.js, verify.js or taskflow.js.
+ * That matters because on some platforms the figure we captured is the LINE TOTAL,
+ * so a user who bought three units carries three units' money in it. Refunding a
+ * percentage of that pays roughly three times what the campaign intended.
+ *
+ * So the rule is: never assume 1. Either the evidence says what one unit cost, or
+ * it says how many units there were, or no money moves without a human.
+ */
+describe('resolveChargedPaise — quantity', () => {
+  it('pays from a stated PER-UNIT price without needing the quantity at all', () => {
+    // If the page told us what one unit costs, how many they bought is irrelevant.
+    const res = resolveChargedPaise(
+      order({ unitPricePaise: 32800n, lineTotalPaise: 98400n, quantity: 3 }),
+    );
+    expect(res.paise).toBe(32800n);
+    expect(res.basis).toBe('unit-price');
+    expect(res.needsStaff).toBe(false);
+  });
+
+  it('REFUSES a line total when the quantity is unknown', () => {
+    // The whole point. 93800 might be one unit or three; paying either is a guess.
+    const res = resolveChargedPaise(order({ lineTotalPaise: 93800n, quantity: null }));
+    expect(res.paise).toBeNull();
+    expect(res.needsStaff).toBe(true);
+    expect(res.reason).toBe('quantity-unknown');
+  });
+
+  it('treats a MISSING quantity exactly like an explicitly unknown one', () => {
+    const res = resolveChargedPaise(order({ lineTotalPaise: 93800n }));
+    expect(res.reason).toBe('quantity-unknown');
+    expect(res.needsStaff).toBe(true);
+  });
+
+  it('pays the line total when the quantity is genuinely 1', () => {
+    const res = resolveChargedPaise(order({ lineTotalPaise: 32800n, quantity: 1 }));
+    expect(res.paise).toBe(32800n);
+    expect(res.needsStaff).toBe(false);
+  });
+
+  it('divides a line total by a known quantity, exactly', () => {
+    const res = resolveChargedPaise(order({ lineTotalPaise: 98400n, quantity: 3 }));
+    expect(res.paise).toBe(32800n);
+    expect(res.basis).toBe('unit-from-line-total');
+    expect(res.needsStaff).toBe(false);
+  });
+
+  it('REFUSES when a line total does not divide exactly by the quantity', () => {
+    // 100 paise over 3 units is 33.33 — rounding real money is not our decision to
+    // make silently, in either direction.
+    const res = resolveChargedPaise(order({ lineTotalPaise: 100n, quantity: 3 }));
+    expect(res.paise).toBeNull();
+    expect(res.needsStaff).toBe(true);
+    expect(res.reason).toBe('quantity-not-divisible');
+  });
+
+  it('REFUSES a nonsense quantity rather than coercing it', () => {
+    for (const q of [0, -1, 1.5, Number.NaN, 1000] as number[]) {
+      const res = resolveChargedPaise(order({ lineTotalPaise: 32800n, quantity: q }));
+      expect(res.paise).toBeNull();
+      expect(res.needsStaff).toBe(true);
+    }
+  });
+
+  it('never pays MORE than the line total, whatever the quantity says', () => {
+    // A quantity below 1 must not turn into a multiplier.
+    const res = resolveChargedPaise(order({ lineTotalPaise: 32800n, quantity: 0 }));
+    expect(res.paise).toBeNull();
+  });
+
+  it('prefers a stated unit price over dividing, when both are available', () => {
+    // Division is inference; a stated figure is evidence. Evidence wins.
+    const res = resolveChargedPaise(
+      order({ unitPricePaise: 30000n, lineTotalPaise: 98400n, quantity: 3 }),
+    );
+    expect(res.paise).toBe(30000n);
+    expect(res.basis).toBe('unit-price');
+  });
+
+  it('still refuses an unknown AMOUNT before it ever considers quantity', () => {
+    // An unknown amount is its own outcome and must not be reported as a quantity
+    // problem — the two need different handling.
+    const res = resolveChargedPaise(order({ quantity: 1 }));
+    expect(res.reason).toBe('amount-unknown');
+  });
+
+  it('keeps the legacy itemPaise working, read as a LINE TOTAL', () => {
+    // itemPaise is the historic, ambiguous name. It is the line's charged figure,
+    // so it is treated as a line total and needs the quantity story like any other.
+    const unknown = resolveChargedPaise(order({ itemPaise: 93800n }));
+    expect(unknown.reason).toBe('quantity-unknown');
+    const known = resolveChargedPaise(order({ itemPaise: 93800n, quantity: 1 }));
+    expect(known.paise).toBe(93800n);
+  });
+
+  it('applies the order-total cross-check to the LINE figure, as before', () => {
+    // The live Flipkart case, now with a quantity: listed 36700 above charged 32800.
+    const res = resolveChargedPaise(
+      order({ lineTotalPaise: 36700n, orderTotalPaise: 32800n, quantity: 1 }),
+    );
+    expect(res.paise).toBe(32800n);
+    expect(res.basis).toBe('order-total-lower');
   });
 });

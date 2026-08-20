@@ -107,7 +107,7 @@ describe('Order window (e2e)', () => {
         order: {
           id: 'OLD-1',
           date: Date.now() - 71 * DAY, // the Lukzer shape
-          itemPaise: '93800',
+          itemPaise: '93800', quantity: 1,
           source: 'order-details',
         },
       })
@@ -135,7 +135,7 @@ describe('Order window (e2e)', () => {
       .post(`/tasks/${taskId}/evidence`)
       .set('Authorization', `Bearer ${user.token}`)
       .send({
-        order: { id: 'NEW-1', date: Date.now(), itemPaise: '129900', source: 'order-details' },
+        order: { id: 'NEW-1', date: Date.now(), itemPaise: '129900', quantity: 1, source: 'order-details' },
       })
       .expect(200);
     expect(res.body.state).toBe('PURCHASED');
@@ -155,7 +155,7 @@ describe('Order window (e2e)', () => {
         order: {
           id: 'OLD-OCR',
           date: Date.now() - 71 * DAY,
-          itemPaise: 93800n,
+          itemPaise: 93800n, quantity: 1,
           source: 'ocr',
         },
       } as never,
@@ -185,12 +185,90 @@ describe('Order window (e2e)', () => {
         order: {
           id: 'GRANDFATHERED',
           date: ORDER_WINDOW_RULE_FROM - 200 * DAY,
-          itemPaise: '93800',
+          itemPaise: '93800', quantity: 1,
           source: 'order-details',
         },
       })
       .expect(200);
     expect(res.body.state).toBe('PURCHASED');
     expect(res.body.order.id).toBe('GRANDFATHERED');
+  });
+
+  describe('quantity — never assume one unit', () => {
+    it('holds the refund when the order does not say how many units', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await claimedTask(user.token);
+
+      // A real order, in window, with a real amount — and NO quantity. Today no
+      // marketplace reader captures one, so this is the ordinary case.
+      const res = await request(server())
+        .post(`/tasks/${taskId}/evidence`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({
+          order: { id: 'Q-1', date: Date.now(), itemPaise: '129900', source: 'order-details' },
+        })
+        .expect(200);
+      expect(res.body.state).toBe('PURCHASED');
+
+      // The order IS accepted — the purchase is real. What is refused is paying a
+      // number we cannot justify.
+      const row = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      expect(row.orderId).toBe('Q-1');
+      expect(row.itemPaise).toBe(129900n);
+      // And no refund amount is offered on the response.
+      expect(res.body.refund.amountPaise).toBeNull();
+    });
+
+    it('offers the refund when the quantity is known to be one', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await claimedTask(user.token);
+      const res = await request(server())
+        .post(`/tasks/${taskId}/evidence`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({
+          order: {
+            id: 'Q-2', date: Date.now(), itemPaise: '129900',
+            quantity: 1, source: 'order-details',
+          },
+        })
+        .expect(200);
+      expect(res.body.refund.amountPaise).not.toBeNull();
+    });
+
+    it('accepts a per-unit price without needing a quantity at all', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await claimedTask(user.token);
+      const res = await request(server())
+        .post(`/tasks/${taskId}/evidence`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({
+          order: {
+            id: 'Q-3', date: Date.now(), unitPricePaise: '129900',
+            lineTotalPaise: '389700', source: 'order-details',
+          },
+        })
+        .expect(200);
+      // Three units on the line, but the refund is for one — and it is payable
+      // because the per-unit figure was stated rather than inferred.
+      expect(res.body.refund.amountPaise).not.toBeNull();
+    });
+
+    it('refuses a quantity the DTO considers impossible', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await claimedTask(user.token);
+      for (const quantity of [0, -1, 1000, 2.5]) {
+        await request(server())
+          .post(`/tasks/${taskId}/evidence`)
+          .set('Authorization', `Bearer ${user.token}`)
+          .send({
+            order: { id: 'Q-4', date: Date.now(), itemPaise: '100', quantity, source: 'order-details' },
+          })
+          .expect(400);
+      }
+    });
   });
 });
