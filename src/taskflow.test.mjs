@@ -42,14 +42,24 @@ ok(ev.order.quantity === null, 'a single-unit Amazon order prints no label, so q
 ok(ev.order.quantityReason === 'not-stated', 'and it says the page was silent — not that anything failed');
 ok(ev.order.quantitySource === null, 'no source is claimed for a quantity we do not have');
 {
-  const labelled = readAmazonEvidence(raw, { asin: 'B0TESTMERGA' });
-  ok(labelled.order.quantity === 2, 'a LABELLED "Qty: 2" in the item container is read');
-  ok(labelled.order.quantitySource === 'label-qty', 'and where it came from is recorded for the audit trail');
-  ok(labelled.order.quantityReason === null, 'no reason is carried when there IS a quantity');
+  const one = readAmazonEvidence(raw, { asin: 'B0TESTQTY1' });
+  ok(one.order.quantity === 1, 'a LABELLED "Quantity: 1" IS payable — both readings of the amount agree');
+  ok(one.order.quantitySource === 'label-quantity', 'and where it came from is recorded for the audit trail');
+  ok(one.order.quantityReason === null, 'no reason is carried when there IS a payable quantity');
+
+  // The correction that matters: reading "Qty: 2" is NOT the same as knowing what
+  // the number beside it means. If that ₹388 is a per-unit price, dividing by 2
+  // underpays by half. So the count is kept for a human and never computed with.
+  const many = readAmazonEvidence(raw, { asin: 'B0TESTMERGA' });
+  ok(many.order.quantity === null, 'a labelled TWO does not pay automatically');
+  ok(many.order.quantityObserved === 2, 'but the number the page stated is carried for the staff member');
+  ok(many.order.quantityReason === 'multi-unit-amount-unclear', 'and the reason names the real gap');
+  ok(many.order.itemPaise === 38800, 'the amount itself is untouched — only the division is refused');
 
   const picker = readAmazonEvidence(raw, { asin: 'B0TESTMERGB' });
   ok(picker.order.quantity === null, 'a return form\'s quantity DROPDOWN is refused, not read as 1');
   ok(picker.order.quantityReason === 'picker', 'and the refusal is named, so it can be looked at');
+  ok(picker.order.quantityObserved === null, 'nothing observed when nothing was accepted');
 }
 
 console.log('\n=== 2b. merged order: item price, NOT the order total ===');

@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  readStatedQuantity, markupHits, combineUnitQuantities, normalizeQuantity,
+  readStatedQuantity, markupHits, combineUnitQuantities, normalizeQuantity, payableQuantity,
   MAX_QUANTITY, QTY_PATTERN_SOURCE, QUANTITY_PATTERN_SOURCE,
 } from './quantity.js';
 
@@ -143,6 +143,27 @@ console.log('\n=== 8b. nothing the backend would 400 on ever leaves the device =
   ok(normalizeQuantity('two') === null, 'a word');
   ok(normalizeQuantity(NaN) === null, 'NaN');
   ok(normalizeQuantity(Infinity) === null, 'Infinity');
+}
+
+console.log('\n=== 8c. a count is not the same as knowing what the AMOUNT means ===');
+{
+  // Nothing establishes whether a marketplace's item row is a line total or a
+  // per-unit price. One unit is the only count that is right either way.
+  const one = payableQuantity({ quantity: 1, source: 'label-qty', reason: null });
+  ok(one.quantity === 1, 'one unit is payable — both readings of the amount agree');
+  ok(one.source === 'label-qty', 'and keeps its provenance');
+
+  const three = payableQuantity({ quantity: 3, source: 'label-qty', reason: null });
+  ok(three.quantity === null, 'THREE units is NOT payable: dividing a per-unit price underpays by two thirds');
+  ok(three.observed === 3, 'but the number the page stated is kept for the staff member');
+  ok(three.reason === 'multi-unit-amount-unclear', 'and the reason names the real gap');
+  ok(three.source === null, 'no source is claimed for a quantity we are not asserting');
+
+  const none = payableQuantity({ quantity: null, source: null, reason: 'picker' });
+  ok(none.quantity === null && none.observed === null, 'nothing read stays nothing');
+  ok(none.reason === 'picker', 'and the original refusal survives');
+  ok(payableQuantity(null).reason === 'not-stated', 'a missing read is treated as silence');
+  ok(payableQuantity({}).quantity === null, 'an empty read too');
 }
 
 console.log('\n=== 9. the inlined copies in platforms.js have not drifted ===');

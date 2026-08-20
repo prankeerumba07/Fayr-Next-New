@@ -98,6 +98,12 @@ class EvidenceOrderDto {
   @IsOptional() @IsIn(QUANTITY_SOURCES) quantitySource?: QuantitySource;
   /** Why no quantity was read, also from a closed list. */
   @IsOptional() @IsIn(QUANTITY_REASONS) quantityReason?: QuantityReason;
+  /**
+   * A count that was read but must not be computed with — see
+   * EvidenceOrder.quantityObserved. Accepting it is safe precisely because
+   * nothing in the refund path reads it.
+   */
+  @IsOptional() @IsInt() @Min(1) @Max(100) quantityObserved?: number;
   @IsOptional() @IsString() amountSource?: string;
   @IsOptional() @IsBoolean() itemAmountAmbiguous?: boolean;
   @IsOptional()
@@ -191,6 +197,7 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
           quantity: dto.order.quantity ?? null,
           quantitySource: dto.order.quantitySource ?? null,
           quantityReason: dto.order.quantityReason ?? null,
+          quantityObserved: dto.order.quantityObserved ?? null,
           amountSource: dto.order.amountSource ?? null,
           itemAmountAmbiguous: dto.order.itemAmountAmbiguous,
           match: dto.order.match

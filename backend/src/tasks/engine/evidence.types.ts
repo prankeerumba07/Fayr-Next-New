@@ -73,6 +73,12 @@ export const QUANTITY_REASONS = [
   'implausible',
   'partial',
   'no-item-container',
+  /**
+   * The page stated a count ABOVE ONE, and that is not enough to pay from: the
+   * amount beside it could be a per-unit price or a whole line, and dividing the
+   * wrong one under-pays by two thirds. See payableQuantity in src/quantity.js.
+   */
+  'multi-unit-amount-unclear',
 ] as const;
 export type QuantityReason = (typeof QUANTITY_REASONS)[number];
 
@@ -132,6 +138,16 @@ export interface EvidenceOrder {
    * look. Null when a quantity WAS read.
    */
   quantityReason?: QuantityReason | null;
+  /**
+   * A unit count a reader genuinely read but which is NOT SAFE TO COMPUTE WITH,
+   * because we cannot yet tell whether the amount beside it is per-unit or a
+   * whole line. Recorded so the staff member deciding the refund can see what the
+   * page said instead of opening the order themselves.
+   *
+   * Nothing in the refund path may read this field. `quantity` is the only field
+   * the money is allowed to depend on.
+   */
+  quantityObserved?: number | null;
   orderTotalPaise?: bigint | null;
   mrpPaise?: bigint | null;
   amountSource?: string | null;

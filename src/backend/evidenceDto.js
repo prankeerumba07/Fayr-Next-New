@@ -16,6 +16,7 @@ const QUANTITY_SOURCES = [
 ];
 const QUANTITY_REASONS = [
   'not-stated', 'picker', 'conflicting', 'implausible', 'partial', 'no-item-container',
+  'multi-unit-amount-unclear',
 ];
 
 // paise number|string|null → decimal string, or undefined to OMIT. Drops any
@@ -97,6 +98,11 @@ export function toEvidenceDto(evidence, key) {
         : null),
       ...(QUANTITY_REASONS.indexOf(e.order.quantityReason) >= 0
         ? { quantityReason: e.order.quantityReason }
+        : null),
+      // A count the page stated that we will NOT compute with. Sent so a staff
+      // member sees it; never read by the refund.
+      ...(Number.isInteger(e.order.quantityObserved) && e.order.quantityObserved >= 1
+        ? { quantityObserved: e.order.quantityObserved }
         : null),
       orderTotalPaise: paiseStr(e.order.orderTotalPaise),
       mrpPaise: paiseStr(e.order.mrpPaise),

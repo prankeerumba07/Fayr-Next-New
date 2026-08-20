@@ -256,6 +256,19 @@ describe('resolveChargedPaise — quantity', () => {
     expect(known.paise).toBe(93800n);
   });
 
+  it('never reads quantityObserved — a count we deliberately refused to assert', () => {
+    // A reader that saw "Qty: 3" but could not tell whether the amount beside it
+    // was per-unit or a whole line records the 3 as OBSERVED and leaves quantity
+    // null. If anything in the refund path ever picked that field up, it would
+    // divide by a number the device explicitly declined to vouch for.
+    const res = resolveChargedPaise(
+      order({ lineTotalPaise: 93800n, quantity: null, quantityObserved: 3 }),
+    );
+    expect(res.paise).toBeNull();
+    expect(res.needsStaff).toBe(true);
+    expect(res.reason).toBe('quantity-unknown');
+  });
+
   it('applies the order-total cross-check to the LINE figure, as before', () => {
     // The live Flipkart case, now with a quantity: listed 36700 above charged 32800.
     const res = resolveChargedPaise(

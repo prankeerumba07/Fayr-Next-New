@@ -24,7 +24,7 @@
 import { toEpoch } from './extract.js';
 import { productScore, matchOrderByNameAmount } from './verify.js';
 import { toPaise } from './money.js';
-import { normalizeQuantity } from './quantity.js';
+import { normalizeQuantity, payableQuantity } from './quantity.js';
 
 export const DAY = 86400000;
 
@@ -227,6 +227,13 @@ export function readAmazonEvidence(raw, target) {
   }
 
   const deliveryEpoch = resolveDeliveryDate(review.deliverydate, review.orderdate);
+  // What the page said about units, and what may be COMPUTED from it — which are
+  // not the same thing. See payableQuantity in quantity.js.
+  const qty = payableQuantity({
+    quantity: normalizeQuantity(review.quantity),
+    source: review.quantitysource || null,
+    reason: review.quantityreason || null,
+  });
   return {
     blocker: null,
     review: reviewFacts,
@@ -249,12 +256,18 @@ export function readAmazonEvidence(raw, target) {
       // the refund then refuses rather than assuming one unit (chargedAmount.js).
       // Amazon shows no label at all on a single-unit order, so null is the
       // ORDINARY answer here, not a failure.
-      quantity: normalizeQuantity(review.quantity),
+      quantity: qty.quantity,
+      // What the page STATED, when that is more than one unit. Never computed
+      // with — the amount above could be a per-unit price or a line total, and we
+      // cannot yet tell which, so a human decides. This is here so that human can
+      // see the number instead of having to open the order themselves.
+      quantityObserved: qty.observed,
       // Why the quantity is what it is, kept for the staff screen and the audit
       // trail: 'label-qty' / 'label-quantity' when read, otherwise the reason
-      // nothing was ('not-stated', 'picker', 'conflicting', 'implausible').
-      quantitySource: review.quantitysource || null,
-      quantityReason: review.quantityreason || null,
+      // nothing was ('not-stated', 'picker', 'conflicting', 'implausible',
+      // 'multi-unit-amount-unclear').
+      quantitySource: qty.source,
+      quantityReason: qty.reason,
       // Audit only. Deliberately NOT called `amount` so nothing can reach for it
       // by habit and pay out the wrong number.
       orderTotalPaise: toPaise(review.orderamount),

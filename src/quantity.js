@@ -210,3 +210,45 @@ export function normalizeQuantity(value) {
   if (!Number.isInteger(n) || n < 1 || n > MAX_QUANTITY) return null;
   return n;
 }
+
+/**
+ * KNOWING THE COUNT IS NOT THE SAME AS KNOWING WHAT THE AMOUNT MEANS.
+ *
+ * The backend divides by the quantity because `itemPaise` / `lineTotalPaise` is
+ * defined as what the whole LINE cost. Nothing we have establishes that a
+ * marketplace's item row is a line total rather than a PER-UNIT price — on a
+ * single-unit order the two are the same number, which is why every capture we
+ * hold is silent on the question. Assert the wrong one and:
+ *
+ *   - a per-unit price divided by 3 UNDER-pays by two thirds;
+ *   - a line total treated as per-unit OVER-pays by three times.
+ *
+ * A quantity of ONE is the only value that is correct under both readings, so it
+ * is the only one that may be asserted. A larger count is real information and is
+ * kept — as `observed`, which no computation is allowed to touch — so the staff
+ * member deciding the amount can see what the page said.
+ *
+ * This is not caution for its own sake. It is resolvable: one real multi-unit
+ * order, read with the diagnostics the readers now emit, settles which figure the
+ * page shows, and then a larger quantity becomes payable by changing this
+ * function alone.
+ *
+ * @param read the output of readStatedQuantity / combineUnitQuantities.
+ * @returns quantity — safe to compute with; observed — for a human to read only.
+ */
+export function payableQuantity(read) {
+  const r = read || {};
+  const value = r.quantity ?? null;
+  if (value == null) {
+    return { quantity: null, observed: null, source: null, reason: r.reason ?? 'not-stated' };
+  }
+  if (value === 1) {
+    return { quantity: 1, observed: 1, source: r.source ?? null, reason: null };
+  }
+  return {
+    quantity: null,
+    observed: value,
+    source: null,
+    reason: 'multi-unit-amount-unclear',
+  };
+}

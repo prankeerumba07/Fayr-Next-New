@@ -1,7 +1,7 @@
 {
   "accountId": "amzn1.account.TESTACCOUNTID",
   "targetAsin": null,
-  "count": 3,
+  "count": 4,
   "reviews": [
     {
       "asin": "B0TESTSOLO",
@@ -86,6 +86,34 @@
       "quantity": null,
       "quantitysource": null,
       "quantityreason": "picker"
+    },
+    {
+      "asin": "B0TESTQTY1",
+      "name": "Test Labelled One Unit",
+      "rating": 5,
+      "verified": true,
+      "published": true,
+      "approved": true,
+      "reviewid": "RTEST0000QTY1",
+      "reviewurl": "https://amazon.in/gp/customer-reviews/RTEST0000QTY1",
+      "reviewtitle": "Solo title",
+      "reviewtext": "Solo text",
+      "reviewdate": "22 June 2026",
+      "reviewdatesource": "html-regex",
+      "orderid": "222-2222222-2222222",
+      "orderdate": "2 June 2026",
+      "ordersource": "order-details",
+      "itemamount": "499.00",
+      "itemamountlevel": 5,
+      "itemamountambiguous": false,
+      "orderamount": "499.00",
+      "amountsource": "total-label",
+      "deliverydate": "5 June",
+      "returned": false,
+      "returnstatus": null,
+      "quantity": 1,
+      "quantitysource": "label-quantity",
+      "quantityreason": null
     }
   ]
 }
