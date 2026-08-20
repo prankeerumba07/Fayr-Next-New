@@ -1449,6 +1449,208 @@
       "multi-unit-amount-unclear": "A count above one WAS read. It is not used automatically because we cannot yet tell whether the price beside it is for one unit or for the whole line — that is the call you are making."
     };
 
+    // Where a typed figure may have come from. Mirrors AMOUNT_EVIDENCE_SOURCES in
+    // backend/src/tasks/engine/evidence.types.ts. Every option names a place
+    // somebody else can go and look — which is the whole point of it being a list
+    // rather than free text: "they typed 499" is not a defence if the payout is
+    // ever disputed.
+    var AMOUNT_SOURCES = [
+      ["order-page", "The marketplace order page"],
+      ["invoice", "The marketplace invoice"],
+      ["marketplace-email", "The order confirmation email"],
+      ["bank-or-upi-statement", "The user's bank or UPI record"],
+      ["user-screenshot", "A screenshot the user sent"]
+    ];
+
+    // The AMOUNT control. Deliberately tighter than the count: this is the only
+    // money figure in the system a person invents rather than a machine reads, so
+    // ₹499 becomes ₹4990 with one extra keystroke and the ledger pays it.
+    //
+    // Four things the count control does not have: a closed list of WHERE the
+    // figure was read, the campaign's own price shown beside the field, a
+    // disagreement that has to be ticked before it can be saved, and a ceiling
+    // derived from something real. All four are enforced by the server too — this
+    // is the version a person can see.
+    function AmountFigureCard(it) {
+      var a = state.amounts;
+
+      var amountIn = h("input", {
+        type: "text", inputmode: "decimal", placeholder: "0.00",
+        style: "width:120px", "aria-label": "What one unit cost, in rupees"
+      });
+      var sourceSel = h("select", null,
+        [h("option", { value: "" }, "Where did you read it?")].concat(
+          AMOUNT_SOURCES.map(function (o) { return h("option", { value: o[0] }, o[1]); })));
+      var reasonIn = h("input", {
+        type: "text", maxlength: "500",
+        placeholder: "What does it say? e.g. line reads ₹499 for this item",
+        "aria-label": "What you saw"
+      });
+      var ackWrap = h("div", { style: "display:none;margin-top:8px" });
+      var ackBox = h("input", { type: "checkbox" });
+      var ackText = h("span");
+      ackWrap.appendChild(h("label", { class: "row", style: "gap:8px;align-items:flex-start;font-size:12.5px" },
+        ackBox, ackText));
+      var previewLine = h("div", { class: "muted", style: "font-size:12.5px;margin-top:6px" });
+      var msg = h("div");
+      var btn = h("button", { class: "btn btn-sm btn-primary", type: "submit" }, "Confirm amount");
+
+      // Rupees in the field, paise on the wire. The ledger is integer paise and
+      // nothing rounds through a float on the way there.
+      function paiseFromField() {
+        var raw = String(amountIn.value || "").replace(/[₹,\s]/g, "");
+        if (!/^\d+(\.\d{1,2})?$/.test(raw)) return null;
+        var parts = raw.split(".");
+        var paise = parts[1] ? (parts[1] + "0").slice(0, 2) : "00";
+        return String(BigInt(parts[0]) * 100n + BigInt(paise));
+      }
+
+      var needsAck = false;
+      function syncBtn() {
+        var okAmount = paiseFromField() !== null;
+        var okSource = sourceSel.value !== "";
+        var okReason = reasonIn.value.trim().length >= 3;
+        var okAck = !needsAck || ackBox.checked;
+        btn.disabled = !(okAmount && okSource && okReason && okAck) || a.busy === it.taskId;
+        btn.title = !okAmount ? "Enter the amount in rupees"
+          : !okSource ? "Say where you read it"
+          : !okReason ? "Say what you saw"
+          : !okAck ? "Tick the box to save a figure that does not match the offer"
+          : "";
+      }
+      sourceSel.onchange = syncBtn;
+      reasonIn.oninput = syncBtn;
+      ackBox.onchange = syncBtn;
+
+      var timer = null, seq = 0;
+      function refreshPreview() {
+        var paise = paiseFromField();
+        if (paise === null) {
+          previewLine.textContent = "Enter the amount in rupees, e.g. 499 or 499.50.";
+          needsAck = false; ackWrap.style.display = "none"; syncBtn();
+          return;
+        }
+        previewLine.textContent = "Working out what this pays…";
+        var mine = ++seq;
+        // THE ONE ROUTE. The panel never multiplies an amount by a percentage
+        // itself — the server runs the same resolver and the same payout function
+        // the release uses, cap included.
+        api("GET", "/admin/tasks/" + it.taskId + "/amount-preview?unitPricePaise=" + paise)
+          .then(function (p) {
+            if (mine !== seq) return;
+            needsAck = p.disagreesWithCampaign === true;
+            if (needsAck) {
+              ackText.textContent = "This does not match what the offer says the product costs ("
+                + rupees(p.campaignPricePaise) + "). That can be right — a discount is real — "
+                + "but tick to confirm you meant it.";
+              ackWrap.style.display = "";
+            } else {
+              ackBox.checked = false;
+              ackWrap.style.display = "none";
+            }
+            if (p.payable) {
+              previewLine.textContent = "This pays " + rupees(p.refundPaise)
+                + " — " + it.payoutPercent + "% of " + rupees(p.chargedPaise)
+                + (it.payoutCapPaise != null ? ", capped at " + rupees(it.payoutCapPaise) : "");
+            } else {
+              previewLine.textContent = "This still would not pay: " + p.heldExplanation;
+            }
+            syncBtn();
+          })
+          .catch(function (e) {
+            if (mine !== seq) return;
+            previewLine.textContent = "Could not work out what this pays: " + e.message;
+            syncBtn();
+          });
+      }
+      amountIn.oninput = function () {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(refreshPreview, 250);
+      };
+      refreshPreview();
+      syncBtn();
+
+      async function onSubmit(ev) {
+        ev.preventDefault();
+        msg.textContent = "";
+        var paise = paiseFromField();
+        if (paise === null) {
+          msg.appendChild(h("div", { class: "flash flash-err", style: "margin-top:8px" }, "Enter the amount in rupees, e.g. 499 or 499.50."));
+          return;
+        }
+        a.busy = it.taskId; btn.disabled = true;
+        try {
+          await api("POST", "/admin/tasks/" + it.taskId + "/amount", {
+            unitPricePaise: paise,
+            evidenceSource: sourceSel.value,
+            reason: reasonIn.value.trim(),
+            acknowledgedDisagreement: ackBox.checked === true
+          });
+          a.busy = null;
+          // The card is KEPT, marked as decided, so a reviewer who mistypes can
+          // still fix it. It disappears on the next load of the queue.
+          it.decidedAmountPaise = paise;
+          a.total = Math.max(0, (a.total || 1) - 1);
+          a.notice = "Saved " + rupees(paise) + " for one unit on task "
+            + it.taskId.slice(0, 8) + ". If that was wrong, change it on the same card.";
+          render();
+        } catch (e) {
+          a.busy = null;
+          msg.textContent = "";
+          msg.appendChild(h("div", { class: "flash flash-err", style: "margin-top:8px" }, e.message));
+          syncBtn();
+        }
+      }
+
+      if (it.decidedAmountPaise) {
+        amountIn.value = (Number(it.decidedAmountPaise) / 100).toFixed(2);
+        btn.textContent = "Save correction";
+      }
+
+      var ceiling = it.maxAmountPaise != null
+        ? h("div", { class: "muted", style: "font-size:12px;margin-top:2px" },
+            "Most this can be: " + rupees(it.maxAmountPaise) + " — "
+            + (it.maxAmountAnchor === "order-total" ? "the order's own total" : "twice the offer price"))
+        : h("div", { class: "flash flash-err", style: "font-size:12.5px;margin-top:8px" },
+            "There is nothing to check a figure against here — this offer has no price and the order has no total. Set the offer price first.");
+
+      return h("div", { class: "card" },
+        h("div", { class: "row", style: "justify-content:space-between;align-items:flex-start" },
+          h("div", { style: "min-width:0" },
+            h("div", { class: "row", style: "gap:8px;align-items:center" },
+              pill("held", "bad"),
+              pill(it.platform, "info"),
+              pill(it.state, "neutral"),
+              it.decidedAmountPaise ? pill("just decided", "ok") : null),
+            h("div", { style: "margin-top:6px;font-weight:600" }, it.campaignTitle || "—"),
+            h("div", { class: "muted", style: "margin-top:2px;font-size:12.5px" }, it.productName || "")),
+          h("div", { style: "text-align:right" },
+            h("button", {
+              class: "btn btn-sm btn-ghost",
+              onclick: function () { loadUser(it.user.id, "amounts"); }
+            }, "Open user →"),
+            h("div", { class: "muted mono", style: "margin-top:6px;font-size:11.5px" },
+              "task " + it.taskId.slice(0, 8)))),
+        h("div", { class: "flash flash-info", style: "margin-top:10px;font-size:13px" }, it.heldExplanation),
+        h("div", { class: "row", style: "gap:18px;flex-wrap:wrap;margin-top:8px;font-size:12.5px" },
+          factCell("Order", h("span", { class: "mono" }, it.orderId || "—")),
+          factCell("Order total", rupees(it.orderTotalPaise)),
+          factCell("The offer says", rupees(it.campaignPricePaise)),
+          factCell("Ordered", fmtDay(it.orderDate)),
+          factCell("Stage", it.state)),
+        h("form", { onsubmit: onSubmit, style: "margin-top:12px" },
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;align-items:flex-end" },
+            h("label", { class: "field", style: "flex:0 0 auto" }, h("span", null, "What one unit cost (₹)"), amountIn),
+            h("label", { class: "field", style: "flex:0 0 240px" }, h("span", null, "Where you read it — required"), sourceSel)),
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:2px" },
+            h("label", { class: "field", style: "flex:1;min-width:240px" }, h("span", null, "What you saw — required"), reasonIn),
+            btn),
+          ceiling,
+          ackWrap,
+          previewLine,
+          msg));
+    }
+
     function AmountCard(it) {
       var a = state.amounts;
       var already = it.quantity != null;
@@ -1614,7 +1816,9 @@
       else if (!a.items || a.items.length === 0) {
         body = h("div", { class: "empty" }, "No refunds are waiting on a unit count.");
       } else {
-        body = h("div", null, a.items.map(AmountCard));
+        body = h("div", null, a.items.map(function (it) {
+          return it.action === "amount" ? AmountFigureCard(it) : AmountCard(it);
+        }));
       }
       return h("div", null,
         a.notice ? h("div", { class: "flash flash-info", style: "margin-bottom:12px" }, a.notice) : null,

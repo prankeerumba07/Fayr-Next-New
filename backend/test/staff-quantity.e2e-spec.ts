@@ -94,6 +94,42 @@ describe('Staff quantity confirmation (e2e)', () => {
     return { taskId, applied };
   }
 
+  /** A task whose order has NO readable price — the quick-commerce shape. */
+  async function taskHeldOnAmount(userToken: string, campaignPricePaise = 50_000n) {
+    const campaign = await prisma.campaign.create({
+      data: {
+        platform: 'BLINKIT',
+        status: 'ACTIVE',
+        title: 'Review the groceries',
+        productName: 'The Groceries',
+        category: 'grocery',
+        productPricePaise: campaignPricePaise,
+        payoutPercent: 100,
+        ticketCost: 5,
+      },
+    });
+    const created = await request(app.getHttpServer())
+      .post('/tasks')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ campaignId: campaign.id })
+      .expect(201);
+    const taskId = created.body.id as string;
+    const applied = await request(app.getHttpServer())
+      .post(`/tasks/${taskId}/evidence`)
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        order: {
+          id: 'A-HELD-1',
+          date: Date.now(),
+          // A total only, no per-item figure at all. Blinkit reads exactly this.
+          orderTotalPaise: '60000',
+          source: 'order-history',
+        },
+      })
+      .expect(200);
+    return { taskId, campaign, applied };
+  }
+
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
@@ -546,6 +582,303 @@ describe('Staff quantity confirmation (e2e)', () => {
           .set('authorization', `Bearer ${support.token}`)
           .expect(400);
       }
+    });
+  });
+
+
+  describe('what one unit cost, stated by a person', () => {
+    it('fills a gap the marketplace never gave us, and makes the refund payable', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId, applied } = await taskHeldOnAmount(user.token);
+      expect(applied.body.refund.amountPaise).toBeNull();
+
+      const support = await tokenFor('SUPPORT');
+      const res = await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({
+          unitPricePaise: '50000',
+          evidenceSource: 'order-page',
+          reason: 'Blinkit order page lists this item at ₹500',
+        })
+        .expect(200);
+      expect(res.body.refund.amountPaise).toBe('50000');
+
+      const row = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      const stored = row.evidence as unknown as {
+        order: { unitPricePaise: string; amountSource: string; source: string };
+      };
+      expect(stored.order.unitPricePaise).toBe('50000');
+      // WHERE a person read it, recorded separately from where the ORDER came
+      // from — the order really was read from the marketplace, only the amount
+      // is human-supplied.
+      expect(stored.order.amountSource).toBe('staff:order-page');
+      expect(stored.order.source).toBe('order-history');
+    });
+
+    it('is a per-unit price, so it pays without needing a count at all', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token);
+      const support = await tokenFor('SUPPORT');
+      await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ unitPricePaise: '50000', evidenceSource: 'invoice', reason: 'invoice line' })
+        .expect(200);
+      const after = await request(server())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(200);
+      // No quantity was ever supplied, and none is needed: a stated per-unit
+      // price makes the count irrelevant.
+      expect(after.body.order.quantity).toBeNull();
+      expect(after.body.refund.amountPaise).toBe('50000');
+    });
+
+    it('REFUSES to overwrite an amount the marketplace itself gave us', async () => {
+      // The gate that matters most. A machine read outranks a person typing, and
+      // staff confirmation may not jump that queue because a human is impatient.
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnQuantity(user.token); // has itemPaise 129900
+      const support = await tokenFor('SUPPORT');
+      const res = await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ unitPricePaise: '100000', evidenceSource: 'order-page', reason: 'looks wrong to me' })
+        .expect(409);
+      expect(String(res.body.message)).toMatch(/already has an amount/i);
+      expect(String(res.body.message)).toMatch(/₹1,299/); // in rupees, not paise
+      const row = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      const stored = row.evidence as unknown as { order: { itemPaise: string } };
+      expect(stored.order.itemPaise).toBe('129900');
+    });
+
+    it('DOES let a staff member correct their own figure', async () => {
+      // The mirror image of the gate above. Refusing every overwrite would mean a
+      // reviewer who mistypes has no way back, which is a worse dead end than the
+      // one this whole queue exists to remove.
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token);
+      const support = await tokenFor('SUPPORT');
+      await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ unitPricePaise: '50000', evidenceSource: 'order-page', reason: 'first read' })
+        .expect(200);
+      const fixed = await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ unitPricePaise: '49900', evidenceSource: 'order-page', reason: 'misread, it is 499' })
+        .expect(200);
+      expect(fixed.body.refund.amountPaise).toBe('49900');
+
+      const logs = await prisma.adminAuditLog.findMany({
+        where: { action: 'TASK_AMOUNT_SET' },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(logs).toHaveLength(2);
+      const meta = logs[1].metadata as unknown as { previousUnitPricePaise: string | null };
+      expect(meta.previousUnitPricePaise).toBe('50000');
+    });
+
+    it('refuses a figure above a ceiling derived from something real', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      // Campaign ₹500, order total ₹600 — so the tighter bound is the order total.
+      const { taskId } = await taskHeldOnAmount(user.token);
+      const support = await tokenFor('SUPPORT');
+      const res = await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ unitPricePaise: '500000', evidenceSource: 'order-page', reason: 'fat finger' })
+        .expect(400);
+      expect(String(res.body.message)).toMatch(/above the most this can be/i);
+      expect(String(res.body.message)).toMatch(/order/i); // names WHICH bound
+      expect(String(res.body.message)).toMatch(/typo/i);
+    });
+
+    it('makes a disagreement with the campaign price acknowledgeable, not blocked', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token);
+      const support = await tokenFor('SUPPORT');
+      // ₹350 against a ₹500 campaign — a real discount, well outside tolerance.
+      const blocked = await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ unitPricePaise: '35000', evidenceSource: 'order-page', reason: 'sale price' })
+        .expect(409);
+      expect(String(blocked.body.message)).toMatch(/does not match/i);
+      expect(String(blocked.body.message)).toMatch(/₹350/);
+      expect(String(blocked.body.message)).toMatch(/₹500/);
+
+      const allowed = await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({
+          unitPricePaise: '35000', evidenceSource: 'order-page',
+          reason: 'sale price, ₹350 on the order page',
+          acknowledgedDisagreement: true,
+        })
+        .expect(200);
+      expect(allowed.body.refund.amountPaise).toBe('35000');
+      const log = await prisma.adminAuditLog.findFirstOrThrow({
+        where: { action: 'TASK_AMOUNT_SET' },
+      });
+      const meta = log.metadata as unknown as {
+        acknowledgedDisagreement: boolean; evidenceSource: string; reason: string;
+      };
+      expect(meta.acknowledgedDisagreement).toBe(true);
+      expect(meta.evidenceSource).toBe('order-page');
+      expect(meta.reason).toMatch(/sale price/);
+    });
+
+    it('requires WHERE the figure came from, from a closed list', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token);
+      const support = await tokenFor('SUPPORT');
+      const bad = [
+        { unitPricePaise: '50000', reason: 'no source given' },
+        { unitPricePaise: '50000', evidenceSource: 'i just know', reason: 'invented source' },
+        { unitPricePaise: '50000', evidenceSource: 'order-page' }, // no reason
+        { unitPricePaise: '50000', evidenceSource: 'order-page', reason: 'ok' }, // too short
+        { evidenceSource: 'order-page', reason: 'no amount' },
+        { unitPricePaise: '-1', evidenceSource: 'order-page', reason: 'negative' },
+        { unitPricePaise: '4.99', evidenceSource: 'order-page', reason: 'rupees not paise' },
+      ];
+      for (const body of bad) {
+        await request(server())
+          .post(`/admin/tasks/${taskId}/amount`)
+          .set('authorization', `Bearer ${support.token}`)
+          .send(body)
+          .expect(400);
+      }
+    });
+
+    it('is SUPPORT and ADMIN only, and moves no money', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token);
+      const roles: StaffRole[] = ['FINANCE', 'OPERATIONS'];
+      for (const role of roles) {
+        const staff = await tokenFor(role);
+        await request(server())
+          .post(`/admin/tasks/${taskId}/amount`)
+          .set('authorization', `Bearer ${staff.token}`)
+          .send({ unitPricePaise: '50000', evidenceSource: 'order-page', reason: 'not my job' })
+          .expect(403);
+      }
+      const support = await tokenFor('SUPPORT');
+      await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ unitPricePaise: '50000', evidenceSource: 'order-page', reason: 'order page' })
+        .expect(200);
+      expect(await prisma.walletEntry.count()).toBe(0);
+    });
+
+    it('shows up in the SAME queue, marked as needing an amount', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token);
+      const support = await tokenFor('SUPPORT');
+      const res = await request(server())
+        .get('/admin/tasks/awaiting-amount')
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      const item = res.body.items.find((i: { taskId: string }) => i.taskId === taskId);
+      expect(item).toBeDefined();
+      expect(item.action).toBe('amount');
+      expect(item.heldReason).toBe('amount-unknown');
+      // Everything the reviewer needs to judge the figure they are about to type.
+      expect(item.campaignPricePaise).toBe('50000');
+      expect(item.maxAmountPaise).toBe('60000'); // the order total, the tighter bound
+      expect(item.maxAmountAnchor).toBe('order-total');
+      expect(item.itemPaise).toBeNull();
+    });
+
+    it('a count hold is marked as needing a count, in the same list', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnQuantity(user.token);
+      const support = await tokenFor('SUPPORT');
+      const res = await request(server())
+        .get('/admin/tasks/awaiting-amount')
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      const item = res.body.items.find((i: { taskId: string }) => i.taskId === taskId);
+      expect(item.action).toBe('count');
+    });
+
+    it('previews the amount through the same one route, warning before it is saved', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token);
+      const support = await tokenFor('SUPPORT');
+
+      const ok = await request(server())
+        .get(`/admin/tasks/${taskId}/amount-preview?unitPricePaise=50000`)
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      expect(ok.body.payable).toBe(true);
+      expect(ok.body.refundPaise).toBe('50000');
+      expect(ok.body.disagreesWithCampaign).toBe(false);
+      expect(ok.body.campaignPricePaise).toBe('50000');
+      expect(ok.body.maxAmountPaise).toBe('60000');
+
+      const off = await request(server())
+        .get(`/admin/tasks/${taskId}/amount-preview?unitPricePaise=35000`)
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      // The warning is available BEFORE anyone confirms, which is the point.
+      expect(off.body.disagreesWithCampaign).toBe(true);
+      expect(off.body.payable).toBe(true);
+
+      // And the preview agrees with what saving actually does.
+      const saved = await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({
+          unitPricePaise: '35000', evidenceSource: 'order-page',
+          reason: 'sale price on the order page', acknowledgedDisagreement: true,
+        })
+        .expect(200);
+      expect(saved.body.refund.amountPaise).toBe(off.body.refundPaise);
+    });
+
+    it('a later marketplace read outranks the typed figure', async () => {
+      // Documented on purpose: staff confirmation is a TIER, and the scraper sits
+      // above it. If the real amount becomes readable, it wins.
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token);
+      const support = await tokenFor('SUPPORT');
+      await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ unitPricePaise: '50000', evidenceSource: 'order-page', reason: 'order page' })
+        .expect(200);
+
+      await request(server())
+        .post(`/tasks/${taskId}/evidence`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .send({
+          order: {
+            id: 'A-HELD-1', date: Date.now(), itemPaise: '52000', quantity: 1,
+            orderTotalPaise: '60000', source: 'order-history',
+          },
+        })
+        .expect(200);
+      const after = await request(server())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(200);
+      expect(after.body.refund.amountPaise).toBe('52000');
     });
   });
 

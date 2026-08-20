@@ -82,6 +82,31 @@ export const QUANTITY_REASONS = [
 ] as const;
 export type QuantityReason = (typeof QUANTITY_REASONS)[number];
 
+/**
+ * WHERE a staff member read an amount they typed in.
+ *
+ * Free text alone is not enough here. If a staff-confirmed payout is disputed
+ * later, "they typed 499" is not a defence — "they read ₹499 off the marketplace
+ * invoice on 20 Aug, and here is the note they left" is. Every value below names
+ * a place somebody else can go and look.
+ *
+ * The free-text note is still required on top of this; the list says WHERE, the
+ * note says WHAT they saw.
+ */
+export const AMOUNT_EVIDENCE_SOURCES = [
+  /** The marketplace's own order page, open in front of the reviewer. */
+  'order-page',
+  /** The marketplace invoice or its PDF. */
+  'invoice',
+  /** The order-confirmation email from the marketplace. */
+  'marketplace-email',
+  /** The user's own bank or UPI record of the payment. */
+  'bank-or-upi-statement',
+  /** A screenshot the user uploaded. Lowest standing of the five. */
+  'user-screenshot',
+] as const;
+export type AmountEvidenceSource = (typeof AMOUNT_EVIDENCE_SOURCES)[number];
+
 export interface EvidenceOrder {
   id: string | null;
   date?: number | null;

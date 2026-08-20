@@ -20,7 +20,10 @@ import {
 import { checkPlausibility } from './engine/evidence-plausibility';
 import { explainHold } from './engine/hold-reasons';
 import { orderWindow, screenEvidenceByWindow } from './engine/order-window';
-import type { Evidence } from './engine/evidence.types';
+import type {
+  AmountEvidenceSource,
+  Evidence,
+} from './engine/evidence.types';
 import { computeRefundPaise } from './engine/money';
 import { policyForWindowDays } from './engine/return-policy';
 import { DAY, STATES } from './engine/states';
@@ -31,13 +34,15 @@ import {
   type TransitionResult,
 } from './engine/transition';
 import type { EngineTask } from './engine/task-state';
+import { rupeesOf } from '../common/rupees';
+import { staffAmountBounds } from './engine/staff-amount';
 import { toEngineTask, toEvidenceJson, toPromotedColumns } from './task.mapper';
 import {
   toAwaitingAmountItem,
-  toQuantityPreview,
+  toRefundPreview,
   type AwaitingAmountItem,
   type AwaitingAmountResponse,
-  type QuantityPreviewResponse,
+  type RefundPreviewResponse,
 } from './awaiting-amount.response';
 import { toTaskResponse, type TaskResponse } from './task.response';
 import {
@@ -225,17 +230,17 @@ export class TaskService {
     return { items, total: items.length };
   }
 
-  /** What confirming a given unit count would actually pay. Changes nothing. */
-  async previewQuantity(
+  /** What confirming a given figure would actually pay. Changes nothing. */
+  async previewRefund(
     taskId: string,
-    quantity: number,
-  ): Promise<QuantityPreviewResponse> {
+    overrides: { quantity?: number; unitPricePaise?: bigint },
+  ): Promise<RefundPreviewResponse> {
     const row = await this.prisma.task.findUnique({
       where: { id: taskId },
       include: { campaign: true },
     });
     if (!row) throw new NotFoundException('Task not found');
-    return toQuantityPreview(row, quantity);
+    return toRefundPreview(row, overrides);
   }
 
   /**
@@ -307,6 +312,132 @@ export class TaskService {
       `staff-quantity:${quantity}`,
     );
     return { task, userId: row.userId, previousQuantity };
+  }
+
+  /**
+   * A staff member states what ONE UNIT cost.
+   *
+   * The most dangerous write in the system: it is the only money figure a human
+   * invents rather than a machine reads, and a slipped keystroke pays real money
+   * for no reason. Four gates, all server-side, because a gate the panel enforces
+   * is a gate the next client forgets:
+   *
+   *   1. NOTHING IS OVERWRITTEN. A staff figure may only fill a gap. If any
+   *      amount is already on file it was established by a source that outranks a
+   *      person typing, and this must not jump that queue — the reviewer's job
+   *      there is a different decision, not an override.
+   *   2. A REAL CEILING. Derived from the campaign's price and the order's own
+   *      total (see staff-amount.ts), never a round number. With neither, there
+   *      is nothing to bound by and the write is refused rather than trusted.
+   *   3. DISAGREEMENT MUST BE ACKNOWLEDGED. A figure outside the campaign
+   *      tolerance is legitimate — discounts exist — but it may not pass
+   *      unremarked, so it needs an explicit acknowledgement to land.
+   *   4. IT IS A PER-UNIT PRICE, not a line total. That is the one figure that
+   *      needs no quantity and cannot be divided by the wrong number.
+   *
+   * Through applyEvidence, like every other evidence write, so it cannot bypass
+   * an engine rule. The order's own `source` is left alone: the order really was
+   * read from wherever it was read from, and only the AMOUNT is human-supplied —
+   * which `amountSource` records. A later scraper read outranks this and will
+   * replace it, which is correct.
+   */
+  async setStaffAmount(
+    taskId: string,
+    input: {
+      unitPricePaise: bigint;
+      evidenceSource: AmountEvidenceSource;
+      acknowledgedDisagreement: boolean;
+    },
+  ): Promise<{
+    task: TaskResponse;
+    userId: string;
+    previousUnitPricePaise: string | null;
+  }> {
+    const row = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { campaign: true },
+    });
+    if (!row) throw new NotFoundException('Task not found');
+    const engine = toEngineTask(row, []);
+    const order = engine.order;
+    if (!order) {
+      throw new ConflictException(
+        'This task has no order yet, so there is no purchase to price.',
+      );
+    }
+
+    // Gate 1 — fill a gap, or correct a FIGURE A PERSON PUT THERE. Never overwrite
+    // a machine read: that outranks a human typing.
+    //
+    // The second half matters as much as the first. Refusing every overwrite
+    // would mean a reviewer who mistypes has no way back — a worse dead end than
+    // the one this whole queue exists to remove — so `amountSource` is what
+    // separates the two cases, and it is the only thing that may.
+    const existing =
+      order.unitPricePaise ?? order.lineTotalPaise ?? order.itemPaise ?? null;
+    const staffSupplied = (order.amountSource ?? '').startsWith('staff:');
+    if (existing != null && !staffSupplied) {
+      throw new ConflictException(
+        `This order already has an amount on file (${rupeesOf(existing)}), read from `
+        + `the marketplace itself. That cannot be replaced by hand — if it looks wrong, `
+        + `it needs a decision about which figure to believe, not an override.`,
+      );
+    }
+    const previousUnitPricePaise =
+      existing != null && staffSupplied ? existing.toString() : null;
+
+    // Gate 2 — a ceiling that means something.
+    const bounds = staffAmountBounds({
+      campaignPricePaise: row.campaign.productPricePaise,
+      orderTotalPaise: order.orderTotalPaise ?? null,
+    });
+    if (bounds.maxPaise == null) {
+      throw new ConflictException(
+        'There is nothing to check this figure against — this campaign has no price '
+        + 'and the order has no total. Set the campaign price first.',
+      );
+    }
+    if (!bounds.allows(input.unitPricePaise)) {
+      const anchorWords =
+        bounds.anchor === 'order-total'
+          ? "the order's own total"
+          : "twice the campaign's price";
+      throw new BadRequestException(
+        `${rupeesOf(input.unitPricePaise)} is above the most this can be — `
+        + `${rupeesOf(bounds.maxPaise)}, which is ${anchorWords}. Check for a typo.`,
+      );
+    }
+
+    // Gate 3 — a disagreement may pass, but not silently.
+    const disagrees = chargedDisagreesWithCampaign(
+      input.unitPricePaise,
+      row.campaign.productPricePaise,
+    );
+    if (disagrees && !input.acknowledgedDisagreement) {
+      throw new ConflictException(
+        `${rupeesOf(input.unitPricePaise)} does not match what this campaign says the `
+        + `product costs (${rupeesOf(row.campaign.productPricePaise)}). That can be `
+        + `right — a discount is real — but it has to be acknowledged before it is saved.`,
+      );
+    }
+
+    const task = await this.applyEvidence(
+      row.userId,
+      taskId,
+      {
+        order: {
+          ...order,
+          unitPricePaise: input.unitPricePaise,
+          // WHERE a person read it. Distinct from the order's `source`, which
+          // still records where the ORDER was read from.
+          amountSource: `staff:${input.evidenceSource}`,
+        },
+      },
+      // Idempotent per figure: pressing save twice is one decision, a different
+      // number is a second, real one.
+      `staff-amount:${input.unitPricePaise.toString()}`,
+    );
+    return { task, userId: row.userId, previousUnitPricePaise };
   }
 
   /** The caller's tasks, newest first. */

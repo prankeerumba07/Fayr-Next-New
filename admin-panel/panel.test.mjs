@@ -76,6 +76,46 @@ console.log('\n=== 5. a correction reads as a correction ===');
   ok(script.includes('Save correction'), 'and the button says so');
 }
 
+console.log('\n=== 4b. the AMOUNT control, which is the dangerous one ===');
+{
+  const card = (script.match(/function AmountFigureCard\(it\)[\s\S]*?\n    }\n/) || [])[0] || '';
+  ok(card.length > 500, 'the amount card was found');
+
+  // Rupees in the field, integer paise on the wire. A float conversion
+  // (Math.round(x * 100)) is the classic way money loses a paise.
+  ok(/BigInt/.test(card), 'rupees are converted to paise in exact integer arithmetic');
+  ok(!/\*\s*100\b(?![n])/.test(card), 'no float multiplication by 100 anywhere in the conversion');
+
+  // All four gates the server enforces have to be visible to the person typing,
+  // or they find out by being refused.
+  ok(/Where you read it/.test(card), 'WHERE the figure came from is asked for');
+  ok(/sourceSel\.value !== ""/.test(card), 'and submitting is refused without it');
+  ok(/What you saw/.test(card), 'and what they saw is asked for separately');
+  ok(/reasonIn\.value\.trim\(\)\.length >= 3/.test(card), 'which cannot be blank either');
+  ok(/The offer says/.test(card), "the campaign's own price is shown beside the field");
+  ok(/Most this can be/.test(card), 'the ceiling is shown, with which real figure produced it');
+  ok(/needsAck/.test(card) && /ackBox\.checked/.test(card),
+    'a disagreement has to be acknowledged before it can be saved');
+  ok(/amount-preview/.test(card), 'what it pays comes from the server, not from local arithmetic');
+  ok(/Save correction/.test(card), 'and a mistyped figure can still be corrected afterwards');
+}
+
+console.log('\n=== 4c. the panel\'s source list matches the server\'s ===');
+{
+  // A value the server does not accept would 400 at the last moment, after the
+  // reviewer has done the work of reading the document.
+  const types = fs.readFileSync(
+    path.join(import.meta.dirname, '..', 'backend', 'src', 'tasks', 'engine', 'evidence.types.ts'),
+    'utf8',
+  );
+  const block = (types.match(/AMOUNT_EVIDENCE_SOURCES = \[([\s\S]*?)\] as const/) || [])[1] || '';
+  const server = [...block.matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
+  ok(server.length === 5, `the server offers ${server.length} sources`);
+  for (const value of server) {
+    ok(script.includes(`"${value}"`), `the panel offers "${value}" too`);
+  }
+}
+
 console.log('\n=== 5b. no banner is invisible ===');
 {
   // `.flash` on its own has padding but no colour or background — text in one is

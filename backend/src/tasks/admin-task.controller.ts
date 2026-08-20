@@ -18,11 +18,13 @@ import { RolesGuard } from '../admin/guards/roles.guard';
 import { StaffAuthGuard } from '../admin/guards/staff-auth.guard';
 import type { AuthenticatedStaff } from '../admin/staff.types';
 import { AllowDuplicateOrderDto } from './dto/allow-duplicate-order.dto';
+import { AmountPreviewQuery } from './dto/amount-preview.query';
 import { QuantityPreviewQuery } from './dto/quantity-preview.query';
+import { SetAmountDto } from './dto/set-amount.dto';
 import { SetQuantityDto } from './dto/set-quantity.dto';
 import type {
   AwaitingAmountResponse,
-  QuantityPreviewResponse,
+  RefundPreviewResponse,
 } from './awaiting-amount.response';
 import type { TaskResponse } from './task.response';
 import { TaskService } from './task.service';
@@ -78,8 +80,19 @@ export class AdminTaskController {
   previewQuantity(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: QuantityPreviewQuery,
-  ): Promise<QuantityPreviewResponse> {
-    return this.tasks.previewQuantity(id, query.quantity);
+  ): Promise<RefundPreviewResponse> {
+    return this.tasks.previewRefund(id, { quantity: query.quantity });
+  }
+
+  /** The same calculator, for a per-unit price a reviewer is considering. */
+  @Get(':id/amount-preview')
+  previewAmount(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: AmountPreviewQuery,
+  ): Promise<RefundPreviewResponse> {
+    return this.tasks.previewRefund(id, {
+      unitPricePaise: BigInt(query.unitPricePaise),
+    });
   }
 
   @Post(':id/allow-duplicate-order')
@@ -114,6 +127,47 @@ export class AdminTaskController {
    * and it is deliberately NOT the user's own call, because the number in doubt
    * is exactly the one they would be motivated to overstate.
    */
+  /**
+   * What one unit cost, read off a real document by a person.
+   *
+   * Tighter than the count control on purpose: an amount is the only money figure
+   * in the system a human invents rather than a machine reads, so it carries a
+   * closed list of WHERE it was read, a ceiling derived from the campaign's price
+   * and the order's total, and an explicit acknowledgement when it disagrees with
+   * what the campaign says the product costs. All four gates are enforced in the
+   * service, because a gate the panel enforces is a gate the next client forgets.
+   */
+  @Post(':id/amount')
+  @HttpCode(HttpStatus.OK)
+  async setAmount(
+    @CurrentStaff() staff: AuthenticatedStaff,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetAmountDto,
+  ): Promise<TaskResponse> {
+    const { task, userId, previousUnitPricePaise } =
+      await this.tasks.setStaffAmount(id, {
+        unitPricePaise: BigInt(dto.unitPricePaise),
+        evidenceSource: dto.evidenceSource,
+        acknowledgedDisagreement: dto.acknowledgedDisagreement === true,
+      });
+    await this.audit.record({
+      staffUserId: staff.id,
+      action: AUDIT_ACTIONS.TASK_AMOUNT_SET,
+      targetUserId: userId,
+      metadata: {
+        taskId: id,
+        unitPricePaise: dto.unitPricePaise,
+        previousUnitPricePaise,
+        // WHERE, then WHAT they saw. The first is checkable by somebody else; the
+        // second is why they believed it. A dispute needs both.
+        evidenceSource: dto.evidenceSource,
+        acknowledgedDisagreement: dto.acknowledgedDisagreement === true,
+        reason: dto.reason,
+      },
+    });
+    return task;
+  }
+
   @Post(':id/quantity')
   @HttpCode(HttpStatus.OK)
   async setQuantity(
