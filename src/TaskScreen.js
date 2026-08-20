@@ -23,7 +23,8 @@ import {
   getTask, getAuthoritative, hasTask, subscribe, load, dispatch, reset,
   isPending, getActionError, clearActionError,
 } from './taskStore';
-import { percentOfPaise, formatPaise } from './money';
+import { formatPaise } from './money';
+import { displayRefundPaise } from './ui/refund';
 import { resolveChargedPaise } from './chargedAmount';
 import * as campaignStore from './backend/campaignStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
@@ -348,7 +349,21 @@ export default function TaskScreen({ navigation, route }) {
   // screen shows "Needs staff check" rather than a number, which is exactly what
   // the backend would do.
   const charged = resolveChargedPaise(task.order);
-  const refundPaise = charged.paise != null ? percentOfPaise(charged.paise, campaign.percent) : null;
+  // ONE ROUTE to this number. It used to be computed here with the campaign's
+  // percentage and WITHOUT its payout cap, while the backend pays
+  // min(percentage, cap) — so on a capped campaign the screen promised more than
+  // the wallet would ever receive, and on a cap of zero it promised the full
+  // percentage of an order that would pay nothing. The backend's own figure now
+  // wins whenever it has arrived; the local calculation is only the moment before
+  // that, and it applies the cap the same way. See src/ui/refund.js.
+  const refundPaise = displayRefundPaise({
+    authoritativePaise: authoritative && authoritative.refund
+      ? authoritative.refund.amountPaise
+      : null,
+    chargedPaise: charged.paise,
+    percent: campaign.percent,
+    capPaise: campaign.payoutCapPaise,
+  });
   const itemPaise = task.order ? task.order.itemPaise : null; // display only
   const match = task.order && task.order.match;
 

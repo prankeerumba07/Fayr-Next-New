@@ -101,7 +101,9 @@ export function rupeesFromPaise(paise) {
 export function estMaxRefundRupees(campaign) {
   if (!campaign || campaign.productPricePaise == null) return null;
   const pct = campaign.percent != null ? campaign.percent : 100;
-  let paise = Math.round((campaign.productPricePaise * pct) / 100);
+  // FLOOR, matching computeRefundPaise's integer division backend-side. Rounding
+  // up here would make an "up to" figure that is one paise above anything payable.
+  let paise = Math.floor((campaign.productPricePaise * pct) / 100);
   if (campaign.payoutCapPaise != null) paise = Math.min(paise, campaign.payoutCapPaise);
   return groupIndian(Math.floor(paise / 100));
 }
