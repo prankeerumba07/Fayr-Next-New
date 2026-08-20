@@ -16,12 +16,14 @@ import { RolesGuard } from '../admin/guards/roles.guard';
 import { StaffAuthGuard } from '../admin/guards/staff-auth.guard';
 import type { AuthenticatedStaff } from '../admin/staff.types';
 import { AllowDuplicateOrderDto } from './dto/allow-duplicate-order.dto';
+import { SetQuantityDto } from './dto/set-quantity.dto';
 import type { TaskResponse } from './task.response';
 import { TaskService } from './task.service';
 
 /**
- * Staff decisions on a single task. Today that is one thing: releasing a refund
- * that the one-purchase-one-refund gate is holding.
+ * Staff decisions on a single task: releasing a refund the
+ * one-purchase-one-refund gate is holding, and stating how many units an order
+ * covers when the page does not say.
  *
  * The gate deliberately HOLDS rather than refuses, because a genuine multi-item
  * basket legitimately backs more than one task — an Amazon merged cart is two
@@ -62,6 +64,44 @@ export class AdminTaskController {
       // The reason is the point of the record: months later "why was one order
       // paid twice" must be answerable without guessing.
       metadata: { taskId: id, orderId, reason: dto.reason },
+    });
+    return task;
+  }
+
+  /**
+   * How many units the order covers, read off the order page by a person.
+   *
+   * The quantity rule refuses to pay a percentage of a line total without knowing
+   * how many units it covers, and almost no marketplace page states one. That is
+   * the right call for money, but only if a human can act on the hold — otherwise
+   * the user is told a reviewer will check it and no reviewer has a button. This
+   * is the button.
+   *
+   * SUPPORT, for the same reason as the override above: this is an investigation,
+   * and it is deliberately NOT the user's own call, because the number in doubt
+   * is exactly the one they would be motivated to overstate.
+   */
+  @Post(':id/quantity')
+  @HttpCode(HttpStatus.OK)
+  async setQuantity(
+    @CurrentStaff() staff: AuthenticatedStaff,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetQuantityDto,
+  ): Promise<TaskResponse> {
+    const { task, userId, previousQuantity } =
+      await this.tasks.setStaffQuantity(id, dto.quantity);
+    await this.audit.record({
+      staffUserId: staff.id,
+      action: AUDIT_ACTIONS.TASK_QUANTITY_SET,
+      targetUserId: userId,
+      // previousQuantity is what makes a CORRECTION legible: "changed 1 to 3" is
+      // a different event from "set 3", and only one of them needs explaining.
+      metadata: {
+        taskId: id,
+        quantity: dto.quantity,
+        previousQuantity,
+        reason: dto.reason,
+      },
     });
     return task;
   }

@@ -27,6 +27,7 @@ export const AUDIT_ACTIONS = {
   SCREENSHOT_VIEW: 'SCREENSHOT_VIEW', // staff streamed a private verification screenshot
   EVIDENCE_REVIEW: 'EVIDENCE_REVIEW', // staff approved / rejected / requested-more on a case
   DUPLICATE_ORDER_ALLOW: 'DUPLICATE_ORDER_ALLOW', // staff let a second task on one order be paid
+  TASK_QUANTITY_SET: 'TASK_QUANTITY_SET', // staff read the unit count off the order page
 } as const;
 
 /** The staff roles an admin can assign. Kept here so the DTO + tests share one list. */

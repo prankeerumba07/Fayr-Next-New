@@ -191,6 +191,77 @@ export class TaskService {
     };
   }
 
+  /**
+   * A staff member states how many units the order covers.
+   *
+   * This exists because the quantity rule HOLDS a refund it cannot justify, and
+   * almost no marketplace page states a unit count. A hold nobody can clear is
+   * not a safety measure, it is a dead end: the user is told a Fayr reviewer will
+   * check it, and on any task that did not arrive through the OCR screenshot flow
+   * no reviewer had a way to say what they saw.
+   *
+   * It goes through applyEvidence — the SAME funnel as the scraper and the OCR
+   * approval — rather than writing the column directly, so the decision lands as
+   * a task event with a state transition and cannot bypass any engine rule (the
+   * order-window check included).
+   *
+   * The whole order is resent because the engine replaces `order` wholesale
+   * rather than merging fields; resending a partial one would drop the order id
+   * and its date, and the task would lose its anchor. `source` is kept as the
+   * INCOMING order's own source: this is the same order, with one fact confirmed,
+   * so it must not be downgraded to a lower authority tier — and `quantitySource`
+   * records that a person, not a page, supplied the count.
+   *
+   * Idempotent per VALUE: pressing the button twice with 1 is one decision, while
+   * correcting 1 to 3 is a second, real one.
+   *
+   * It moves no money. The return window, the published review and the
+   * FINANCE-gated withdrawal all still stand between this and a rupee.
+   */
+  async setStaffQuantity(
+    taskId: string,
+    quantity: number,
+  ): Promise<{
+    task: TaskResponse;
+    userId: string;
+    previousQuantity: number | null;
+  }> {
+    const row = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { campaign: true },
+    });
+    if (!row) throw new NotFoundException('Task not found');
+
+    const engine = toEngineTask(row, []);
+    const order = engine.order;
+    if (!order) {
+      // Plain words: staff read these out to people on the phone.
+      throw new ConflictException(
+        'This task has no order yet, so there is no line to count units on.',
+      );
+    }
+
+    const previousQuantity = order.quantity ?? null;
+    const task = await this.applyEvidence(
+      row.userId,
+      taskId,
+      {
+        order: {
+          ...order,
+          quantity,
+          quantitySource: 'staff',
+          quantityReason: null,
+          // What a reader had OBSERVED but declined to assert is superseded now
+          // that a person has decided, so it is not left behind to contradict the
+          // number the refund actually used.
+          quantityObserved: null,
+        },
+      },
+      `staff-quantity:${quantity}`,
+    );
+    return { task, userId: row.userId, previousQuantity };
+  }
+
   /** The caller's tasks, newest first. */
   async listForUser(userId: string): Promise<TaskResponse[]> {
     const rows = await this.prisma.task.findMany({
