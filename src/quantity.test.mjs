@@ -182,6 +182,13 @@ console.log('\n=== 9. the inlined copies in platforms.js have not drifted ===');
   ok(unescaped.includes(QUANTITY_PATTERN_SOURCE),
     'the quantity pattern is inlined verbatim');
   ok(/quantity/i.test(src), 'platforms.js reads a quantity at all');
+  // Flipkart's answer comes from a JSON payload, not page text. The guard there
+  // is that the reader captures the quantity-shaped PATHS, so one real multi-unit
+  // order names the field exactly instead of it staying a guess.
+  ok(/quantityLikePaths/.test(src),
+    'and it captures quantity-shaped JSON paths for Flipkart');
+  ok(/unitRecordCounts/.test(src),
+    'and how many unit records each order/product had');
 }
 
 console.log('\n=== 10. the injected page script still PARSES ===');
@@ -191,12 +198,13 @@ console.log('\n=== 10. the injected page script still PARSES ===');
   // where the only symptom is a fetch that silently reports nothing. Parse it
   // here instead.
   const { PLATFORMS } = await import('./platforms.js');
-  for (const key of ['amazon']) {
+  for (const key of ['amazon', 'flipkart']) {
     const script = PLATFORMS[key].fetchScript;
     let parsed = true, err = null;
     try { new Function(script); } catch (e) { parsed = false; err = e.message; }
     ok(parsed, `${key}'s injected script parses` + (err ? ` (${err})` : ''));
-    ok(/statedQuantityIn/.test(script), `${key} reads a labelled quantity`);
+    const reads = key === 'flipkart' ? /combineUnits/ : /statedQuantityIn/;
+    ok(reads.test(script), `${key} reads a quantity`);
   }
 }
 

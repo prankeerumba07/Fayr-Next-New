@@ -418,6 +418,13 @@ export function readFlipkartEvidence(raw, target) {
   const order = (raw && raw.order) || null;
   if (!order) return orderApiMiss(probe, 'Flipkart', reviewFacts);
 
+  // What the records said about units, and what may be COMPUTED from it — see
+  // payableQuantity in quantity.js for why those differ.
+  const fkQty = payableQuantity({
+    quantity: normalizeQuantity(order.quantity),
+    source: order.quantitySource || null,
+    reason: order.quantityReason || null,
+  });
   return {
     blocker: null,
     review: reviewFacts,
@@ -429,14 +436,22 @@ export function readFlipkartEvidence(raw, target) {
       // (moneyDataBag.itemSellingPrice), verified 2026-07-15 - never orderAmount,
       // which is the order total and can bundle unrelated items. Whole rupees.
       itemPaise: toPaise(order.itemAmount),
-      // QUANTITY IS UNKNOWN, and said so explicitly rather than left absent.
-      // No marketplace page we read exposes the unit count, so the figure above is
-      // a LINE TOTAL of unknown size. The refund refuses rather than assuming 1 —
-      // see chargedAmount.js. Set this the moment a reader can genuinely read it.
-      quantity: null,
+      // HOW MANY UNITS. Flipkart states its orders as unit RECORDS, so this comes
+      // from a record stating its own count — never from counting the records,
+      // because one record could itself hold three units. Which field carries it
+      // is still unverified (no multi-unit Flipkart order has been captured), so
+      // in practice this reads null today and the refund holds for a human.
+      quantity: fkQty.quantity,
+      quantityObserved: fkQty.observed,
+      quantitySource: fkQty.source,
+      quantityReason: fkQty.reason,
       orderTotalPaise: toPaise(order.orderAmount),
       amountSource: order.itemAmount != null ? 'flipkart-itemSellingPrice' : null,
-      itemAmountAmbiguous: false,
+      // More than one unit record for this product in this order means the money
+      // above came from whichever record was read LAST, which is arbitrary. That
+      // makes the AMOUNT doubtful, not just the count — so it is flagged, which
+      // routes it to a person instead of being paid.
+      itemAmountAmbiguous: (order.unitRecords || 0) > 1,
       product: order.productName || (review && review.productname) || t.product || null,
       // Flipkart's posted order already carries returnStatus and statusKey; only
       // `returned` was ever read. statusKey is the fallback because it is present

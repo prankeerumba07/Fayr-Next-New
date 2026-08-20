@@ -89,6 +89,11 @@ const flipkart = {
         // Build pid -> order/unit facts from the order history units.
         var orders = (ordJson && ordJson.RESPONSE && ordJson.RESPONSE.multipleOrderDetailsView && ordJson.RESPONSE.multipleOrderDetailsView.orders) || [];
         var byPid = {};
+        // HOW MANY UNITS. Keyed by (order, product) and never by product alone:
+        // the same product bought in two different orders is two separate counts
+        // and adding them would invent a quantity nobody bought.
+        var unitTally = {};
+        function tallyKey(oid, pid){ return String(oid) + "|" + String(pid); }
         orders.forEach(function(o){
           var md = o.orderMetaData || {};
           var units = o.units || {};
@@ -106,6 +111,35 @@ const flipkart = {
             var money = u.moneyDataBag || {};
             var orderMoney = o.orderMoneyDataBag || {};
             var pid = meta.fsn || null;
+            // Flipkart states its orders as UNIT RECORDS. A record that states its
+            // own count is evidence. The NUMBER OF RECORDS is NOT: one record could
+            // itself represent three units, and reading the count as 1 would refund
+            // a third of what was charged. Both are collected; the combiner below
+            // only answers when every record stated a count.
+            //
+            // Which field carries it is UNVERIFIED — no multi-unit Flipkart order
+            // has been captured yet. These are the plausible names, and
+            // rawSample.quantityLikePaths in the same payload names the real one
+            // exactly on the first real fetch. Until then this simply reads null,
+            // which holds the refund for a human rather than guessing.
+            var statedQty = null;
+            var qtyFields = [
+              meta.quantity, u.quantity, meta.unitCount, u.unitCount,
+              meta.qty, u.qty, meta.itemCount, meta.unitsCount
+            ];
+            for (var qi = 0; qi < qtyFields.length; qi++) {
+              var qv = qtyFields[qi];
+              if (typeof qv === "number" && qv === Math.floor(qv) && qv >= 1 && qv <= 99) { statedQty = qv; break; }
+              if (typeof qv === "string" && /^\d{1,3}$/.test(qv)) {
+                var qn = Number(qv);
+                if (qn >= 1 && qn <= 99) { statedQty = qn; break; }
+              }
+            }
+            if (pid) {
+              var tk = tallyKey(md.orderId, pid);
+              if (!unitTally[tk]) { unitTally[tk] = []; }
+              unitTally[tk].push(statedQty);
+            }
             // Product NAME from the order unit - needed to match the campaign
             // (which carries a name, not a pid). Field name is unverified for the
             // order unit, so try the likely spots; orderProbe.nameAvailable
@@ -136,6 +170,42 @@ const flipkart = {
           });
         });
 
+        // Turn the tallied unit records into a quantity, or an honest null. Same
+        // rule as combineUnitQuantities in src/quantity.js, whose tests guard it.
+        function combineUnits(stated){
+          var out = { quantity: null, source: null, reason: "not-stated", records: stated.length };
+          if (!stated.length) { return out; }
+          var known = stated.filter(function(v){ return v != null; });
+          if (!known.length) { return out; }
+          // Some records state a count and some do not. Adding the known ones would
+          // undercount; treating the silent ones as 1 is the assumption this whole
+          // path exists to refuse.
+          if (known.length !== stated.length) { out.reason = "partial"; return out; }
+          var sum = 0, allOk = true;
+          known.forEach(function(v){
+            if (!(v === Math.floor(v) && v >= 1 && v <= 99)) { allOk = false; }
+            sum += v;
+          });
+          if (!allOk || sum > 99) { out.reason = "implausible"; return out; }
+          out.quantity = sum;
+          out.source = stated.length > 1 ? "unit-records-stated" : "unit-record-stated";
+          out.reason = null;
+          return out;
+        }
+        Object.keys(byPid).forEach(function(pid){
+          var e = byPid[pid];
+          var q = combineUnits(unitTally[tallyKey(e.orderId, pid)] || []);
+          e.quantity = q.quantity;
+          e.quantitySource = q.source;
+          e.quantityReason = q.reason;
+          // How many unit records this product had in that order. When it is more
+          // than one, the money fields above came from whichever record was read
+          // LAST — which is arbitrary — so the AMOUNT itself is doubtful, not just
+          // the count. Surfaced so a human is told that rather than left to
+          // discover it.
+          e.unitRecords = q.records;
+        });
+
         var products = (revJson && revJson.RESPONSE && revJson.RESPONSE.product) || [];
         var reviews = products.map(function(p){
           var om = (p.pid && byPid[p.pid]) || null;
@@ -161,6 +231,10 @@ const flipkart = {
             orderamount: om ? om.orderAmount : null,
             itemamount: om ? om.itemAmount : null,
             itemlistprice: om ? om.itemListPrice : null,
+            quantity: om ? om.quantity : null,
+            quantitysource: om ? om.quantitySource : null,
+            quantityreason: om ? om.quantityReason : null,
+            unitrecords: om ? om.unitRecords : null,
             returned: om ? om.returned : null,
             returnstatus: om ? om.returnStatus : null,
             statuscode: om ? om.statusKey : null,
@@ -205,6 +279,22 @@ const flipkart = {
             scanPrice(v, path + "." + k, d + 1);
           }
         })(firstOrder, "order", 0);
+        // The same scan for quantity-shaped leaves. This is the single cheapest
+        // thing in the payload: no extra request, and one real multi-unit order
+        // names the field exactly instead of it staying a guess.
+        var qtyLike = [];
+        (function scanQty(o, path, d){
+          if (o == null || d > 9 || qtyLike.length >= 40) { return; }
+          if (typeof o !== "object") { return; }
+          for (var k in o) {
+            if (!Object.prototype.hasOwnProperty.call(o, k)) { continue; }
+            var v = o[k];
+            if (/qty|quantity|unitcount|itemcount|count|units/i.test(k) && (typeof v === "number" || typeof v === "string")) {
+              if (qtyLike.length < 40) { qtyLike.push(path + "." + k + " = " + String(v).slice(0, 24)); }
+            }
+            scanQty(v, path + "." + k, d + 1);
+          }
+        })(firstOrder, "order", 0);
 
         diag.rawSample = {
           firstOrder: slice(firstOrder, 4000),
@@ -222,7 +312,15 @@ const flipkart = {
             .map(function(p){ return p.status; })
             .filter(function(v, i, a){ return v != null && a.indexOf(v) === i; }),
           orderCount: orders.length,
-          priceLikePaths: priceLike
+          priceLikePaths: priceLike,
+          quantityLikePaths: qtyLike,
+          // How many unit records each (order, product) had. A pid with more than
+          // one is the case that proves how Flipkart represents multiple units.
+          unitRecordCounts: (function(){
+            var m = {};
+            Object.keys(unitTally).forEach(function(k){ m[k] = unitTally[k].length; });
+            return m;
+          })()
         };
 
         // ORDER-FIRST surfacing (privacy-filtered). The campaign product's own
@@ -280,6 +378,8 @@ const flipkart = {
           pid: m.pid, productName: m.productName,
           orderId: m.orderId, orderDate: m.orderDate, deliveryDate: m.deliveryDate,
           itemAmount: m.itemAmount, orderAmount: m.orderAmount,
+          quantity: m.quantity, quantitySource: m.quantitySource,
+          quantityReason: m.quantityReason, unitRecords: m.unitRecords,
           returned: m.returned, returnStatus: m.returnStatus, statusKey: m.statusKey
         } : null;
         // The matched product's review, if one exists yet (later payout phase).

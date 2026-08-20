@@ -54,6 +54,30 @@ const fkAmountOff = {
   review: null, orderProbe: { ordersFetched: true, authFailed: false, ordersCount: 3, targetFound: true, matchScore: 0.75, amountOk: false, ambiguous: false, candidateCount: 1 },
 };
 
+// Flipkart with a unit record that STATES one unit — the payable case.
+const fkOneUnit = {
+  order: {
+    pid: 'ITMone', productName: 'boAt Airdopes 141 TWS Earbuds',
+    orderId: 'OD-ONE', orderDate: ordered, deliveryDate: delivered,
+    itemAmount: 388, orderAmount: 388, returned: false, statusKey: 'DELIVERED',
+    quantity: 1, quantitySource: 'unit-record-stated', quantityReason: null, unitRecords: 1,
+  },
+  review: null,
+  orderProbe: { ordersFetched: true, authFailed: false, ordersCount: 1, nameAvailable: true, targetFound: true, matchScore: 1, amountOk: true, ambiguous: false, candidateCount: 1 },
+};
+// Flipkart with THREE unit records for one product. byPid keeps whichever was
+// read last, so the amount itself is arbitrary — not just the count.
+const fkThreeRecords = {
+  order: {
+    pid: 'ITMmany', productName: 'boAt Airdopes 141 TWS Earbuds',
+    orderId: 'OD-MANY', orderDate: ordered, deliveryDate: delivered,
+    itemAmount: 388, orderAmount: 1164, returned: false, statusKey: 'DELIVERED',
+    quantity: 3, quantitySource: 'unit-records-stated', quantityReason: null, unitRecords: 3,
+  },
+  review: null,
+  orderProbe: { ordersFetched: true, authFailed: false, ordersCount: 1, nameAvailable: true, targetFound: true, matchScore: 1, amountOk: true, ambiguous: false, candidateCount: 1 },
+};
+
 // Myntra: mrp only (paid price not yet located), name present, amount not checked.
 const myPaid = {
   order: {
@@ -63,6 +87,27 @@ const myPaid = {
   review: null,
   orderProbe: { ordersFetched: true, authFailed: false, ordersCount: 6, nameAvailable: true, targetFound: true, matchScore: 1, amountOk: null, ambiguous: false, candidateCount: 1 },
 };
+
+console.log('=== Flipkart: HOW MANY UNITS — from a record that states its own count ===');
+{
+  const one = readFlipkartEvidence(fkOneUnit, { product: 'boAt Airdopes 141', amount: 388 });
+  ok(one.order.quantity === 1, 'a record stating ONE unit is payable');
+  ok(one.order.quantitySource === 'unit-record-stated', 'and says where the count came from');
+  ok(one.order.itemAmountAmbiguous === false, 'one record, so the amount is not arbitrary');
+
+  const many = readFlipkartEvidence(fkThreeRecords, { product: 'boAt Airdopes 141', amount: 388 });
+  ok(many.order.quantity === null, 'three units does not pay automatically');
+  ok(many.order.quantityObserved === 3, 'but the count is carried for the staff member');
+  ok(many.order.quantityReason === 'multi-unit-amount-unclear', 'with the reason named');
+  ok(many.order.itemAmountAmbiguous === true,
+    'and the AMOUNT is flagged too — with three records, whichever was read last won');
+
+  const silent = readFlipkartEvidence(fkPaid, { product: 'boAt Airdopes 141', amount: 388 });
+  ok(silent.order.quantity === null, 'a payload that states no count stays unknown');
+  ok(silent.order.quantityReason === 'not-stated', 'and says the records were silent');
+  ok(silent.order.itemAmountAmbiguous === false,
+    'a single silent record does not make the amount arbitrary — only the count unknown');
+}
 
 console.log('=== Flipkart: purchase alone advances CLAIMED -> PURCHASED, no review needed ===');
 {
