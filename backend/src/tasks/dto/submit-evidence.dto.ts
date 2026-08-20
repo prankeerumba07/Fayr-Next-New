@@ -12,7 +12,15 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import type { Evidence } from '../engine/evidence.types';
+import type {
+  Evidence,
+  QuantityReason,
+  QuantitySource,
+} from '../engine/evidence.types';
+import {
+  QUANTITY_REASONS,
+  QUANTITY_SOURCES,
+} from '../engine/evidence.types';
 import {
   ATTESTED_SOURCES,
   BLOCKERS,
@@ -83,6 +91,13 @@ class EvidenceOrderDto {
    * Bounded so a misread field cannot become an absurd divisor.
    */
   @IsOptional() @IsInt() @Min(1) @Max(100) quantity?: number;
+  /**
+   * Provenance for the quantity, from a closed list — a free-text field here
+   * would let a client invent an authority it does not have.
+   */
+  @IsOptional() @IsIn(QUANTITY_SOURCES) quantitySource?: QuantitySource;
+  /** Why no quantity was read, also from a closed list. */
+  @IsOptional() @IsIn(QUANTITY_REASONS) quantityReason?: QuantityReason;
   @IsOptional() @IsString() amountSource?: string;
   @IsOptional() @IsBoolean() itemAmountAmbiguous?: boolean;
   @IsOptional()
@@ -174,6 +189,8 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
           orderTotalPaise: toBig(dto.order.orderTotalPaise),
           mrpPaise: toBig(dto.order.mrpPaise),
           quantity: dto.order.quantity ?? null,
+          quantitySource: dto.order.quantitySource ?? null,
+          quantityReason: dto.order.quantityReason ?? null,
           amountSource: dto.order.amountSource ?? null,
           itemAmountAmbiguous: dto.order.itemAmountAmbiguous,
           match: dto.order.match

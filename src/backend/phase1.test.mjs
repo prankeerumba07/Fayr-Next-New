@@ -170,6 +170,41 @@ ok(evidenceKey({ blocker: 'order_unreadable', probe: { reviewsSeen: 0 } })
 ok(evidenceKey({ order: { itemPaise: 100, source: 'x' }, probe: { reviewsSeen: 0 } })
   === 'evidence:none:empty', 'an id-less order falls back to the diagnosis key');
 
+console.log('\n=== the quantity and WHERE IT CAME FROM cross the wire ===');
+// The backend validates both provenance fields against a closed list and would
+// 400 the whole submission on an unknown value — taking the order, the review
+// and the delivery date down with it. So the device must send only known values.
+{
+  const withQty = toEvidenceDto({
+    order: {
+      id: 'OD-Q', itemPaise: 129900, quantity: 3,
+      quantitySource: 'label-qty', quantityReason: null, source: 'order-details',
+    },
+  });
+  ok(withQty.order.quantity === 3, 'a read quantity is sent');
+  ok(withQty.order.quantitySource === 'label-qty', 'and where it was read from');
+  ok(!('quantityReason' in withQty.order), 'no reason is sent when there IS a quantity');
+
+  const unknown = toEvidenceDto({
+    order: {
+      id: 'OD-U', itemPaise: 129900, quantity: null,
+      quantitySource: null, quantityReason: 'not-stated', source: 'order-details',
+    },
+  });
+  ok(!('quantity' in unknown.order), 'an unknown quantity is OMITTED, never sent as 1');
+  ok(unknown.order.quantityReason === 'not-stated', 'but the reason travels');
+
+  const bogus = toEvidenceDto({
+    order: {
+      id: 'OD-B', itemPaise: 100, quantity: 0,
+      quantitySource: 'guessed-it', quantityReason: 'because', source: 'order-details',
+    },
+  });
+  ok(!('quantity' in bogus.order), 'a zero quantity never reaches the wire');
+  ok(!('quantitySource' in bogus.order), 'an invented source is dropped, not 400d');
+  ok(!('quantityReason' in bogus.order), 'an invented reason too');
+}
+
 console.log('\n=== order.match must SURVIVE the wire (it was dropped here) ===');
 // The confirm screen's ambiguity and price warnings are driven off `match`, and
 // the backend's refund gate now REFUSES to release a doubtful match without an

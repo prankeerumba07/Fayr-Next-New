@@ -573,6 +573,78 @@ const amazon = {
                     // the walk escaped the row and probably hit the order summary,
                     // which is exactly the failure this needs to make visible rather
                     // than silently pay out on.
+                    // HOW MANY UNITS DID THEY BUY?
+                    //
+                    // The same rule as src/quantity.js, inlined because this is an
+                    // injected page script and cannot import. quantity.test.mjs
+                    // reads THIS FILE as text and fails if the two ever drift.
+                    //
+                    // Only a number the page LABELS is read. Refused on purpose:
+                    // a bare number beside the item (that is layout, and layout
+                    // changes without notice), a count inside the product title
+                    // ("Set of 2 Pieces" is one unit), and the option list of a
+                    // return form's quantity picker, which cleanText flattens to
+                    // the text "Quantity: 1 2 3" and would otherwise be read as 1
+                    // on an order of three.
+                    function statedQuantityIn(txt){
+                      var out = { quantity: null, source: null, reason: "not-stated", candidates: [] };
+                      if (!txt) { return out; }
+                      var labels = [
+                        { label: "qty", re: /\\bqty\\b\\s*[:.\\-]?\\s*(\\d{1,3})(?![\\d.])/gi },
+                        { label: "quantity", re: /\\bquantity\\b\\s*[:.\\-]?\\s*(\\d{1,3})(?![\\d.])/gi }
+                      ];
+                      labels.forEach(function(L){
+                        var m;
+                        while ((m = L.re.exec(txt)) !== null) {
+                          var value = Number(m[1]);
+                          var rest = txt.slice(m.index + m[0].length);
+                          var next = rest.match(/^\\s*(\\d{1,3})(?![\\d.])/);
+                          if (next && Number(next[1]) === value + 1) {
+                            out.candidates.push({ label: L.label, value: value, rejected: "picker" });
+                          } else {
+                            out.candidates.push({ label: L.label, value: value });
+                          }
+                        }
+                      });
+                      var accepted = out.candidates.filter(function(c){ return !c.rejected; });
+                      if (!accepted.length) {
+                        if (out.candidates.length) { out.reason = "picker"; }
+                        return out;
+                      }
+                      var distinct = [];
+                      accepted.forEach(function(c){ if (distinct.indexOf(c.value) < 0) { distinct.push(c.value); } });
+                      // Two different labelled numbers in ONE item's container means
+                      // the walk escaped the row. Not an answer about this item.
+                      if (distinct.length > 1) { out.reason = "conflicting"; return out; }
+                      var v = distinct[0];
+                      if (!(v === Math.floor(v) && v >= 1 && v <= 99)) { out.reason = "implausible"; return out; }
+                      out.quantity = v;
+                      out.source = accepted[0].label === "qty" ? "label-qty" : "label-quantity";
+                      out.reason = null;
+                      return out;
+                    }
+                    // DIAGNOSTIC ONLY, and it must stay that way: Amazon's own
+                    // "return or replace" and "buy it again" forms carry a quantity
+                    // field whose value is the FORM'S DEFAULT, not the purchase. The
+                    // point of collecting them is that one real capture then tells us
+                    // whether a trustworthy stated quantity exists on this page at
+                    // all - without adding a single request to find out.
+                    function markupQtyHits(html){
+                      if (!html) { return []; }
+                      var res = [
+                        /([a-z-]*(?:qty|quantity)[a-z-]*)\\s*=\\s*"(\\d{1,3})"/gi,
+                        /name\\s*=\\s*"([a-z-]*(?:qty|quantity)[a-z-]*)"[^>]*?value\\s*=\\s*"(\\d{1,3})"/gi
+                      ];
+                      var seen = [];
+                      res.forEach(function(re){
+                        var m;
+                        while ((m = re.exec(html)) !== null && seen.length < 8) {
+                          var hit = m[1] + '="' + m[2] + '"';
+                          if (seen.indexOf(hit) < 0) { seen.push(hit); }
+                        }
+                      });
+                      return seen;
+                    }
                     function itemPricesIn(root){
                       var prices = {}, dbg = [];
                       var els = root.querySelectorAll('a[href*="/dp/"], a[href*="/gp/product/"]');
@@ -594,14 +666,31 @@ const amazon = {
                             break;
                           }
                         }
+                        // The quantity is read from the SAME container the price
+                        // came from, never the page: a number belonging to another
+                        // item must not be able to divide this item's price.
+                        var q = statedQuantityIn(containerText);
                         if (tokens.length) {
-                          prices[asin] = { price: normAmount(tokens[0]), level: level, tokenCount: tokens.length };
+                          prices[asin] = {
+                            price: normAmount(tokens[0]), level: level, tokenCount: tokens.length,
+                            quantity: q.quantity, quantitySource: q.source, quantityReason: q.reason
+                          };
                         }
                         if (dbg.length < 4) {
                           dbg.push({
                             asin: asin, foundAtLevel: level, chosen: tokens[0] || null,
                             tokensInContainer: tokens.slice(0, 8),
                             ambiguous: tokens.length > 1,
+                            // PROOF for the quantity, to the same standard as the
+                            // price: what was chosen, why nothing was, every
+                            // labelled number seen, and the quantity-shaped markup
+                            // in the container. A null here has to be explainable
+                            // from the capture alone, or the next step is guessing.
+                            quantityChosen: q.quantity,
+                            quantitySource: q.source,
+                            quantityReason: q.reason,
+                            quantityCandidates: q.candidates.slice(0, 6),
+                            quantityMarkupHits: markupQtyHits(containerHtml),
                             containerTextHead: containerText.slice(0, 240),
                             // Raw structure, so a wrong pick can be turned into a
                             // real selector offline from this same capture.
@@ -732,6 +821,12 @@ const amazon = {
                                 itemamount: ip ? ip.price : null,
                                 itemamountlevel: ip ? ip.level : null,
                                 itemamountambiguous: ip ? ip.tokenCount > 1 : null,
+                                // The unit count, ONLY when the item's own container
+                                // states one. Null means unknown, and the refund
+                                // refuses rather than assuming one unit.
+                                quantity: ip ? ip.quantity : null,
+                                quantitysource: ip ? ip.quantitySource : null,
+                                quantityreason: ip ? ip.quantityReason : "no-item-container",
                                 orderamount: amt.orderamount,
                                 amountsource: amt.amountsource,
                                 deliverydate: dts.deliverydate,
@@ -757,6 +852,9 @@ const amazon = {
                         r.itemamount = of.itemamount;
                         r.itemamountlevel = of.itemamountlevel;
                         r.itemamountambiguous = of.itemamountambiguous;
+                        r.quantity = of.quantity;
+                        r.quantitysource = of.quantitysource;
+                        r.quantityreason = of.quantityreason;
                         r.orderamount = of.orderamount;
                         r.amountsource = of.amountsource;
                         r.deliverydate = of.deliverydate;

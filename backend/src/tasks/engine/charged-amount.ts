@@ -171,8 +171,10 @@ export function resolveChargedPaise(
   // ── QUANTITY. NEVER ASSUME 1. ─────────────────────────────────────────────
   // A line total carries as many units as were bought. Refunding a percentage of
   // it without knowing how many pays a multiple of what the campaign intended.
-  // No reader captures quantity today, so this refuses far more often than it
-  // pays — deliberately. Refusing costs a staff review; guessing costs money.
+  // Only a page that STATES the number fills this in (see src/quantity.js), and
+  // Amazon prints no label on a single-unit order, so this still refuses far more
+  // often than it pays — deliberately. Refusing costs a staff review; guessing
+  // costs money.
   const quantity = order?.quantity ?? null;
   if (quantity == null) return staff('quantity-unknown');
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_PLAUSIBLE_QUANTITY) {

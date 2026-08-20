@@ -35,6 +35,23 @@ ok(ev.returned===false,'returned false (proven)');
 ok(ev.review.reviewDate===Date.UTC(2026,5,22),'reviewDate now REAL -> '+new Date(ev.review.reviewDate).toUTCString().slice(0,16));
 ok(ev.review.reviewDate>ev.order.date,'ANTI-REPLAY: review post-dates the order');
 
+console.log('\n=== 2a. HOW MANY UNITS — read when labelled, unknown when not ===');
+// A refund is for ONE unit, so an amount without a unit count is unpayable. The
+// fixture carries all three real outcomes of the reader.
+ok(ev.order.quantity === null, 'a single-unit Amazon order prints no label, so quantity is UNKNOWN');
+ok(ev.order.quantityReason === 'not-stated', 'and it says the page was silent — not that anything failed');
+ok(ev.order.quantitySource === null, 'no source is claimed for a quantity we do not have');
+{
+  const labelled = readAmazonEvidence(raw, { asin: 'B0TESTMERGA' });
+  ok(labelled.order.quantity === 2, 'a LABELLED "Qty: 2" in the item container is read');
+  ok(labelled.order.quantitySource === 'label-qty', 'and where it came from is recorded for the audit trail');
+  ok(labelled.order.quantityReason === null, 'no reason is carried when there IS a quantity');
+
+  const picker = readAmazonEvidence(raw, { asin: 'B0TESTMERGB' });
+  ok(picker.order.quantity === null, 'a return form\'s quantity DROPDOWN is refused, not read as 1');
+  ok(picker.order.quantityReason === 'picker', 'and the refusal is named, so it can be looked at');
+}
+
 console.log('\n=== 2b. merged order: item price, NOT the order total ===');
 const m1=readAmazonEvidence(raw,{asin:'B0TESTMERGA'});
 const m2=readAmazonEvidence(raw,{asin:'B0TESTMERGB'});

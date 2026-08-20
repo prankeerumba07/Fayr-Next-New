@@ -26,7 +26,10 @@
       "amountsource": "total-label",
       "deliverydate": "5 June",
       "returned": false,
-      "returnstatus": null
+      "returnstatus": null,
+      "quantity": null,
+      "quantitysource": null,
+      "quantityreason": "not-stated"
     },
     {
       "asin": "B0TESTMERGA",
@@ -51,7 +54,10 @@
       "amountsource": "total-label",
       "deliverydate": "8 June",
       "returned": false,
-      "returnstatus": null
+      "returnstatus": null,
+      "quantity": 2,
+      "quantitysource": "label-qty",
+      "quantityreason": null
     },
     {
       "asin": "B0TESTMERGB",
@@ -76,7 +82,10 @@
       "amountsource": "total-label",
       "deliverydate": "8 June",
       "returned": false,
-      "returnstatus": null
+      "returnstatus": null,
+      "quantity": null,
+      "quantitysource": null,
+      "quantityreason": "picker"
     }
   ]
 }

@@ -8,6 +8,16 @@
 // Pure — no network, no RN. Mirrors backend evidenceFromDto in reverse.
 import { evidenceKey } from './evidenceKey.js';
 
+// Mirrors QUANTITY_SOURCES / QUANTITY_REASONS in
+// backend/src/tasks/engine/evidence.types.ts. Literals rather than an import
+// because the device bundle cannot reach backend source.
+const QUANTITY_SOURCES = [
+  'label-qty', 'label-quantity', 'unit-record-stated', 'unit-records-stated', 'staff',
+];
+const QUANTITY_REASONS = [
+  'not-stated', 'picker', 'conflicting', 'implausible', 'partial', 'no-item-container',
+];
+
 // paise number|string|null → decimal string, or undefined to OMIT. Drops any
 // non-integer/negative value rather than send something the ledger would reject.
 function paiseStr(v) {
@@ -77,6 +87,16 @@ export function toEvidenceDto(evidence, key) {
       // backend never reads unknown as 1 — it holds the refund for a human.
       ...(Number.isInteger(e.order.quantity) && e.order.quantity >= 1
         ? { quantity: e.order.quantity }
+        : null),
+      // Provenance for the quantity. Both are validated against a CLOSED LIST
+      // backend-side, and an unrecognised value would 400 the WHOLE submission —
+      // losing the order, the review and the delivery date with it. So anything
+      // not on the list is dropped here rather than risked on the wire.
+      ...(QUANTITY_SOURCES.indexOf(e.order.quantitySource) >= 0
+        ? { quantitySource: e.order.quantitySource }
+        : null),
+      ...(QUANTITY_REASONS.indexOf(e.order.quantityReason) >= 0
+        ? { quantityReason: e.order.quantityReason }
         : null),
       orderTotalPaise: paiseStr(e.order.orderTotalPaise),
       mrpPaise: paiseStr(e.order.mrpPaise),

@@ -24,6 +24,7 @@
 import { toEpoch } from './extract.js';
 import { productScore, matchOrderByNameAmount } from './verify.js';
 import { toPaise } from './money.js';
+import { normalizeQuantity } from './quantity.js';
 
 export const DAY = 86400000;
 
@@ -241,11 +242,19 @@ export function readAmazonEvidence(raw, target) {
       // and 938.00; refunding 90% of the total for the 388.00 item would pay
       // ~3.4x. Integer paise, string-parsed - see money.js.
       itemPaise: toPaise(review.itemamount),
-      // QUANTITY IS UNKNOWN, and said so explicitly rather than left absent.
-      // No marketplace page we read exposes the unit count, so the figure above is
-      // a LINE TOTAL of unknown size. The refund refuses rather than assuming 1 —
-      // see chargedAmount.js. Set this the moment a reader can genuinely read it.
-      quantity: null,
+      // HOW MANY UNITS. Read from the item's OWN container on the order-details
+      // page, and only when that container LABELS the number ("Qty: 3") — see
+      // src/quantity.js for everything deliberately refused, and platforms.js
+      // statedQuantityIn for the reading. Null means the page did not say, and
+      // the refund then refuses rather than assuming one unit (chargedAmount.js).
+      // Amazon shows no label at all on a single-unit order, so null is the
+      // ORDINARY answer here, not a failure.
+      quantity: normalizeQuantity(review.quantity),
+      // Why the quantity is what it is, kept for the staff screen and the audit
+      // trail: 'label-qty' / 'label-quantity' when read, otherwise the reason
+      // nothing was ('not-stated', 'picker', 'conflicting', 'implausible').
+      quantitySource: review.quantitysource || null,
+      quantityReason: review.quantityreason || null,
       // Audit only. Deliberately NOT called `amount` so nothing can reach for it
       // by habit and pay out the wrong number.
       orderTotalPaise: toPaise(review.orderamount),

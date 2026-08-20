@@ -75,10 +75,11 @@ if (fail > 0) process.exit(1);
 
 console.log('\n=== QUANTITY — never assume one unit (mirrors the backend rule) ===');
 {
-  // No marketplace reader captures quantity: the word appears nowhere in
-  // platforms.js, extract.js, verify.js or taskflow.js. So on a line total we
-  // cannot tell one unit at this price from three at a third of it, and refunding
-  // a percentage of the line pays a multiple of what the campaign intended.
+  // Most orders still do not state a quantity — a labelled one IS now read (see
+  // quantity.js), but Amazon prints no label on a single-unit order. So on a bare
+  // line total we cannot tell one unit at this price from three at a third of it,
+  // and refunding a percentage of the line pays a multiple of what the campaign
+  // intended.
   const unknown = resolveChargedPaise({ itemPaise: 93800 });
   ok(unknown.paise === null && unknown.needsStaff === true,
     'a line total with an unknown quantity pays nothing automatically');

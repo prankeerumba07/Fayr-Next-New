@@ -161,7 +161,7 @@ describe('chargedDisagreesWithCampaign', () => {
 /**
  * QUANTITY. The money question nobody was asking.
  *
- * No marketplace reader captures how many units were bought — verified: the string
+ * Most orders still do not tell us how many units were bought — verified: the string
  * "quantity" appears nowhere in platforms.js, extract.js, verify.js or taskflow.js.
  * That matters because on some platforms the figure we captured is the LINE TOTAL,
  * so a user who bought three units carries three units' money in it. Refunding a

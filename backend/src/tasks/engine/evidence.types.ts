@@ -50,6 +50,32 @@ export interface EvidenceOrderMatch {
   candidateCount?: number | null;
 }
 
+/**
+ * The only ways a quantity may legitimately be known. Anything else is a guess.
+ *   label-qty / label-quantity   the item's own container LABELLED the number
+ *   unit-record-stated / -records-stated   marketplace records stating their own count
+ *   staff                        a person read the order page and confirmed it
+ */
+export const QUANTITY_SOURCES = [
+  'label-qty',
+  'label-quantity',
+  'unit-record-stated',
+  'unit-records-stated',
+  'staff',
+] as const;
+export type QuantitySource = (typeof QUANTITY_SOURCES)[number];
+
+/** Why no quantity was read. See EvidenceOrder.quantityReason. */
+export const QUANTITY_REASONS = [
+  'not-stated',
+  'picker',
+  'conflicting',
+  'implausible',
+  'partial',
+  'no-item-container',
+] as const;
+export type QuantityReason = (typeof QUANTITY_REASONS)[number];
+
 export interface EvidenceOrder {
   id: string | null;
   date?: number | null;
@@ -82,12 +108,30 @@ export interface EvidenceOrder {
   /**
    * How many units of the product this line covers.
    *
-   * NULL means UNKNOWN, and unknown is NEVER treated as 1. No marketplace reader
-   * captures this today — the word "quantity" appears nowhere in platforms.js,
-   * extract.js, verify.js or taskflow.js — so unknown is the honest value, and a
-   * line total with an unknown quantity goes to a human instead of paying out.
+   * NULL means UNKNOWN, and unknown is NEVER treated as 1. A line total with an
+   * unknown quantity goes to a human instead of paying out.
+   *
+   * A reader may only fill this from a number the page STATES next to a word
+   * saying what it means ("Qty: 3"), or from a marketplace record that states
+   * its own unit count. Counting rows, reading a badge, or inferring from the
+   * absence of a marker are all forbidden — see src/quantity.js for the list of
+   * refusals and why each one exists. Amazon prints no label on a single-unit
+   * order, so NULL remains the ordinary answer there rather than a failure.
    */
   quantity?: number | null;
+  /**
+   * WHERE the quantity came from, so a payout can be explained a year later:
+   * which label was read, which record stated it, or that a staff member
+   * confirmed it by eye. Null whenever quantity is null.
+   */
+  quantitySource?: QuantitySource | null;
+  /**
+   * WHY there is no quantity. The distinction matters operationally: 'not-stated'
+   * is the page being silent and needs no investigation, while 'picker' or
+   * 'conflicting' means the reader saw something it refused, and that is worth a
+   * look. Null when a quantity WAS read.
+   */
+  quantityReason?: QuantityReason | null;
   orderTotalPaise?: bigint | null;
   mrpPaise?: bigint | null;
   amountSource?: string | null;
