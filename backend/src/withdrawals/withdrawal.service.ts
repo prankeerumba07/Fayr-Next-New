@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type PayoutMethod, type Withdrawal } from '@prisma/client';
+import { rupeesOf } from '../common/rupees';
 import { PrismaService } from '../prisma/prisma.service';
 import { TicketService } from '../tickets/ticket.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -147,11 +148,15 @@ export class WithdrawalService {
     payoutMethodId: string,
   ): Promise<Withdrawal> {
     if (amountPaise <= 0n) {
-      throw new BadRequestException('Amount must be positive');
+      throw new BadRequestException('Enter an amount to withdraw.');
     }
     if (amountPaise < MIN_WITHDRAWAL_PAISE) {
+      // In RUPEES. This read "Minimum withdrawal is 10000 paise" — a first-time
+      // user does not think in paise and cannot tell 10000 paise from ₹10,000.
+      // Every figure the ledger holds is paise; every figure a person reads is
+      // rupees, and the conversion belongs at the boundary, here.
       throw new BadRequestException(
-        `Minimum withdrawal is ${MIN_WITHDRAWAL_PAISE.toString()} paise`,
+        `You need at least ${rupeesOf(MIN_WITHDRAWAL_PAISE)} in your wallet to withdraw.`,
       );
     }
     const method = await this.prisma.payoutMethod.findFirst({
@@ -166,7 +171,9 @@ export class WithdrawalService {
 
       const balance = await this.wallet.getUserBalance(userId, tx);
       if (balance < amountPaise) {
-        throw new ConflictException('Insufficient wallet balance');
+        throw new ConflictException(
+          `You have ${rupeesOf(balance)} in your wallet, so ${rupeesOf(amountPaise)} cannot be withdrawn.`,
+        );
       }
 
       const w = await tx.withdrawal.create({
