@@ -1,0 +1,955 @@
+<title>Fayr Risk Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alexandria:wght@700;800&family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+
+<style>
+  /* The demo run-sheet's palette, deliberately — these two documents are one set
+     and should read as the same object. What changes is which colour carries the
+     page: there, gold was the brand and green was money. Here severity carries
+     it, gold recedes to a hairline, and nothing is celebrated. */
+  :root {
+    --ground: #FBFBEF;
+    --surface: #FFFFFF;
+    --surface-2: #F6F7E6;
+    --line: #E3E5CF;
+    --line-soft: #EEEFDF;
+    --ink: #191919;
+    --ink-2: #3A3A34;
+    --sub: #5C5C5C;
+    --gold: #F5C400;
+    --gold-ink: #7A5E00;
+    --gold-bg: #FDF6D2;
+    --money-ink: #256F09;
+    --money-bg: #E9F5CE;
+    --staff: #2F6FD0;
+    --staff-ink: #1F55A8;
+    --staff-bg: #E8F1FF;
+    --warn-ink: #9A5B00;
+    --warn-bg: #FFF4D6;
+    --stop: #B02617;
+    --stop-ink: #B02617;
+    --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+    --display: "Alexandria", "Trebuchet MS", sans-serif;
+    --head: "Poppins", "Helvetica Neue", Arial, sans-serif;
+    --body: "Inter", "Helvetica Neue", Arial, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #15160F;
+      --surface: #1D1E15;
+      --surface-2: #24261A;
+      --line: #343626;
+      --line-soft: #2A2C1F;
+      --ink: #F3F4E2;
+      --ink-2: #DEDFCB;
+      --sub: #A3A591;
+      --gold: #E4BE1E;
+      --gold-ink: #EBCE5E;
+      --gold-bg: #2C2810;
+      --money-ink: #96D46B;
+      --money-bg: #1E2A13;
+      --staff: #78AEF7;
+      --staff-ink: #9CC4FA;
+      --staff-bg: #16233A;
+      --warn-ink: #E0AC55;
+      --warn-bg: #2E2412;
+      --stop: #F2907F;
+      --stop-ink: #F2907F;
+      --stop-bg: #33191A;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #15160F;
+    --surface: #1D1E15;
+    --surface-2: #24261A;
+    --line: #343626;
+    --line-soft: #2A2C1F;
+    --ink: #F3F4E2;
+    --ink-2: #DEDFCB;
+    --sub: #A3A591;
+    --gold: #E4BE1E;
+    --gold-ink: #EBCE5E;
+    --gold-bg: #2C2810;
+    --money-ink: #96D46B;
+    --money-bg: #1E2A13;
+    --staff: #78AEF7;
+    --staff-ink: #9CC4FA;
+    --staff-bg: #16233A;
+    --warn-ink: #E0AC55;
+    --warn-bg: #2E2412;
+    --stop: #F2907F;
+    --stop-ink: #F2907F;
+    --stop-bg: #33191A;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --ground: #FBFBEF;
+    --surface: #FFFFFF;
+    --surface-2: #F6F7E6;
+    --line: #E3E5CF;
+    --line-soft: #EEEFDF;
+    --ink: #191919;
+    --ink-2: #3A3A34;
+    --sub: #5C5C5C;
+    --gold: #F5C400;
+    --gold-ink: #7A5E00;
+    --gold-bg: #FDF6D2;
+    --money-ink: #256F09;
+    --money-bg: #E9F5CE;
+    --staff: #2F6FD0;
+    --staff-ink: #1F55A8;
+    --staff-bg: #E8F1FF;
+    --warn-ink: #9A5B00;
+    --warn-bg: #FFF4D6;
+    --stop: #B02617;
+    --stop-ink: #B02617;
+    --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 22px 96px; }
+
+  /* ── masthead ─────────────────────────────────────────────────────────── */
+  .brand {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -.02em;
+  }
+  .brand .dot { color: var(--gold); }
+  h1 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(30px, 6vw, 46px);
+    line-height: 1.06;
+    letter-spacing: -.03em;
+    margin: 22px 0 0;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 17px;
+    color: var(--ink-2);
+    margin: 14px 0 0;
+    max-width: 62ch;
+  }
+  .stamp {
+    font-family: var(--head);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .01em;
+    color: var(--sub);
+    margin: 18px 0 0;
+  }
+  .rule { height: 2px; background: var(--gold); width: 54px; margin: 26px 0 0; }
+
+  /* ── section headings ─────────────────────────────────────────────────── */
+  h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--sub);
+    margin: 54px 0 4px;
+  }
+  .sec-sub {
+    font-family: var(--head);
+    font-size: 15.5px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0 0 18px;
+  }
+
+  /* ── the lead ─────────────────────────────────────────────────────────── */
+  .lead {
+    background: var(--stop-bg);
+    border: 1px solid color-mix(in srgb, var(--stop) 32%, transparent);
+    border-radius: 12px;
+    padding: 20px 22px;
+    margin: 30px 0 0;
+  }
+  .lead .kicker {
+    font-family: var(--head);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--stop-ink);
+  }
+  .lead p { margin: 8px 0 0; color: var(--ink-2); }
+  .lead p:first-of-type { color: var(--ink); font-size: 17px; }
+
+  /* ── findings ─────────────────────────────────────────────────────────── */
+  .finding {
+    display: grid;
+    grid-template-columns: 4px 1fr;
+    gap: 0 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    margin: 0 0 16px;
+  }
+  .spine { background: var(--line); }
+  .finding.open .spine { background: var(--stop); }
+  .finding.limit .spine { background: var(--gold); }
+  .finding.none .spine { background: var(--sub); }
+  .fbody { padding: 18px 20px 20px 2px; min-width: 0; }
+
+  .ftop { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .fnum {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 13px;
+    color: var(--sub);
+    letter-spacing: .02em;
+  }
+  .sev {
+    font-family: var(--head);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+  }
+  .sev-open { background: var(--stop-bg); color: var(--stop-ink); }
+  .sev-limit { background: var(--warn-bg); color: var(--warn-ink); }
+  .sev-none { background: var(--surface-2); color: var(--sub); }
+  h3 {
+    font-family: var(--head);
+    font-weight: 600;
+    font-size: 19px;
+    line-height: 1.3;
+    letter-spacing: -.01em;
+    margin: 8px 0 0;
+    text-wrap: balance;
+  }
+
+  dl { margin: 14px 0 0; }
+  dt {
+    font-family: var(--head);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--sub);
+    margin: 14px 0 3px;
+  }
+  dt:first-child { margin-top: 0; }
+  dd { margin: 0; color: var(--ink-2); }
+  dd + dd { margin-top: 6px; }
+  dd.hostile {
+    color: var(--ink);
+    border-left: 2px solid color-mix(in srgb, var(--stop) 45%, transparent);
+    padding-left: 12px;
+    font-style: italic;
+  }
+  dd.hostile::before { content: "“"; }
+  dd.hostile::after { content: "”"; }
+
+  strong { font-weight: 600; color: var(--ink); }
+  code, .mono {
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: .88em;
+    background: var(--surface-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ── tables ───────────────────────────────────────────────────────────── */
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 14.5px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th {
+    font-family: var(--head);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--sub);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.mono-cell { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
+  .tag {
+    font-family: var(--head);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .tag-stop { background: var(--stop-bg); color: var(--stop-ink); }
+  .tag-warn { background: var(--warn-bg); color: var(--warn-ink); }
+  .tag-ok { background: var(--money-bg); color: var(--money-ink); }
+  .tag-staff { background: var(--staff-bg); color: var(--staff-ink); }
+
+  .note {
+    font-size: 14px;
+    color: var(--sub);
+    margin: 12px 0 0;
+    max-width: 68ch;
+  }
+  ul.plain { margin: 12px 0 0; padding-left: 20px; color: var(--ink-2); }
+  ul.plain li { margin: 0 0 7px; }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+    font-size: 14px;
+    color: var(--sub);
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <div class="brand">fayr<span class="dot">.</span></div>
+  <h1>Security and data, written against us</h1>
+  <p class="standfirst">
+    Everything below is a gap, not a feature. It is written the way a hostile
+    reviewer would find it — the worst honest reading first, then what actually
+    bounds it, then what would close it. Where a number appears, it was read out
+    of the live database, not estimated.
+  </p>
+  <p class="stamp">Verified against fayr_dev · 24 August 2026</p>
+  <div class="rule"></div>
+
+  <div class="lead">
+    <div class="kicker">If you read one thing</div>
+    <p>
+      On three of our seven marketplaces we pay for a review that no other
+      shopper can ever read.
+    </p>
+    <p>
+      Blinkit, Zepto and Instamart have no public review page. What we verify
+      there is a rating marked on the order inside the buyer's own account. That
+      is a deliberate decision about two launch partners and one follow-on, taken
+      knowingly — but it means the product's stated purpose, an incentivised
+      <em>review</em>, is not what is happening on those three. Amazon and
+      Flipkart are the platforms where a public review genuinely exists, is
+      fetched, and is re-checked afterwards.
+    </p>
+  </div>
+
+  <h2>Open holes</h2>
+  <p class="sec-sub">Things that would cost money, or embarrass us, today.</p>
+
+  <div class="finding open">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">01</span><span class="sev sev-open">Open</span></div>
+      <h3>Blinkit, Zepto and Instamart pay for a rating with no public review anywhere</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          Those three readers set the review as published from the order's own
+          rating marker — the marketplace saying "this account rated this item".
+          None of the three publishes a review page, a permalink, or review text a
+          stranger can read. So there is nothing to fetch, nothing to re-check
+          later, and nothing to show anyone who asks to see the review.
+        </dd>
+        <dd>
+          Live right now: the Blinkit task in its holding period, the Zepto task at
+          the review stage and the Instamart task at delivery are all marked
+          publicly reviewed on that basis. Three of the twelve tasks on the demo
+          account.
+        </dd>
+        <dt>What a hostile reviewer says</dt>
+        <dd class="hostile">
+          You are paying people to tap a star in a private app. Show me one of
+          these reviews. You cannot, because it does not exist anywhere a customer
+          would see it — so what exactly is the advertiser buying?
+        </dd>
+        <dt>What actually bounds it</dt>
+        <dd>
+          Nothing technical. The purchase itself is verified from the marketplace's
+          own order record, the return window still runs, and the refund is still
+          gated on the amount — so we are not paying for a purchase that did not
+          happen. We are paying for a signal weaker than the one the product name
+          implies.
+        </dd>
+        <dt>Also worth admitting</dt>
+        <dd>
+          Until this week the code contradicted itself about this. A comment in the
+          Task screen said that rating marker "must never stand as proof on its
+          own", while the reader accepted it and paid; and the app told those users
+          "a Fayr reviewer confirms your rating" when no reviewer was involved and
+          none was waited for. Both have been corrected to say what happens. The
+          behaviour was left alone on purpose — Blinkit and Zepto are in the demo,
+          and changing what they pay on today would break it.
+        </dd>
+        <dt>What would close it</dt>
+        <dd>
+          Either pay only where a public review exists — which removes those three
+          platforms from the product as described — or reclassify them as rating
+          campaigns, price them differently, and stop calling the result a review.
+          That is a commercial decision, not an engineering one.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="finding open">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">02</span><span class="sev sev-open">Open</span></div>
+      <h3>A Meesho payout rests on one person's word, and nothing can ever re-check it</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          Meesho shows the star on the order and keeps the written review inside
+          its own app. No machine can establish whether a Meesho review is
+          publicly visible — not the scraper, not the server. So a SUPPORT member
+          opens the product page by hand and records that they saw it, and that
+          record is what starts the holding period.
+        </dd>
+        <dd>
+          And it can never be revisited. Meesho publishes no review permalink, so
+          the holding-period visibility re-check — our countermeasure against a
+          review deleted after payout — has nothing to fetch. A Meesho review taken
+          down the day after the refund lands is unrecoverable and invisible.
+        </dd>
+        <dt>What a hostile reviewer says</dt>
+        <dd class="hostile">
+          One support account can turn an unpayable task into a payable one by
+          asserting something no system of yours can check, then or ever. Show me
+          the review from six months ago.
+        </dd>
+        <dt>What actually bounds it</dt>
+        <dd>
+          The marketplace's own star has to be on file first, so a person cannot
+          invent the review itself — only confirm the visibility of one the
+          marketplace already reported. Anything that outranks a person refuses the
+          action: if a machine has checked a public page, either way, the assertion
+          is rejected rather than layered on top. The page URL and the date are
+          required in both directions, the written note cannot be blank, the
+          decision is audited with the previous value beside it, and it can be
+          withdrawn only by the tier that made it. No money moves on it: the return
+          window, the amount and the finance-gated withdrawal all still stand
+          between it and a rupee.
+        </dd>
+        <dt>What would close it</dt>
+        <dd>
+          Nothing available to us. Meesho would have to publish a per-review
+          address. Until then this is a hole we operate inside deliberately, and
+          the card in the staff console says so on its face — not only in this
+          document.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="finding open">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">03</span><span class="sev sev-open">Open</span></div>
+      <h3>The one action that actually moves money out is the one that is not in the audit log</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          Approving a withdrawal and marking it paid write the deciding staff id,
+          the timestamp and the bank UTR onto the withdrawal row. They write
+          <strong>nothing</strong> to the admin audit log that every other staff
+          action uses.
+        </dd>
+        <dd>
+          Read out of the live database: two withdrawals have been paid, and the
+          audit log holds <span class="num">zero</span> rows for either of them. It
+          holds <span class="num">7</span> rows for staff <em>viewing</em> a
+          screenshot, <span class="num">53</span> for staff logging in, and
+          <span class="num">40</span> for campaign status changes.
+        </dd>
+        <dt>What a hostile reviewer says</dt>
+        <dd class="hostile">
+          You log a support agent looking at a picture, and you do not log the
+          person releasing money out of the company.
+        </dd>
+        <dt>What actually bounds it</dt>
+        <dd>
+          The record is not absent, it is in the wrong place: the withdrawal row
+          names who decided it, when, and the UTR of the transfer. What is missing
+          is the single chronological trail — so "what did this staff member do
+          last month" answers correctly for six kinds of action and silently omits
+          the one that matters most.
+        </dd>
+        <dt>What would close it</dt>
+        <dd>
+          Two audit calls in the withdrawal service, matching the pattern the other
+          five staff actions already use. Small, and found while writing this
+          document rather than by anybody asking.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="finding open">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">04</span><span class="sev sev-open">Open</span></div>
+      <h3>Two routes to "money that left Fayr", and they cannot agree by construction</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          The Reports screen's paid-out total sums the withdrawals table where the
+          status is paid: <strong class="num">₹3,787.40</strong>. The double-entry
+          ledger's payout account holds
+          <strong class="num">₹18,282.40</strong> across
+          <span class="num">13</span> entries. Both claim to describe money leaving
+          the company.
+        </dd>
+        <dd>
+          The reason they differ is structural, not a bug to be found. Money is
+          reserved out of the user's wallet at <em>request</em> time — a real
+          ledger movement from the user to the payout account — and marking a
+          withdrawal paid posts no ledger entry at all. So the payout account
+          accumulates every reservation and never discharges, and no bank UTR is
+          ever linked to a ledger movement.
+        </dd>
+        <dt>What a hostile reviewer says</dt>
+        <dd class="hostile">
+          Which of these two numbers is the money that left? Neither, and you
+          cannot reconcile them, so you cannot audit your own disbursements.
+        </dd>
+        <dt>What actually bounds it</dt>
+        <dd>
+          The ledger itself is sound: it is append-only, double-entry, in whole
+          paise, with a database trigger that refuses deletes, and every individual
+          entry is balanced. Nothing here suggests money went missing — the
+          user-side balances and the house account are consistent. What is missing
+          is the discharging leg that would make "paid" a ledger fact rather than a
+          row status.
+        </dd>
+        <dt>What would close it</dt>
+        <dd>
+          Post the payout account's discharge when a transfer is marked paid, and
+          carry the UTR on that entry. Left alone on purpose for now: it is a money
+          change and it wants doing carefully, not before a demo.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="finding open">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">05</span><span class="sev sev-open">Open</span></div>
+      <h3>Nothing prevents one person holding SUPPORT and ADMIN — ADMIN already is every role</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          A staff account has exactly one role, so nobody has to hold two. ADMIN is
+          a super-role: the authorization guard passes every role check for it
+          outright. One ADMIN account can therefore state what one unit cost,
+          confirm the review is publicly live, clear the duplicate-order hold,
+          approve the withdrawal, and mark it paid — the entire path from "no
+          amount known" to "money gone", alone.
+        </dd>
+        <dd>
+          There are five staff accounts on the dev database and
+          <span class="num">two</span> of them are ADMIN. The demo runs entirely as
+          one of them, because one login reaches every queue.
+        </dd>
+        <dt>What a hostile reviewer says</dt>
+        <dd class="hostile">
+          Your separation of duties is a comment in a controller. One account does
+          the whole chain, and one of the two steps it takes is not even logged.
+        </dd>
+        <dt>What actually bounds it</dt>
+        <dd>
+          For the three amount-and-review decisions: a real ceiling derived from
+          the campaign price and the order's own total, a required source from a
+          closed list, a note that cannot be blank, an audit row naming the account
+          and the previous value, and a refusal to overwrite anything a machine
+          established. Those are genuine and they are enforced server-side, not in
+          the panel. But they bound the <em>figure</em>, not the
+          <em>concentration</em>: an ADMIN doing every step in sequence breaks no
+          rule.
+        </dd>
+        <dt>What would close it</dt>
+        <dd>
+          Make the release of money refuse a staff member who decided any input to
+          it — a four-eyes rule on the account, not on the role. And stop ADMIN
+          being an implicit superset of FINANCE.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="finding open">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">06</span><span class="sev sev-open">Open</span></div>
+      <h3>Consent is not required in order to be paid — and already has not been</h3>
+      <dl>
+        <dt>What the consent record DOES cover</dt>
+        <dd>
+          Which version of the terms was agreed to, and when. The version is
+          mandatory — accepting without one is refused, because a record with no
+          version cannot show what was agreed. The timestamp is set on the server,
+          never taken from the client. Sending "I do not accept" is ignored rather
+          than treated as a withdrawal, which would be a separate deliberate act.
+        </dd>
+        <dt>What it does NOT cover</dt>
+        <dd>
+          <strong>It is not required to participate.</strong> Nothing in the claim
+          path, the evidence path or the refund path looks at it. A user can claim
+          an offer, buy, be verified and be paid having never accepted anything.
+          This is not hypothetical: of <span class="num">33</span> users on the dev
+          database, exactly <span class="num">one</span> has a terms record — and
+          the account with two refunded tasks and a paid withdrawal of
+          <span class="num">₹590.40</span> is not that one.
+        </dd>
+        <dd>
+          <strong>There is no history.</strong> The version and the timestamp are
+          columns on the user row, so accepting a new version overwrites the old
+          record. Nothing shows that someone ever accepted the previous terms.
+        </dd>
+        <dd>
+          <strong>There is no text.</strong> Only a version string is stored.
+          Nothing pins that string to the words it refers to, so if the document's
+          wording changes without the version changing, the record points at
+          nothing checkable.
+        </dd>
+        <dd>
+          <strong>There is no context.</strong> No IP address, no device, no user
+          agent — nothing that would distinguish the account holder accepting from
+          somebody else on their phone.
+        </dd>
+        <dd>
+          <strong>It is skippable by design.</strong> Every setup screen offers
+          "Do this later", including the last one, which is where consent is
+          written. The demo run-sheet now calls that out as a do-not.
+        </dd>
+        <dd>
+          <strong>There is no way to withdraw it.</strong> Not built, and not
+          designed.
+        </dd>
+        <dt>What a hostile reviewer says</dt>
+        <dd class="hostile">
+          You have paid a user who never agreed to your terms, you cannot produce
+          the text they would have agreed to, and you could not prove a prior
+          acceptance if one existed.
+        </dd>
+        <dt>What would close it</dt>
+        <dd>
+          Gate the claim on a current acceptance; store consents append-only with
+          the document's own hash; and record enough context to tie an acceptance
+          to a session. The first of those is a few lines and changes user
+          behaviour, so it is a product decision.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="finding open">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">07</span><span class="sev sev-open">Open</span></div>
+      <h3>Screenshots are stored privately and never deleted</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          Uploaded screenshots are handled as private data and they are handled
+          properly: written outside the public uploads directory, reachable only
+          through a role-checked streaming endpoint, and every view is audited
+          (there are <span class="num">7</span> such audit rows on dev). The
+          storage layer has a delete method written for retention purging.
+        </dd>
+        <dd>
+          <strong>Nothing calls it.</strong> There is no scheduled purge and no
+          retention period enforced anywhere, so an uploaded screenshot is kept
+          until somebody removes it by hand. The dev database happens to hold none
+          right now, which is a coincidence of an earlier reset rather than a
+          policy working.
+        </dd>
+        <dt>What a hostile reviewer says</dt>
+        <dd class="hostile">
+          You correctly identified these images as sensitive, built the delete
+          function, and then kept every one of them forever.
+        </dd>
+        <dt>What actually bounds it</dt>
+        <dd>
+          Access is genuinely restricted, and the image hash and the case row are
+          designed to outlive the bytes — so a purge would not destroy the fraud
+          signal (the same image appearing on several accounts). The machinery for
+          doing this right exists; the schedule does not.
+        </dd>
+        <dt>What would close it</dt>
+        <dd>
+          One job on the existing maintenance cron, and a retention period written
+          down as policy rather than implied.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <h2>Known limits</h2>
+  <p class="sec-sub">Deliberate, priced in, and worth saying before someone asks.</p>
+
+  <div class="finding limit">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">08</span><span class="sev sev-limit">Limit</span></div>
+      <h3>Meesho cannot be paid end to end at all yet</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          Two separate things stop it, and the eyes-on-page confirmation only
+          removes one. Meesho publishes no delivery <em>date</em> — the order
+          carries a status word, not a date — and the return window is anchored to
+          a date, so a Meesho task cannot reach the delivered stage or start its
+          hold. And Meesho gives no amount of any kind, not even an order total, so
+          every Meesho refund would additionally wait on a staff amount decision.
+        </dd>
+        <dd>
+          On top of that, Meesho web login is currently blocked by an experiment on
+          their side, so no Meesho order history has ever actually been captured.
+        </dd>
+        <dt>Why it was left</dt>
+        <dd>
+          Closing it would mean a fourth privileged staff action — a person typing
+          a delivery date, which sets the return-window clock and therefore the
+          date money becomes payable. That is a bigger power than any of the three
+          that exist, and it was not built rather than being built quietly.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="finding limit">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">09</span><span class="sev sev-limit">Limit</span></div>
+      <h3>No DLT registration, so we can send one-time codes and nothing else</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          India requires DLT registration — a company entity and paperwork — before
+          transactional or promotional SMS can be sent on a registered header. We
+          have none. Today's texts are one-time login codes the user has just
+          asked for, on a trial account, and the route can be suspended without
+          notice.
+        </dd>
+        <dt>What it means in practice</dt>
+        <dd>
+          No marketing messages, no reminders, no notifications by SMS at all until
+          the registration exists. Presenting that as a deliberate limit is honest;
+          presenting it as a feature would not be. It is paperwork and a company
+          entity, not engineering.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="finding limit">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">10</span><span class="sev sev-limit">Limit</span></div>
+      <h3>The SMS account is a trial: five verified numbers, and thirty days</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          A trial account delivers only to numbers verified inside that account, at
+          most five of them ever, and the trial expires thirty days after it was
+          opened. There is no way to add a recipient on the spot.
+        </dd>
+        <dt>What it means in practice</dt>
+        <dd>
+          A code cannot be sent to anyone whose number is not already on the list —
+          so no live sign-in for a visitor, a director, or a second device. The
+          thirty-day clock also means a demo that works this week may need the
+          account renewing before it works again. The demo run-sheet leads with
+          this rather than discovering it on stage.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="finding limit">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">11</span><span class="sev sev-limit">Limit</span></div>
+      <h3>PAN and payment details are stored as plain text, and a PAN cannot be corrected</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          A PAN is required before a withdrawal and is anchored to exactly one
+          account — that is the multi-account countermeasure, and it works: a PAN
+          already used elsewhere is refused, and UPI ids and bank accounts are
+          deduplicated across users the same way. On dev,
+          <span class="num">12</span> of <span class="num">33</span> users have a
+          PAN and there are <span class="num">12</span> payout methods with
+          <span class="num">12</span> distinct UPI ids.
+        </dd>
+        <dd>
+          They are stored as ordinary columns. There is no application-level
+          encryption — protection is whatever the database and the disk provide.
+          And because anchoring is deliberately one-way, a user who mistypes their
+          PAN cannot fix it from the app; it needs someone with database access.
+        </dd>
+        <dt>What a hostile reviewer says</dt>
+        <dd class="hostile">
+          You hold a permanent government identifier and a bank account for every
+          paying user, in plain text, with no key management and no way for the
+          user to correct a typo.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="finding limit">
+    <div class="spine"></div>
+    <div class="fbody">
+      <div class="ftop"><span class="fnum">12</span><span class="sev sev-limit">Limit</span></div>
+      <h3>The Meesho tests are built from our own code, not from a real account</h3>
+      <dl>
+        <dt>What is true</dt>
+        <dd>
+          Every Meesho test fixture is shaped from the emitter's own source in our
+          scraper, because Meesho web login is blocked by an experiment on their
+          side and no Meesho order history has ever been captured. So the tests
+          prove the reader behaves consistently with what we <em>believe</em> the
+          payload looks like — not that the payload looks like that.
+        </dd>
+        <dd>
+          It is stated at the top of the fixture in the repository, so nobody later
+          mistakes it for captured data. Every other platform's fixtures are shaped
+          from verified real captures, with the personal ones deliberately not
+          committed.
+        </dd>
+        <dt>What a hostile reviewer says</dt>
+        <dd class="hostile">
+          Your Meesho support is tested against your own assumptions. The first
+          real account you connect could disagree with all of it.
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <h2>The privileged staff powers</h2>
+  <p class="sec-sub">You asked about three. There are five that touch money, and here they all are.</p>
+
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Power</th><th>Role</th><th>What it can do</th><th>What bounds it</th><th>Audited</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>State the unit count</td>
+          <td><span class="tag tag-staff">Support</span></td>
+          <td>Makes an unpayable refund payable by saying how many units one order line covers.</td>
+          <td>1–100; a required note; a preview through the same resolver the payout uses; the observed count shown beside it.</td>
+          <td><span class="tag tag-ok">Yes</span></td>
+        </tr>
+        <tr>
+          <td>State what one unit cost</td>
+          <td><span class="tag tag-staff">Support</span></td>
+          <td>Supplies the only money figure in the system a human invents rather than a machine reads.</td>
+          <td>A ceiling from the campaign price and the order total; a source from a closed list; a required note; an explicit acknowledgement when it disagrees with the offer; cannot overwrite a machine-read amount.</td>
+          <td><span class="tag tag-ok">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Confirm a review is publicly live</td>
+          <td><span class="tag tag-staff">Support</span></td>
+          <td>Sets the payout signal that starts the holding period, where no machine can.</td>
+          <td>The marketplace's star must already be on file; refused if anything higher-ranked has checked the page; page URL and date required; withdrawable only by the same tier.</td>
+          <td><span class="tag tag-ok">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Clear a duplicate-order hold</td>
+          <td><span class="tag tag-staff">Support</span></td>
+          <td>Lets a second refund be paid against one order number.</td>
+          <td>A required reason. Since this week the hold is keyed on the order <em>line</em>, so genuinely different items no longer reach a human at all.</td>
+          <td><span class="tag tag-ok">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Approve a screenshot as evidence</td>
+          <td><span class="tag tag-staff">Support</span></td>
+          <td>Admits tier-3 supporting evidence into the task engine.</td>
+          <td>Lowest authority tier; never sets the review as published; cannot overwrite a scraped fact; no OCR path releases money alone.</td>
+          <td><span class="tag tag-ok">Yes</span></td>
+        </tr>
+        <tr>
+          <td>Approve and mark a withdrawal paid</td>
+          <td><span class="tag tag-warn">Finance</span></td>
+          <td>Moves money out of the company.</td>
+          <td>Minimum balance, an anchored PAN, a deduplicated instrument, a recorded UTR.</td>
+          <td><span class="tag tag-stop">No — see 03</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">
+    An ADMIN account passes every one of these role checks. See finding 05 — the
+    concentration, not any individual bound, is the exposure.
+  </p>
+
+  <h2>What we hold on a person</h2>
+  <p class="sec-sub">Everything, where it lives, and who can reach it.</p>
+
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>Data</th><th>Where</th><th>Kept until</th><th>Who can see it</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Mobile number</td><td>User row</td><td>Forever — no deletion built</td><td>Support, Finance, Admin</td></tr>
+        <tr><td>Name, age band, gender, shopping categories, marketplaces</td><td>User row</td><td>Forever</td><td>Support, Finance, Admin</td></tr>
+        <tr><td>PAN</td><td>User row, plain text</td><td>Forever, and not editable once anchored</td><td>Support, Finance, Admin</td></tr>
+        <tr><td>UPI id / bank account and IFSC</td><td>Payout method row, plain text</td><td>Forever</td><td>Support, Finance, Admin</td></tr>
+        <tr><td>Marketplace order numbers, order lines, product names, amounts</td><td>Task row and its evidence</td><td>Forever</td><td>Support, Finance, Admin</td></tr>
+        <tr><td>Review text and title, and the photo count</td><td>Task evidence</td><td>Forever</td><td>Support, Admin — shown so a reviewer can find the review on the page</td></tr>
+        <tr><td>Uploaded screenshots</td><td>Private disk, outside the public uploads path</td><td>Forever — the purge exists and is never called (07)</td><td>Support, Admin, through a role-checked stream; every view audited</td></tr>
+        <tr><td>Login codes</td><td>OTP challenge row, hashed</td><td>Expire in minutes; rows cleared on reset</td><td>Nobody — stored as a hash</td></tr>
+        <tr><td>Terms acceptance</td><td>User row: version and timestamp only</td><td>Overwritten by the next acceptance (06)</td><td>Support, Finance, Admin</td></tr>
+        <tr><td>Marketplace passwords or session cookies</td><td class="mono-cell">never received</td><td>—</td><td>Nobody. The scraper runs on the device in a session the user opened themselves; the evidence sent to the server carries no credential of any kind</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Not built</h2>
+  <p class="sec-sub">Say these first rather than being caught by them.</p>
+  <ul class="plain">
+    <li><strong>Account deletion.</strong> There is no delete route anywhere in the backend. A user cannot remove themselves and we cannot remove them through the product.</li>
+    <li><strong>Data export.</strong> Nothing produces a copy of what we hold on a person.</li>
+    <li><strong>Consent withdrawal.</strong> Refusing the terms is ignored, not recorded (06).</li>
+    <li><strong>Retention purging.</strong> The delete function exists and nothing calls it (07).</li>
+    <li><strong>Reconciliation of disbursements.</strong> Two figures, no discharging ledger leg (04).</li>
+    <li><strong>Four-eyes on a payout.</strong> One ADMIN account can do the whole chain (05).</li>
+  </ul>
+
+  <footer>
+    Every figure here was read from the live dev database on 24 August 2026 — the
+    two paid withdrawals, the payout account's balance, the audit-log counts, the
+    consent counts and the PAN counts included. Where something could not be
+    verified against real data, that is said in the finding rather than smoothed
+    over.
+  </footer>
+
+</div>
