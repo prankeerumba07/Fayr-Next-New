@@ -163,18 +163,38 @@ const REVIEW_VERIFY = {
   // Instamart mark the rating on the order itself, so it is read straight from
   // the account — no person is involved and none is waited for. Saying otherwise
   // invented a queue nobody was standing in.
+  // doneTitle/doneSub override the default DONE copy, which is "Review confirmed
+  // live / Publicly visible on the product page". On these three that sentence is
+  // simply FALSE: Blinkit, Zepto and Instamart have no public review page at all,
+  // so there is nowhere for anyone — us, the user, or a director asking to see it
+  // — to go and look. Saying it anyway was the app claiming something that cannot
+  // be true, on a stage the demo walks straight through.
   blinkit: {
     title: 'Rating check',
     sub: 'Blinkit shows your rating on the order, so we confirm it from your account.',
+    doneTitle: 'Rating confirmed',
+    doneSub: 'Your rating is on the order in your Blinkit account',
   },
   zepto: {
     title: 'Rating check',
     sub: 'Zepto shows your rating on the order, so we confirm it from your account.',
+    doneTitle: 'Rating confirmed',
+    doneSub: 'Your rating is on the order in your Zepto account',
   },
   instamart: {
     title: 'Rating check',
     sub: 'Instamart shows your rating on the order, so we confirm it from your account.',
+    doneTitle: 'Rating confirmed',
+    doneSub: 'Your rating is on the order in your Instamart account',
   },
+};
+
+// The DONE copy for a platform that does publish reviews publicly — Amazon,
+// Flipkart, Meesho and Myntra all do, so this is the default and only the three
+// quick-commerce entries above override it.
+const REVIEW_DONE_DEFAULT = {
+  title: 'Review confirmed live',
+  sub: 'Publicly visible on the product page',
 };
 
 // ── one timeline stage ──────────────────────────────────────────────────────
@@ -502,8 +522,8 @@ export default function TaskScreen({ navigation, route }) {
       // Always the magnifier — the '✓' for this stage comes from the node itself
       // once it is done, so a tick here would be both unreachable and misleading.
       icon: '🔎',
-      title: published ? 'Review confirmed live' : rv.title,
-      sub: published ? 'Publicly visible on the product page' : rv.sub,
+      title: published ? (rv.doneTitle || REVIEW_DONE_DEFAULT.title) : rv.title,
+      sub: published ? (rv.doneSub || REVIEW_DONE_DEFAULT.sub) : rv.sub,
       state: published ? 'done' : reviewed ? 'active' : 'pending',
       auto: !published && reviewed,
     },

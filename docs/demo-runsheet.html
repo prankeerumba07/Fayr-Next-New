@@ -370,7 +370,7 @@
   <h1>Demo run-sheet</h1>
   <p class="lede">The whole sequence, in order, with every tap named — and every
     point where a person has to do something called out before you get there.</p>
-  <p class="stamp">Verified against the live dev database · 20 August 2026</p>
+  <p class="stamp">Verified against the live dev database · re-checked line by line against the app's real strings · 24 August 2026</p>
 
   <div class="callout win">
     <span class="title">The one thing to remember</span>
@@ -436,6 +436,7 @@ npm run start:dev</code></pre>
       <dl>
         <dt>Sign in with</dt><dd>The <strong>ADMIN</strong> account — the address in <code>STAFF_BOOTSTRAP_EMAIL</code>. ADMIN sees every queue, so one login runs the whole demo.</dd>
         <dt>Look for</dt><dd>The sidebar, and a badge reading <strong>5</strong> next to <em>Unit counts</em>.</dd>
+        <dt>Also on the sidebar</dt><dd><em>Review checks</em>, with <strong>no badge</strong> — that queue is empty and expected to be. It is for reviews no machine can find, which today means Meesho only. If asked: "Meesho keeps review text inside its own app, so a person opens the page and records what they saw. Nothing is waiting in it right now."</dd>
         <dt>If it fails</dt><dd class="fix">"Can't reach the Fayr server" means step 2 is not running. A wrong password locks nothing — just retype it.</dd>
       </dl>
     </div>
@@ -527,9 +528,16 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
       <span class="who who-app">The app</span>
       <p class="act">The setup questions run — this account has not done them yet</p>
       <dl>
-        <dt>On screen, in order</dt><dd>An intro card · pick your shopping categories (at least three, the button stays off until then) · your name · a "building your feed" moment · a short "how Fayr works" card.</dd>
-        <dt>Worth pointing at</dt><dd>The terms acceptance here is <em>recorded</em> — which version, and the exact time. Not a tickbox that vanishes.</dd>
-        <dt>If you want to skip it</dt><dd>Every one of these screens has <em>Do this later</em>. Answers already given are kept.</dd>
+        <dt>On screen, in order</dt><dd>Seven screens, and there are <strong>three</strong> questions, not one:
+          <br>1 &middot; <strong>"Let's set up your profile"</strong> — "Takes about 30 seconds", button <em>LET'S GO</em>.
+          <br>2 &middot; <strong>STEP 1/3 "How Young Are you?"</strong> — an age band, then a <em>Gender</em> chip. Both are required.
+          <br>3 &middot; <strong>STEP 2/3 "What do you love shopping?"</strong> — categories. At least three; the button stays off until then.
+          <br>4 &middot; <strong>STEP 3/3 "Where do you shop the most?"</strong> — marketplaces. At least one.
+          <br>5 &middot; <strong>"Lastly / What shall we Call You?"</strong> — your name.
+          <br>6 &middot; <strong>"Finding &lt;your categories&gt; campaigns for you…"</strong> — spins and moves on by itself; it says <em>"Auto-advances — no tap needed."</em>
+          <br>7 &middot; <strong>"Before your first campaign"</strong> — three cards: claims and slots, honest reviews only, and know the risk. The third is the warning that a marketplace may act on rewarded reviews.</dd>
+        <dt>Worth pointing at</dt><dd>The button on that last card reads <strong>I UNDERSTAND — CONTINUE</strong>, and pressing it is what <em>records</em> the consent: which version, and the exact time. Not a tickbox that vanishes.</dd>
+        <dt>Do NOT tap "Do this later" on the last card</dt><dd>Every screen has that escape and answers already given are kept — but the last one is where consent is written, so skipping it leaves no consent on record. Tap the button.</dd>
         <dt>If it fails</dt><dd class="fix">If it loops back to the intro, tap <em>Do this later</em> and carry on — the feed is the next screen either way.</dd>
       </dl>
     </div>
@@ -557,7 +565,8 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
       <p class="act">Now open the Blinkit task — <em>Chrysanthemum Flower Pot</em></p>
       <p>Find it under <em>My Products</em>. This is the centre of the demo.</p>
       <dl>
-        <dt>On screen</dt><dd>The timeline is almost entirely done: bought, delivered, review written, review publicly live, return window closed. And it still says <strong>Refund on hold</strong>.</dd>
+        <dt>On screen</dt><dd>The timeline is almost entirely done: bought, delivered, review written, <strong>Rating confirmed</strong> — "Your rating is on the order in your Blinkit account" — return window closed. And it still says <strong>Refund on hold</strong>.</dd>
+        <dt>If someone asks to see the review</dt><dd>There is nothing to show, and say so first: Blinkit has no public review page at all. What was verified is the rating marked on the order in their own account. "On Blinkit and Zepto we are paying for a rating nobody else can read. That is a deliberate call about two launch partners and it is on our own risk list — Amazon and Flipkart are the ones with a public review we fetch and re-check."</dd>
         <dt>The words it shows</dt><dd>"We could not read the price you paid, so a person at Fayr will confirm it before your refund is paid. Nothing is lost and you do not need to do anything."</dd>
         <dt>Say this</dt><dd>"Blinkit's order page gives us a basket total and no line price. We will not divide a basket to guess what one item cost, so this stops here and waits for a human. No enum on the screen, no dead end, and nothing lost."</dd>
         <dt>If it fails</dt><dd class="fix">If the task shows nothing, pull down to refresh. If it still looks empty, you signed in with the wrong number.</dd>
@@ -622,7 +631,7 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
       <span class="who who-money">Money moves</span>
       <p class="act">Tap <em>Release ₹539.10 to wallet</em></p>
       <dl>
-        <dt>On screen</dt><dd>The task closes as refunded. Open <em>Earnings</em>: the wallet is <span class="money">₹539.10</span>, up from zero, and <em>All Time Earnings</em> reads the same.</dd>
+        <dt>On screen</dt><dd>The task closes as refunded. Open <em>Earnings</em>: the wallet is <span class="money">₹539.10</span>, up from zero, and <em>"Your All Time Earnings"</em> reads the same.</dd>
         <dt>Say this</dt><dd>"That is a double-entry ledger entry in whole paise. Nothing is a floating-point number anywhere near the money."</dd>
         <dt>If it fails</dt><dd class="fix">A message naming what is still missing — the return window, the review, or the amount — appears in plain words. Read it out; it is written to be read out.</dd>
       </dl>
