@@ -301,6 +301,16 @@ export class TaskService {
     }
 
     const previousQuantity = order.quantity ?? null;
+    // Nothing would change. Report the task as it stands rather than writing a
+    // second identical event — a double click is one decision, and this is what
+    // makes that true now that the key below is unique per press.
+    if (previousQuantity === quantity && order.quantitySource === 'staff') {
+      return {
+        task: toTaskResponse(row, row.campaign),
+        userId: row.userId,
+        previousQuantity,
+      };
+    }
     const task = await this.applyEvidence(
       row.userId,
       taskId,
@@ -316,7 +326,15 @@ export class TaskService {
           quantityObserved: null,
         },
       },
-      `staff-quantity:${quantity}`,
+      // UNIQUE per press, not derived from the number.
+      //
+      // It used to be `staff-quantity:${quantity}` — which looks idempotent and is
+      // a trap. A recount that goes 1 → 3 → 1 repeats the first key, the engine
+      // treats the third press as a duplicate event and silently does nothing,
+      // and the panel still says "Saved. Corrected to 1 unit". A reviewer would
+      // have been shown a sentence the record did not support. Landing back on an
+      // earlier number is an ordinary thing for a person to do.
+      `staff-quantity:${quantity}:${randomUUID()}`,
     );
     return { task, userId: row.userId, previousQuantity };
   }
@@ -392,6 +410,18 @@ export class TaskService {
     }
     const previousUnitPricePaise =
       existing != null && staffSupplied ? existing.toString() : null;
+    const nextAmountSource = `staff:${input.evidenceSource}`;
+    // The same no-op as the count above: the same figure, read off the same kind
+    // of document. A different `evidenceSource` on the same figure IS a change —
+    // "I read it on the invoice, not the order page" is a better record — so that
+    // still writes.
+    if (existing === input.unitPricePaise && order.amountSource === nextAmountSource) {
+      return {
+        task: toTaskResponse(row, row.campaign),
+        userId: row.userId,
+        previousUnitPricePaise,
+      };
+    }
 
     // Gate 2 — a ceiling that means something.
     const bounds = staffAmountBounds({
@@ -437,12 +467,13 @@ export class TaskService {
           unitPricePaise: input.unitPricePaise,
           // WHERE a person read it. Distinct from the order's `source`, which
           // still records where the ORDER was read from.
-          amountSource: `staff:${input.evidenceSource}`,
+          amountSource: nextAmountSource,
         },
       },
-      // Idempotent per figure: pressing save twice is one decision, a different
-      // number is a second, real one.
-      `staff-amount:${input.unitPricePaise.toString()}`,
+      // UNIQUE per press, for the same reason as the count — and it matters more
+      // here, because the value a value-derived key would swallow is money.
+      // 499 → 599 → 499 kept 599 on file while the panel reported 499 saved.
+      `staff-amount:${input.unitPricePaise.toString()}:${randomUUID()}`,
     );
     return { task, userId: row.userId, previousUnitPricePaise };
   }

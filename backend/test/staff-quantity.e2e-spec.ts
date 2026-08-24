@@ -256,6 +256,41 @@ describe('Staff quantity confirmation (e2e)', () => {
     expect(quantityEvents).toHaveLength(1);
   });
 
+  it('can be set BACK to a number it already had — a cycle is not a duplicate', async () => {
+    // Found by writing the third staff action and asking what its key should be.
+    //
+    // The key here was derived from the VALUE: `staff-quantity:1`. That looks
+    // idempotent and is a trap. 1 → 3 → 1 repeats the first key, the engine treats
+    // the third press as a duplicate event and silently does nothing — while the
+    // panel reloads, says "Saved. Corrected to 1 unit", and shows the reviewer a
+    // sentence the record does not support.
+    //
+    // A recount that lands back where it started is an ordinary thing for a person
+    // to do. It has to actually save.
+    const user = await newUser();
+    await ticketsSvc.grantSignup(user.id);
+    const { taskId } = await taskHeldOnQuantity(user.token);
+    const support = await tokenFor('SUPPORT');
+
+    for (const quantity of [1, 3, 1]) {
+      const res = await request(server())
+        .post(`/admin/tasks/${taskId}/quantity`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({ quantity, reason: 'recounted' })
+        .expect(200);
+      expect(res.body.order.quantity).toBe(quantity);
+    }
+    const row = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+    const stored = row.evidence as unknown as { order: { quantity: number } };
+    expect(stored.order.quantity).toBe(1);
+    // And the refund follows the number that is actually on file.
+    const after = await request(server())
+      .get(`/tasks/${taskId}`)
+      .set('Authorization', `Bearer ${user.token}`)
+      .expect(200);
+    expect(after.body.refund.amountPaise).toBe('129900');
+  });
+
   it('refuses a task that has no order to count', async () => {
     const user = await newUser();
     await ticketsSvc.grantSignup(user.id);
@@ -683,6 +718,64 @@ describe('Staff quantity confirmation (e2e)', () => {
       expect(logs).toHaveLength(2);
       const meta = logs[1].metadata as unknown as { previousUnitPricePaise: string | null };
       expect(meta.previousUnitPricePaise).toBe('50000');
+    });
+
+    it('can be set BACK to a figure it already had, for the same reason', async () => {
+      // The amount control had the identical value-derived key, and the identical
+      // hole: 499 → 599 → 499 silently kept 599 while the panel said it saved 499.
+      // Worse here than for a count, because the swallowed value is money.
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token, 50_000n);
+      const support = await tokenFor('SUPPORT');
+
+      for (const paise of ['49900', '59900', '49900']) {
+        const res = await request(server())
+          .post(`/admin/tasks/${taskId}/amount`)
+          .set('authorization', `Bearer ${support.token}`)
+          .send({
+            unitPricePaise: paise,
+            evidenceSource: 'order-page',
+            reason: 'read it off the order page again',
+            acknowledgedDisagreement: true,
+          })
+          .expect(200);
+        // Asserted against the REFUND rather than the response's order block: the
+        // per-unit price a staff member sets is stored and drives the payout, but
+        // no client is ever shown it (a separate gap, reported not papered over).
+        // The refund is the figure that would actually be paid.
+        expect(res.body.refund.amountPaise).toBe(paise);
+      }
+      const after = await request(server())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(200);
+      expect(after.body.refund.amountPaise).toBe('49900');
+    });
+
+    it('is a no-op when the same figure is saved twice, and says nothing changed', async () => {
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token, 50_000n);
+      const support = await tokenFor('SUPPORT');
+
+      for (let i = 0; i < 2; i++) {
+        await request(server())
+          .post(`/admin/tasks/${taskId}/amount`)
+          .set('authorization', `Bearer ${support.token}`)
+          .send({
+            unitPricePaise: '49900',
+            evidenceSource: 'order-page',
+            reason: 'same figure, pressed twice',
+            acknowledgedDisagreement: true,
+          })
+          .expect(200);
+      }
+      const events = await prisma.taskEvent.findMany({ where: { taskId } });
+      const amountEvents = events.filter((e) =>
+        (e.idempotencyKey ?? '').startsWith('staff-amount:'),
+      );
+      expect(amountEvents).toHaveLength(1);
     });
 
     it('refuses a figure above a ceiling derived from something real', async () => {

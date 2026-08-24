@@ -295,11 +295,13 @@ describe('Staff eyes-on-page review confirmation (e2e)', () => {
 
     expect(res.body.review.rating).toBe(applied.body.review.rating);
     expect(res.body.review.product).toBe(applied.body.review.product);
-    // And the order is untouched — this action is about one fact only.
+    // And the order is untouched — this action is about one fact only. Checked
+    // against the REFUND figure, not the response's order block: the per-unit
+    // price is never exposed there, so comparing it would be two undefineds
+    // agreeing with each other.
     expect(res.body.order.id).toBe(applied.body.order.id);
-    expect(res.body.order.unitPricePaise).toBe(
-      applied.body.order.unitPricePaise,
-    );
+    expect(res.body.refund.amountPaise).toBe(applied.body.refund.amountPaise);
+    expect(res.body.refund.amountPaise).toBe('49900');
   });
 
   // ── it must not overrule a machine that looked ─────────────────────────────
