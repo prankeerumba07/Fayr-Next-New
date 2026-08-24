@@ -190,6 +190,31 @@ describe('Staff quantity confirmation (e2e)', () => {
     expect(stored.order.quantitySource).toBe('staff');
   });
 
+  it('says which price the refund was based on, when a count made it computable', async () => {
+    // The other half of the same field. Here the price is DERIVED — a line total
+    // divided by a confirmed count — so no raw field on the order equals it, and a
+    // screen showing "the item price" would show a figure three times too big.
+    const user = await newUser();
+    await ticketsSvc.grantSignup(user.id);
+    const { taskId } = await taskHeldOnQuantity(user.token);
+    const support = await tokenFor('SUPPORT');
+
+    await request(server())
+      .post(`/admin/tasks/${taskId}/quantity`)
+      .set('authorization', `Bearer ${support.token}`)
+      .send({ quantity: 3, reason: 'order page shows three units' })
+      .expect(200);
+
+    const after = await request(server())
+      .get(`/tasks/${taskId}`)
+      .set('Authorization', `Bearer ${user.token}`)
+      .expect(200);
+    expect(after.body.order.itemPaise).toBe('129900'); // the whole line
+    expect(after.body.order.quantity).toBe(3);
+    expect(after.body.refund.basedOnPaise).toBe('43300'); // one unit of it
+    expect(after.body.refund.amountPaise).toBe('43300');
+  });
+
   it('keeps every other fact about the order exactly as it was', async () => {
     // The fragment resends the whole order, because the engine replaces `order`
     // wholesale rather than merging fields. If that resend dropped anything, the
@@ -718,6 +743,45 @@ describe('Staff quantity confirmation (e2e)', () => {
       expect(logs).toHaveLength(2);
       const meta = logs[1].metadata as unknown as { previousUnitPricePaise: string | null };
       expect(meta.previousUnitPricePaise).toBe('50000');
+    });
+
+    it('is SENT BACK to the client, with the price the refund was based on', async () => {
+      // It used to be neither. The figure was stored, it paid the refund, and no
+      // client was ever told it — so the user's screen showed a real refund amount
+      // with no price beside it, and the panel's card had to keep the number in
+      // local state to render a correction.
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnAmount(user.token, 50_000n);
+      const support = await tokenFor('SUPPORT');
+
+      const before = await request(server())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(200);
+      expect(before.body.order.unitPricePaise).toBeNull();
+      expect(before.body.refund.basedOnPaise).toBeNull();
+
+      await request(server())
+        .post(`/admin/tasks/${taskId}/amount`)
+        .set('authorization', `Bearer ${support.token}`)
+        .send({
+          unitPricePaise: '49900',
+          evidenceSource: 'order-page',
+          reason: 'order page line reads ₹499 for this item',
+          acknowledgedDisagreement: true,
+        })
+        .expect(200);
+
+      const after = await request(server())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(200);
+      expect(after.body.order.unitPricePaise).toBe('49900');
+      // THE POINT: the price the screen can show and the price the refund was
+      // worked out from are the same number, from the same resolver.
+      expect(after.body.refund.basedOnPaise).toBe('49900');
+      expect(after.body.refund.amountPaise).toBe('49900');
     });
 
     it('can be set BACK to a figure it already had, for the same reason', async () => {

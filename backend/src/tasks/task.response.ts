@@ -28,9 +28,23 @@ export interface TaskResponse {
   order: {
     id: string | null;
     itemPaise: string | null;
+    /**
+     * The two NAMED money fields, sent because the device runs its own copy of
+     * resolveChargedPaise and these are two of its six inputs.
+     *
+     * They were stored, they decided the payout, and they were never sent — so a
+     * staff-confirmed per-unit price paid a refund the screen could not show a
+     * price for, and the device's resolver was answering a money question with
+     * half its evidence missing. See src/chargedAmount.test.mjs, which reads the
+     * resolver's inputs out of its own source and checks every one arrives.
+     */
+    unitPricePaise: string | null;
+    lineTotalPaise: string | null;
     /** Units on the line. NULL = unknown, which is never read as 1. */
     quantity: number | null;
     orderTotalPaise: string | null;
+    /** Also a resolver input: more than one amount was found in the item's row. */
+    itemAmountAmbiguous: boolean;
     match?: {
       score?: number | null;
       amountOk?: boolean | null;
@@ -67,6 +81,18 @@ export interface TaskResponse {
     reasons: string[];
     /** What would be paid if released now, integer paise as a string, or null. */
     amountPaise: string | null;
+    /**
+     * WHICH price that was worked out from — the resolved charged amount, from the
+     * same resolveChargedPaise call the payout uses.
+     *
+     * Sent so a screen can show the figure the refund is actually based on instead
+     * of picking a raw field and hoping it is the same one. On a staff-confirmed
+     * amount it is the only price the client has; on a discounted Flipkart order
+     * it is the order total rather than the item's listed line. Null whenever no
+     * figure could be decided, which is the same condition as amountPaise being
+     * null — one resolver, one answer, never two.
+     */
+    basedOnPaise: string | null;
   };
   claimExpiresAt: string | null;
   closedAt: string | null;
@@ -130,11 +156,20 @@ export function toTaskResponse(
           // would actually pay.
           itemPaise:
             task.order.itemPaise != null ? task.order.itemPaise.toString() : null,
+          unitPricePaise:
+            task.order.unitPricePaise != null
+              ? task.order.unitPricePaise.toString()
+              : null,
+          lineTotalPaise:
+            task.order.lineTotalPaise != null
+              ? task.order.lineTotalPaise.toString()
+              : null,
           quantity: task.order.quantity ?? null,
           orderTotalPaise:
             task.order.orderTotalPaise != null
               ? task.order.orderTotalPaise.toString()
               : null,
+          itemAmountAmbiguous: task.order.itemAmountAmbiguous === true,
           product: task.order.product ?? null,
           date: isoEpoch(task.order.date),
           source: task.order.source ?? null,
@@ -168,6 +203,7 @@ export function toTaskResponse(
       eligible: elig.eligible,
       reasons: elig.reasons,
       amountPaise: amountPaise != null ? amountPaise.toString() : null,
+      basedOnPaise: charged.paise != null ? charged.paise.toString() : null,
     },
     claimExpiresAt: iso(row.claimExpiresAt),
     closedAt: iso(row.closedAt),

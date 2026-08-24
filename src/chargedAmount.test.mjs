@@ -1,5 +1,7 @@
 // Refunds are based on the amount ACTUALLY CHARGED, never a listed price.
 // Cases built from the REAL live records, not invented numbers.
+import fs from 'node:fs';
+import path from 'node:path';
 import { resolveChargedPaise } from './chargedAmount.js';
 
 let pass = 0;
@@ -111,3 +113,62 @@ console.log('\n=== QUANTITY — never assume one unit (mirrors the backend rule)
   ok(resolveChargedPaise({ quantity: 1 }).reason === 'amount-unknown',
     'an unknown AMOUNT is still reported as an amount problem, not a quantity one');
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== THE SECOND ROUTE: this resolver runs on the device too ===');
+// The device holds its own copy of the payout resolver, because it has to answer
+// "what will this pay" before any backend response exists. That is legitimate.
+// What is NOT legitimate is the two copies working from DIFFERENT INPUTS — and
+// they were:
+//
+//   resolveChargedPaise reads six fields off the order. The backend's
+//   TaskResponse sent three of them, and the device's own response mapper then
+//   dropped a fourth. So the device resolver was deciding money questions with
+//   half its evidence missing, and the two routes could not agree by construction.
+//   The refund NUMBER survived only because displayRefundPaise prefers the
+//   backend's figure — a guard added for an unrelated reason.
+//
+// This test needs no maintenance and that is the point: it reads the resolver's
+// own inputs out of the source, so the next field added to it is checked
+// automatically instead of being noticed a release later.
+{
+  const here = import.meta.dirname;
+  const read = (...p) => fs.readFileSync(path.join(here, ...p), 'utf8');
+
+  const resolver = read('chargedAmount.js');
+  // Every `order.<field>` the resolver actually reads. Comments are stripped
+  // first, so a field only MENTIONED in prose is not mistaken for an input.
+  const code = resolver.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const inputs = [...new Set(
+    [...code.matchAll(/\border\.([A-Za-z][A-Za-z0-9]*)/g)].map((m) => m[1]),
+  )];
+  ok(inputs.length >= 6, `the resolver reads ${inputs.length} fields off the order`);
+  for (const f of ['unitPricePaise', 'lineTotalPaise', 'itemPaise', 'orderTotalPaise', 'quantity', 'itemAmountAmbiguous']) {
+    ok(inputs.includes(f), `  input: ${f}`);
+  }
+
+  // What the BACKEND actually sends. Read from the mapper, not the interface: a
+  // field declared and never assigned is a field that never arrives.
+  const backend = read('..', 'backend', 'src', 'tasks', 'task.response.ts');
+  // Anchored on the NEXT key rather than on a bare `: null,` — the block is full
+  // of inner ternaries whose own `: null,` would end the match early and let a
+  // dropped field pass. That very thing happened while writing this test.
+  const sent = (backend.match(/order: task\.order\n[\s\S]*?\n\s*delivery:/) || [])[0] || '';
+  ok(sent.length > 100, 'found the order block the backend actually sends');
+  for (const f of inputs) {
+    ok(new RegExp(`\\b${f}:`).test(sent),
+      `the backend sends ${f}, which its own resolver's twin reads`);
+  }
+
+  // And what the device keeps when the authoritative response lands.
+  const store = read('taskStore.js');
+  const kept = (store.match(/order: tr\.order\n[\s\S]*?\n\s*delivery:/) || [])[0] || '';
+  ok(kept.length > 100, 'found the order block the device keeps');
+  for (const f of inputs) {
+    ok(new RegExp(`\\b${f}:`).test(kept),
+      `the device keeps ${f} instead of dropping it on arrival`);
+  }
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

@@ -87,7 +87,17 @@ function engineTaskFromResponse(tr) {
           id: tr.order.id,
           date: msOf(tr.order.date),
           itemPaise: numOf(tr.order.itemPaise),
+          // The resolver's other inputs. Dropping these meant the device's copy
+          // of resolveChargedPaise ran on a third of its evidence — `quantity`
+          // was being SENT by the backend and thrown away right here, so every
+          // multi-unit order looked like "count unknown" on the screen while the
+          // backend paid a real figure. src/chargedAmount.test.mjs reads the
+          // resolver's inputs out of its own source and checks each one survives.
+          unitPricePaise: numOf(tr.order.unitPricePaise),
+          lineTotalPaise: numOf(tr.order.lineTotalPaise),
+          quantity: tr.order.quantity == null ? null : tr.order.quantity,
           orderTotalPaise: numOf(tr.order.orderTotalPaise),
+          itemAmountAmbiguous: tr.order.itemAmountAmbiguous === true,
           product: tr.order.product,
           source: tr.order.source,
           // Kept, not dropped: the confirm screen's ambiguity and price warnings

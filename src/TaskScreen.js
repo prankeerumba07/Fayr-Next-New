@@ -24,7 +24,7 @@ import {
   isPending, getActionError, clearActionError,
 } from './taskStore';
 import { formatPaise } from './money';
-import { displayRefundPaise } from './ui/refund';
+import { displayChargedPaise, displayRefundPaise, orderPriceLines } from './ui/refund';
 import { resolveChargedPaise } from './chargedAmount';
 import * as campaignStore from './backend/campaignStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
@@ -386,6 +386,26 @@ export default function TaskScreen({ navigation, route }) {
     capPaise: campaign.payoutCapPaise,
   });
   const itemPaise = task.order ? task.order.itemPaise : null; // display only
+  // WHICH price the refund was worked out from. Same rule as the refund figure
+  // itself: the backend's answer wins, because it is the one the payout used. The
+  // local resolver above is the fallback for the moment before it lands — and on a
+  // staff-confirmed per-unit price it cannot answer at all, because that figure
+  // exists only on the server.
+  const basedOnPaise = displayChargedPaise({
+    authoritativePaise: authoritative && authoritative.refund
+      ? authoritative.refund.basedOnPaise
+      : null,
+    localPaise: charged.paise,
+  });
+  // The price rows, decided in one testable place rather than in four nested
+  // ternaries below. See orderPriceLines in src/ui/refund.js for the two things
+  // this card used to get wrong.
+  const prices = orderPriceLines({
+    itemPaise,
+    quantity: task.order ? task.order.quantity : null,
+    basisPaise: basedOnPaise,
+    orderTotalPaise: task.order ? task.order.orderTotalPaise : null,
+  });
   const match = task.order && task.order.match;
 
   // ── real facts the timeline reads ────────────────────────────────────────
@@ -687,10 +707,18 @@ export default function TaskScreen({ navigation, route }) {
                     More than one order matched this product — make sure this is the one for this task.
                   </Text>
                 ) : null}
-                {itemPaise != null ? (
+                {prices.linePaise != null ? (
                   <>
-                    <Row label="Item price" value={`₹${formatPaise(itemPaise)}`} />
-                    {task.order.orderTotalPaise != null && task.order.orderTotalPaise !== itemPaise ? (
+                    <Row label={prices.lineLabel} value={`₹${formatPaise(prices.linePaise)}`} />
+                    {prices.perUnitPaise != null ? (
+                      // A line covering several units is not what gets refunded.
+                      // Saying so here is the difference between the screen and the
+                      // payout agreeing and only appearing to.
+                      <Text style={styles.contrast}>
+                        Your refund is for one unit — based on ₹{formatPaise(prices.perUnitPaise)}
+                      </Text>
+                    ) : null}
+                    {itemPaise != null && task.order.orderTotalPaise != null && task.order.orderTotalPaise !== itemPaise ? (
                       // Say which of the two the refund actually uses, and why.
                       // Both directions happen for real: a total ABOVE the item
                       // price means other items/fees share the order, while a
@@ -706,12 +734,15 @@ export default function TaskScreen({ navigation, route }) {
                         </Text>
                       )
                     ) : null}
+                    {prices.orderAmountPaise != null ? (
+                      <Row label="Order amount" value={`₹${formatPaise(prices.orderAmountPaise)}`} />
+                    ) : null}
                   </>
-                ) : task.order.orderTotalPaise != null ? (
+                ) : prices.orderAmountPaise != null ? (
                   // Quick-commerce (and Myntra): web exposes only the ORDER TOTAL,
                   // not a per-item price. Show it plainly as the order amount; the
                   // Refund section states the per-item price is still needed.
-                  <Row label="Order amount" value={`₹${formatPaise(task.order.orderTotalPaise)}`} />
+                  <Row label="Order amount" value={`₹${formatPaise(prices.orderAmountPaise)}`} />
                 ) : (
                   <Row
                     label="Item price"
