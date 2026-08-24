@@ -1,7 +1,7 @@
 {
   "name": "fayr-backend",
   "version": "0.0.1",
-  "description": "Fayr backend \u2014 NestJS + PostgreSQL. Incentivized review-and-refund platform.",
+  "description": "Fayr backend — NestJS + PostgreSQL. Incentivized review-and-refund platform.",
   "private": true,
   "license": "UNLICENSED",
   "engines": {
@@ -30,7 +30,8 @@
     "prisma:studio": "prisma studio",
     "db:reset": "prisma migrate reset",
     "postinstall": "prisma generate",
-    "sms:test": "ts-node -r tsconfig-paths/register scripts/send-test-sms.ts"
+    "sms:test": "ts-node -r tsconfig-paths/register scripts/send-test-sms.ts",
+    "test:e2e:shuffle": "jest --config ./test/jest-e2e.json --runInBand --randomize"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

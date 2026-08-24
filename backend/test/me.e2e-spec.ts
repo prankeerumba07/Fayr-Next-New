@@ -8,6 +8,7 @@ import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TicketService } from '../src/tickets/ticket.service';
 import { WalletService } from '../src/wallet/wallet.service';
+import { resetDatabase } from './reset-db';
 
 /** E2E for the user's own balances endpoint (feeds the app's wallet screen). */
 describe('Me (e2e)', () => {
@@ -57,9 +58,7 @@ describe('Me (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "users","wallet_accounts","wallet_entries","ledger_transactions","ticket_entries" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   const server = () => app.getHttpServer();

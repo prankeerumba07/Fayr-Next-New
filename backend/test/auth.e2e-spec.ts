@@ -5,6 +5,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { SMS_SENDER, type SmsSender } from '../src/auth/sms/sms-sender';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { resetDatabase } from './reset-db';
 
 /**
  * End-to-end: boots the REAL app (AppModule) against the migrated test database
@@ -74,9 +75,7 @@ describe('Auth + health (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE TABLE refresh_tokens, otp_challenges, users RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   const server = () => app.getHttpServer();

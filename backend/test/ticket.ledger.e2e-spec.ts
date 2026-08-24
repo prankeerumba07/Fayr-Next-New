@@ -4,6 +4,7 @@ import { PrismaModule } from '../src/prisma/prisma.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TicketModule } from '../src/tickets/ticket.module';
 import { TicketService } from '../src/tickets/ticket.service';
+import { resetDatabase } from './reset-db';
 import {
   InsufficientTicketsError,
   TicketError,
@@ -61,9 +62,7 @@ describe('Ticket ledger (integration)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "users","ticket_entries" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   describe('signup grant', () => {

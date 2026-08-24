@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { StaffTokenService } from '../src/admin/staff-token.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { resetDatabase } from './reset-db';
 
 /**
  * End-to-end for support questions (2.3): the full user↔staff round-trip, the
@@ -72,9 +73,7 @@ describe('Support questions (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "support_replies","support_questions","staff_users","admin_audit_log","users","refresh_tokens" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   const server = () => app.getHttpServer();

@@ -7,6 +7,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { resetDatabase } from './reset-db';
 
 /**
  * End-to-end for the read-only campaign endpoints: boots the real app (so the
@@ -74,9 +75,7 @@ describe('Campaigns (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "users","campaigns" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   describe('auth', () => {

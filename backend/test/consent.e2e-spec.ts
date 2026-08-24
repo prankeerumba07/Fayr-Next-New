@@ -6,6 +6,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { resetDatabase } from './reset-db';
 
 /**
  * Consent has to be a RECORD, not a screen.
@@ -53,6 +54,13 @@ describe('Terms consent (e2e)', () => {
   });
 
   afterAll(async () => app.close());
+
+  // This spec used to reset NOTHING. Every test creates its own user, so it never
+  // failed on its own — but it left every row it made behind for whichever suite
+  // ran next, and the suites that count things globally are the ones that noticed.
+  beforeEach(async () => {
+    await resetDatabase(prisma);
+  });
 
   const patch = (token: string, body: Record<string, unknown>) =>
     request(server()).patch('/me').set('Authorization', `Bearer ${token}`).send(body);

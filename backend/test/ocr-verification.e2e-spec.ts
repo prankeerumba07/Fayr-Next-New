@@ -16,6 +16,7 @@ import { StaffTokenService } from '../src/admin/staff-token.service';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { resetDatabase } from './reset-db';
 
 // A 1×1 transparent PNG — a real, valid image for the upload path.
 const PNG_1PX = Buffer.from(
@@ -161,9 +162,7 @@ describe('OCR verification (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "users","campaigns","tasks","task_events","visibility_checks","screenshot_uploads","evidence_submissions","admin_audit_log","staff_users" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   it('upload → staff approve advances the task (CLAIMED → PURCHASED, order sourced ocr)', async () => {

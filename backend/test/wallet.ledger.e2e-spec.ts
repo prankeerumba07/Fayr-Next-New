@@ -6,6 +6,7 @@ import { SYSTEM_ACCOUNT_IDS } from '../src/wallet/wallet.constants';
 import { WalletModule } from '../src/wallet/wallet.module';
 import { WalletService } from '../src/wallet/wallet.service';
 import { LedgerError } from '../src/wallet/wallet.types';
+import { resetDatabase } from './reset-db';
 
 /**
  * Integration ("e2e") tests for the wallet ledger against a REAL Postgres — a
@@ -55,11 +56,7 @@ describe('Wallet ledger (integration)', () => {
   });
 
   beforeEach(async () => {
-    // TRUNCATE bypasses the append-only DELETE trigger (it fires ON TRUNCATE, not
-    // ON DELETE), so it's the only way to reset the ledger between tests.
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "users","wallet_accounts","wallet_entries","ledger_transactions" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   describe('postRefund', () => {

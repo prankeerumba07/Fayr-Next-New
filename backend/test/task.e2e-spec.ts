@@ -10,6 +10,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { TaskService } from '../src/tasks/task.service';
 import { TicketService } from '../src/tickets/ticket.service';
 import { WalletService } from '../src/wallet/wallet.service';
+import { resetDatabase } from './reset-db';
 
 const DAY = 86_400_000;
 
@@ -138,9 +139,7 @@ describe('Task loop (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "users","campaigns","tasks","task_events","visibility_checks","ticket_entries","wallet_accounts","wallet_entries","ledger_transactions" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   it('runs the full claim → evidence → hold → refund loop, moving tickets and money', async () => {

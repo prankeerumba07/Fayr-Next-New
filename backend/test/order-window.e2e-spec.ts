@@ -10,6 +10,7 @@ import { TaskService } from '../src/tasks/task.service';
 import { TicketService } from '../src/tickets/ticket.service';
 import { BLOCKERS } from '../src/tasks/engine/states';
 import { ORDER_WINDOW_RULE_FROM } from '../src/tasks/engine/order-window';
+import { resetDatabase } from './reset-db';
 
 const DAY = 86_400_000;
 
@@ -88,9 +89,7 @@ describe('Order window (e2e)', () => {
   afterAll(async () => app.close());
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "users","campaigns","tasks","task_events","ticket_entries","wallet_accounts","wallet_entries","ledger_transactions" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   const server = () => app.getHttpServer();

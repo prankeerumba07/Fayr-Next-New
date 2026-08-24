@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { StaffTokenService } from '../src/admin/staff-token.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { resetDatabase } from './reset-db';
 
 /**
  * End-to-end for the expanded staff roles (Phase 4). Boots the REAL app and
@@ -60,9 +61,7 @@ describe('Staff roles / RBAC (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "staff_users","admin_audit_log","users","campaigns","tasks","task_events","visibility_checks","ticket_entries","wallet_accounts","wallet_entries","ledger_transactions","payout_methods","withdrawals","refresh_tokens" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   const server = () => app.getHttpServer();
