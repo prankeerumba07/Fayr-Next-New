@@ -69,12 +69,24 @@ describe('Task loop (e2e)', () => {
     token: string,
     taskId: string,
     deliveredAt: number,
+    line?: { itemId?: string; orderId?: string },
   ): Promise<void> {
     await request(server())
       .post(`/tasks/${taskId}/evidence`)
       .set('Authorization', bearer(token))
       .send({
-        order: { id: 'o1', itemPaise: '129900', quantity: 1, source: 'order-details' },
+        order: {
+          id: line?.orderId ?? 'o1',
+          itemPaise: '129900',
+          quantity: 1,
+          source: 'order-details',
+          // WHICH line of the order. Omitted by default, which is the honest
+          // shape for a platform that states none — and the case the gate has to
+          // keep failing closed on.
+          ...(line?.itemId
+            ? { itemId: line.itemId, itemIdSource: 'asin' }
+            : {}),
+        },
         returned: false,
       })
       .expect(200);
@@ -380,6 +392,166 @@ describe('Task loop (e2e)', () => {
     expect(
       await prisma.taskEvent.count({ where: { taskId, type: 'CONFIRM_ORDER' } }),
     ).toBe(0);
+  });
+
+  /**
+   * A MERGED CART IS NOT A DUPLICATE.
+   *
+   * The gate was keyed on (platform, orderId), because a comment in the service
+   * claimed no per-line-item id survived the wire on any platform. It was my own
+   * claim and it was wrong: Amazon's ASIN, Flipkart's pid, Meesho's sub-order id
+   * and Instamart's product-variant id all reach the backend already.
+   *
+   * Order-level keying was wrong in BOTH directions. An Amazon merged cart is two
+   * genuinely different products under one order number, and every single one of
+   * those needed a staff override — a queue of work created by the key, not by any
+   * risk. And two claims on the SAME line, which is the fraud the gate exists to
+   * catch, looked identical to it.
+   */
+  it('pays two DIFFERENT items from one order without anyone being asked', async () => {
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const first = await makeCampaign({ title: 'Offer A' });
+    const second = await makeCampaign({ title: 'Offer B' });
+    const deliveredAt = Date.now() - 30 * DAY;
+
+    const drive = async (campaignId: string, itemId: string): Promise<string> => {
+      const claim = await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId })
+        .expect(201);
+      const taskId = claim.body.id as string;
+      // ONE order number, two different ASINs — the real fixture shape:
+      // 222-2222222-2222222 holds three ASINs in src/__fixtures__/amazon-capture.json.
+      await driveToHolding(token, taskId, deliveredAt, { itemId });
+      return taskId;
+    };
+    const taskA = await drive(first.id, 'B0TESTMERGA');
+    const taskB = await drive(second.id, 'B0TESTMERGB');
+
+    for (const taskId of [taskA, taskB]) {
+      await request(server())
+        .post(`/tasks/${taskId}/release-refund`)
+        .set('Authorization', bearer(token))
+        .expect(200)
+        .expect((r) => expect(r.body.state).toBe('REFUNDED'));
+    }
+    // Both paid, no override, no reviewer involved.
+    expect(await walletSvc.getUserBalance(userId)).toBe(259800n);
+    const rows = await prisma.task.findMany({
+      where: { id: { in: [taskA, taskB] } },
+      select: { itemId: true, duplicateOrderApproved: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(rows.map((r) => r.itemId).sort()).toEqual(['B0TESTMERGA', 'B0TESTMERGB']);
+    expect(rows.every((r) => !r.duplicateOrderApproved)).toBe(true);
+  });
+
+  it('still holds two claims on the SAME line, and says it is the same item', async () => {
+    // The case the gate exists for. Re-keying must not open it.
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const first = await makeCampaign({ title: 'Offer A' });
+    const second = await makeCampaign({ title: 'Offer B' });
+    const deliveredAt = Date.now() - 30 * DAY;
+
+    const drive = async (campaignId: string): Promise<string> => {
+      const claim = await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId })
+        .expect(201);
+      const taskId = claim.body.id as string;
+      await driveToHolding(token, taskId, deliveredAt, { itemId: 'B0SAMELINE' });
+      return taskId;
+    };
+    const taskA = await drive(first.id);
+    const taskB = await drive(second.id);
+
+    await request(server())
+      .post(`/tasks/${taskA}/release-refund`)
+      .set('Authorization', bearer(token))
+      .expect(200);
+    const held = await request(server())
+      .post(`/tasks/${taskB}/release-refund`)
+      .set('Authorization', bearer(token))
+      .expect(409);
+    // Named precisely, because "this order" and "this exact item" are different
+    // investigations for the reviewer who has to decide it.
+    expect(String(held.body.message)).toContain('this exact item');
+    expect(await walletSvc.getUserBalance(userId)).toBe(129900n);
+  });
+
+  it('FAILS CLOSED when one side names no line — unknown is never "different"', async () => {
+    // The half that matters most. A platform that states no line id must not get
+    // a free second payout out of that silence: if either side is unknown we
+    // cannot prove the two are different lines, so a human decides. Zepto and
+    // Blinkit are exactly this case by design — their only candidate identifier
+    // is a row number, which the reader refuses.
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const first = await makeCampaign({ title: 'Offer A' });
+    const second = await makeCampaign({ title: 'Offer B' });
+    const deliveredAt = Date.now() - 30 * DAY;
+
+    const claimA = await request(server())
+      .post('/tasks').set('Authorization', bearer(token))
+      .send({ campaignId: first.id }).expect(201);
+    await driveToHolding(token, claimA.body.id, deliveredAt, { itemId: 'B0KNOWN' });
+    const claimB = await request(server())
+      .post('/tasks').set('Authorization', bearer(token))
+      .send({ campaignId: second.id }).expect(201);
+    await driveToHolding(token, claimB.body.id, deliveredAt); // no itemId at all
+
+    await request(server())
+      .post(`/tasks/${claimA.body.id}/release-refund`)
+      .set('Authorization', bearer(token))
+      .expect(200);
+    const held = await request(server())
+      .post(`/tasks/${claimB.body.id}/release-refund`)
+      .set('Authorization', bearer(token))
+      .expect(409);
+    expect(String(held.body.message)).toContain('already been refunded');
+    expect(await walletSvc.getUserBalance(userId)).toBe(129900n);
+  });
+
+  it('promotes the line id to a column, so the gate reads an index and not JSONB', async () => {
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const campaign = await makeCampaign({ title: 'Offer A' });
+    const claim = await request(server())
+      .post('/tasks').set('Authorization', bearer(token))
+      .send({ campaignId: campaign.id }).expect(201);
+    await driveToHolding(token, claim.body.id, Date.now() - 30 * DAY, {
+      itemId: 'B0PROMOTED',
+    });
+    const row = await prisma.task.findUniqueOrThrow({
+      where: { id: claim.body.id as string },
+    });
+    expect(row.itemId).toBe('B0PROMOTED');
+    expect(row.orderId).toBe('o1');
+  });
+
+  it('refuses a line id from a source it does not recognise', async () => {
+    // A free-text source would let a client invent an authority it does not have
+    // — the same reasoning as quantitySource. The closed list is the guard.
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const campaign = await makeCampaign({ title: 'Offer A' });
+    const claim = await request(server())
+      .post('/tasks').set('Authorization', bearer(token))
+      .send({ campaignId: campaign.id }).expect(201);
+    await request(server())
+      .post(`/tasks/${claim.body.id}/evidence`)
+      .set('Authorization', bearer(token))
+      .send({
+        order: {
+          id: 'o1', itemPaise: '129900', quantity: 1, source: 'order-details',
+          itemId: 'X', itemIdSource: 'i-made-this-up',
+        },
+      })
+      .expect(400);
   });
 
   /**

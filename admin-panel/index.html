@@ -1950,6 +1950,28 @@
       if (noBtn) noBtn.onclick = function () { decide(false); };
       function onSubmit(ev) { ev.preventDefault(); decide(true); }
 
+      // WHAT TO LOOK FOR. Without this the instruction is "find one review among
+      // hundreds"; with it, it is a lookup. On Meesho these words are the only
+      // clue there is, because nothing automatic can read the page.
+      var lookFor = (it.reviewText || it.reviewTitle)
+        ? h("div", { style: "margin-top:10px" },
+            h("div", { class: "nav-head", style: "padding:0 0 4px" }, "What to look for on the page"),
+            it.reviewTitle
+              ? h("div", { style: "font-size:13px;font-weight:600" }, it.reviewTitle)
+              : null,
+            it.reviewText
+              ? h("div", { style: "font-size:12.5px;white-space:pre-wrap" }, it.reviewText)
+              : null,
+            it.mediaCount
+              ? h("div", { class: "muted", style: "font-size:12px;margin-top:3px" },
+                  "The review carries " + it.mediaCount
+                    + (it.mediaCount === 1 ? " photo" : " photos")
+                    + " — that usually makes it easy to spot.")
+              : null)
+        : h("div", { class: "muted", style: "font-size:12.5px;margin-top:10px" },
+            "We have no words from this review to give you — match it on the buyer's "
+            + "name and the star rating instead.");
+
       var openLink = it.productUrl
         ? h("a", { href: it.productUrl, target: "_blank", rel: "noreferrer noopener" }, "Open the product page ↗")
         : h("span", { class: "muted" }, "This offer has no product page on file — ask the campaign owner for the link.");
@@ -1992,6 +2014,7 @@
           factCell("Order", h("span", { class: "mono" }, it.orderId || "—")),
           factCell("Ordered", fmtDay(it.orderDate)),
           factCell("Stage", it.state)),
+        lookFor,
         h("div", { style: "margin-top:10px;font-size:12.5px" }, openLink),
         confirmed,
         h("form", { onsubmit: onSubmit, style: "margin-top:12px" },

@@ -192,7 +192,12 @@ export class TaskService {
    */
   async allowDuplicateOrder(
     taskId: string,
-  ): Promise<{ task: TaskResponse; userId: string; orderId: string | null }> {
+  ): Promise<{
+    task: TaskResponse;
+    userId: string;
+    orderId: string | null;
+    itemId: string | null;
+  }> {
     const row = await this.prisma.task.findUnique({
       where: { id: taskId },
       include: { campaign: true },
@@ -207,6 +212,10 @@ export class TaskService {
       task: toTaskResponse(updated, updated.campaign),
       userId: row.userId,
       orderId: row.orderId,
+      // WHICH LINE was overridden, or null when the reason for the hold was that
+      // nobody could tell. The audit row has to distinguish "we agreed this is a
+      // second item in one basket" from "we could not identify the line at all".
+      itemId: row.itemId,
     };
   }
 
@@ -861,33 +870,60 @@ export class TaskService {
     // well (markPaid grants per REFUNDED task, so a second refunded task is a
     // second grant).
     //
-    // Keyed on (platform, orderId) because that is the only stable identity the
-    // evidence actually carries: no per-line-item id survives the wire on ANY
-    // platform, and the one per-item discriminator that does — a free-text
-    // product name — is the whole basket on Zepto. Line-item keying would need
-    // the frozen scraper to emit more.
+    // Keyed on (platform, orderId, ITEM) — the line, not just the order.
     //
-    // It HOLDS rather than refuses, and it holds at payout rather than rejecting
-    // the evidence, because a genuine multi-item basket legitimately backs more
-    // than one task: an Amazon merged cart is two products under one order
-    // number. Refusing the evidence would strand a real purchase with no route
-    // forward; holding it puts a human in front of the only case that matters.
+    // It was keyed on the order number alone, and the comment here said that was
+    // the only identity the evidence carried: "no per-line-item id survives the
+    // wire on ANY platform". That was wrong. Four of the six live platforms state
+    // a real per-line identifier and every one already reaches the backend — the
+    // ASIN (which is on the order DETAIL page, not just the listing), Flipkart's
+    // pid, Meesho's sub-order id, Instamart's product-variant id. Nothing in the
+    // frozen scraper had to change to use them.
+    //
+    // Order-level keying was wrong in BOTH directions:
+    //   - a merged Amazon cart is two genuinely different products under one
+    //     order number. Both are legitimate tasks, and every single one of them
+    //     needed a staff override — a queue of work created by the key rather
+    //     than by any risk;
+    //   - and two claims on the SAME line, which is the fraud this gate exists
+    //     for, looked exactly the same to it as the merged cart did.
+    //
+    // FAIL CLOSED ON UNKNOWN. A null line id is not "a different line". Two tasks
+    // on one order number may both pay only when BOTH sides name a line and the
+    // lines differ; if either is unknown we cannot prove they are distinct, so a
+    // human decides. Zepto and Blinkit are permanently in that case by design —
+    // their only candidate identifier is a row number, which the reader refuses
+    // rather than dress up as an identity.
+    //
+    // It still HOLDS rather than refuses, and at payout rather than by rejecting
+    // the evidence: refusing would strand a real purchase with no route forward.
     const orderId = task.order?.id ?? null;
+    const itemId = task.order?.itemId ?? null;
     if (orderId != null) {
-      const alreadyPaid = await tx.task.findFirst({
+      const siblings = await tx.task.findMany({
         where: {
           id: { not: row.id },
           platform: row.platform,
           orderId,
           state: STATES.REFUNDED,
         },
-        select: { id: true },
+        select: { id: true, itemId: true },
       });
-      if (alreadyPaid && !row.duplicateOrderApproved) {
+      // A paid sibling collides unless both sides name a line and they differ.
+      const sameLine = siblings.some((s) => s.itemId != null && s.itemId === itemId);
+      const indistinguishable = siblings.some(
+        (s) => itemId == null || s.itemId == null,
+      );
+      if ((sameLine || indistinguishable) && !row.duplicateOrderApproved) {
         return {
           status: 'ineligible',
           reasons: [
-            'this order has already been refunded on another offer — a Fayr reviewer needs to check it',
+            // Two different investigations, so two different sentences. "The same
+            // item was already paid" is a likely duplicate; "we cannot tell which
+            // line this is" is a reading problem on a possibly-honest basket.
+            sameLine
+              ? 'this exact item has already been refunded on another offer — a Fayr reviewer needs to check it'
+              : 'this order has already been refunded on another offer — a Fayr reviewer needs to check it',
           ],
         };
       }

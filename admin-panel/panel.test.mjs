@@ -144,6 +144,15 @@ console.log('\n=== 4d. the eyes-on-page review check ===');
 
   // No local verdict-making: the server decides whether this may be recorded.
   ok(/review-visible/.test(card), 'the decision goes to the server, which owns every gate');
+
+  // The reviewer has to FIND the review before they can confirm it. On a product
+  // page with two hundred reviews that is not a task anybody does reliably from a
+  // rating alone — and on Meesho nothing automatic can narrow it down for them.
+  ok(/What to look for/.test(card), 'the review\'s own words are shown');
+  ok(/reviewText/.test(card) && /reviewTitle/.test(card), 'both the body and the title');
+  ok(/mediaCount/.test(card), 'and the photo count, which is what makes one easy to spot');
+  ok(/no words from this review/.test(card),
+    'and it says so plainly when there are none, rather than showing an empty heading');
 }
 
 console.log('\n=== 5b. no banner is invisible ===');

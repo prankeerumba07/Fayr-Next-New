@@ -34,6 +34,16 @@ export interface ReviewCheckItem {
   orderDate: string | null;
   /** The star the marketplace itself recorded. Never invented here. */
   rating: number | null;
+  /**
+   * WHAT TO LOOK FOR on the page. Without these the job is "find one review among
+   * hundreds"; with them it is a lookup. On Meesho — the reason this queue exists
+   * — they are the only clue a reviewer gets, because nothing here can read the
+   * public page to help.
+   */
+  reviewTitle: string | null;
+  reviewText: string | null;
+  /** Photos on the review. A review with pictures is far easier to spot. */
+  mediaCount: number | null;
   /** In plain words: why nothing but a person can answer this. */
   whyNoMachineCheck: string;
   /** True once a Fayr reviewer has said they saw it. */
@@ -152,6 +162,9 @@ export function toReviewCheckItem(row: Row): ReviewCheckItem | null {
         ? new Date(task.order.date).toISOString()
         : null,
     rating: review?.rating ?? null,
+    reviewTitle: review?.title ?? null,
+    reviewText: review?.text ?? null,
+    mediaCount: review?.mediaCount ?? null,
     whyNoMachineCheck: explainNoMachineCheck(row.platform, review),
     confirmedVisible,
     confirmedUrl: confirmedVisible ? (review?.visibleUrl ?? null) : null,

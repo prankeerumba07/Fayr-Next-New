@@ -35,6 +35,29 @@ ok(ev.returned===false,'returned false (proven)');
 ok(ev.review.reviewDate===Date.UTC(2026,5,22),'reviewDate now REAL -> '+new Date(ev.review.reviewDate).toUTCString().slice(0,16));
 ok(ev.review.reviewDate>ev.order.date,'ANTI-REPLAY: review post-dates the order');
 
+console.log('\n=== 2z. WHICH LINE of the order — the ASIN identifies it ===');
+// One purchase must pay one refund, and the gate enforcing that was keyed on the
+// ORDER because a comment claimed no per-line id survives the wire. It does: the
+// ASIN a review resolved to is also an ASIN found on the order DETAIL page — the
+// join only succeeds when both agree — so it identifies the line, not a listing.
+//
+// This fixture is exactly the case order-level keying gets wrong: order
+// 222-2222222-2222222 holds THREE different ASINs. A merged cart is two real
+// purchases under one order number, and both are legitimate tasks.
+{
+  const a = readAmazonEvidence(raw, { asin: 'B0TESTMERGA' });
+  const b = readAmazonEvidence(raw, { asin: 'B0TESTMERGB' });
+  ok(a.order.id === b.order.id, 'both items really are the same order number');
+  ok(a.order.itemId === 'B0TESTMERGA' && b.order.itemId === 'B0TESTMERGB',
+    'but each carries its OWN line id, so they are distinguishable');
+  ok(a.order.itemIdSource === 'asin' && b.order.itemIdSource === 'asin',
+    'named as the ASIN, so a payout can be explained a year later');
+  ok(a.order.itemIdReason === null, 'and nothing was refused');
+  const solo = readAmazonEvidence(raw, { asin: 'B0TESTSOLO' });
+  ok(solo.order.itemId === 'B0TESTSOLO' && solo.order.id === '111-1111111-1111111',
+    'a single-item order carries one too');
+}
+
 console.log('\n=== 2a. HOW MANY UNITS — read when labelled, unknown when not ===');
 // A refund is for ONE unit, so an amount without a unit count is unpayable. The
 // fixture carries all three real outcomes of the reader.

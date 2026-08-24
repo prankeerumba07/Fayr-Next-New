@@ -75,6 +75,76 @@ export const SOURCES = {
   REVIEW_PUBLIC: 'review-public',
 };
 
+// THE WORDS OF THE REVIEW, carried for the person who has to find it.
+//
+// Amazon, Flipkart and Meesho all emit the review's title and body, and all three
+// were read and discarded here. They matter in exactly one place: the staff
+// review-check queue, where a reviewer is asked to open a product page and find
+// one buyer's review among hundreds. With the words it is a lookup; without them
+// it is a hunt, and Meesho — the only platform that queue exists for — is also
+// the one whose public page we cannot read to help them.
+//
+// CAPPED, because this lands in the evidence JSONB on every write and a long
+// review would bloat every row it touches. The cut is MARKED with an ellipsis: a
+// silent truncation would let a reviewer read a fragment as the whole review and
+// conclude the page shows something different.
+const REVIEW_TEXT_MAX = 600;
+
+/** Trim a review field to something storable, or null. Pure. */
+export function reviewSnippet(value, max) {
+  if (typeof value !== 'string') return null;
+  const t = value.trim();
+  if (!t) return null;
+  const limit = max || REVIEW_TEXT_MAX;
+  return t.length <= limit ? t : t.slice(0, limit - 1) + '\u2026';
+}
+
+// WHICH LINE OF THE ORDER a fact is about.
+//
+// One purchase must pay one refund, and the gate enforcing that was keyed on the
+// ORDER NUMBER alone. That is wrong in both directions: a merged Amazon cart is
+// two different products under one order number and both are legitimate tasks,
+// while two claims on the SAME line are the fraud the gate exists to catch and
+// order-level keying cannot tell them apart.
+//
+// Four of the six live platforms state a real per-line identifier and every one
+// of them already reaches this file. The rule for using one is the quantity rule
+// again: only an identifier the MARKETPLACE states.
+//
+//   asin               Amazon. The review's ASIN is also an ASIN found on the
+//                      order DETAIL page - the join only succeeds when they
+//                      agree - so it identifies a line, not a listing guess.
+//   flipkart-pid       Flipkart's fsn, surfaced on the order object already.
+//   meesho-sub-order   Meesho issues a sub-order per line. Literally this.
+//   instamart-variant  productVariantId, the variant actually bought.
+//
+// REFUSED, and this is the important half: Zepto and Blinkit emit
+// `productid: orderId + "#" + idx`, which is the row's POSITION in the order.
+// Add or remove an item and "#2" silently means a different product. Keying money
+// on that would be worse than keying on the order, because it would look precise
+// while being wrong. Those two emit null with the reason 'positional-only', so a
+// later reader can see the refusal rather than rediscovering the trap.
+export const ITEM_ID_SOURCES = ['asin', 'flipkart-pid', 'meesho-sub-order', 'instamart-variant'];
+export const ITEM_ID_REASONS = ['not-stated', 'positional-only'];
+
+/**
+ * Normalize a stated line identifier. Pure: a non-empty string, or null.
+ * @param {*} value the raw field from the payload
+ * @param {string} source which ITEM_ID_SOURCES entry it came from
+ */
+export function statedItemId(value, source) {
+  const id = value == null ? null : String(value).trim();
+  if (!id) return { itemId: null, itemIdSource: null, itemIdReason: 'not-stated' };
+  return { itemId: id, itemIdSource: source, itemIdReason: null };
+}
+
+/** The refusal, named. Used where the only candidate is a row number. */
+export const POSITIONAL_ONLY = {
+  itemId: null,
+  itemIdSource: null,
+  itemIdReason: 'positional-only',
+};
+
 // ---------------------------------------------------------------------------
 // Gap 3: the return window is a POLICY TABLE, not a fetched fact.
 // No marketplace exposes a return-window end date, so this is the operator's
@@ -204,6 +274,10 @@ export function readAmazonEvidence(raw, target) {
     // 4-digit year, so a bare "Reviewed in India " can't pass as one.
     reviewDate: toEpoch(review.reviewdate),
     reviewDateSource: review.reviewdatesource || null,
+    // The words, for the staff review-check queue. See reviewSnippet.
+    title: reviewSnippet(review.reviewtitle, 160),
+    text: reviewSnippet(review.reviewtext),
+    mediaCount: null,
   };
 
   // Gap 1: an empty detail page yields no ordersource. Report it as unreadable
@@ -251,6 +325,9 @@ export function readAmazonEvidence(raw, target) {
     review: reviewFacts,
     order: {
       id: review.orderid,
+      // WHICH line of that order. See statedItemId — the ASIN reached here only
+      // because the detail page carried it too.
+      ...statedItemId(review.asin, 'asin'),
       date: toEpoch(review.orderdate),
       dateRaw: review.orderdate || null,
       // REFUNDABLE figure. Campaigns pay a percentage of the ITEM, so this must
@@ -428,6 +505,9 @@ export function readFlipkartEvidence(raw, target) {
     verified: review.verified === true,
     reviewDate: toEpoch(review.reviewdate),
     reviewDateSource: review.reviewdate ? 'flipkart-api' : null,
+    title: reviewSnippet(review.reviewtitle, 160),
+    text: reviewSnippet(review.reviewtext),
+    mediaCount: null,
   } : null;
 
   const order = (raw && raw.order) || null;
@@ -445,6 +525,7 @@ export function readFlipkartEvidence(raw, target) {
     review: reviewFacts,
     order: {
       id: order.orderId || null,
+      ...statedItemId(order.pid, 'flipkart-pid'),
       date: toEpoch(order.orderDate),
       dateRaw: order.orderDate == null ? null : String(order.orderDate),
       // REFUNDABLE figure. Flipkart exposes the item's OWN paid price
@@ -649,6 +730,11 @@ export function readMeeshoEvidence(raw, target) {
     verified: true,
     reviewDate: null,
     reviewDateSource: 'meesho-orders-json',
+    // The whole point of carrying these: on Meesho a person has to go and find
+    // this review by eye, and these are the only clues they get.
+    title: null,
+    text: reviewSnippet(picked.reviewtext),
+    mediaCount: mediaCount,
   };
 
   return {
@@ -663,6 +749,9 @@ export function readMeeshoEvidence(raw, target) {
     review,
     order: {
       id: picked.orderid || null,
+      // Meesho's own per-line id. The one platform where the identifier is not a
+      // product code but an order line, which is exactly what is wanted here.
+      ...statedItemId(picked.suborderid, 'meesho-sub-order'),
       date: toEpoch(picked.orderdate),
       dateRaw: picked.orderdate == null ? null : String(picked.orderdate),
       // NO amount of any kind. Meesho publishes none, so the refund holds for a
@@ -770,6 +859,12 @@ function readQuickCommerceEvidence(raw, target, platformName) {
     verified: true,
     reviewDate: null,
     reviewDateSource: `${platformName.toLowerCase()}-order-rating`,
+    // No words anywhere: these three publish no review text at all, so there is
+    // nothing for a person to look for and nothing to carry. Stated explicitly
+    // rather than left undefined, so the absence reads as an answer.
+    title: null,
+    text: null,
+    mediaCount: null,
   } : null;
 
   return {
@@ -777,6 +872,15 @@ function readQuickCommerceEvidence(raw, target, platformName) {
     review: reviewFacts,
     order: {
       id: picked.orderid || null,
+      // Three platforms, one reader, TWO different answers — decided by what the
+      // payload actually contains rather than by which reader we are in.
+      // Instamart states a real productVariantId. Zepto and Blinkit state
+      // `orderId + "#" + idx`, which is a row number dressed as an id: keying a
+      // refund on it would look precise and be wrong the moment the order's item
+      // list renders in a different order. See ITEM_ID_SOURCES.
+      ...(platformName === 'Instamart'
+        ? statedItemId(picked.productid, 'instamart-variant')
+        : POSITIONAL_ONLY),
       date: toEpoch(picked.orderdate),
       dateRaw: picked.orderdate == null ? null : String(picked.orderdate),
       // No per-item price on quick-commerce web -> itemPaise null, refund waits.

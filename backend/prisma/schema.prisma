@@ -275,6 +275,15 @@ model Task {
   /// purchase cannot be paid out on several campaigns unseen: the refund gate
   /// looks for a sibling task on the same (platform, orderId).
   orderId         String?
+  /// WHICH LINE of that order — the ASIN, Flipkart pid, Meesho sub-order id or
+  /// Instamart variant id, whichever the marketplace itself stated. Promoted for
+  /// the same reason as orderId: the gate reads an index, not JSONB.
+  ///
+  /// NULL is meaningful and is NOT "a different line". Two tasks on one order
+  /// number may both pay only when BOTH name a line and the lines differ;
+  /// anything else goes to a human. Zepto and Blinkit are permanently null here
+  /// because their only candidate identifier is a row number.
+  itemId          String?
   /// Staff answer to a held (platform, orderId) collision: this really is a
   /// separate item in one basket, pay it. Set only by a SUPPORT/ADMIN override,
   /// audited, and read only by the refund gate.
@@ -307,7 +316,8 @@ model Task {
   @@index([campaignId])
   @@index([state, windowEndsAt]) // scheduler: holds whose return window has ended
   @@index([state, claimExpiresAt]) // scheduler: claims that expired unpurchased
-  @@index([platform, orderId]) // refund gate: has this order already been paid out?
+  @@index([platform, orderId])
+  @@index([platform, itemId]) // refund gate: has this order already been paid out?
   @@map("tasks")
 }
 

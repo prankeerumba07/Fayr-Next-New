@@ -610,5 +610,162 @@ console.log('\n=== Idempotency: re-fetching the same order is a no-op, not a sec
     'blinkit: total only, item deliberately null');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== WHICH LINE OF THE ORDER: the item id, per marketplace ===');
+// One purchase must pay one refund. The gate that enforces that was keyed on the
+// ORDER, because the comment in task.service.ts said "no per-line-item id
+// survives the wire on ANY platform". That was my own assessment and it was
+// wrong: four of the six live platforms already emit a real per-line identifier
+// and it already reaches this layer. Nothing in the frozen scraper had to change.
+//
+// Order-level keying is not just coarse, it is WRONG in both directions:
+//   - a merged Amazon cart is two different products under one order number, and
+//     both are legitimate tasks — that needed a staff override every time;
+//   - and it cannot see the case it exists for, two claims on the SAME line.
+//
+// The rule for filling it is the quantity rule again: only an identifier the
+// marketplace itself states. A POSITIONAL id — "this order, third row" — is not
+// an identity, it is a layout artefact, and it is a null here.
+{
+  const t = { product: 'Boldfit Cotton Headband', amount: 149 };
+  const meesho = readMeeshoEvidence(meeshoRated, t);
+  ok(meesho.order.itemId === '9876543210',
+    'meesho: the SUB-ORDER id — Meesho literally issues one per line of the order');
+  ok(meesho.order.itemIdSource === 'meesho-sub-order', 'and it says which field that was');
+  ok(meesho.order.itemIdReason === null, 'with no reason, because nothing was refused');
+}
+
+console.log('\n=== Item id: a positional index is NOT an identity ===');
+{
+  // Zepto and Blinkit both emit `productid: orderId + "#" + idx`. That is the
+  // row's POSITION in the order, not the product — add or remove an item and
+  // "#2" silently means something else. Keying money on it would be worse than
+  // keying on the order, because it would look precise while being wrong.
+  const zep = readEvidence('zepto', {
+    reviews: [{
+      productname: 'Boldfit Cotton Headband', amount: 149, orderdate: '2026-08-01',
+      orderid: 'Z-1', productid: 'Z-1#2', orderrated: true, rating: 5,
+      deliverydate: '2026-08-02', returned: false,
+    }],
+  }, { product: 'Boldfit Cotton Headband', amount: 149 });
+  ok(zep.order.itemId === null, 'zepto: no item id, because the only candidate is a row number');
+  ok(zep.order.itemIdReason === 'positional-only',
+    'and the reason names exactly what was refused, so nobody re-adds it by accident');
+  ok(zep.order.itemIdSource === null, 'with no source, because nothing was read');
+
+  const bl = readEvidence('blinkit', {
+    reviews: [{
+      productname: 'Chrysanthemum Flower Pot', amount: 599, orderdate: '2026-08-01',
+      orderid: 'B-1', productid: 'B-1#0', orderrated: true, rating: 5,
+    }],
+  }, { product: 'Chrysanthemum Flower Pot', amount: 599 });
+  ok(bl.order.itemId === null && bl.order.itemIdReason === 'positional-only',
+    'blinkit: the same refusal, for the same reason');
+}
+
+console.log('\n=== Item id: Instamart DOES state a real one ===');
+{
+  // productVariantId is the marketplace's own id for the variant bought — a real
+  // identity, unlike its two quick-commerce siblings. Same reader, different
+  // answer, decided by what the payload actually contains.
+  const ins = readEvidence('instamart', {
+    reviews: [{
+      productname: 'Gillette Fusion 5', amount: null, orderdate: '2026-08-01',
+      orderid: 'I-1', productid: 'PV-88231', orderrated: true, rating: 4,
+    }],
+  }, { product: 'Gillette Fusion 5', amount: 336 });
+  ok(ins.order.itemId === 'PV-88231', 'instamart: the product-variant id is carried');
+  ok(ins.order.itemIdSource === 'instamart-variant', 'named as what it is');
+}
+
+console.log('\n=== Item id: Flipkart states its own pid ===');
+{
+  // The fsn/pid is Flipkart's product id and it is already surfaced on the order
+  // object — nothing in the frozen scraper had to change to reach it.
+  const fk = readFlipkartEvidence(fkOneUnit, { product: 'boAt Airdopes 141', amount: 388 });
+  ok(fk.order.itemId === 'ITMone', 'flipkart: the pid identifies the line');
+  ok(fk.order.itemIdSource === 'flipkart-pid', 'and says which field it was');
+  ok(fk.order.itemIdReason === null, 'with no refusal to report');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== THE WORDS THEMSELVES: review text through to the staff queue ===');
+// Amazon, Flipkart and Meesho all emit the review's title and body, and until now
+// every one of them was read and thrown away at this layer.
+//
+// Where it matters is the review-check queue. A reviewer is told "open the product
+// page and find this buyer's review", which on a page of two hundred reviews is a
+// hunt. Given the words, it is a lookup. Meesho is the whole reason that queue
+// exists, and Meesho is also the one platform whose words we can see while the
+// public page cannot be read — so this is not a nice-to-have there, it is the only
+// thing that makes the job doable.
+{
+  const t = { product: 'Boldfit Cotton Headband', amount: 149 };
+  const withText = readMeeshoEvidence(meeshoRated, t);
+  ok(typeof withText.review.text === 'string' && withText.review.text.length > 0,
+    'meesho: the review body is carried');
+  ok(withText.review.mediaCount === 0 || Number.isInteger(withText.review.mediaCount),
+    'and the photo count, which is the other thing a shopper can see');
+
+  const starOnly = readMeeshoEvidence(meeshoStarOnly, t);
+  ok(starOnly.review.text === null,
+    'a star with no words carries no words — nothing is invented to fill the field');
+}
+
+console.log('\n=== Review text: long reviews are capped, and say they were ===');
+{
+  // Stored in the evidence JSONB and shown on a card. A 5,000-character review
+  // would bloat every row it touches and nobody needs all of it to find the
+  // review on a page — but a silent truncation would make a reviewer think they
+  // had the whole thing, so the cut is marked.
+  const long = 'x'.repeat(900);
+  const ev = readMeeshoEvidence({
+    totalSubOrders: 1,
+    reviews: [{
+      productname: 'Boldfit Cotton Headband for Men', rating: 5, reviewtext: long,
+      mediacount: 0, orderid: '1234567890', suborderid: '9876543210',
+      orderdate: '2026-08-01', statusmessage: 'Delivered', approved: true,
+    }],
+  }, { product: 'Boldfit Cotton Headband' });
+  ok(ev.review.text.length < long.length, 'a very long review is cut down');
+  ok(ev.review.text.endsWith('…'), 'and the cut is visible, so nobody reads a fragment as the whole review');
+}
+
+console.log('\n=== Review text: quick-commerce has none, and says so ===');
+{
+  // Blinkit, Zepto and Instamart publish no review text at all — there is nothing
+  // to carry and nothing for a person to look for. A null here is the honest
+  // answer, not a gap to be filled from somewhere else.
+  const bl = readEvidence('blinkit', {
+    reviews: [{
+      productname: 'Chrysanthemum Flower Pot', amount: 599, orderdate: '2026-08-01',
+      orderid: 'B-1', orderrated: true, rating: 5,
+    }],
+  }, { product: 'Chrysanthemum Flower Pot', amount: 599 });
+  ok(bl.review.text === null && bl.review.title === null,
+    'blinkit: no words, because the marketplace publishes none');
+}
+
+console.log('\n=== Review text: Flipkart carries its title and body ===');
+{
+  const fk = readFlipkartEvidence({
+    order: {
+      pid: 'ITMtext', productName: 'boAt Airdopes 141 TWS Earbuds',
+      orderId: 'OD-T', orderDate: ordered, deliveryDate: delivered,
+      itemAmount: 388, orderAmount: 388, returned: false, quantity: 1,
+      quantitySource: 'unit-record-stated', unitRecords: 1,
+    },
+    review: {
+      reviewid: 'FKR1', productname: 'boAt Airdopes 141 TWS Earbuds', rating: 5,
+      published: true, verified: true, reviewdate: delivered,
+      reviewtitle: 'Great sound', reviewtext: 'Bass is punchy and the case is tiny.',
+    },
+    orderProbe: { ordersFetched: true, targetFound: true, matchScore: 1, amountOk: true },
+  }, { product: 'boAt Airdopes 141', amount: 388 });
+  ok(fk.review.title === 'Great sound', 'flipkart: the review title travels');
+  ok(fk.review.text === 'Bass is punchy and the case is tiny.', 'and the body');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
+

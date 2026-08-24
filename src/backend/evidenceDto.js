@@ -18,6 +18,12 @@ const QUANTITY_REASONS = [
   'not-stated', 'picker', 'conflicting', 'implausible', 'partial', 'no-item-container',
   'multi-unit-amount-unclear',
 ];
+// WHICH LINE of the order. Same closed lists, same reason: an unrecognised value
+// 400s the WHOLE submission, so anything off-list is dropped here rather than
+// risked. Mirrors ITEM_ID_SOURCES / ITEM_ID_REASONS in the backend's
+// evidence.types.ts and in src/taskflow.js.
+const ITEM_ID_SOURCES = ['asin', 'flipkart-pid', 'meesho-sub-order', 'instamart-variant'];
+const ITEM_ID_REASONS = ['not-stated', 'positional-only'];
 
 // paise number|string|null → decimal string, or undefined to OMIT. Drops any
 // non-integer/negative value rather than send something the ledger would reject.
@@ -79,6 +85,20 @@ export function toEvidenceDto(evidence, key) {
       id: e.order.id ?? undefined,
       date: e.order.date ?? undefined,
       dateRaw: e.order.dateRaw ?? undefined,
+      // WHICH LINE. The refund gate is keyed on this now, not just the order
+      // number, so dropping it here would put every task back in the coarse world
+      // where a merged cart needs a staff override per item.
+      ...(typeof e.order.itemId === 'string' && e.order.itemId.trim()
+        ? { itemId: e.order.itemId.trim() }
+        : null),
+      ...(ITEM_ID_SOURCES.indexOf(e.order.itemIdSource) >= 0
+        ? { itemIdSource: e.order.itemIdSource }
+        : null),
+      // The REFUSAL travels too: "nobody looked" and "we looked and would not
+      // trust a row number" are different facts, and only one is worth chasing.
+      ...(ITEM_ID_REASONS.indexOf(e.order.itemIdReason) >= 0
+        ? { itemIdReason: e.order.itemIdReason }
+        : null),
       itemPaise: paiseStr(e.order.itemPaise),
       // The explicit money pair. itemPaise is the historic ambiguous name and is
       // read as a LINE TOTAL by the backend, so these two say which is which.

@@ -117,14 +117,16 @@ export class AdminTaskController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AllowDuplicateOrderDto,
   ): Promise<TaskResponse> {
-    const { task, userId, orderId } = await this.tasks.allowDuplicateOrder(id);
+    const { task, userId, orderId, itemId } = await this.tasks.allowDuplicateOrder(id);
     await this.audit.record({
       staffUserId: staff.id,
       action: AUDIT_ACTIONS.DUPLICATE_ORDER_ALLOW,
       targetUserId: userId,
       // The reason is the point of the record: months later "why was one order
       // paid twice" must be answerable without guessing.
-      metadata: { taskId: id, orderId, reason: dto.reason },
+      // itemId says WHICH line was let through — and a null one says the hold was
+      // "we cannot tell which line this is", which is a different decision.
+      metadata: { taskId: id, orderId, itemId, reason: dto.reason },
     });
     return task;
   }

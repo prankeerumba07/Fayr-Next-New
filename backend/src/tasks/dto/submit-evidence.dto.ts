@@ -9,15 +9,20 @@ import {
   IsString,
   Matches,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 import type {
   Evidence,
+  ItemIdReason,
+  ItemIdSource,
   QuantityReason,
   QuantitySource,
 } from '../engine/evidence.types';
 import {
+  ITEM_ID_REASONS,
+  ITEM_ID_SOURCES,
   QUANTITY_REASONS,
   QUANTITY_SOURCES,
 } from '../engine/evidence.types';
@@ -71,6 +76,15 @@ class EvidenceReviewDto {
    */
   @IsOptional() @IsIn(SOURCE_VALUES) publishedSource?: string;
   @IsOptional() @IsBoolean() verified?: boolean;
+  /**
+   * The review's own words, for the staff review-check queue. Bounded well above
+   * the device's own cap so a legitimate snippet is never rejected, and well
+   * below anything that would bloat the row — a client sending more than this is
+   * malformed, not verbose.
+   */
+  @IsOptional() @IsString() @MaxLength(200) title?: string;
+  @IsOptional() @IsString() @MaxLength(1000) text?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(100) mediaCount?: number;
   @IsOptional() @IsInt() reviewDate?: number; // epoch ms
   @IsOptional() @IsString() reviewDateSource?: string;
   @IsOptional() @IsString() permalink?: string;
@@ -91,6 +105,15 @@ class EvidenceOrderMatchDto {
 
 class EvidenceOrderDto {
   @IsOptional() @IsString() id?: string;
+  /**
+   * WHICH LINE of the order. Bounded in length because it is a marketplace code,
+   * not prose, and it lands in an indexed column the refund gate queries.
+   */
+  @IsOptional() @IsString() @MaxLength(120) itemId?: string;
+  /** From a closed list — a free-text source would be an invented authority. */
+  @IsOptional() @IsIn(ITEM_ID_SOURCES) itemIdSource?: ItemIdSource;
+  /** Why no line id was read, also from a closed list. */
+  @IsOptional() @IsIn(ITEM_ID_REASONS) itemIdReason?: ItemIdReason;
   @IsOptional() @IsInt() date?: number; // epoch ms
   @IsOptional() @IsString() dateRaw?: string;
   /** @deprecated Ambiguous by history; read as a LINE TOTAL. Prefer the two below. */
@@ -196,6 +219,9 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
           published: dto.review.published,
           publishedSource:
             (dto.review.publishedSource as SourceName | undefined) ?? null,
+          title: dto.review.title ?? null,
+          text: dto.review.text ?? null,
+          mediaCount: dto.review.mediaCount ?? null,
           verified: dto.review.verified,
           reviewDate: dto.review.reviewDate ?? null,
           reviewDateSource: dto.review.reviewDateSource ?? null,
@@ -205,6 +231,9 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
     order: dto.order
       ? {
           id: dto.order.id ?? null,
+          itemId: dto.order.itemId ?? null,
+          itemIdSource: dto.order.itemIdSource ?? null,
+          itemIdReason: dto.order.itemIdReason ?? null,
           date: dto.order.date ?? null,
           dateRaw: dto.order.dateRaw ?? null,
           itemPaise: toBig(dto.order.itemPaise),

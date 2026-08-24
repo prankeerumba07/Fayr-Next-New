@@ -123,6 +123,11 @@ describe('Staff eyes-on-page review confirmation (e2e)', () => {
           // The honest Meesho answer: the star is real, the words are invisible
           // to us, and NOTHING established whether a review is publicly readable.
           published: false,
+          // The words themselves — read from the orders payload, and the only clue
+          // a reviewer gets about what to look for on the page.
+          title: null,
+          text: 'Fabric is soft and the fit is true to size. Washed twice, no fading.',
+          mediaCount: 2,
         },
         returned: false,
       })
@@ -516,6 +521,30 @@ describe('Staff eyes-on-page review confirmation (e2e)', () => {
     // Plain words, never an enum — a reviewer reads these out to users.
     expect(item.whyNoMachineCheck).toMatch(/[a-z]{4,}/);
     expect(item.whyNoMachineCheck).not.toMatch(/published|permalink|null/);
+  });
+
+  it('gives the reviewer the words to look for, and the photo count', async () => {
+    // The difference between a lookup and a hunt. On a product page with two
+    // hundred reviews, "find this buyer's" is not a task anybody can do reliably
+    // — and on Meesho nothing here can read the page to narrow it down.
+    const user = await newUser();
+    await ticketsSvc.grantSignup(user.id);
+    await meeshoTaskWithStarOnly(user.token);
+    const support = await tokenFor('SUPPORT');
+
+    const res = await request(server())
+      .get('/admin/tasks/awaiting-review-check')
+      .set('authorization', `Bearer ${support.token}`)
+      .expect(200);
+    const item = res.body.items[0];
+    expect(item.reviewText).toContain('true to size');
+    expect(item.mediaCount).toBe(2);
+    // Stored, not just echoed — the words survived the round trip into the row.
+    const row = await prisma.task.findFirstOrThrow({
+      where: { userId: user.id },
+    });
+    const stored = row.evidence as unknown as { review: { text: string } };
+    expect(stored.review.text).toContain('true to size');
   });
 
   it('does NOT list a task a machine can check itself', async () => {

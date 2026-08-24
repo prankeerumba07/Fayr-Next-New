@@ -205,6 +205,50 @@ console.log('\n=== the quantity and WHERE IT CAME FROM cross the wire ===');
   ok(!('quantityReason' in bogus.order), 'an invented reason too');
 }
 
+console.log('\n=== WHICH LINE of the order must survive the wire too ===');
+// The refund gate is keyed on the LINE now, not just the order number, so a line
+// id dropped here would silently put every task back in the coarse world: two
+// different products in one merged cart would collide and need a staff override
+// each time, which is exactly the queue the re-key exists to remove.
+{
+  const line = toEvidenceDto({
+    order: {
+      id: '222-2222222-2222222', itemPaise: 93800, quantity: 1,
+      quantitySource: 'label-qty',
+      itemId: 'B0TESTMERGB', itemIdSource: 'asin', itemIdReason: null,
+      source: 'order-details',
+    },
+  });
+  ok(line.order.itemId === 'B0TESTMERGB', 'the line id is sent');
+  ok(line.order.itemIdSource === 'asin', 'with the field it came from');
+  ok(!('itemIdReason' in line.order), 'and no reason, because nothing was refused');
+
+  // Zepto/Blinkit: the reader refused a row number. The REFUSAL has to travel —
+  // it is the difference between "nobody looked" and "we looked and would not
+  // trust it", and only one of those is worth investigating later.
+  const refused = toEvidenceDto({
+    order: {
+      id: 'Z-1', orderTotalPaise: 14900,
+      itemId: null, itemIdSource: null, itemIdReason: 'positional-only',
+      source: 'order-history',
+    },
+  });
+  ok(!('itemId' in refused.order), 'an unknown line id is OMITTED, never sent as an empty string');
+  ok(refused.order.itemIdReason === 'positional-only', 'but the refusal travels');
+
+  const bogus = toEvidenceDto({
+    order: {
+      id: 'X-1', itemPaise: 100,
+      itemId: 'X', itemIdSource: 'i-made-this-up', itemIdReason: 'because',
+      source: 'order-details',
+    },
+  });
+  ok(bogus.order.itemId === 'X', 'the id itself still travels');
+  ok(!('itemIdSource' in bogus.order),
+    'an invented source is dropped here rather than 400ing the whole submission');
+  ok(!('itemIdReason' in bogus.order), 'an invented reason too');
+}
+
 console.log('\n=== order.match must SURVIVE the wire (it was dropped here) ===');
 // The confirm screen's ambiguity and price warnings are driven off `match`, and
 // the backend's refund gate now REFUSES to release a doubtful match without an
