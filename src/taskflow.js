@@ -541,6 +541,142 @@ export function readMyntraEvidence(raw, target) {
 }
 
 // ---------------------------------------------------------------------------
+// MEESHO reader.
+//
+// Meesho gives us less than any other marketplace, and the reader's whole job is
+// to be honest about which parts are missing rather than to fill them in.
+//
+// WHAT THE PAYLOAD ACTUALLY CONTAINS (platforms.js, from orders.json):
+//   - the purchase: order number, sub-order number, product name, order date;
+//   - the STAR the user gave (`review.current_rating >= 1` means they rated it);
+//   - the review TEXT and any photos, but only when the app's rating call
+//     happened to be captured in the same session — on the web it usually is not.
+//
+// WHAT IT DOES NOT CONTAIN, and is therefore never invented here:
+//   - ANY amount. Not a per-item price, not even an order total. Meesho is the
+//     only marketplace that gives us no money figure at all, so the refund cannot
+//     be computed and waits for a person to state what one unit cost.
+//   - a delivery DATE. `statusmessage` says "Delivered", which is a status and not
+//     a date, and the return window is anchored to a date. So no delivery is
+//     emitted and none is guessed from the words.
+//   - a review PERMALINK. Nothing can re-check public visibility later, which is
+//     the countermeasure to a review deleted after payout. Recorded as a real
+//     limit of this marketplace, not worked around.
+//
+// THE ONE JUDGEMENT CALL, stated plainly: `approved: true` arrives hard-coded on
+// every rated sub-order in the payload. It means "the user gave a star", NOT "a
+// review is publicly visible" — and public visibility is what Fayr pays for. So
+// it is deliberately NOT read as the payout signal. A star with real review TEXT
+// behind it is the review Meesho shows a shopper, and counts. A bare star does
+// not: a star is not a review, and paying for one would pay for something no
+// other shopper can read.
+export function readMeeshoEvidence(raw, target) {
+  const t = target || {};
+  const reviews = (raw && raw.reviews) || [];
+  const totalSubOrders = raw && raw.totalSubOrders != null ? Number(raw.totalSubOrders) : 0;
+
+  // platforms.js emits ONLY rated sub-orders, so an empty list is ambiguous
+  // between "nothing was read" and "nothing is rated yet". totalSubOrders is what
+  // separates them, and the two need different sentences.
+  if (!reviews.length) {
+    return {
+      blocker: null,
+      reason: totalSubOrders > 0
+        ? 'Your Meesho order is there but not rated yet. Rate it in the Meesho app, then fetch again.'
+        : 'Couldn’t read your Meesho orders — open the Orders list, then Fetch.',
+      review: null, order: null, delivery: null, returned: null,
+    };
+  }
+
+  // Match by NAME ONLY. Every other marketplace matches on name + amount, but
+  // Meesho exposes no amount to compare, so passing one would let the matcher
+  // report an amount check it never actually ran.
+  const candidates = reviews.map((r) => ({
+    product: r.productname || null,
+    orderDate: r.orderdate != null ? r.orderdate : null,
+    _r: r,
+  }));
+  const m = t.product
+    ? matchOrderByNameAmount({ product: t.product, amount: null }, candidates)
+    : { order: null, score: 0, amountOk: null, ambiguous: false, candidateCount: 0 };
+  const picked = m.order && m.order._r ? m.order._r : null;
+
+  if (!picked) {
+    return {
+      blocker: null,
+      reason: 'This product isn’t in your rated Meesho orders yet.',
+      review: null, order: null, delivery: null, returned: null,
+    };
+  }
+
+  // A real comment (or review photos) is the difference between "they rated it"
+  // and "there is a review a shopper can read".
+  const hasText = typeof picked.reviewtext === 'string' && picked.reviewtext.trim().length > 0;
+  const mediaCount = Number.isFinite(Number(picked.mediacount)) ? Number(picked.mediacount) : 0;
+  const isPublicReview = hasText || mediaCount > 0;
+
+  const review = {
+    reviewId: picked.suborderid ? String(picked.suborderid) : null,
+    asin: null,
+    product: picked.productname || t.product || null,
+    rating: picked.rating != null ? Number(picked.rating) : null,
+    published: isPublicReview,
+    // "Verified" means the marketplace itself vouches the reviewer bought it.
+    // Meesho only lets you rate something you ordered, so the rating IS attached
+    // to a real purchase.
+    verified: true,
+    reviewDate: null,
+    reviewDateSource: 'meesho-orders-json',
+  };
+
+  return {
+    blocker: null,
+    // Said even on the good path, because "we can see the star but not the
+    // review" is the ordinary Meesho outcome and the user deserves to know why
+    // their task is waiting.
+    reason: isPublicReview
+      ? null
+      : 'We can see your Meesho star but not the review itself — Meesho only shows '
+        + 'the words in its app. A person at Fayr will check the product page.',
+    review,
+    order: {
+      id: picked.orderid || null,
+      date: toEpoch(picked.orderdate),
+      dateRaw: picked.orderdate == null ? null : String(picked.orderdate),
+      // NO amount of any kind. Meesho publishes none, so the refund holds for a
+      // staff amount decision rather than guessing from the campaign price.
+      itemPaise: null,
+      quantity: null,
+      quantityObserved: null,
+      quantitySource: null,
+      quantityReason: 'not-stated',
+      orderTotalPaise: null,
+      amountSource: null,
+      itemAmountAmbiguous: false,
+      product: picked.productname || t.product || null,
+      image: picked.imageurl || null,
+      // "Delivered" / "Order placed" — a status, shown as one, never read as a date.
+      statusText: picked.statusmessage || null,
+      match: {
+        score: m.score != null ? m.score : null,
+        // Null, not false: no amount existed to check, and false would read as
+        // "the price disagreed" on a screen that warns about exactly that.
+        amountOk: null,
+        ambiguous: m.ambiguous === true,
+        candidateCount: m.candidateCount != null ? m.candidateCount : null,
+      },
+      source: SOURCES.ORDER_HISTORY,
+    },
+    // Meesho gives a status word, not a delivery date, and the return window is
+    // anchored to a date. Emitting null keeps the window honest.
+    delivery: null,
+    // Nothing in the payload reports a return, so this stays UNKNOWN rather than
+    // asserting "not returned", which the refund gate would take as proven.
+    returned: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // QUICK-COMMERCE order-first reader: Zepto, Blinkit, Instamart.
 //
 // These three parse their order data out of the authenticated API responses the
@@ -652,6 +788,7 @@ export function readEvidence(platform, raw, target) {
     case 'amazon': return readAmazonEvidence(raw, target);
     case 'flipkart': return readFlipkartEvidence(raw, target);
     case 'myntra': return readMyntraEvidence(raw, target);
+    case 'meesho': return readMeeshoEvidence(raw, target);
     case 'zepto': return readQuickCommerceEvidence(raw, target, 'Zepto');
     case 'blinkit': return readQuickCommerceEvidence(raw, target, 'Blinkit');
     case 'instamart': return readQuickCommerceEvidence(raw, target, 'Instamart');

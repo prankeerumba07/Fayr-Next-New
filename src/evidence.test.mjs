@@ -8,7 +8,7 @@
 
 import {
   createTask, transition, readEvidence, readFlipkartEvidence, readMyntraEvidence,
-  STATES, SOURCES, DAY,
+  readMeeshoEvidence, STATES, SOURCES, DAY, BLOCKERS,
 } from './taskflow.js';
 
 let pass = 0, fail = 0;
@@ -78,6 +78,59 @@ const fkThreeRecords = {
   orderProbe: { ordersFetched: true, authFailed: false, ordersCount: 1, nameAvailable: true, targetFound: true, matchScore: 1, amountOk: true, ambiguous: false, candidateCount: 1 },
 };
 
+// MEESHO. Shaped from what platforms.js actually emits (its `finish()` payload),
+// NOT from a real capture — no Meesho order history has ever been captured, and
+// the web login is currently blocked by an order_block experiment. Every field
+// below is taken from the emitter's own source, and the reader is written to the
+// same limits the emitter documents:
+//   - NO amount anywhere in the payload. Not a per-item price, not even an order
+//     total. So the refund cannot be computed at all and waits for a person.
+//   - NO review permalink, so the ongoing public-visibility re-check cannot run.
+//   - The star comes from orders.json; the review TEXT is app-only on the web,
+//     so `reviewtext` is usually null even for a review that really exists.
+const meeshoRated = {
+  platform: 'meesho',
+  source: 'orders.json',
+  reviews: [{
+    productname: 'Boldfit Cotton Headband for Men',
+    rating: 5,
+    reviewtext: 'Fits well and holds up after washing.',
+    mediacount: 2,
+    reviewstatus: 'RATED',
+    approved: true,
+    orderid: '1234567890',
+    suborderid: '9876543210',
+    orderdate: '12 Aug 2026',
+    statusmessage: 'Delivered',
+    imageurl: 'https://images.meesho.com/x.jpg',
+    productid: '55512345',
+    verified: true,
+  }],
+  ratedCount: 1, reviewsWithText: 1, reviewsWithMedia: 1, totalSubOrders: 3,
+};
+// The ORDINARY Meesho case on the web: rated, but the comment never came through.
+const meeshoStarOnly = {
+  platform: 'meesho', source: 'orders.json',
+  reviews: [{
+    productname: 'Boldfit Cotton Headband for Men',
+    rating: 4, reviewtext: null, mediacount: null, reviewstatus: 'RATED',
+    approved: true, orderid: '1234567890', suborderid: '9876543210',
+    orderdate: '12 Aug 2026', statusmessage: 'Delivered',
+    imageurl: null, productid: '55512345', verified: true,
+  }],
+  ratedCount: 1, reviewsWithText: 0, reviewsWithMedia: 0, totalSubOrders: 3,
+};
+// Bought, never rated: platforms.js emits only RATED sub-orders, so an unrated
+// purchase arrives as an empty reviews[] with totalSubOrders > 0.
+const meeshoUnrated = {
+  platform: 'meesho', source: 'orders.json',
+  reviews: [], ratedCount: 0, reviewsWithText: 0, reviewsWithMedia: 0, totalSubOrders: 3,
+};
+const meeshoNothing = {
+  platform: 'meesho', source: 'orders.json',
+  reviews: [], ratedCount: 0, reviewsWithText: 0, reviewsWithMedia: 0, totalSubOrders: 0,
+};
+
 // Myntra: mrp only (paid price not yet located), name present, amount not checked.
 const myPaid = {
   order: {
@@ -87,6 +140,78 @@ const myPaid = {
   review: null,
   orderProbe: { ordersFetched: true, authFailed: false, ordersCount: 6, nameAvailable: true, targetFound: true, matchScore: 1, amountOk: null, ambiguous: false, candidateCount: 1 },
 };
+
+
+console.log('=== Meesho: the purchase is provable, the public review is not ===');
+{
+  const t = { product: 'Boldfit Cotton Headband', amount: 149 };
+
+  const withText = readMeeshoEvidence(meeshoRated, t);
+  ok(withText.blocker == null, 'a rated order is not a blocker');
+  ok(withText.order && withText.order.id === '1234567890', 'the order number is surfaced');
+  ok(withText.order.itemPaise === null, 'NO amount: Meesho exposes no price at all, so none is invented');
+  ok(withText.order.orderTotalPaise === null, 'not even an order total — unlike Blinkit');
+  ok(withText.order.quantity === null, 'and no unit count either');
+  ok(withText.order.product === 'Boldfit Cotton Headband for Men', 'the product name comes from the order');
+  ok(withText.order.source === SOURCES.ORDER_HISTORY, 'sourced to the order history');
+  ok(withText.review && withText.review.rating === 5, 'the star is carried');
+  ok(withText.review.published === true,
+    'a review with real TEXT is treated as the public review Meesho shows');
+  ok(withText.review.permalink == null,
+    'but there is no permalink, so nothing can re-check it later');
+
+  const starOnly = readMeeshoEvidence(meeshoStarOnly, t);
+  ok(starOnly.review && starOnly.review.rating === 4, 'a star-only rating still carries its star');
+  ok(starOnly.review.published === false,
+    'star-only is NOT public proof — a star is not a review, and the refund waits');
+  ok(starOnly.reason && /star/i.test(starOnly.reason),
+    'and the reason says so in words, not a code');
+  ok(starOnly.order && starOnly.order.id === '1234567890',
+    'the purchase is still surfaced — the order is real either way');
+}
+
+console.log('\n=== Meesho: honest misses ===');
+{
+  const t = { product: 'Boldfit Cotton Headband', amount: 149 };
+  const unrated = readMeeshoEvidence(meeshoUnrated, t);
+  ok(unrated.blocker == null && unrated.order === null,
+    'bought but never rated: the task WAITS, it does not stall');
+  ok(/not rated|rated/i.test(unrated.reason), 'and the reason says the order is not rated yet');
+
+  const nothing = readMeeshoEvidence(meeshoNothing, t);
+  ok(nothing.order === null, 'nothing read at all: no order');
+  ok(/orders/i.test(nothing.reason), 'and the reason points at the Orders list');
+
+  const wrongProduct = readMeeshoEvidence(meeshoRated, { product: 'Something Else Entirely' });
+  ok(wrongProduct.order === null,
+    "a different product does not match, so another purchase is never claimed as the campaign's");
+}
+
+console.log('\n=== Meesho: what it can and cannot advance ===');
+{
+  const t = { product: 'Boldfit Cotton Headband', amount: 149 };
+  let task = createTask({ id: 't_me', platform: 'meesho', product: 'Boldfit Cotton Headband' });
+  task = transition(task, { type: 'EVIDENCE', evidence: readMeeshoEvidence(meeshoRated, t) }).task;
+  ok(task.state === STATES.PURCHASED, 'a rated Meesho order reaches PURCHASED');
+  // No delivery date in the payload, so it cannot reach DELIVERED on its own.
+  ok(readMeeshoEvidence(meeshoRated, t).delivery === null,
+    'Meesho exposes no delivery DATE, so none is guessed from the status text');
+
+  const starTask = transition(
+    createTask({ id: 't_me2', platform: 'meesho', product: 'Boldfit Cotton Headband' }),
+    { type: 'EVIDENCE', evidence: readMeeshoEvidence(meeshoStarOnly, t) },
+  ).task;
+  const held = transition(starTask, { type: 'START_HOLD' });
+  ok(held.task.blocker === BLOCKERS.REVIEW_NOT_PUBLIC || held.rejected,
+    'a star-only task cannot start the return-window hold — the payout signal is missing');
+}
+
+console.log('\n=== Meesho: routed by the dispatcher ===');
+{
+  const ev = readEvidence('meesho', meeshoRated, { product: 'Boldfit Cotton Headband' });
+  ok(ev.order && ev.order.id === '1234567890', 'readEvidence("meesho") reaches the Meesho reader');
+  ok(!/isn.t wired/.test(ev.reason || ''), 'and no longer reports Meesho as unwired');
+}
 
 console.log('=== Flipkart: HOW MANY UNITS — from a record that states its own count ===');
 {
