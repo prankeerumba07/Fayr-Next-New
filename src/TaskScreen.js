@@ -119,12 +119,25 @@ function nextStepGaps(authoritative, view, platformName) {
   return [];
 }
 
-// How the review becomes verifiable, per marketplace. This is deliberately NOT
-// the web prototype's copy: the prototype tells quick-commerce/Meesho users their
-// rating is "confirmed instantly" from the in-app signal, but that weak
-// `is_rated` marker must never stand as proof on its own (fraud model, loophole
-// 2). For those platforms a Fayr reviewer confirms the review is genuinely live,
-// so the copy says exactly that.
+// How the review becomes verifiable, per marketplace — and it is NOT the same
+// answer on each, so this map says what actually happens rather than one
+// reassuring sentence stretched over seven platforms.
+//
+// Three routes exist:
+//   Amazon / Flipkart   a machine settles it. Amazon's public review permalink
+//                       is fetched; Flipkart states its own moderation verdict.
+//   Meesho              nothing can settle it — the words live only in Meesho's
+//                       app — so a Fayr reviewer opens the product page by hand.
+//   Blinkit/Zepto/      the order itself carries the rating marker, and it is
+//   Instamart           read straight from the account.
+//
+// HONEST NOTE, because this comment used to claim otherwise: on the three
+// quick-commerce platforms NO person checks anything. The copy here said "a Fayr
+// reviewer confirms your rating" while the reader accepts the order's own
+// `is_rated` marker and advances — so the app described a queue nobody was
+// standing in. That marker is weaker than a public review (it says the account
+// rated the item, not that anything is publicly readable); accepting it is a
+// deliberate product decision, recorded as one, and the copy now matches it.
 const REVIEW_VERIFY = {
   amazon: {
     title: 'Review under verification',
@@ -138,21 +151,29 @@ const REVIEW_VERIFY = {
     title: 'Review publishing',
     sub: 'Myntra is publishing your review to the product page.',
   },
+  // The only platform where a person really does look. Meesho keeps review text
+  // inside its own app, so nothing Fayr runs can check the product page — a
+  // reviewer opens it by hand and records what they saw. This copy promised that
+  // long before the reviewer had any way to do it; the promise is now real.
   meesho: {
     title: 'Reviewer check',
-    sub: 'Meesho doesn’t show review text publicly, so a Fayr reviewer confirms yours is live.',
+    sub: 'Meesho only shows review text in its app, so someone at Fayr opens the product page and checks yours is there.',
   },
+  // NOT a reviewer check, and it used to say it was. Blinkit, Zepto and
+  // Instamart mark the rating on the order itself, so it is read straight from
+  // the account — no person is involved and none is waited for. Saying otherwise
+  // invented a queue nobody was standing in.
   blinkit: {
-    title: 'Reviewer check',
-    sub: 'Blinkit has no public review page, so a Fayr reviewer confirms your rating.',
+    title: 'Rating check',
+    sub: 'Blinkit shows your rating on the order, so we confirm it from your account.',
   },
   zepto: {
-    title: 'Reviewer check',
-    sub: 'Zepto has no public review page, so a Fayr reviewer confirms your rating.',
+    title: 'Rating check',
+    sub: 'Zepto shows your rating on the order, so we confirm it from your account.',
   },
   instamart: {
-    title: 'Reviewer check',
-    sub: 'Instamart has no public review page, so a Fayr reviewer confirms your rating.',
+    title: 'Rating check',
+    sub: 'Instamart shows your rating on the order, so we confirm it from your account.',
   },
 };
 

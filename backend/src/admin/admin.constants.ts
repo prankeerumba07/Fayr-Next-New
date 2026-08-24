@@ -29,6 +29,7 @@ export const AUDIT_ACTIONS = {
   DUPLICATE_ORDER_ALLOW: 'DUPLICATE_ORDER_ALLOW', // staff let a second task on one order be paid
   TASK_QUANTITY_SET: 'TASK_QUANTITY_SET', // staff read the unit count off the order page
   TASK_AMOUNT_SET: 'TASK_AMOUNT_SET', // staff read what one unit cost off a real document
+  TASK_REVIEW_VISIBLE: 'TASK_REVIEW_VISIBLE', // staff opened the product page and said whether the review is there
 } as const;
 
 /** The staff roles an admin can assign. Kept here so the DTO + tests share one list. */

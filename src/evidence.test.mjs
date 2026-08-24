@@ -159,11 +159,18 @@ console.log('=== Meesho: the purchase is provable, the public review is not ==='
     'a review with real TEXT is treated as the public review Meesho shows');
   ok(withText.review.permalink == null,
     'but there is no permalink, so nothing can re-check it later');
+  // WHO said the review is public. On Meesho the honest answer is "nobody":
+  // published:false here is an ABSENCE of information, not a finding, and the
+  // difference is what decides whether a Fayr reviewer is allowed to fill it.
+  ok(withText.review.publishedSource == null,
+    'and nothing CHECKED a public page, so the visibility verdict is left unsourced');
 
   const starOnly = readMeeshoEvidence(meeshoStarOnly, t);
   ok(starOnly.review && starOnly.review.rating === 4, 'a star-only rating still carries its star');
   ok(starOnly.review.published === false,
     'star-only is NOT public proof — a star is not a review, and the refund waits');
+  ok(starOnly.review.publishedSource == null,
+    'unsourced too: no machine looked, which is exactly why a person is allowed to');
   ok(starOnly.reason && /star/i.test(starOnly.reason),
     'and the reason says so in words, not a code');
   ok(starOnly.order && starOnly.order.id === '1234567890',
@@ -366,6 +373,8 @@ console.log('\n=== Zepto: rated order matched by name+amount -> DELIVERED, image
   ok(ev.order.match && ev.order.match.amountOk === true, 'amount corroborated the name match');
   ok(ev.order.source === SOURCES.ORDER_HISTORY, 'sourced to the order-history API');
   ok(ev.review && ev.review.published === true, 'rated order -> the review signal these platforms expose');
+  ok(ev.review.publishedSource === SOURCES.ORDER_HISTORY,
+    'sourced to the order record that stated it, so no staff check is ever needed here');
   ok(ev.delivery && ev.delivery.at === delivered, 'delivery date surfaced');
   let t = createTask({ id: 't_zep', platform: 'zepto' });
   t = transition(t, evEvent(ev)).task;
@@ -379,6 +388,7 @@ console.log('\n=== Blinkit: order total shown as the order amount; rated -> publ
   ok(ev.order.orderTotalPaise === 27500, 'order amount 275 -> 27500 paise');
   ok(ev.order.image === 'https://cdn.grofers.com/product/butter.jpg', 'blinkit product image surfaced');
   ok(ev.review && ev.review.published === true, 'rated order -> published');
+  ok(ev.review.publishedSource === SOURCES.ORDER_HISTORY, 'and sourced to the order record');
 }
 
 console.log('\n=== Instamart: advances even though web exposes no amount or image (honest nulls) ===');
@@ -495,6 +505,8 @@ console.log('\n=== Idempotency: re-fetching the same order is a no-op, not a sec
   ok(viaName.review != null, 'a variant-ASIN review is now matched by NAME');
   ok(viaName.review.asin === 'B0VARIANT9', 'and it keeps the real variant ASIN it was found under');
   ok(viaName.review.published === true, 'published survives the fallback path');
+  ok(viaName.review.publishedSource === SOURCES.REVIEW_PUBLIC,
+    'and it is sourced to the public-review read that produced it — a machine, not a person');
 }
 
 // ---------------------------------------------------------------------------

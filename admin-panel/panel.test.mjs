@@ -45,6 +45,7 @@ console.log('\n=== 2. every tab is wired all the way through ===');
     );
   }
   ok(ids.includes('amounts'), 'the unit-count queue is in the sidebar, not hidden in a menu');
+  ok(ids.includes('reviews'), 'the review-check queue is in the sidebar too — a power with no queue is a dead end');
 }
 
 console.log('\n=== 3. the panel never computes money itself ===');
@@ -116,6 +117,35 @@ console.log('\n=== 4c. the panel\'s source list matches the server\'s ===');
   }
 }
 
+console.log('\n=== 4d. the eyes-on-page review check ===');
+{
+  const card = (script.match(/function ReviewCheckCard\(it\)[\s\S]*?\n    }\n/) || [])[0] || '';
+  ok(card.length > 500, 'the review-check card was found');
+
+  // This action settles `published`, which is what starts the holding period. So
+  // it is held to the same standard as the amount: WHERE, and WHAT you saw.
+  ok(/The page you opened/.test(card), 'the page the reviewer opened is asked for');
+  ok(/https\?:/.test(card), 'and it has to look like a real http(s) address');
+  ok(/What you saw/.test(card), 'what they saw is asked for separately');
+  ok(/reasonIn\.value\.trim\(\)\.length >= 3/.test(card), 'and it cannot be blank');
+  ok(!/placeholder[^)]*"confirmed"/i.test(card) && !/value:\s*"confirmed"/i.test(card),
+    'with no invented default like "confirmed"');
+  ok(/required/i.test(card), 'both fields are labelled as required to the person typing');
+
+  // A confirmation that cannot be taken back is a one-way door on a payout signal.
+  ok(/withdraw/i.test(card), 'a reviewer who was wrong can withdraw it');
+  ok(/Save correction/.test(card), 'and a second answer reads as a correction');
+  ok(/already confirmed/i.test(card), 'an existing confirmation is stated back before it is overwritten');
+
+  // The hole this action creates has to be visible ON the card, not only in a
+  // document nobody reads while doing the work.
+  ok(/cannot check it again/i.test(card),
+    'the card says plainly that nothing can ever re-check this one');
+
+  // No local verdict-making: the server decides whether this may be recorded.
+  ok(/review-visible/.test(card), 'the decision goes to the server, which owns every gate');
+}
+
 console.log('\n=== 5b. no banner is invisible ===');
 {
   // `.flash` on its own has padding but no colour or background — text in one is
@@ -127,8 +157,11 @@ console.log('\n=== 5b. no banner is invisible ===');
 console.log('\n=== 6. the hold is explained in words, never as an enum ===');
 {
   ok(script.includes('heldExplanation'), 'the server sentence is rendered');
+  ok(script.includes('whyNoMachineCheck'), 'and so is the review-check sentence');
   ok(!/quantity-unknown|quantity-not-divisible/.test(script),
     'no internal reason string is printed to the screen');
+  ok(!/staff-confirmed-visible|publishedSource/.test(script),
+    'no internal source name is printed to the screen either');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

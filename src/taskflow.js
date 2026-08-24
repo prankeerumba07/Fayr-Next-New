@@ -66,6 +66,13 @@ export const SOURCES = {
   ORDER_HISTORY: 'order-history', // Flipkart/Myntra: their authenticated JSON order API
   DKIM: 'dkim',                   // fallback for gap 1
   MANUAL: 'manual',               // last resort, user-entered
+  // WHO settled "is this review publicly visible" - a MACHINE did. Either the
+  // public review permalink was fetched (Amazon) or the marketplace stated its
+  // own moderation verdict (Flipkart says "approved"). Distinct from the order
+  // sources because it answers a different question, and it is the field the
+  // backend ranks when deciding whether a Fayr reviewer may fill the gap by eye.
+  // Mirrored in backend/src/tasks/engine/states.ts - keep the two in step.
+  REVIEW_PUBLIC: 'review-public',
 };
 
 // ---------------------------------------------------------------------------
@@ -184,6 +191,11 @@ export function readAmazonEvidence(raw, target) {
     // only signal that held in every capture, including runs where the orders
     // page failed entirely.
     published: review.published === true,
+    // A MACHINE reached that verdict, by fetching the public page. Recorded so a
+    // Fayr reviewer's eye-witness cannot overrule it later: a person remembering
+    // a page is weaker evidence than a fetch of that page, and treating them as
+    // peers would make the deleted-review countermeasure overridable by hand.
+    publishedSource: SOURCES.REVIEW_PUBLIC,
     verified: review.verified === true,
     // ANTI-REPLAY control: proves the review post-dates the order, which is what
     // stops a claim on a product reviewed years ago. Verified 2026-07-15 (the
@@ -410,6 +422,9 @@ export function readFlipkartEvidence(raw, target) {
     // VERIFIED: the reviews fetch resolves this from Flipkart's own moderation
     // status ("approved") - see platforms.js. Here it is passed through only.
     published: review.published === true,
+    // Flipkart states its own publication verdict, so a machine has settled it
+    // and no staff check is needed - or permitted - on this platform.
+    publishedSource: SOURCES.REVIEW_PUBLIC,
     verified: review.verified === true,
     reviewDate: toEpoch(review.reviewdate),
     reviewDateSource: review.reviewdate ? 'flipkart-api' : null,
@@ -621,6 +636,13 @@ export function readMeeshoEvidence(raw, target) {
     product: picked.productname || t.product || null,
     rating: picked.rating != null ? Number(picked.rating) : null,
     published: isPublicReview,
+    // DELIBERATELY UNSOURCED, in both directions. Nothing here looked at a public
+    // page: Meesho shows the star on the order and keeps the words inside its own
+    // app, so `published` is a reading of the payload rather than a check of the
+    // page. Leaving the verdict unsourced is what lets a Fayr reviewer fill it by
+    // eye - a null is a gap a person may fill, a source is a machine's answer they
+    // may not overrule.
+    publishedSource: null,
     // "Verified" means the marketplace itself vouches the reviewer bought it.
     // Meesho only lets you rate something you ordered, so the rating IS attached
     // to a real purchase.
@@ -740,6 +762,11 @@ function readQuickCommerceEvidence(raw, target, platformName) {
     // Quick-commerce has no public per-product review permalink to fetch, so the
     // order's own rating marker is the visibility signal these platforms expose.
     published: true,
+    // Read off the marketplace's own order record, so it is machine-settled and
+    // never waits on a person. NOTE this is weaker than it looks: the marker says
+    // the account rated the item, not that anything is publicly readable - the
+    // difference is recorded in the security document rather than papered over.
+    publishedSource: SOURCES.ORDER_HISTORY,
     verified: true,
     reviewDate: null,
     reviewDateSource: `${platformName.toLowerCase()}-order-rating`,

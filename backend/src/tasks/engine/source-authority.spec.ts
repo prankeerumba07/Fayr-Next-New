@@ -13,7 +13,7 @@
 // fact or stand alone as the basis for money.
 
 import {
-  ASSERTED_SOURCES, DAY, SOURCES, isAttestedSource, sourceRank,
+  ASSERTED_SOURCES, ATTESTED_SOURCES, DAY, SOURCES, isAttestedSource, sourceRank,
 } from './states';
 import { createTask, type EngineTask } from './task-state';
 import { transition, type EngineEvent } from './transition';
@@ -35,21 +35,37 @@ function drive(task: EngineTask, events: EngineEvent[]): EngineTask {
 
 describe('evidence authority — attested beats asserted', () => {
   it('ranks the marketplace-read sources strictly above the human-asserted ones', () => {
-    // Attested: a machine read it off the marketplace.
-    const attested = [SOURCES.DKIM, SOURCES.ORDER_DETAILS, SOURCES.ORDER_HISTORY];
-    // Asserted: a person typed it, or a picture/PDF implied it.
-    const asserted = [SOURCES.MANUAL, SOURCES.INVOICE, SOURCES.OCR];
-
-    for (const a of attested) {
-      for (const b of asserted) {
+    // Read off the two exported lists rather than two copies written out here.
+    // A hand-maintained list drifts the moment a source is added — and a source
+    // that nobody remembered to add would silently tie with everything, which is
+    // the hole this whole file exists to close.
+    for (const a of ATTESTED_SOURCES) {
+      for (const b of ASSERTED_SOURCES) {
         expect(sourceRank(a)).toBeGreaterThan(sourceRank(b));
       }
     }
+    // Both lists are non-empty and cover every known source, so the loop above
+    // cannot pass by iterating over nothing.
+    expect(ATTESTED_SOURCES.length + ASSERTED_SOURCES.length).toBe(
+      Object.keys(SOURCES).length,
+    );
   });
 
   it('puts DKIM above scraping — a signed email cannot be forged by the user', () => {
     expect(sourceRank(SOURCES.DKIM)).toBeGreaterThan(sourceRank(SOURCES.ORDER_DETAILS));
     expect(sourceRank(SOURCES.DKIM)).toBeGreaterThan(sourceRank(SOURCES.ORDER_HISTORY));
+    expect(sourceRank(SOURCES.DKIM)).toBeGreaterThan(sourceRank(SOURCES.REVIEW_PUBLIC));
+  });
+
+  it('puts a Fayr reviewer above anything the USER hands us, and below every machine', () => {
+    // The one asserted source the user cannot choose: a staff member opening a
+    // public product page. See review-visibility.spec.ts for what rests on it.
+    for (const userSupplied of [SOURCES.INVOICE, SOURCES.MANUAL, SOURCES.OCR]) {
+      expect(sourceRank(SOURCES.STAFF_VISIBLE)).toBeGreaterThan(sourceRank(userSupplied));
+    }
+    for (const machine of ATTESTED_SOURCES) {
+      expect(sourceRank(machine)).toBeGreaterThan(sourceRank(SOURCES.STAFF_VISIBLE));
+    }
   });
 
   it('classifies every known source, and treats an unknown one as least trusted', () => {

@@ -34,11 +34,14 @@ const BLOCKER_VALUES = Object.values(BLOCKERS);
  * machine read off the marketplace itself (a DKIM-signed email, or the scraper
  * reading the account's own pages on-device).
  *
- * Every ASSERTED source — `manual`, `invoice`, `ocr` — is refused here, because
- * all three are values the user chose: anyone can type "I paid ₹5,000", and a
+ * Every ASSERTED source is refused here. Three of them — `manual`, `invoice`,
+ * `ocr` — are values the user chose: anyone can type "I paid ₹5,000", and a
  * doctored screenshot or PDF extracts perfectly cleanly. They are minted ONLY by
  * the staff verification approve action, so refusing them here is what makes the
- * human gate mandatory rather than merely conventional.
+ * human gate mandatory rather than merely conventional. The fourth,
+ * `staff-confirmed-visible`, is refused for a sharper reason: it OUTRANKS the
+ * device's own reads on the visibility verdict, so a client able to claim it
+ * could pin `published: true` where nothing could correct it.
  *
  * This used to allow-list everything except `ocr`, which left `manual` (a source
  * that already existed) fully user-submittable — and, before the authority
@@ -54,6 +57,19 @@ class EvidenceReviewDto {
   @IsOptional() @IsString() product?: string;
   @IsOptional() @IsInt() rating?: number;
   @IsBoolean() published!: boolean;
+  /**
+   * WHO established `published`, from the ATTESTED list only.
+   *
+   * `staff-confirmed-visible` is deliberately not accepted here: it is asserted,
+   * so the allow-list excludes it, and it can be minted only by the staff
+   * eyes-on-page action. Without that exclusion a client could claim the tier
+   * that outranks its own reads and pin `published: true` beyond the reach of the
+   * device's own honest answer.
+   *
+   * Omitted means "nobody established it" — the ordinary Meesho answer, and the
+   * gap the staff action is allowed to fill.
+   */
+  @IsOptional() @IsIn(SOURCE_VALUES) publishedSource?: string;
   @IsOptional() @IsBoolean() verified?: boolean;
   @IsOptional() @IsInt() reviewDate?: number; // epoch ms
   @IsOptional() @IsString() reviewDateSource?: string;
@@ -178,6 +194,8 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
           product: dto.review.product ?? null,
           rating: dto.review.rating ?? null,
           published: dto.review.published,
+          publishedSource:
+            (dto.review.publishedSource as SourceName | undefined) ?? null,
           verified: dto.review.verified,
           reviewDate: dto.review.reviewDate ?? null,
           reviewDateSource: dto.review.reviewDateSource ?? null,

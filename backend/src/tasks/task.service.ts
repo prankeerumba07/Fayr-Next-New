@@ -26,7 +26,7 @@ import type {
 } from './engine/evidence.types';
 import { computeRefundPaise } from './engine/money';
 import { policyForWindowDays } from './engine/return-policy';
-import { DAY, STATES } from './engine/states';
+import { DAY, SOURCES, STATES } from './engine/states';
 import {
   refundEligibility,
   transition,
@@ -44,6 +44,13 @@ import {
   type AwaitingAmountResponse,
   type RefundPreviewResponse,
 } from './awaiting-amount.response';
+import {
+  machineSettledVisibility,
+  needsEyesOnPage,
+  toReviewCheckItem,
+  type ReviewCheckItem,
+  type ReviewCheckResponse,
+} from './review-check.response';
 import { toTaskResponse, type TaskResponse } from './task.response';
 import {
   evidenceFromDto,
@@ -438,6 +445,191 @@ export class TaskService {
       `staff-amount:${input.unitPricePaise.toString()}`,
     );
     return { task, userId: row.userId, previousUnitPricePaise };
+  }
+
+  /**
+   * Every review waiting on a person to open a product page and look.
+   *
+   * Same shape as the unit-count queue and for the same reason: the app already
+   * tells these users a Fayr reviewer will confirm their review is live, and a
+   * promise with no queue behind it is a promise nobody keeps. The SQL narrows to
+   * rows that could possibly qualify; the real predicate (needsEyesOnPage) runs
+   * over the hydrated evidence, so there is one definition of the decision rather
+   * than a JSONB expression drifting alongside it.
+   */
+  async listAwaitingReviewCheck(): Promise<ReviewCheckResponse> {
+    const rows = await this.prisma.task.findMany({
+      // A review only becomes relevant once the purchase is real, and a REFUNDED
+      // task is already paid. Everything else is the resolver's call.
+      where: { state: { in: ['PURCHASED', 'DELIVERED', 'REVIEWED', 'HOLDING'] } },
+      include: { campaign: true, user: { select: { id: true, mobile: true } } },
+      orderBy: { createdAt: 'asc' }, // oldest first: someone has waited longest
+      take: 200,
+    });
+    const items = rows
+      .map((row) => toReviewCheckItem(row))
+      .filter((item): item is ReviewCheckItem => item !== null);
+    return { items, total: items.length };
+  }
+
+  /**
+   * A staff member states that they opened the public product page and saw (or
+   * did not see) the review.
+   *
+   * THE MOST DIRECT of the three staff decisions: `published` is the payout
+   * signal — it starts the holding period, and the holding period is the only
+   * thing between a review and a refund. So it goes through applyEvidence like
+   * every other evidence write. There is deliberately no second route that sets
+   * `published` on its own; a second route to a payout signal is the exact defect
+   * class this codebase keeps finding.
+   *
+   * Three gates:
+   *
+   *   1. A REVIEW MUST ALREADY BE ON FILE, with the marketplace's own star.
+   *      Confirming the visibility of a review nothing has reported would let a
+   *      person invent the review itself, which is a far larger claim than the one
+   *      this action is for.
+   *   2. IT FILLS A GAP, IT DOES NOT OVERRULE A MACHINE. If anything that
+   *      outranks a person has checked the public page — the permalink fetch, the
+   *      marketplace's own moderation verdict — that stands. Otherwise this action
+   *      would be a hand-operated way to disarm the deleted-review countermeasure.
+   *   3. ONLY THE TIER THAT SPOKE MAY TAKE IT BACK. `visible: false` is a
+   *      withdrawal of a Fayr reviewer's own confirmation, not a new power to
+   *      un-publish something a machine established.
+   *
+   * It moves no money. The return window, the delivery date, the amount and the
+   * FINANCE-gated withdrawal all still stand between this and a rupee.
+   */
+  async confirmReviewVisible(
+    taskId: string,
+    input: { visible: boolean; productUrl: string; seenAt?: string; },
+  ): Promise<{
+    task: TaskResponse;
+    userId: string;
+    seenAt: string;
+    /** What the verdict was before, so a correction reads as a correction. */
+    previousVisible: boolean | null;
+    previousSource: string | null;
+    previousUrl: string | null;
+    /** True when the record already said this — nothing was written. */
+    unchanged: boolean;
+  }> {
+    const row = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { campaign: true },
+    });
+    if (!row) throw new NotFoundException('Task not found');
+    const engine = toEngineTask(row, []);
+    const review = engine.review;
+
+    // Gate 1 — there has to be a review to be visible.
+    if (!needsEyesOnPage(review)) {
+      if (!review || review.rating == null) {
+        // Plain words: staff read these out to people on the phone.
+        throw new ConflictException(
+          'There is no review on this task yet, so there is nothing to confirm. '
+          + 'The marketplace has to show the rating first.',
+        );
+      }
+      // Gate 2 — a machine has already looked at the public page.
+      if (machineSettledVisibility(review)) {
+        throw new ConflictException(
+          review.published === true
+            ? 'Fayr has already checked the public review page for this one and '
+              + 'found the review, so there is nothing to add by hand.'
+            : 'Fayr has already checked the public review page for this one and '
+              + 'the review was not there. That cannot be overridden by hand — it '
+              + 'needs a decision about which observation to believe.',
+        );
+      }
+      throw new ConflictException(
+        'This review is already counted as publicly visible, so there is nothing '
+        + 'waiting on a check.',
+      );
+    }
+
+    const previousVisible =
+      review!.publishedSource === SOURCES.STAFF_VISIBLE
+        ? review!.published === true
+        : null;
+
+    // Gate 3 — you may only withdraw what a Fayr reviewer said. Reaching this
+    // point already means no machine has settled it, so the only remaining case
+    // is "nobody has said anything yet", and there is nothing to withdraw.
+    if (!input.visible && review!.publishedSource !== SOURCES.STAFF_VISIBLE) {
+      throw new ConflictException(
+        'Nobody has confirmed this review is live, so there is nothing to '
+        + 'withdraw. Leave it as it is and it stays in the queue.',
+      );
+    }
+
+    const seenAtMs =
+      input.seenAt != null ? new Date(input.seenAt).getTime() : Date.now();
+    if (!Number.isFinite(seenAtMs)) {
+      throw new BadRequestException('That date could not be read.');
+    }
+    if (seenAtMs > Date.now()) {
+      throw new BadRequestException(
+        'That date is in the future — nobody has looked at a page tomorrow.',
+      );
+    }
+    if (seenAtMs < row.createdAt.getTime()) {
+      throw new BadRequestException(
+        'That date is before this task was even claimed, so the review could not '
+        + 'have been on the page then.',
+      );
+    }
+
+    // Nothing would change: the same verdict, from the same tier, on the same
+    // page. Report the task as it stands rather than writing a second identical
+    // event — a double click is one decision.
+    if (
+      previousVisible === input.visible &&
+      review!.visibleUrl === input.productUrl
+    ) {
+      return {
+        task: toTaskResponse(row, row.campaign),
+        userId: row.userId,
+        seenAt: new Date(review!.visibleCheckedAt ?? seenAtMs).toISOString(),
+        previousVisible,
+        previousSource: review!.publishedSource ?? null,
+        previousUrl: review!.visibleUrl ?? null,
+        unchanged: true,
+      };
+    }
+
+    const task = await this.applyEvidence(
+      row.userId,
+      taskId,
+      {
+        // The whole review is resent because the engine replaces `review`
+        // wholesale rather than merging fields; a partial one would drop the star
+        // and the review id.
+        review: {
+          ...review!,
+          published: input.visible,
+          publishedSource: SOURCES.STAFF_VISIBLE,
+          visibleUrl: input.productUrl,
+          visibleCheckedAt: seenAtMs,
+        },
+      },
+      // UNIQUE per press, not derived from the verdict. A key like
+      // `staff-visible:yes` looks idempotent and is actually a trap: confirm →
+      // withdraw → confirm repeats the first key, the engine treats the third
+      // press as a duplicate and silently does nothing, and the panel says
+      // "saved" over a record that did not change. The no-op case above is what
+      // makes a double click one decision; this only has to be distinct.
+      `staff-visible:${input.visible ? 'yes' : 'no'}:${randomUUID()}`,
+    );
+    return {
+      task,
+      userId: row.userId,
+      seenAt: new Date(seenAtMs).toISOString(),
+      previousVisible,
+      previousSource: review!.publishedSource ?? null,
+      previousUrl: review!.visibleUrl ?? null,
+      unchanged: false,
+    };
   }
 
   /** The caller's tasks, newest first. */

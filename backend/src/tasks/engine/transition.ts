@@ -2,6 +2,7 @@ import type { Evidence, EvidenceReview } from './evidence.types';
 import {
   DAY,
   BLOCKERS,
+  SOURCES,
   STATES,
   rank,
   sourceRank,
@@ -166,7 +167,12 @@ function onEvidence(task: EngineTask, evidence: Evidence): HandlerOutput {
         blocker: e.blocker,
         blockerReason: e.reason ?? null,
         probe: e.probe ?? null,
-        review: e.review ?? task.review,
+        // Through the SAME authority check as the success path below. This branch
+        // used to replace the review wholesale, which was a second route straight
+        // past it: an Amazon read that failed at the ORDER stage still carries a
+        // review, and it would have silently undone a visibility verdict that
+        // outranks it.
+        review: e.review ? preferReview(task.review, e.review) : task.review,
       },
       to: task.state,
       reason: e.blocker,
@@ -186,7 +192,11 @@ function onEvidence(task: EngineTask, evidence: Evidence): HandlerOutput {
     blockerReason: e.reason ?? null,
     probe: e.probe ?? null,
   };
-  if (e.review) patch.review = e.review;
+  // `published` is a PAYOUT SIGNAL, so the review is merged by authority too —
+  // see preferReview. For every review written before `publishedSource` existed
+  // this is a no-op (rank 0 vs rank 0 keeps last-write-wins), which is deliberate:
+  // nothing that released yesterday behaves differently today.
+  if (e.review) patch.review = preferReview(task.review, e.review);
   // Order & delivery carry a `source`: a LOWER-authority source (e.g. an
   // OCR-read screenshot) must never overwrite a fact a HIGHER-authority source
   // (DKIM/scraper order read) already established — otherwise a later OCR
@@ -214,6 +224,33 @@ function preferByAuthority<T extends { source?: string | null }>(
   incoming: T,
 ): T {
   if (incumbent && sourceRank(incoming.source) < sourceRank(incumbent.source)) {
+    return incumbent;
+  }
+  return incoming;
+}
+
+/**
+ * The same rule for a review, ranked on `publishedSource` rather than `source`,
+ * because `published` is the only fact on a review that money depends on.
+ *
+ * Both directions matter and each has cost real product behaviour:
+ *   - a device read that never looked at a public page must not undo a Fayr
+ *     reviewer who did (Meesho emits published:false on EVERY fetch, so without
+ *     this the eyes-on-page confirmation would survive until the user next
+ *     pressed Fetch);
+ *   - a machine that DID fetch the page must be able to overturn that reviewer,
+ *     or the confirmation becomes a hand-operated way to disarm the
+ *     deleted-review countermeasure.
+ */
+function preferReview(
+  incumbent: EvidenceReview | null,
+  incoming: EvidenceReview,
+): EvidenceReview {
+  if (
+    incumbent &&
+    sourceRank(incoming.publishedSource) <
+      sourceRank(incumbent.publishedSource)
+  ) {
     return incumbent;
   }
   return incoming;
@@ -319,11 +356,34 @@ function onReleaseRefund(
   };
 }
 
+/**
+ * Apply a VISIBILITY_CHECK verdict to the review.
+ *
+ * Stamped as a MACHINE read, because that is what it is: this event is only ever
+ * reached after the scheduler has fetched the review's public permalink (see
+ * SchedulerService.runTick, which skips any task without one and treats a
+ * transient fetch failure as "no answer" rather than "not visible"). Stamping it
+ * is what lets the re-check overturn a staff eye-witness — the loophole-3
+ * countermeasure has to be the strongest thing in the system, not a peer of
+ * somebody's recollection.
+ *
+ * The staff observation fields are cleared with it: a machine has now answered
+ * the question, so leaving "a person saw it at this URL on Tuesday" beside the
+ * newer verdict would produce a record that contradicts itself.
+ */
 function withPublished(
   review: EvidenceReview | null,
   published: boolean,
 ): EvidenceReview | null {
-  return review ? { ...review, published } : review;
+  return review
+    ? {
+        ...review,
+        published,
+        publishedSource: SOURCES.REVIEW_PUBLIC,
+        visibleUrl: null,
+        visibleCheckedAt: null,
+      }
+    : review;
 }
 
 export interface RefundEligibility {

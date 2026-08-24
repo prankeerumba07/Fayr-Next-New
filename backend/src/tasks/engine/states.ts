@@ -60,9 +60,28 @@ export const SOURCES = {
   ORDER_DETAILS: 'order-details',
   ORDER_HISTORY: 'order-history',
   DKIM: 'dkim',
+  /**
+   * A machine established that the review is PUBLICLY VISIBLE — either by
+   * fetching the public permalink (Amazon, and the HOLDING re-check) or by
+   * reading the marketplace's own moderation verdict (Flipkart says "approved").
+   * The only source that can settle `published` without a person.
+   */
+  REVIEW_PUBLIC: 'review-public',
   MANUAL: 'manual',
   INVOICE: 'invoice',
   OCR: 'ocr',
+  /**
+   * A Fayr reviewer opened the public product page and said what they saw.
+   *
+   * Its own tier because it is unlike everything else here: asserted, so no
+   * machine stands behind it, yet NOT chosen by the person being paid. It exists
+   * for Meesho, which shows the star on the order and the words only inside its
+   * app — so no machine can ever settle `published` there and the alternative is
+   * a task that can never be refunded at all.
+   *
+   * It fills a gap and never overrules a machine. See review-visibility.spec.ts.
+   */
+  STAFF_VISIBLE: 'staff-confirmed-visible',
 } as const;
 
 export type SourceName = (typeof SOURCES)[keyof typeof SOURCES];
@@ -76,17 +95,24 @@ export const ATTESTED_SOURCES: readonly SourceName[] = [
   SOURCES.DKIM,
   SOURCES.ORDER_DETAILS,
   SOURCES.ORDER_HISTORY,
+  SOURCES.REVIEW_PUBLIC,
 ];
 
 /**
- * ASSERTED — a person typed it, or a picture/PDF they chose implied it. Anyone
- * can type "I paid ₹5,000", and a doctored screenshot extracts perfectly
- * cleanly, so these are supporting evidence only and always need a human.
+ * ASSERTED — a person said so. Anyone can type "I paid ₹5,000", and a doctored
+ * screenshot extracts perfectly cleanly, so these are supporting evidence only
+ * and always need a human in the loop.
+ *
+ * `staff-confirmed-visible` belongs here for the same reason the others do — no
+ * machine stands behind it — but it is not the same KIND of assertion: the other
+ * three are chosen by the person being paid, and that one is not. The ranking
+ * below is where that difference is expressed, not this list.
  */
 export const ASSERTED_SOURCES: readonly SourceName[] = [
   SOURCES.INVOICE,
   SOURCES.MANUAL,
   SOURCES.OCR,
+  SOURCES.STAFF_VISIBLE,
 ];
 
 export function isAttestedSource(source?: string | null): boolean {
@@ -104,21 +130,33 @@ export function isAttestedSource(source?: string | null): boolean {
  * replace genuine scraped order data by last-write-wins.
  *
  * Tiers, highest first:
- *   4  dkim           — signed by the marketplace; the user cannot forge it
- *   3  order-details  — scraped from the account's own pages, on-device
- *   3  order-history  — ditto (peers: a re-fetch should still update)
- *   2  invoice        — a document the USER chose to upload
- *   1  manual         — a number the USER typed
- *   1  ocr            — a screenshot the USER chose
- *   0  unknown        — never ties with anything real
+ *   5  dkim                     — signed by the marketplace; unforgeable by the user
+ *   4  order-details            — scraped from the account's own pages, on-device
+ *   4  order-history            — ditto (peers: a re-fetch should still update)
+ *   4  review-public            — the public review itself, read by machine
+ *   3  staff-confirmed-visible  — a Fayr reviewer opened the page and looked
+ *   2  invoice                  — a document the USER chose to upload
+ *   1  manual                   — a number the USER typed
+ *   1  ocr                      — a screenshot the USER chose
+ *   0  unknown                  — never ties with anything real
  *
  * `ocr` and `manual` sit level deliberately: both are entirely user-chosen, and
  * neither should be able to overwrite the other's staff-approved value.
+ *
+ * `staff-confirmed-visible` sits in a gap of its own, between every machine and
+ * everything the user hands us, and the gap is the whole point:
+ *   - ABOVE the user's own evidence, because a Fayr reviewer's observation is not
+ *     something the person being paid selected;
+ *   - BELOW every machine read, because a person remembering a page is weaker
+ *     than a fetch of that page — which keeps the deleted-review countermeasure
+ *     armed rather than overridable by hand.
  */
 const SOURCE_RANK: Record<string, number> = {
-  [SOURCES.DKIM]: 4,
-  [SOURCES.ORDER_DETAILS]: 3,
-  [SOURCES.ORDER_HISTORY]: 3,
+  [SOURCES.DKIM]: 5,
+  [SOURCES.ORDER_DETAILS]: 4,
+  [SOURCES.ORDER_HISTORY]: 4,
+  [SOURCES.REVIEW_PUBLIC]: 4,
+  [SOURCES.STAFF_VISIBLE]: 3,
   [SOURCES.INVOICE]: 2,
   [SOURCES.MANUAL]: 1,
   [SOURCES.OCR]: 1,

@@ -22,10 +22,12 @@ import { AmountPreviewQuery } from './dto/amount-preview.query';
 import { QuantityPreviewQuery } from './dto/quantity-preview.query';
 import { SetAmountDto } from './dto/set-amount.dto';
 import { SetQuantityDto } from './dto/set-quantity.dto';
+import { SetReviewVisibleDto } from './dto/set-review-visible.dto';
 import type {
   AwaitingAmountResponse,
   RefundPreviewResponse,
 } from './awaiting-amount.response';
+import type { ReviewCheckResponse } from './review-check.response';
 import type { TaskResponse } from './task.response';
 import { TaskService } from './task.service';
 
@@ -70,6 +72,19 @@ export class AdminTaskController {
   @Get('awaiting-amount')
   listAwaitingAmount(): Promise<AwaitingAmountResponse> {
     return this.tasks.listAwaitingAmount();
+  }
+
+  /**
+   * Reviews only a person can check. Also declared before the ':id/...' routes.
+   *
+   * Its own queue, deliberately, and not a filter on the one above: those refunds
+   * are waiting on a NUMBER, these are waiting on somebody opening a page. A power
+   * with no queue is a dead end wearing a different hat, and the app has already
+   * promised these users that a Fayr reviewer would look.
+   */
+  @Get('awaiting-review-check')
+  listAwaitingReviewCheck(): Promise<ReviewCheckResponse> {
+    return this.tasks.listAwaitingReviewCheck();
   }
 
   /**
@@ -166,6 +181,63 @@ export class AdminTaskController {
       },
     });
     return task;
+  }
+
+  /**
+   * Whether the review is publicly visible, read off the product page by a person.
+   *
+   * The third privileged staff action, and the one closest to the money: it
+   * settles `published`, which is what starts the holding period. It exists
+   * because on Meesho no machine can ever settle it — the star is on the order,
+   * the words are only inside the app — so the alternative is a task that reaches
+   * its review stage and can never be refunded at all, while the app tells the
+   * user a Fayr reviewer is checking.
+   *
+   * WHAT IT CANNOT DO, stated because it matters more than what it can: once a
+   * reviewer confirms a Meesho review is live, NOTHING can ever re-check it.
+   * Meesho publishes no review permalink, so the HOLDING-period re-check — the
+   * countermeasure to a review deleted after payout — has nothing to fetch. A
+   * Meesho review taken down after the refund is unrecoverable. That is a real
+   * hole in the product, not a gap in this endpoint, and it is recorded as one.
+   *
+   * SUPPORT, like the other two, and deliberately not the user's own call: the
+   * fact in doubt is exactly the one they would be motivated to assert.
+   */
+  @Post(':id/review-visible')
+  @HttpCode(HttpStatus.OK)
+  async setReviewVisible(
+    @CurrentStaff() staff: AuthenticatedStaff,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetReviewVisibleDto,
+  ): Promise<TaskResponse> {
+    const outcome = await this.tasks.confirmReviewVisible(id, {
+      visible: dto.visible,
+      productUrl: dto.productUrl,
+      seenAt: dto.seenAt,
+    });
+    await this.audit.record({
+      staffUserId: staff.id,
+      action: AUDIT_ACTIONS.TASK_REVIEW_VISIBLE,
+      targetUserId: outcome.userId,
+      metadata: {
+        taskId: id,
+        visible: dto.visible,
+        // WHERE they looked and WHEN. Without both, "I checked" is unverifiable
+        // by anybody else, which is the same as not having checked.
+        productUrl: dto.productUrl,
+        seenAt: outcome.seenAt,
+        // What it replaced, so a correction reads as a correction rather than as
+        // a fresh fact. Null on a first confirmation — stated, not implied.
+        previousVisible: outcome.previousVisible,
+        previousSource: outcome.previousSource,
+        previousUrl: outcome.previousUrl,
+        // A double click writes a second audit row and no task event. Saying so
+        // is better than two rows that look like two decisions.
+        unchanged: outcome.unchanged,
+        reason: dto.reason,
+      },
+    });
+    return outcome.task;
   }
 
   @Post(':id/quantity')

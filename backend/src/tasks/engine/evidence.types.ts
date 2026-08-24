@@ -16,6 +16,31 @@ export interface EvidenceReview {
   rating?: number | null;
   /** The payout signal: is the review publicly visible on the product page? */
   published: boolean;
+  /**
+   * WHO established `published` — and the ONLY authority on that verdict.
+   *
+   * Separate from everything else on this object on purpose. A review carries two
+   * unrelated facts with unrelated provenance: the review RECORD (its id, the
+   * star, the date), which the marketplace's own order or reviews payload states,
+   * and whether a shopper can actually READ it, which is a different question that
+   * a different thing answers. Meesho is the case that forces the split — its
+   * orders payload states the star with total authority and says nothing whatever
+   * about public visibility, so `published: false` there is an ABSENCE of
+   * information rather than a finding.
+   *
+   * Null means nobody has established it either way, and null is the reason a
+   * person is allowed to fill it — filling a gap, not overruling a machine. See
+   * review-visibility.spec.ts for the two directions that are enforced.
+   */
+  publishedSource?: SourceName | null;
+  /**
+   * The public page a Fayr reviewer opened, when a person settled `published`.
+   * Required by the staff action: "I checked" with no address is not evidence,
+   * because nobody else can go and look at the same thing a year later.
+   */
+  visibleUrl?: string | null;
+  /** When they opened it (epoch ms). Null unless a person settled it. */
+  visibleCheckedAt?: number | null;
   verified?: boolean;
   reviewDate?: number | null;
   reviewDateSource?: string | null;
