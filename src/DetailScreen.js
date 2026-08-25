@@ -24,6 +24,7 @@ import {
 } from './taskStore';
 import { formatPaise } from './money';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW, estMaxRefundRupees } from './ui/theme';
+import { seatsLine, joinedLine, isFullCampaign } from './ui/seats';
 import { Card, RefundBadge, MarketplaceTag, ProductImage } from './ui/primitives';
 import { copyToClipboard } from './ui/clipboard';
 import { goBackOrHome } from './ui/nav';
@@ -205,6 +206,11 @@ export default function DetailScreen({ navigation, route }) {
       `If the claim expires before you purchase, your ${campaign.ticketCost} tickets are returned to you.`],
   ];
 
+  // Null whenever the server stated no figure — see src/ui/seats.js.
+  const seats = seatsLine(campaign);
+  const joined = joinedLine(campaign);
+  const full = isFullCampaign(campaign);
+
   return (
     <View style={styles.root}>
       <ScrollView
@@ -238,6 +244,21 @@ export default function DetailScreen({ navigation, route }) {
             <MarketplaceTag marketplace={campaign.marketplace} />
             {priceLabel ? <Text style={styles.price}>≈ {priceLabel}</Text> : null}
           </View>
+
+          {/* How full the offer is. Both lines are null unless the server stated
+              a figure, so an unlimited campaign — or an app talking to a server
+              that does not send these — shows nothing at all rather than a zero.
+              The claim control below is deliberately NOT disabled when full: the
+              server owns that refusal and answers with its own words, and a dead
+              button explains nothing. */}
+          {seats || joined ? (
+            <View style={styles.seatsRow}>
+              {seats ? (
+                <Text style={[styles.seats, full && styles.seatsFull]}>👥 {seats}</Text>
+              ) : null}
+              {joined ? <Text style={styles.joined}>{joined}</Text> : null}
+            </View>
+          ) : null}
 
           <Section title="Campaign overview">
             <Text style={styles.para}>
@@ -428,6 +449,12 @@ const styles = StyleSheet.create({
   title: { fontFamily: FONT.display, fontSize: 22, color: COLOR.ink, marginTop: 10, lineHeight: 29 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginTop: 10 },
   price: { fontFamily: FONT.bodySemi, fontSize: 13, color: COLOR.sub },
+  seatsRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginTop: SPACE.sm },
+  seats: { fontFamily: FONT.bodySemi, fontSize: 12.5, color: COLOR.refundInk },
+  // Full is stated in the warning colour, not hidden: it is the one seat fact
+  // that changes what the reader should do next.
+  seatsFull: { color: COLOR.red },
+  joined: { fontFamily: FONT.body, fontSize: 12.5, color: COLOR.sub },
 
   sectionHead: { fontFamily: FONT.display, fontSize: 18, color: COLOR.ink, marginBottom: 10 },
   para: { fontFamily: FONT.body, fontSize: 13.5, lineHeight: 21, color: '#6b6555' },

@@ -27,6 +27,12 @@ export function normalizeCampaign(c) {
     // than a number this file invented. The server's value comes from the same
     // setting that actually expires the claim.
     claimWindowDays: Number.isInteger(c.claimWindowDays) ? c.claimWindowDays : null,
+    // Seats, both counted server-side from real tasks. NO FALLBACK, for the same
+    // reason as the claim window: a default here would be a number this file
+    // invented. Missing must stay missing so the screen can say nothing — a
+    // defaulted 0 would read as "All seats taken" on an offer that is wide open.
+    claimedCount: Number.isInteger(c.claimedCount) ? c.claimedCount : null,
+    seatsLeft: Number.isInteger(c.seatsLeft) ? c.seatsLeft : null,
     category: c.category || null,
     asin: c.asin || null,
     pid: null, // discovered on a prior fetch only; never from the campaign

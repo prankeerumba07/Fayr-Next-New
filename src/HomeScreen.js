@@ -9,6 +9,7 @@ import * as campaignStore from './backend/campaignStore';
 import { getWallet } from './backend/meApi';
 import { hasTask } from './taskStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW, rupeesFromPaise, estMaxRefundRupees } from './ui/theme';
+import { seatsLine, joinedLine, isFullCampaign } from './ui/seats';
 import {
   Wordmark, SectionTitle, Card, RefundBadge, MarketplaceTag, ProductImage, TicketPill,
 } from './ui/primitives';
@@ -23,6 +24,12 @@ const BANNERS = [
 // marketplace tag, name, and a claim/continue affordance. Tapping opens the
 // campaign — Task for now; switches to the dedicated Detail screen in Step B.
 function CampaignRow({ c, claimed, onOpen }) {
+  // Both of these are null whenever the server did not state a figure, and the
+  // card simply omits the line — see src/ui/seats.js for why silence rather than
+  // a zero.
+  const seats = seatsLine(c);
+  const joined = joinedLine(c);
+  const full = isFullCampaign(c);
   return (
     <Card onPress={onOpen} style={styles.campaignCard}>
       <View style={styles.campaignBody}>
@@ -31,13 +38,18 @@ function CampaignRow({ c, claimed, onOpen }) {
           <RefundBadge percent={c.percent} maxRupees={estMaxRefundRupees(c)} />
           <Text numberOfLines={2} style={styles.campaignName}>{c.productName || c.title}</Text>
           <MarketplaceTag marketplace={c.marketplace} style={{ marginTop: 6 }} />
+          {joined ? <Text style={styles.joined}>{joined}</Text> : null}
         </View>
       </View>
       <View style={styles.campaignFooter}>
         <Text style={styles.footerHint}>
-          {claimed ? 'In progress' : `Claim · ${c.ticketCost} tickets`}
+          {/* How full the offer is, when the server said — else the ticket cost.
+              Never both: the footer is one line and the scarcer fact wins. */}
+          {seats || (claimed ? 'In progress' : `Claim · ${c.ticketCost} tickets`)}
         </Text>
-        <Text style={styles.footerCta}>{claimed ? 'Continue ›' : 'Claim →'}</Text>
+        <Text style={[styles.footerCta, full && styles.footerCtaOff]}>
+          {full ? 'Full' : claimed ? 'Continue ›' : 'Claim →'}
+        </Text>
       </View>
     </Card>
   );
@@ -211,6 +223,10 @@ const styles = StyleSheet.create({
   },
   footerHint: { fontFamily: FONT.bodySemi, fontSize: 12, color: COLOR.sub },
   footerCta: { fontFamily: FONT.displaySemi, fontSize: 13, color: COLOR.ink },
+  // A full offer's control is greyed but still tappable — the detail screen is
+  // where the offer explains itself, and a dead card teaches nothing.
+  footerCtaOff: { color: COLOR.sub },
+  joined: { fontFamily: FONT.body, fontSize: 11, color: COLOR.sub, marginTop: 5 },
 
   connectTile: {
     flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff',
