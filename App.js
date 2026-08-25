@@ -21,6 +21,10 @@ import MyProductsScreen from './src/MyProductsScreen';
 import EarningsScreen from './src/EarningsScreen';
 import ProfileScreen from './src/ProfileScreen';
 import ProofUploadScreen from './src/ProofUploadScreen';
+import ConfirmJoinScreen from './src/ConfirmJoinScreen';
+import {
+  ClaimedScreen, NotEnoughTicketsScreen, JoinFailedScreen,
+} from './src/ClaimOutcomeScreens';
 import BottomNav from './src/ui/BottomNav';
 import { PLATFORM_LIST } from './src/platforms';
 import { goHome } from './src/ui/nav';
@@ -233,6 +237,12 @@ export default function App() {
             component={DetailScreen}
             options={{ headerShown: false }}
           />
+          {/* The claim path: confirm what it costs, then one of three outcomes.
+              Each owns its own chrome, exactly as the design draws them. */}
+          <Stack.Screen name="ConfirmJoin" component={ConfirmJoinScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="Claimed" component={ClaimedScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="NotEnoughTickets" component={NotEnoughTicketsScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="JoinFailed" component={JoinFailedScreen} options={{ headerShown: false }} />
           {/* Help and the policy documents own their headers as well. */}
           <Stack.Screen name="Support" component={SupportScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Policy" component={PolicyScreen} options={{ headerShown: false }} />

@@ -13,7 +13,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -111,7 +111,6 @@ export default function DetailScreen({ navigation, route }) {
   const [authoritative, setAuthoritative] = useState(
     campaignId ? getAuthoritative(campaignId) : null,
   );
-  const [claiming, setClaiming] = useState(false);
   const [faqOpen, setFaqOpen] = useState(-1);
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -133,16 +132,13 @@ export default function DetailScreen({ navigation, route }) {
     return () => clearInterval(t);
   }, []);
 
-  const doClaim = useCallback(async () => {
-    setClaiming(true);
-    const res = await claimTask(campaignId);
-    setClaiming(false);
-    if (!res.ok) {
-      Alert.alert('Could not claim', res.error || 'Please try again.');
-    }
-    // On success the store notifies and `claimed` flips — the CTA becomes
-    // "Buy on <marketplace>". No navigation: the user stays on the product.
-  }, [campaignId]);
+  // The claim no longer happens here. 5 tickets commit on the next screen, where
+  // the design puts the cost, the refund, the deadline and the honesty
+  // acknowledgement in front of the user first — this button used to spend them
+  // on one tap, with the terms only visible further up the page.
+  const doClaim = useCallback(() => {
+    navigation.navigate('ConfirmJoin', { campaignId });
+  }, [navigation, campaignId]);
 
   if (!campaign) {
     return (
@@ -386,7 +382,6 @@ export default function DetailScreen({ navigation, route }) {
 
         <TouchableOpacity
           activeOpacity={0.88}
-          disabled={claiming}
           onPress={
             claimed
               ? () => navigation.navigate(campaign.marketplace, { campaignId: campaign.id })
@@ -394,13 +389,9 @@ export default function DetailScreen({ navigation, route }) {
           }
           style={[styles.cta, claimed && styles.ctaClaimed]}
         >
-          {claiming ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.ctaText}>
-              {claimed ? `Buy on ${mktName} →` : `Claim campaign · ${campaign.ticketCost} tickets →`}
-            </Text>
-          )}
+          <Text style={styles.ctaText}>
+            {claimed ? `Buy on ${mktName} →` : `Claim campaign · ${campaign.ticketCost} tickets →`}
+          </Text>
         </TouchableOpacity>
 
         {claimed ? (

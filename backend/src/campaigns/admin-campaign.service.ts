@@ -4,9 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { CampaignStatus, Platform, Prisma } from '@prisma/client';
 import { AdminAuditService } from '../admin/admin-audit.service';
 import { AUDIT_ACTIONS } from '../admin/admin.constants';
+import type { Env } from '../config/env.validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { toCampaignResponse, type CampaignResponse } from './campaign.response';
 import type { CreateCampaignDto } from './dto/create-campaign.dto';
@@ -33,7 +35,13 @@ export class AdminCampaignService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AdminAuditService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /** The same operator setting the user-facing responses quote. One source. */
+  private get claimWindowDays(): number {
+    return this.config.get('CLAIM_TTL_DAYS', { infer: true });
+  }
 
   /** Every campaign (any status), newest first, optionally filtered. */
   async listAll(
@@ -47,14 +55,15 @@ export class AdminCampaignService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return rows.map(toCampaignResponse);
+    // Explicit, not `rows.map(toCampaignResponse)` — see campaign.controller.
+    return rows.map((c) => toCampaignResponse(c, this.claimWindowDays));
   }
 
   /** One campaign by id, any status. 404 if missing. */
   async getById(id: string): Promise<CampaignResponse> {
     const campaign = await this.prisma.campaign.findUnique({ where: { id } });
     if (!campaign) throw new NotFoundException('Campaign not found');
-    return toCampaignResponse(campaign);
+    return toCampaignResponse(campaign, this.claimWindowDays);
   }
 
   /** Create a campaign. Always lands in DRAFT — going live is a separate step. */
@@ -94,7 +103,7 @@ export class AdminCampaignService {
         platform: created.platform,
       },
     });
-    return toCampaignResponse(created);
+    return toCampaignResponse(created, this.claimWindowDays);
   }
 
   /** Edit a DRAFT or PAUSED campaign. Only the provided fields change. */
@@ -149,7 +158,7 @@ export class AdminCampaignService {
       action: AUDIT_ACTIONS.CAMPAIGN_UPDATE,
       metadata: { campaignId: id, fields: Object.keys(data) },
     });
-    return toCampaignResponse(updated);
+    return toCampaignResponse(updated, this.claimWindowDays);
   }
 
   /** DRAFT → ACTIVE: make the campaign live and claimable. */
@@ -206,6 +215,6 @@ export class AdminCampaignService {
       action: AUDIT_ACTIONS.CAMPAIGN_STATUS,
       metadata: { campaignId: id, action, from: campaign.status, to },
     });
-    return toCampaignResponse(updated);
+    return toCampaignResponse(updated, this.claimWindowDays);
   }
 }

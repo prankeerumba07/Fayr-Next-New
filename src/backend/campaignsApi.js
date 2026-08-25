@@ -22,6 +22,11 @@ export function normalizeCampaign(c) {
     payoutPercent: c.payoutPercent != null ? c.payoutPercent : 100,
     payoutCapPaise: c.payoutCapPaise != null ? Number(c.payoutCapPaise) : null,
     ticketCost: c.ticketCost != null ? c.ticketCost : 5,
+    // How many days the buyer has to purchase after claiming. NO fallback: if the
+    // server did not say, the confirmation screen shows no deadline at all rather
+    // than a number this file invented. The server's value comes from the same
+    // setting that actually expires the claim.
+    claimWindowDays: Number.isInteger(c.claimWindowDays) ? c.claimWindowDays : null,
     category: c.category || null,
     asin: c.asin || null,
     pid: null, // discovered on a prior fetch only; never from the campaign

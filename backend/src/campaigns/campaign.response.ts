@@ -23,6 +23,12 @@ export interface CampaignResponse {
   returnWindowDays: number | null;
   minRating: number | null;
   totalSlots: number | null;
+  /**
+   * How many days the buyer has to purchase after claiming, before the claim
+   * expires and their tickets come back. The operator's CLAIM_TTL_DAYS setting,
+   * passed in — see toCampaignResponse for why it is not read here.
+   */
+  claimWindowDays: number;
   asin: string | null;
   productUrl: string | null;
   imageUrl: string | null;
@@ -30,8 +36,19 @@ export interface CampaignResponse {
   updatedAt: string;
 }
 
-/** Map a Campaign row to its public response (BigInt→string, Date→ISO). */
-export function toCampaignResponse(c: Campaign): CampaignResponse {
+/**
+ * Map a Campaign row to its public response (BigInt→string, Date→ISO).
+ *
+ * `claimWindowDays` is a REQUIRED parameter with no default on purpose. It is one
+ * operator setting (CLAIM_TTL_DAYS) and the claim itself computes claimExpiresAt
+ * from that same setting; a fallback here would be a second number claiming to be
+ * the same policy, and the two would drift the first time the setting changed.
+ * Required means the type system refuses any call site that forgets it.
+ */
+export function toCampaignResponse(
+  c: Campaign,
+  claimWindowDays: number,
+): CampaignResponse {
   return {
     id: c.id,
     platform: c.platform,
@@ -48,6 +65,7 @@ export function toCampaignResponse(c: Campaign): CampaignResponse {
     returnWindowDays: c.returnWindowDays,
     minRating: c.minRating,
     totalSlots: c.totalSlots,
+    claimWindowDays,
     asin: c.asin,
     productUrl: c.productUrl,
     imageUrl: c.imageUrl,
