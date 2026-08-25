@@ -13,13 +13,27 @@ import type { EngineTask } from './engine/task-state';
  * The bridge between the persisted Task row and the pure EngineTask.
  *
  * Split of responsibilities on the row:
- *   - queryable/constrainable facts live in promoted COLUMNS (state, itemPaise,
- *     deliveredAt, reviewPublished, windowEndsAt, returned, blocker…);
+ *   - queryable/constrainable facts live in promoted COLUMNS (state, orderId,
+ *     itemId, deliveredAt, reviewPublished, windowEndsAt, returned, blocker…);
  *   - the nested evidence the engine emits lives in the `evidence` JSONB.
  *
  * JSON has no BigInt, so money inside `evidence` is stored as decimal STRINGS
- * and parsed back to bigint on hydrate. The promoted `itemPaise` column is the
- * real BigInt; the JSON copy is only there to rebuild the full order object.
+ * and parsed back to bigint on hydrate.
+ *
+ * DO NOT READ THE `itemPaise` COLUMN. It is a legacy projection and it is NULL on
+ * essentially every task the current code produces.
+ *
+ * This comment used to say the opposite — that the column was "the real BigInt"
+ * and the JSON "only there to rebuild the full order object". That was an
+ * invitation to write a query or a report against it, and any such query would
+ * have reported no money at all while the app displayed the right figure.
+ * toPromotedColumns fills it from `order.itemPaise` alone, and that field is the
+ * DEPRECATED, ambiguous one (see evidence.types.ts): every modern order carries
+ * `unitPricePaise` or `lineTotalPaise` instead, so the column stays null.
+ *
+ * The amount a refund is computed from is resolveChargedPaise() over the order in
+ * the JSON — one function, one answer. Nothing reads the column today, which is
+ * the only reason this is a trap rather than a bug.
  */
 
 /** The order as stored in JSON — money fields are strings (or null). */
