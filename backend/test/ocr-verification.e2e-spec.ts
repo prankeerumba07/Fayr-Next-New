@@ -3,7 +3,7 @@
 process.env.PRIVATE_UPLOAD_DIR = './private-uploads-test';
 process.env.UPLOAD_DIR = './uploads-test';
 
-import { rm } from 'node:fs/promises';
+import { rm, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -15,7 +15,9 @@ import request from 'supertest';
 import { StaffTokenService } from '../src/admin/staff-token.service';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
+import { ScreenshotRetentionService } from '../src/ocr/screenshot-retention.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { SchedulerService } from '../src/scheduler/scheduler.service';
 import { resetDatabase } from './reset-db';
 
 // A 1×1 transparent PNG — a real, valid image for the upload path.
@@ -272,5 +274,170 @@ describe('OCR verification (e2e)', () => {
       where: { id: submissionId },
     });
     expect(sub.status).toBe('APPROVED');
+  });
+  /**
+   * SCREENSHOT RETENTION — THE BYTES GO, THE RECORD STAYS.
+   *
+   * Screenshots were handled properly in every respect except one: they were kept
+   * forever. The purge function existed and was called from nowhere, and no
+   * retention period existed as policy or as code.
+   *
+   * These run against the REAL private disk (PRIVATE_UPLOAD_DIR is a throwaway
+   * dir for this suite) and the REAL maintenance tick, because "the file is gone"
+   * is the only assertion worth making here, and "it is wired to the cron" is the
+   * exact thing the old dead function was missing.
+   */
+  describe('retention purge', () => {
+    /** Does the private file still exist on disk? */
+    async function fileExists(storageKey: string): Promise<boolean> {
+      try {
+        await stat(resolve(process.cwd(), 'private-uploads-test', storageKey));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    /** Backdate an upload so it is past the retention period. */
+    async function backdate(
+      submissionId: string,
+      days: number,
+    ): Promise<{ storageKey: string; sha256: string; screenshotId: string }> {
+      const sub = await prisma.evidenceSubmission.findUniqueOrThrow({
+        where: { id: submissionId },
+        include: { screenshot: true },
+      });
+      await prisma.screenshotUpload.update({
+        where: { id: sub.screenshotUploadId },
+        data: { uploadedAt: new Date(Date.now() - days * 86_400_000) },
+      });
+      return {
+        storageKey: sub.screenshot.storageKey,
+        sha256: sub.screenshot.sha256,
+        screenshotId: sub.screenshotUploadId,
+      };
+    }
+
+    it('the maintenance tick deletes the image and keeps the row, the hash and the case', async () => {
+      const user = await newUser();
+      const campaign = await makeCampaign();
+      const task = await makeTask(user.id, campaign.id);
+      const submissionId = await uploadScreenshot(
+        user.token,
+        task.id,
+        'PURCHASE',
+      );
+      const { storageKey, sha256, screenshotId } = await backdate(
+        submissionId,
+        91,
+      );
+      expect(await fileExists(storageKey)).toBe(true);
+
+      // The real cron entrypoint, not the purge in isolation: a retention job that
+      // nothing calls is exactly the state this was in before.
+      const report = await app.get(SchedulerService).runTick();
+      expect(report.purged).toBe(1);
+
+      expect(await fileExists(storageKey)).toBe(false);
+      const kept = await prisma.screenshotUpload.findUniqueOrThrow({
+        where: { id: screenshotId },
+      });
+      expect(kept.deletedAt).not.toBeNull();
+      expect(kept.sha256).toBe(sha256); // the fraud signal survives the image
+      expect(kept.storageKey).toBe(storageKey); // what it was is still recorded
+      // And the case — the extraction, the verdict, the staff decision — is intact.
+      const submission = await prisma.evidenceSubmission.findUnique({
+        where: { id: submissionId },
+      });
+      expect(submission).not.toBeNull();
+    });
+
+    it('a purged screenshot still counts as a duplicate of the same image', async () => {
+      // THE POINT OF KEEPING THE HASH. Two accounts submit the identical picture;
+      // the first one ages out and its bytes are purged. The second must still read
+      // as "this image has been seen before" — otherwise a fraudster only has to
+      // wait out the retention period.
+      const campaign = await makeCampaign();
+      const first = await newUser();
+      const firstTask = await makeTask(first.id, campaign.id);
+      const firstSubmission = await uploadScreenshot(
+        first.token,
+        firstTask.id,
+        'PURCHASE',
+      );
+      await backdate(firstSubmission, 120);
+
+      const second = await newUser();
+      const secondTask = await makeTask(second.id, campaign.id);
+      const secondSubmission = await uploadScreenshot(
+        second.token,
+        secondTask.id,
+        'PURCHASE',
+      );
+
+      const staff = await staffToken('SUPPORT');
+      const before = await request(server())
+        .get(`/admin/verifications/${secondSubmission}`)
+        .set('Authorization', bearer(staff))
+        .expect(200);
+      expect(before.body.screenshot.duplicateCount).toBe(1);
+
+      await app.get(ScreenshotRetentionService).purgeExpired();
+
+      const after = await request(server())
+        .get(`/admin/verifications/${secondSubmission}`)
+        .set('Authorization', bearer(staff))
+        .expect(200);
+      expect(after.body.screenshot.duplicateCount).toBe(1);
+    });
+
+    it('leaves an image inside the period alone', async () => {
+      const user = await newUser();
+      const campaign = await makeCampaign();
+      const task = await makeTask(user.id, campaign.id);
+      const submissionId = await uploadScreenshot(
+        user.token,
+        task.id,
+        'PURCHASE',
+      );
+      const { storageKey } = await backdate(submissionId, 89); // 90-day period
+      const report = await app.get(ScreenshotRetentionService).purgeExpired();
+      expect(report.purged).toBe(0);
+      expect(await fileExists(storageKey)).toBe(true);
+    });
+
+    it('a reviewer opening a purged screenshot gets "no longer available", not a crash', async () => {
+      const user = await newUser();
+      const campaign = await makeCampaign();
+      const task = await makeTask(user.id, campaign.id);
+      const submissionId = await uploadScreenshot(
+        user.token,
+        task.id,
+        'PURCHASE',
+      );
+      await backdate(submissionId, 91);
+      await app.get(ScreenshotRetentionService).purgeExpired();
+
+      const staff = await staffToken('SUPPORT');
+      await request(server())
+        .get(`/admin/verifications/${submissionId}/image`)
+        .set('Authorization', bearer(staff))
+        .expect(404);
+    });
+
+    it('purging twice purges nothing the second time', async () => {
+      const user = await newUser();
+      const campaign = await makeCampaign();
+      const task = await makeTask(user.id, campaign.id);
+      const submissionId = await uploadScreenshot(
+        user.token,
+        task.id,
+        'PURCHASE',
+      );
+      await backdate(submissionId, 91);
+      const retention = app.get(ScreenshotRetentionService);
+      expect((await retention.purgeExpired()).purged).toBe(1);
+      expect((await retention.purgeExpired()).purged).toBe(0);
+    });
   });
 });

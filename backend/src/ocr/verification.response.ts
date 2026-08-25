@@ -8,8 +8,10 @@ import type { ExtractedFields } from './vision-extraction.service';
 
 /**
  * One row in the staff review queue — enough to triage without opening the case.
- * `duplicateCount` is the fraud signal: how many OTHER live uploads share this
+ * `duplicateCount` is the fraud signal: how many OTHER uploads share this
  * screenshot's exact bytes (same sha256) — a reused image across users/tasks.
+ * Purged images still count: the hash outlives the bytes, so waiting out the
+ * retention period does not launder a reused screenshot.
  */
 export interface VerificationQueueItem {
   id: string; // EvidenceSubmission id

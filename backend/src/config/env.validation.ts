@@ -72,6 +72,21 @@ export const envSchema = z.object({
   OCR_CONFIDENCE_ESCALATE: z.coerce.number().int().min(0).max(100).default(70),
   // Safety ceiling on extractions per UTC day (cost guard). Enforced at upload.
   OCR_DAILY_CAP: z.coerce.number().int().min(0).max(100000).default(500),
+  // How long a private verification screenshot is kept before the maintenance
+  // cron deletes its BYTES. The row, its sha256 and the OCR case are kept
+  // forever, so the duplicate-image fraud signal and the reason for a payout
+  // both outlive the picture.
+  //
+  // min(1), not min(0), deliberately: a zero would not mean "keep forever", it
+  // would mean every screenshot ever uploaded is expired the moment the cron
+  // runs — including one a reviewer has open. An empty payout-cap field already
+  // taught this codebase what a real zero costs, so a zero here fails at boot.
+  SCREENSHOT_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(3650)
+    .default(90),
 
   // --- Task loop (step 1.5) -------------------------------------------------
   // How long a claim may sit before purchase before it expires and returns the

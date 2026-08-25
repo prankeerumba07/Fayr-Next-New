@@ -227,3 +227,40 @@ describe('isBase64 — the boot gate on a pasted credential', () => {
     expect(isBase64('opspass1234567')).toBe(false); // non-canonical trailing bits
   });
 });
+
+describe('validateEnv — screenshot retention', () => {
+  it('defaults to 90 days when nothing is set', () => {
+    // The period is policy, so it has a default and lives in config — not a
+    // number buried in the purge code where nobody can find or change it.
+    expect(validateEnv({ ...BASE }).SCREENSHOT_RETENTION_DAYS).toBe(90);
+  });
+
+  it('takes an operator-set period', () => {
+    expect(
+      validateEnv({ ...BASE, SCREENSHOT_RETENTION_DAYS: '30' })
+        .SCREENSHOT_RETENTION_DAYS,
+    ).toBe(30);
+  });
+
+  it('REFUSES zero rather than reading it as "purge everything"', () => {
+    // The zero trap, and it has bitten this codebase before: an empty payout cap
+    // field stored a real zero and computed a ₹0.00 refund. A zero here would
+    // mean every screenshot ever uploaded is expired the moment the cron runs,
+    // including the one a reviewer has open. It must fail at boot, loudly.
+    const err = caught(() =>
+      validateEnv({ ...BASE, SCREENSHOT_RETENTION_DAYS: '0' }),
+    );
+    expect(err?.message).toMatch(/SCREENSHOT_RETENTION_DAYS/);
+  });
+
+  it('refuses a negative period and a non-number', () => {
+    expect(
+      caught(() => validateEnv({ ...BASE, SCREENSHOT_RETENTION_DAYS: '-1' })),
+    ).toBeDefined();
+    expect(
+      caught(() =>
+        validateEnv({ ...BASE, SCREENSHOT_RETENTION_DAYS: 'ninety' }),
+      ),
+    ).toBeDefined();
+  });
+});

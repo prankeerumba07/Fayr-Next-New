@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { OcrModule } from '../ocr/ocr.module';
 import { TaskModule } from '../tasks/task.module';
 import {
   HttpReviewVisibilityChecker,
@@ -8,12 +9,13 @@ import { SchedulerService } from './scheduler.service';
 
 /**
  * The maintenance scheduler. Depends on TaskService (its per-task effects) and
- * binds the review-visibility checker to the real HTTP implementation — swappable
- * in one place, exactly like the SMS sender. SchedulerRegistry comes from
+ * ScreenshotRetentionService (the private-PII purge), and binds the
+ * review-visibility checker to the real HTTP implementation — swappable in one
+ * place, exactly like the SMS sender. SchedulerRegistry comes from
  * ScheduleModule.forRoot() in AppModule.
  */
 @Module({
-  imports: [TaskModule],
+  imports: [TaskModule, OcrModule],
   providers: [
     SchedulerService,
     {

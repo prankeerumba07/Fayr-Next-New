@@ -8,6 +8,7 @@ import { StorageModule } from '../storage/storage.module';
 import { TaskModule } from '../tasks/task.module';
 import { EvidenceMatchService } from './evidence-match.service';
 import { ANTHROPIC_CLIENT } from './ocr.constants';
+import { ScreenshotRetentionService } from './screenshot-retention.service';
 import { ScreenshotController } from './screenshot.controller';
 import { ScreenshotVerificationService } from './screenshot.service';
 import { StaffVerificationController } from './staff-verification.controller';
@@ -41,7 +42,15 @@ import { VisionExtractionService } from './vision-extraction.service';
     EvidenceMatchService,
     ScreenshotVerificationService,
     StaffVerificationService,
+    ScreenshotRetentionService,
   ],
-  exports: [VisionExtractionService, EvidenceMatchService],
+  // The retention purge is exported for the maintenance scheduler: the period is
+  // policy, but running it is the scheduler's job, and a purge nothing calls is
+  // exactly the state `deletePrivate` was in before.
+  exports: [
+    VisionExtractionService,
+    EvidenceMatchService,
+    ScreenshotRetentionService,
+  ],
 })
 export class OcrModule {}

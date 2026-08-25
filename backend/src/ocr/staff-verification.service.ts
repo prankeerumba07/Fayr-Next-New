@@ -263,14 +263,24 @@ export class StaffVerificationService {
     };
   }
 
-  /** Map sha256 → how many live uploads share it (for the dup fraud signal). */
+  /**
+   * Map sha256 → how many uploads share it (the duplicate-image fraud signal).
+   *
+   * Counts EVERY upload of those bytes, including ones whose image has since been
+   * purged by retention. This filtered on `deletedAt: null` — "live uploads" — and
+   * that quietly defeated the whole point of keeping the hash: the moment an
+   * image's bytes aged out, "this exact picture has been submitted before" became
+   * unanswerable, so a fraudster only had to wait out the retention period before
+   * reusing the same screenshot. The row and the hash outlive the bytes precisely
+   * so this count does too.
+   */
   private async duplicateCounts(
     hashes: string[],
   ): Promise<Map<string, number>> {
     if (hashes.length === 0) return new Map();
     const groups = await this.prisma.screenshotUpload.groupBy({
       by: ['sha256'],
-      where: { sha256: { in: hashes }, deletedAt: null },
+      where: { sha256: { in: hashes } },
       _count: { _all: true },
     });
     return new Map(groups.map((g) => [g.sha256, g._count._all]));
