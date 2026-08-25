@@ -209,6 +209,7 @@
   .finding.open .spine { background: var(--stop); }
   .finding.limit .spine { background: var(--gold); }
   .finding.none .spine { background: var(--sub); }
+  .finding.closed .spine { background: var(--money-ink); }
   .fbody { padding: 18px 20px 20px 2px; min-width: 0; }
 
   .ftop { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -231,6 +232,7 @@
   .sev-open { background: var(--stop-bg); color: var(--stop-ink); }
   .sev-limit { background: var(--warn-bg); color: var(--warn-ink); }
   .sev-none { background: var(--surface-2); color: var(--sub); }
+  .sev-closed { background: var(--money-bg); color: var(--money-ink); }
   h3 {
     font-family: var(--head);
     font-weight: 600;
@@ -334,7 +336,7 @@
     bounds it, then what would close it. Where a number appears, it was read out
     of the live database, not estimated.
   </p>
-  <p class="stamp">Verified against fayr_dev · 24 August 2026</p>
+  <p class="stamp">Figures read from fayr_dev · 24 August 2026 · findings 03 and 07 closed 25 August 2026</p>
   <div class="rule"></div>
 
   <div class="lead">
@@ -355,7 +357,12 @@
   </div>
 
   <h2>Open holes</h2>
-  <p class="sec-sub">Things that would cost money, or embarrass us, today.</p>
+  <p class="sec-sub">
+    Things that would cost money, or embarrass us, today. Two are marked
+    <strong>Closed</strong> — they were open when this was written, were fixed
+    because it was written, and are kept in place with what is still true after
+    the fix. Numbering does not change.
+  </p>
 
   <div class="finding open">
     <div class="spine"></div>
@@ -462,44 +469,44 @@
     </div>
   </div>
 
-  <div class="finding open">
+  <div class="finding closed">
     <div class="spine"></div>
     <div class="fbody">
-      <div class="ftop"><span class="fnum">03</span><span class="sev sev-open">Open</span></div>
-      <h3>The one action that actually moves money out is the one that is not in the audit log</h3>
+      <div class="ftop"><span class="fnum">03</span><span class="sev sev-closed">Closed</span></div>
+      <h3>The one action that actually moves money out was the one that was not in the audit log</h3>
       <dl>
-        <dt>What is true</dt>
+        <dt>What was true</dt>
         <dd>
-          Approving a withdrawal and marking it paid write the deciding staff id,
-          the timestamp and the bank UTR onto the withdrawal row. They write
+          Approving a withdrawal and marking it paid wrote the deciding staff id,
+          the timestamp and the bank UTR onto the withdrawal row, and
           <strong>nothing</strong> to the admin audit log that every other staff
-          action uses.
+          action uses. Read out of the live database at the time: two withdrawals
+          had been paid, and the audit log held <span class="num">zero</span> rows
+          for either — while holding <span class="num">7</span> rows for staff
+          <em>viewing</em> a screenshot and <span class="num">53</span> for staff
+          logging in.
         </dd>
+        <dt>What is true now</dt>
         <dd>
-          Read out of the live database: two withdrawals have been paid, and the
-          audit log holds <span class="num">zero</span> rows for either of them. It
-          holds <span class="num">7</span> rows for staff <em>viewing</em> a
-          screenshot, <span class="num">53</span> for staff logging in, and
-          <span class="num">40</span> for campaign status changes.
+          All four payout decisions — approve, reject, mark paid, mark failed —
+          record to the same trail, each carrying the withdrawal, the amount, the
+          status it moved from, and the UTR where there is one. A rejection or a
+          failure also names the ledger entry that returned the money, so the trail
+          and the ledger can be read against each other rather than trusted
+          separately. The row is written inside the same transaction as the
+          decision, so a payout cannot land without its trail.
         </dd>
-        <dt>What a hostile reviewer says</dt>
+        <dt>What a hostile reviewer says now</dt>
         <dd class="hostile">
-          You log a support agent looking at a picture, and you do not log the
-          person releasing money out of the company.
+          The two payouts you have already made are still not in it. Nothing was
+          back-filled, because inventing an audit row for a decision nobody
+          recorded would be worse than the gap.
         </dd>
-        <dt>What actually bounds it</dt>
+        <dt>What actually bounds that</dt>
         <dd>
-          The record is not absent, it is in the wrong place: the withdrawal row
-          names who decided it, when, and the UTR of the transfer. What is missing
-          is the single chronological trail — so "what did this staff member do
-          last month" answers correctly for six kinds of action and silently omits
-          the one that matters most.
-        </dd>
-        <dt>What would close it</dt>
-        <dd>
-          Two audit calls in the withdrawal service, matching the pattern the other
-          five staff actions already use. Small, and found while writing this
-          document rather than by anybody asking.
+          Those two withdrawals still name who decided them, when, and the UTR, on
+          the withdrawal row itself — the record is thin, not absent. Every payout
+          from here is in the single chronological trail.
         </dd>
       </dl>
     </div>
@@ -664,43 +671,50 @@
     </div>
   </div>
 
-  <div class="finding open">
+  <div class="finding closed">
     <div class="spine"></div>
     <div class="fbody">
-      <div class="ftop"><span class="fnum">07</span><span class="sev sev-open">Open</span></div>
-      <h3>Screenshots are stored privately and never deleted</h3>
+      <div class="ftop"><span class="fnum">07</span><span class="sev sev-closed">Closed</span></div>
+      <h3>Screenshots were stored privately and kept forever</h3>
       <dl>
-        <dt>What is true</dt>
+        <dt>What was true</dt>
         <dd>
-          Uploaded screenshots are handled as private data and they are handled
-          properly: written outside the public uploads directory, reachable only
-          through a role-checked streaming endpoint, and every view is audited
-          (there are <span class="num">7</span> such audit rows on dev). The
-          storage layer has a delete method written for retention purging.
+          Uploaded screenshots were handled as private data and handled properly:
+          written outside the public uploads directory, reachable only through a
+          role-checked streaming endpoint, every view audited. The storage layer
+          had a delete method written for retention purging and
+          <strong>nothing called it</strong>. No retention period existed, as
+          policy or as code.
+        </dd>
+        <dt>What is true now</dt>
+        <dd>
+          The maintenance cron deletes the bytes of any screenshot older than the
+          retention period — 90 days by default, set in configuration rather than
+          buried in the code, and a zero is refused at boot rather than read as
+          "expire everything now". The row, its image hash and the review case are
+          kept, so a payout stays explainable and the duplicate-image fraud signal
+          survives the picture. Each run says how many it deleted, how far back it
+          reached, what it kept and what it left for next time.
         </dd>
         <dd>
-          <strong>Nothing calls it.</strong> There is no scheduled purge and no
-          retention period enforced anywhere, so an uploaded screenshot is kept
-          until somebody removes it by hand. The dev database happens to hold none
-          right now, which is a coincidence of an earlier reset rather than a
-          policy working.
+          Writing the test for that last claim found it was false. The duplicate
+          count filtered on images that still existed, so the signal died the
+          moment the bytes did — on a 90-day period, a fraudster only had to wait
+          91 days to reuse the same screenshot clean. The failing test came first,
+          then the fix.
         </dd>
-        <dt>What a hostile reviewer says</dt>
+        <dt>What a hostile reviewer says now</dt>
         <dd class="hostile">
-          You correctly identified these images as sensitive, built the delete
-          function, and then kept every one of them forever.
+          Ninety days is your choice and nobody has approved it, the clock starts
+          at upload rather than at the end of the dispute, and a reviewer who
+          downloaded an image before the purge still has it.
         </dd>
-        <dt>What actually bounds it</dt>
+        <dt>What actually bounds that</dt>
         <dd>
-          Access is genuinely restricted, and the image hash and the case row are
-          designed to outlive the bytes — so a purge would not destroy the fraud
-          signal (the same image appearing on several accounts). The machinery for
-          doing this right exists; the schedule does not.
-        </dd>
-        <dt>What would close it</dt>
-        <dd>
-          One job on the existing maintenance cron, and a retention period written
-          down as policy rather than implied.
+          All three are true. The period is an operator setting, changeable without
+          a deploy; the audited view log records every staff member who ever opened
+          an image, so who could still hold a copy is answerable; and the hash
+          being kept means a purge cannot be used to launder a reused screenshot.
         </dd>
       </dl>
     </div>
@@ -939,7 +953,7 @@
     <li><strong>Account deletion.</strong> There is no delete route anywhere in the backend. A user cannot remove themselves and we cannot remove them through the product.</li>
     <li><strong>Data export.</strong> Nothing produces a copy of what we hold on a person.</li>
     <li><strong>Consent withdrawal.</strong> Refusing the terms is ignored, not recorded (06).</li>
-    <li><strong>Retention purging.</strong> The delete function exists and nothing calls it (07).</li>
+    <li><strong>Purging anything except screenshots.</strong> Screenshot bytes now age out (07). Nothing else does — order numbers, review text, PAN and payout details are all kept indefinitely.</li>
     <li><strong>Reconciliation of disbursements.</strong> Two figures, no discharging ledger leg (04).</li>
     <li><strong>Four-eyes on a payout.</strong> One ADMIN account can do the whole chain (05).</li>
   </ul>
@@ -949,7 +963,9 @@
     two paid withdrawals, the payout account's balance, the audit-log counts, the
     consent counts and the PAN counts included. Where something could not be
     verified against real data, that is said in the finding rather than smoothed
-    over.
+    over. Findings 03 and 07 were closed on 25 August 2026; the numbers quoted
+    inside them are the numbers that were true when they were open, and they are
+    left standing because they are the reason the work was done.
   </footer>
 
 </div>
