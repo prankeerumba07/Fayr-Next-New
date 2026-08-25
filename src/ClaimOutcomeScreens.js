@@ -13,10 +13,11 @@
 //
 //  * The claimed sheet's timer. The design counts down from 25m 35s and says the
 //    product is yours "for the next 2 hours". The real deadline is the task's own
-//    claimExpiresAt (CLAIM_TTL_DAYS, 7 days by default), so the sheet shows the
-//    real time remaining in the design's own shape. A ticking clock on a 7-day
-//    window would be theatre, so it reads in days and hours and refreshes on
-//    focus rather than every second.
+//    claimExpiresAt (CLAIM_TTL_DAYS, 7 days by default), so the sheet names that
+//    instant — not a relative day count, which read "6 days" one screen after the
+//    confirmation card promised 7. A ticking clock on a 7-day window would be
+//    theatre, so the countdown reads in days and hours and refreshes on focus
+//    rather than every second.
 //  * "Held in active claims" on the insufficient sheet. There is no held bucket in
 //    the ledger — claiming DEDUCTS and an expiry RETURNS — so the figure is
 //    derived from the user's own open claims, which are exactly the tickets that
@@ -90,7 +91,7 @@ export function ClaimedScreen({ route, navigation }) {
           <Text style={styles.claimedTitle}>Product Claimed!</Text>
           <Text style={styles.claimedSub}>
             {remaining
-              ? `This product is yours for the next ${remaining.phrase}. Buy it on ${mktName} before the time runs out.`
+              ? `This product is yours until ${remaining.when}. Buy it on ${mktName} before then.`
               : `Buy it on ${mktName} to start your refund.`}
           </Text>
           <View style={styles.ticketChip}>

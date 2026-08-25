@@ -13,7 +13,8 @@
 import { estMaxRefundRupees } from './theme.js';
 
 /**
- * The design's deadline sentence, with the operator's real window in it.
+ * The design's deadline sentence, with the operator's real window in it — as a
+ * LENGTH only. See the body for why it states no clock time.
  *
  * Returns null — meaning "do not draw the deadline card" — when the window is
  * absent or not a positive whole number of days. A claim screen that guesses a
@@ -23,17 +24,20 @@ export function claimDeadline(opts) {
   const o = opts || {};
   const days = o.windowDays;
   if (typeof days !== 'number' || !Number.isInteger(days) || days < 1) return null;
-  const now = o.now instanceof Date ? o.now : new Date();
-  const by = new Date(now.getTime() + days * 86400000);
   const within = `${days} ${days === 1 ? 'day' : 'days'}`;
-  const when = formatDeadline(by);
   return {
     days,
     within,
-    by,
-    when,
-    // The design's own sentence. Only the numbers inside it changed.
-    line: `Buy the product within ${within} of joining — by ${when}.`,
+    // A LENGTH, and deliberately no clock time. The design's card reads "within
+    // 48 hours of joining — by 6 Jul, 6:00 PM", but the exact deadline does not
+    // exist yet: the server stamps claimExpiresAt when it creates the task, a
+    // few seconds after this screen is drawn. Forecasting the instant here put
+    // "by 1 Sep, 4:00 PM" on this screen and "until 1 Sep, 3:59 PM" on the very
+    // next one — one number, two routes, a minute apart, in front of a room.
+    // The claimed sheet has the real instant and is the only screen that names
+    // one. No `when` or `by` is returned at all, so no screen can print a
+    // forecast by accident.
+    line: `Buy the product within ${within} of joining.`,
   };
 }
 
@@ -131,11 +135,20 @@ export function remainingToBuy(task, now) {
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const minutes = totalMinutes % 60;
 
+  // The deadline ITSELF, formatted exactly as the confirmation screen formatted
+  // it. This is what the sheet states, and it is why the two screens can no
+  // longer contradict each other: the confirmation screen promised "within 7
+  // days", the sheet used to answer "yours for the next 6 days" — true, because
+  // the claim had already eaten four seconds of the window, and indefensible in
+  // front of a room. Both now name the same instant.
+  const when = formatDeadline(new Date(end));
+
   // One unit of precision in the sentence, two on the clock — the same shape the
   // design uses, at the scale the real window actually has.
   if (days >= 1) {
     return {
       phrase: plural(days, 'day'),
+      when,
       clock: `${days}d ${hours}h`,
       days,
       hours,
@@ -145,6 +158,7 @@ export function remainingToBuy(task, now) {
   if (hours >= 1) {
     return {
       phrase: plural(hours, 'hour'),
+      when,
       clock: `${hours}h ${String(minutes).padStart(2, '0')}m`,
       days: 0,
       hours,
@@ -153,6 +167,7 @@ export function remainingToBuy(task, now) {
   }
   return {
     phrase: plural(minutes, 'minute'),
+    when,
     clock: `${minutes}m`,
     days: 0,
     hours: 0,

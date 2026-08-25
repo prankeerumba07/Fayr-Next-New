@@ -196,13 +196,19 @@ export default function OtpScreen({ mobile, resendIn, onBack, onVerified, onSupp
           )}
         </Text>
 
-        {/* Honest about the dev build: there is no SMS provider wired yet, so the
-            code is printed in the backend console. Dev-only, never shipped. */}
-        {__DEV__ ? (
-          <Text style={styles.devNote}>
-            Dev build: your 6-digit code is printed in the backend server console.
-          </Text>
-        ) : null}
+        {/* A dev-only note used to sit here saying "your 6-digit code is printed
+            in the backend server console". It was written when no SMS provider
+            was wired. One is now (SMS_PROVIDER=twilio), and that sender logs a
+            masked number and a provider reference — never the code — so the line
+            was simply false in the configuration this app actually runs in, and
+            it was on screen while a demo says out loud that there is no shortcut
+            behind it. Removed rather than reworded: the device is not told which
+            sender the server used, so it cannot say anything true about where
+            the code went. Making it truthful needs one additive field on the
+            request-code response, which is a shape change and not mine to make
+            unasked. The boot line already tells a developer, in the terminal
+            where it matters: "Active sender: DEV — the code is printed in this
+            terminal, no SMS is sent". */}
 
         <View style={{ flex: 1 }} />
         <Pill
@@ -259,5 +265,4 @@ const styles = StyleSheet.create({
   err: { fontFamily: FONT.bodySemi, fontSize: 12.5, color: COLOR.red, marginTop: 14 },
   hint: { fontFamily: FONT.body, fontSize: 11.5, color: '#a9aa9c', marginTop: 14 },
   resend: { fontFamily: FONT.body, fontSize: 13, color: COLOR.sub, marginTop: 10 },
-  devNote: { fontFamily: FONT.body, fontSize: 10.5, color: '#b9baa9', marginTop: 8 },
 });

@@ -8,11 +8,13 @@
 // Copy and layout are the design's. Three things about it are different, all
 // because the design states a number the backend does not have:
 //
-//  * THE DEADLINE. The design says "within 48 hours of joining"; its own claimed
-//    sheet says 2 hours and counts down from 25 minutes; the backend expires a
-//    claim after CLAIM_TTL_DAYS (7 by default) and is the only one of the three
-//    that does anything. The server now sends its own window with the campaign,
-//    and the card is omitted entirely if it did not.
+//  * THE DEADLINE. The design says "within 48 hours of joining — by 6 Jul, 6:00
+//    PM"; its own claimed sheet says 2 hours and counts down from 25 minutes; the
+//    backend expires a claim after CLAIM_TTL_DAYS (7 by default) and is the only
+//    one of the three that does anything. The server now sends its own window
+//    with the campaign, the card is omitted entirely if it did not — and it
+//    states the LENGTH with no clock time, because the exact instant does not
+//    exist until the claim creates it. See ui/confirmJoin.js.
 //  * "exact variant: {variant}". Campaigns carry no variant or size — see the
 //    report; the line is dropped rather than filled with the product name.
 //  * "This claim uses 5 tickets" uses the campaign's real ticketCost.
@@ -160,7 +162,7 @@ export default function ConfirmJoinScreen({ route, navigation }) {
             <Text style={styles.deadline}>
               Buy the product within{' '}
               <Text style={styles.deadlineStrong}>{deadline.within}</Text> of
-              joining — by {deadline.when}.
+              joining.
             </Text>
           </CardBox>
         ) : null}

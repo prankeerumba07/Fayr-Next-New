@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InsufficientTicketsError } from '../tickets/ticket.types';
 import { TicketService } from '../tickets/ticket.service';
 import { WalletService } from '../wallet/wallet.service';
+import { CLAIMED_SEATS_WHERE, isFull } from '../campaigns/seats';
 import {
   chargedDisagreesWithCampaign,
   resolveChargedPaise,
@@ -129,8 +130,14 @@ export class TaskService {
         }
 
         if (campaign.totalSlots != null) {
-          const taken = await tx.task.count({ where: { campaignId } });
-          if (taken >= campaign.totalSlots) {
+          // The count and the boundary both live in campaigns/seats.ts, because
+          // the app now shows the same fact to the user ("3 left", "All seats
+          // taken"). Two definitions of a taken seat would mean the feed offering
+          // a seat this gate then refused.
+          const taken = await tx.task.count({
+            where: CLAIMED_SEATS_WHERE(campaignId),
+          });
+          if (isFull(campaign.totalSlots, taken)) {
             throw new ConflictException('Campaign is full');
           }
         }

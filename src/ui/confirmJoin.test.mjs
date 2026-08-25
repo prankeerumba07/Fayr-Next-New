@@ -39,7 +39,7 @@ t('states the window the server sent, and the date it lands on', () => {
   assert.equal(d.days, 7);
   assert.match(d.within, /^7 days$/);
   // The design's sentence, with the real numbers in it.
-  assert.match(d.line, /^Buy the product within 7 days of joining — by /);
+  assert.equal(d.line, 'Buy the product within 7 days of joining.');
 });
 
 t('says "1 day", not "1 days"', () => {
@@ -202,6 +202,35 @@ t('ignores an unparseable date instead of rendering NaN', () => {
   assert.equal(remainingToBuy({ claimExpiresAt: 'soon' }, new Date()), null);
 });
 
+
+
+console.log('the two screens must not state two different deadlines');
+t('the PRE-claim card states a length, never a clock time', () => {
+  // The bug: "Buy the product within 7 days of joining — by 1 Sep, 4:00 PM" on
+  // the confirmation screen, then "yours until 1 Sep, 3:59 PM" on the very next
+  // one. Both were computed from the same 7 days, a few seconds apart, and they
+  // disagreed by a minute in front of a room.
+  //
+  // The real cause is that the exact deadline DOES NOT EXIST until the claim
+  // does — the server stamps claimExpiresAt when it creates the task. So the
+  // pre-claim card forecasts a length and stops there; the sheet, which has the
+  // real instant, is the only screen that names one. Nothing to contradict.
+  const d = claimDeadline({ windowDays: 7, now: NOW });
+  assert.equal(d.line, 'Buy the product within 7 days of joining.');
+  assert.doesNotMatch(d.line, /\bby\b/);
+  assert.doesNotMatch(d.line, /[AP]M/);
+  // And it does not even hand a screen an instant it could print by mistake.
+  assert.equal(d.when, undefined);
+  assert.equal(d.by, undefined);
+});
+
+t('the claimed sheet DOES name the instant, from the task', () => {
+  const r = remainingToBuy(
+    { claimExpiresAt: '2026-09-01T15:05:00.000Z' },
+    new Date('2026-08-25T10:00:00.000Z'),
+  );
+  assert.match(r.when, /^\d{1,2} [A-Z][a-z]{2}, \d{1,2}:\d{2} (AM|PM)$/);
+});
 
 console.log('no phantom deadline in the screens');
 {
