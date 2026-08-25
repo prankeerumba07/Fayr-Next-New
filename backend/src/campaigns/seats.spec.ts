@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   CLAIMED_SEATS_WHERE,
+  CLAIMED_SEATS_WHERE_MANY,
+  SEAT_TAKEN_BY,
+  claimedFor,
+  claimedSeatsByCampaign,
   isFull,
   seatsLeft,
 } from './seats';
@@ -44,6 +48,76 @@ describe('seats', () => {
     });
   });
 
+  describe('counting seats for many campaigns at once', () => {
+    const db = (rows: { campaignId: string; n: number }[]) => {
+      const calls: unknown[] = [];
+      return {
+        calls,
+        task: {
+          groupBy: (args: unknown) => {
+            calls.push(args);
+            return Promise.resolve(
+              rows.map((r) => ({ campaignId: r.campaignId, _count: { _all: r.n } })),
+            );
+          },
+        },
+      };
+    };
+
+    it('asks the SAME question the claim gate asks', async () => {
+      // The defect avoided: Prisma's `_count: { select: { tasks: true } }` on the
+      // campaign include would have been shorter and cannot be told about
+      // SEAT_TAKEN_BY, so the feed and the gate would have been two expressions of
+      // one rule — agreeing today, diverging the first time the rule changed.
+      const d = db([]);
+      await claimedSeatsByCampaign(d, ['c-1', 'c-2']);
+      expect(d.calls).toHaveLength(1);
+      expect(d.calls[0]).toEqual({
+        by: ['campaignId'],
+        where: CLAIMED_SEATS_WHERE_MANY(['c-1', 'c-2']),
+        _count: { _all: true },
+      });
+    });
+
+    it('the one-campaign and many-campaign predicates carry the same conditions', () => {
+      // If a condition is ever added to SEAT_TAKEN_BY, BOTH must gain it. This is
+      // the assertion that makes the shared constant worth having.
+      const one = CLAIMED_SEATS_WHERE('c-1');
+      const many = CLAIMED_SEATS_WHERE_MANY(['c-1']);
+      const extraKeys = (w: object) =>
+        Object.keys(w).filter((k) => k !== 'campaignId').sort();
+      expect(extraKeys(one)).toEqual(extraKeys(many));
+      expect(extraKeys(one)).toEqual(Object.keys(SEAT_TAKEN_BY).sort());
+    });
+
+    it('is ONE query however many campaigns are asked about', async () => {
+      // A per-campaign count would be an N+1 across the whole feed.
+      const d = db([{ campaignId: 'c-1', n: 3 }]);
+      await claimedSeatsByCampaign(d, ['c-1', 'c-2', 'c-3', 'c-4', 'c-5']);
+      expect(d.calls).toHaveLength(1);
+    });
+
+    it('asks nothing at all when there are no campaigns', async () => {
+      const d = db([]);
+      expect(await claimedSeatsByCampaign(d, [])).toEqual(new Map());
+      expect(d.calls).toHaveLength(0);
+    });
+
+    it('reads a campaign nobody has claimed as 0, not undefined', async () => {
+      // groupBy returns only groups that EXIST, so an unclaimed campaign is absent
+      // from the result. Read through claimedFor and absence becomes zero; index
+      // the map directly and it becomes undefined, which arithmetic turns into NaN
+      // and a screen turns into "NaN joined".
+      const counts = await claimedSeatsByCampaign(
+        db([{ campaignId: 'c-1', n: 7 }]),
+        ['c-1', 'c-2'],
+      );
+      expect(claimedFor(counts, 'c-1')).toBe(7);
+      expect(claimedFor(counts, 'c-2')).toBe(0);
+      expect(counts.get('c-2')).toBeUndefined();
+    });
+  });
+
   describe('seatsLeft', () => {
     it('is the slots minus the seats taken', () => {
       expect(seatsLeft(50, 47)).toBe(3);
@@ -74,6 +148,19 @@ describe('seats', () => {
 
     it('an unlimited campaign is never full', () => {
       expect(isFull(null, 10000)).toBe(false);
+    });
+
+    it('is EXACTLY "no seats left" — the equivalence the app reads', () => {
+      // The response carries seatsLeft, and the screen shows "All seats taken"
+      // when it is 0. That is only safe if 0 and full are the same thing at every
+      // boundary — otherwise the app offers a seat the server refuses, or hides
+      // one it would have allowed.
+      for (const total of [null, 0, 1, 3, 50]) {
+        for (const taken of [0, 1, 2, 3, 49, 50, 51]) {
+          const left = seatsLeft(total, taken);
+          expect(left === 0).toBe(isFull(total, taken));
+        }
+      }
     });
   });
 });

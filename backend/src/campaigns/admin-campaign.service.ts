@@ -5,12 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { CampaignStatus, Platform, Prisma } from '@prisma/client';
+import type { Campaign, CampaignStatus, Platform, Prisma } from '@prisma/client';
 import { AdminAuditService } from '../admin/admin-audit.service';
 import { AUDIT_ACTIONS } from '../admin/admin.constants';
 import type { Env } from '../config/env.validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { toCampaignResponse, type CampaignResponse } from './campaign.response';
+import { claimedFor, claimedSeatsByCampaign } from './seats';
 import type { CreateCampaignDto } from './dto/create-campaign.dto';
 import type { UpdateCampaignDto } from './dto/update-campaign.dto';
 
@@ -43,6 +44,26 @@ export class AdminCampaignService {
     return this.config.get('CLAIM_TTL_DAYS', { infer: true });
   }
 
+  /**
+   * One campaign as the panel sees it, seats included.
+   *
+   * Two helpers rather than one because the difference is a database round trip:
+   * `view` takes a count the caller already has (the list fetches every count in a
+   * single query), and `viewOne` fetches one. Neither lets a call site invent the
+   * number.
+   */
+  private view(campaign: Campaign, claimedCount: number): CampaignResponse {
+    return toCampaignResponse(campaign, {
+      claimWindowDays: this.claimWindowDays,
+      claimedCount,
+    });
+  }
+
+  private async viewOne(campaign: Campaign): Promise<CampaignResponse> {
+    const taken = await claimedSeatsByCampaign(this.prisma, [campaign.id]);
+    return this.view(campaign, claimedFor(taken, campaign.id));
+  }
+
   /** Every campaign (any status), newest first, optionally filtered. */
   async listAll(
     status?: CampaignStatus,
@@ -55,15 +76,15 @@ export class AdminCampaignService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    // Explicit, not `rows.map(toCampaignResponse)` — see campaign.controller.
-    return rows.map((c) => toCampaignResponse(c, this.claimWindowDays));
+    const taken = await claimedSeatsByCampaign(this.prisma, rows.map((c) => c.id));
+    return rows.map((c) => this.view(c, claimedFor(taken, c.id)));
   }
 
   /** One campaign by id, any status. 404 if missing. */
   async getById(id: string): Promise<CampaignResponse> {
     const campaign = await this.prisma.campaign.findUnique({ where: { id } });
     if (!campaign) throw new NotFoundException('Campaign not found');
-    return toCampaignResponse(campaign, this.claimWindowDays);
+    return this.viewOne(campaign);
   }
 
   /** Create a campaign. Always lands in DRAFT — going live is a separate step. */
@@ -103,7 +124,7 @@ export class AdminCampaignService {
         platform: created.platform,
       },
     });
-    return toCampaignResponse(created, this.claimWindowDays);
+    return this.viewOne(created);
   }
 
   /** Edit a DRAFT or PAUSED campaign. Only the provided fields change. */
@@ -158,7 +179,7 @@ export class AdminCampaignService {
       action: AUDIT_ACTIONS.CAMPAIGN_UPDATE,
       metadata: { campaignId: id, fields: Object.keys(data) },
     });
-    return toCampaignResponse(updated, this.claimWindowDays);
+    return this.viewOne(updated);
   }
 
   /** DRAFT → ACTIVE: make the campaign live and claimable. */
@@ -215,6 +236,6 @@ export class AdminCampaignService {
       action: AUDIT_ACTIONS.CAMPAIGN_STATUS,
       metadata: { campaignId: id, action, from: campaign.status, to },
     });
-    return toCampaignResponse(updated, this.claimWindowDays);
+    return this.viewOne(updated);
   }
 }

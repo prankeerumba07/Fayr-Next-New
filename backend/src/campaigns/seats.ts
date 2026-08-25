@@ -19,8 +19,74 @@ import type { Prisma } from '@prisma/client';
  * still has its row. This is the where-clause the claim gate has always used, now
  * named so the response cannot use a different one.
  */
+export const SEAT_TAKEN_BY: Prisma.TaskWhereInput = {
+  // Intentionally empty: no condition beyond "a task exists on this campaign".
+  // It is a named constant rather than nothing so that the day a seat stops being
+  // unconditional — expired claims released back, say — there is exactly ONE
+  // place to say so, and every count picks it up together. Spelling the condition
+  // out twice is how the screen and the gate come to disagree.
+};
+
 export function CLAIMED_SEATS_WHERE(campaignId: string): Prisma.TaskWhereInput {
-  return { campaignId };
+  return { campaignId, ...SEAT_TAKEN_BY };
+}
+
+/** The same predicate, for many campaigns at once. */
+export function CLAIMED_SEATS_WHERE_MANY(
+  campaignIds: string[],
+): Prisma.TaskWhereInput {
+  return { campaignId: { in: campaignIds }, ...SEAT_TAKEN_BY };
+}
+
+/** Just enough of a Prisma client to count tasks — so this is unit-testable. */
+export interface SeatCountingDb {
+  task: {
+    // Method syntax, not an arrow property: TypeScript checks method parameters
+    // bivariantly, which is what lets Prisma's heavily overloaded groupBy satisfy
+    // this narrow shape. As an arrow property the real client is not assignable
+    // and every production call site would need a cast — which would defeat the
+    // point of naming the shape at all.
+    groupBy(args: {
+      by: ['campaignId'];
+      where: Prisma.TaskWhereInput;
+      _count: { _all: true };
+    }): Promise<{ campaignId: string; _count: { _all: number } }[]>;
+  };
+}
+
+/**
+ * Seats taken, per campaign, in ONE query.
+ *
+ * Deliberately not Prisma's `_count: { select: { tasks: true } }` on the campaign
+ * include, which would have been shorter. That helper counts every related task
+ * by definition and cannot be told about SEAT_TAKEN_BY — so the feed and the claim
+ * gate would have been two expressions of one rule, agreeing today and diverging
+ * the first time the rule changed. This goes through the same predicate the gate
+ * uses.
+ *
+ * A campaign with no claims is ABSENT from the result, not zero: groupBy returns
+ * only groups that exist. Callers read through `claimedFor` below rather than
+ * indexing the map, so absence and zero cannot be confused.
+ */
+export async function claimedSeatsByCampaign(
+  db: SeatCountingDb,
+  campaignIds: string[],
+): Promise<Map<string, number>> {
+  if (campaignIds.length === 0) return new Map();
+  const rows = await db.task.groupBy({
+    by: ['campaignId'],
+    where: CLAIMED_SEATS_WHERE_MANY(campaignIds),
+    _count: { _all: true },
+  });
+  return new Map(rows.map((r) => [r.campaignId, r._count._all]));
+}
+
+/** Seats taken for one campaign, reading 0 for a campaign nobody has claimed. */
+export function claimedFor(
+  counts: Map<string, number>,
+  campaignId: string,
+): number {
+  return counts.get(campaignId) ?? 0;
 }
 
 /**
