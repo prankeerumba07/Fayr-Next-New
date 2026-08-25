@@ -26,6 +26,8 @@ import {
   ClaimedScreen, NotEnoughTicketsScreen, JoinFailedScreen,
 } from './src/ClaimOutcomeScreens';
 import BottomNav from './src/ui/BottomNav';
+import ErrorBoundary from './src/ErrorBoundary';
+import ErrorFallback from './src/ErrorFallback';
 import { PLATFORM_LIST } from './src/platforms';
 import { goHome } from './src/ui/nav';
 import { COLOR, FONT } from './src/ui/theme';
@@ -112,7 +114,7 @@ function MarketplaceHomeButton({ navigation }) {
 //   'loading' — still reading the keychain (brief splash);
 //   'out'     — no valid session → the first-run journey;
 //   'in'      — signed in → the existing Home/Task/marketplace stack.
-export default function App() {
+function AppInner() {
   const [authState, setAuthState] = React.useState('loading');
   // The setup sequence runs ONCE, between verifying the code and the feed. Before
   // this, verifying dropped the user straight onto the campaign list and the whole
@@ -279,6 +281,28 @@ export default function App() {
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
+  );
+}
+
+// The app, with a floor under it.
+//
+// This wrapper is the whole of the default export, and that is the point: every
+// branch AppInner can take — the splash, the first-run sign-in journey, the setup
+// sequence, and the signed-in navigator — is a separate early return, so a
+// boundary placed inside the navigator would have guarded only the last of them.
+// The sign-in journey is the first thing anyone sees, and it was the part left
+// uncovered. Wrapping the component that CHOOSES the branch covers all four.
+//
+// A caught error therefore rebuilds the app from the top. That costs a moment
+// while the keychain session re-hydrates and the campaigns reload, and it buys
+// a guarantee: whatever broke, the user lands somewhere the app knows how to be.
+export default function App() {
+  return (
+    <ErrorBoundary
+      renderFallback={({ reset }) => <ErrorFallback onReset={reset} />}
+    >
+      <AppInner />
+    </ErrorBoundary>
   );
 }
 
