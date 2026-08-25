@@ -5,6 +5,7 @@ import * as argon2 from 'argon2';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TaskService } from '../src/tasks/task.service';
 import { TicketService } from '../src/tickets/ticket.service';
+import { WalletService } from '../src/wallet/wallet.service';
 import { WithdrawalService } from '../src/withdrawals/withdrawal.service';
 import { SupportQuestionService } from '../src/support/support-question.service';
 import { ScreenshotVerificationService } from '../src/ocr/screenshot.service';
@@ -48,6 +49,9 @@ import { DEMO_CAMPAIGNS, type SeededCampaign } from './demo-catalogue';
 export const DEMO_MOBILE_DEFAULT = '+919000000001';
 const REVIEW_CHECK_MOBILE = '+919000000002';
 const UNIT_COUNT_MOBILE = '+919000000003';
+
+/** ₹100 — the minimum a withdrawal may be (withdrawal.constants.ts). */
+const WITHDRAWAL_AMOUNT_PAISE = 10_000n;
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -148,6 +152,7 @@ export async function seedDemo(
   const config = app.get<ConfigService<Env, true>>(ConfigService);
   const tasks = app.get(TaskService);
   const tickets = app.get(TicketService);
+  const wallet = app.get(WalletService);
   const withdrawals = app.get(WithdrawalService);
   const questions = app.get(SupportQuestionService);
   const screenshots = app.get(ScreenshotVerificationService);
@@ -246,25 +251,103 @@ export async function seedDemo(
     advance: 'refund',
   });
 
-  if (refunded.created) {
-    // A payout method, then a PARTIAL withdrawal. Partial on purpose: cashing out
-    // the lot leaves a zero balance, and a wallet showing ₹0 with a Withdraw
-    // button that has nothing to act on is the emptiness this seed exists to fix.
-    const method = await withdrawals.addPayoutMethod(demo.id, {
-      type: 'UPI',
-      pan: 'ABCDE1234F',
-      upiId: 'demo@okaxis',
-    });
-    const paid = await withdrawals.requestWithdrawal(demo.id, 10_000n, method.id);
-    const financeStaff = await prisma.staffUser.findUniqueOrThrow({
+  if (refunded.taskId) {
+    await buildWithdrawals(demo.id, demoMobile);
+  }
+
+  /**
+   * A payout method, then a PARTIAL withdrawal, then one left waiting.
+   *
+   * Partial on purpose: cashing out the lot leaves a zero balance, and a wallet
+   * showing ₹0 with a Withdraw button that has nothing to act on is exactly the
+   * emptiness this seed exists to remove.
+   *
+   * Guarded on the END STATE rather than on "did this run create the journey".
+   * The first version asked the latter and it was wrong twice over: a re-run skips
+   * the already-built journey, so the withdrawals would never have been created at
+   * all — and when this step failed part-way through a real database, the retry
+   * silently did nothing instead of finishing the job.
+   */
+  async function buildWithdrawals(userId: string, mobile: string): Promise<void> {
+    const balance = await wallet.getUserBalance(userId);
+    if (balance < 2n * WITHDRAWAL_AMOUNT_PAISE) {
+      // Not a crash: the demo mobile can be pointed at a real account that has no
+      // refund behind it, and that is a legitimate state, not a broken seed.
+      say(
+        '  note       skipped withdrawals — the demo account has no refunded '
+          + 'balance to cash out',
+      );
+      return;
+    }
+
+    const method = await ensurePayoutMethod(userId, mobile);
+    const finance = await prisma.staffUser.findUniqueOrThrow({
       where: { email: 'finance@fayr.local' },
     });
-    await withdrawals.approve(financeStaff.id, paid.id);
-    await withdrawals.markPaid(financeStaff.id, paid.id, 'UTR2608DEMO0001');
 
-    // And one left REQUESTED, so the FINANCE queue has real work in it.
-    await withdrawals.requestWithdrawal(demo.id, 10_000n, method.id);
-    report.journeys.push('withdrawal paid (+10 completion tickets) & one requested');
+    const alreadyPaid = await prisma.withdrawal.findFirst({
+      where: { userId, status: 'PAID' },
+    });
+    if (!alreadyPaid) {
+      const w = await withdrawals.requestWithdrawal(
+        userId,
+        WITHDRAWAL_AMOUNT_PAISE,
+        method.id,
+      );
+      await withdrawals.approve(finance.id, w.id);
+      await withdrawals.markPaid(finance.id, w.id, 'UTR2608DEMO0001');
+      report.journeys.push('withdrawal paid out (+10 completion tickets)');
+    }
+
+    const alreadyWaiting = await prisma.withdrawal.findFirst({
+      where: { userId, status: 'REQUESTED' },
+    });
+    if (!alreadyWaiting) {
+      await withdrawals.requestWithdrawal(
+        userId,
+        WITHDRAWAL_AMOUNT_PAISE,
+        method.id,
+      );
+      report.journeys.push('one withdrawal waiting for FINANCE');
+    }
+  }
+
+  /**
+   * The demo account's payout instrument, reused if it has one.
+   *
+   * A FIXED pan/UPI here is what broke the first run against a database that
+   * already had people in it: PAN anchoring gives one PAN to exactly one account
+   * for life, and the obvious placeholder was already anchored to an earlier test
+   * user, so the seed died on a 409 that was the fraud rule working correctly.
+   * Both identifiers are therefore derived from the demo mobile — stable across
+   * re-runs, and distinct for whatever account the demo is pointed at.
+   */
+  async function ensurePayoutMethod(
+    userId: string,
+    mobile: string,
+  ): Promise<{ id: string }> {
+    const existing = await prisma.payoutMethod.findFirst({
+      where: { userId, status: 'ACTIVE' },
+    });
+    if (existing) return existing;
+
+    const digits = mobile.replace(/\D/g, '').slice(-4).padStart(4, '0');
+    try {
+      return await withdrawals.addPayoutMethod(userId, {
+        type: 'UPI',
+        pan: `FAYRD${digits}F`,
+        upiId: `fayr.demo.${digits}@okaxis`,
+      });
+    } catch (err) {
+      // Say what to do about it. A bare 409 here reads as a broken seed when it
+      // is actually a real account already carrying a different PAN.
+      throw new Error(
+        `Demo seed: could not add a payout method for ${mobile} — `
+          + `${(err as Error).message}. That account is already anchored to a `
+          + 'different PAN, which cannot be changed. Point DEMO_MOBILE at another '
+          + 'number, or clear that account.',
+      );
+    }
   }
 
   // 4b. In the holding period, with a live countdown. Electronics is a 10-day
@@ -305,17 +388,13 @@ export async function seedDemo(
     advance: 'evidence',
   });
 
-  // 4d. Claimed, not bought. Only ONE day old: backdate a live claim past its own
-  //     purchase deadline and the maintenance sweep expires it, so the demo would
-  //     open on a task that had evaporated overnight.
-  const garmentRack = findCampaign('Lukzer Garment Rack');
-  await journey({
-    label: 'claimed, still to buy',
-    user: demo,
-    campaignId: garmentRack.id,
-    claimedAt: now - 1 * DAY,
-    advance: 'claim',
-  });
+  // 4d. Claimed, not bought — the one state with an expiry date on it, and so the
+  //     one that needs a guarantee rather than a row.
+  await ensureUnboughtClaim(demo.id, [
+    'Lukzer Garment Rack',
+    'Train in Comfort',
+    'bedside lamp',
+  ]);
 
   // ── 5. the two staff-decision queues ──────────────────────────────────────
 
@@ -434,6 +513,85 @@ export async function seedDemo(
       orderBy: { createdAt: 'asc' },
     });
     return t?.id ?? null;
+  }
+
+  /**
+   * GUARANTEE: the demo account always has a claim it has not bought yet, with a
+   * full purchase window ahead of it.
+   *
+   * Stated as a guarantee about the STATE, not as one more journey, because this
+   * is the only state with a deadline attached and therefore the only one that can
+   * disappear on its own. Two failures, both found by reading a real database
+   * rather than by reasoning about one:
+   *
+   *   1. A claim backdated by a day had a deadline seven days after SEEDING, and a
+   *      demo is not run on the day the database is built. Seeded on 25 August it
+   *      lapsed on the 31st, so a demo on 1 September would have found the sweep
+   *      had expired it overnight.
+   *   2. Once it HAS expired, re-running the seed could not put it back: the
+   *      one-purchase-per-campaign rule refuses a second claim on that campaign,
+   *      and the skip-if-a-task-exists check would find the dead one and move on.
+   *      So the fix needs a spare offer to fall back to, not a retry.
+   *
+   * Topping the deadline up is a FIXTURE refresh and nothing in the app does it —
+   * no product path moves a purchase deadline, and none should. It only ever
+   * pushes the date out, and only on a task still awaiting its purchase.
+   *
+   * The ticket arithmetic takes care of itself: an expired claim returns its 5
+   * tickets, and the replacement claim spends 5, so the account still lands on
+   * exactly one claim's worth for the live demo.
+   */
+  async function ensureUnboughtClaim(
+    userId: string,
+    candidateTitles: string[],
+  ): Promise<void> {
+    const candidates = candidateTitles.map((t) => findCampaign(t));
+
+    const live = await prisma.task.findFirst({
+      where: {
+        userId,
+        state: 'CLAIMED',
+        closedAt: null,
+        campaignId: { in: candidates.map((c) => c.id) },
+      },
+    });
+    if (live) {
+      const fullWindow = new Date(now + claimTtlDays * DAY);
+      if ((live.claimExpiresAt?.getTime() ?? 0) < fullWindow.getTime()) {
+        await prisma.task.update({
+          where: { id: live.id },
+          data: { createdAt: new Date(now), claimExpiresAt: fullWindow },
+        });
+        report.journeys.push('topped up the unbought claim’s purchase deadline');
+      } else {
+        report.skipped.push('claimed, still to buy');
+      }
+      return;
+    }
+
+    // Nothing live. Claim the first spare offer this account has never touched.
+    for (const candidate of candidates) {
+      const used = await prisma.task.findFirst({
+        where: { userId, campaignId: candidate.id },
+      });
+      if (used) continue;
+      await journey({
+        label: 'claimed, still to buy',
+        user: { id: userId },
+        campaignId: candidate.id,
+        claimedAt: now,
+        advance: 'claim',
+      });
+      return;
+    }
+
+    // Out of spares. Say so loudly — a silently missing state is the whole thing
+    // this seed exists to prevent.
+    say(
+      '  WARNING    no unbought claim could be created: every spare offer has '
+        + 'already been claimed by this account. Add a title to the candidate list '
+        + 'or use a fresh demo account.',
+    );
   }
 
   interface JourneySpec {

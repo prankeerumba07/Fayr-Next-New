@@ -277,18 +277,92 @@ describe('Demo seed (e2e)', () => {
       expect(second).toEqual(first);
     });
 
-    it('claims that must survive the day are not already past their buy-by date', async () => {
+    it('leaves an unbought claim with a WEEK to run, not merely an unexpired one', async () => {
       await seedDemo(app, { quiet: true });
-      // Backdating a claim is how a demo shows a journey older than the database.
-      // Backdate a CLAIMED task past its own deadline, though, and the
-      // maintenance sweep expires it — the demo opens on a task that has
-      // evaporated. Anything still awaiting a purchase must have time left.
-      const open = await prisma.task.findMany({ where: { state: 'CLAIMED' } });
+      // The bug this pins, found by reading a seeded database rather than by
+      // reasoning: a claim backdated one day had a deadline seven days after
+      // SEEDING, and a demo is not run on the day the database is built. Seeded on
+      // 25 August it lapsed on the 31st, so a demo on 1 September would have found
+      // the sweep had expired it overnight and one of the four states was simply
+      // gone.
+      //
+      // "Not yet expired" is therefore the wrong assertion — it passes the day it
+      // is written and fails the day it matters. What has to hold is that there is
+      // real time left.
+      const open = await prisma.task.findMany({
+        where: { state: 'CLAIMED', closedAt: null },
+      });
       expect(open.length).toBeGreaterThanOrEqual(1);
+      const SIX_DAYS = 6 * 86_400_000;
       for (const t of open) {
         expect(t.claimExpiresAt).not.toBeNull();
-        expect(t.claimExpiresAt!.getTime()).toBeGreaterThan(Date.now());
+        expect(t.claimExpiresAt!.getTime() - Date.now()).toBeGreaterThan(SIX_DAYS);
       }
+    });
+
+    it('tops up a nearly-lapsed claim, the way a week-old database arrives on demo morning', async () => {
+      await seedDemo(app, { quiet: true });
+      const claimed = await prisma.task.findFirstOrThrow({
+        where: { state: 'CLAIMED', closedAt: null },
+      });
+      await prisma.task.update({
+        where: { id: claimed.id },
+        data: { claimExpiresAt: new Date(Date.now() + 3_600_000) },
+      });
+
+      await seedDemo(app, { quiet: true });
+
+      const after = await prisma.task.findUniqueOrThrow({
+        where: { id: claimed.id },
+      });
+      expect(after.state).toBe('CLAIMED');
+      expect(after.claimExpiresAt!.getTime() - Date.now()).toBeGreaterThan(
+        6 * 86_400_000,
+      );
+    });
+
+    it('restores the unbought claim on a SPARE offer once the old one has expired', async () => {
+      // The failure this pins is the one a retry could not fix: after the sweep
+      // expires the claim, the one-purchase-per-campaign rule refuses a second
+      // claim on that campaign, and a seed that only looked for "a task on this
+      // campaign" would find the dead one and move on — leaving the demo three
+      // states out of four with nothing to say why.
+      await seedDemo(app, { quiet: true });
+      const claimed = await prisma.task.findFirstOrThrow({
+        where: { state: 'CLAIMED', closedAt: null },
+      });
+      await prisma.task.update({
+        where: { id: claimed.id },
+        data: { claimExpiresAt: new Date(Date.now() - 86_400_000) },
+      });
+      const { expired } = await tasks.sweepExpiredClaims();
+      expect(expired).toBe(1);
+      // There is no EXPIRED state — the enum has none. An expired claim keeps
+      // state CLAIMED and is marked closed, which is exactly why the seed has to
+      // filter on closedAt and not on the state alone.
+      const dead = await prisma.task.findUniqueOrThrow({
+        where: { id: claimed.id },
+      });
+      expect(dead.closedAt).not.toBeNull();
+      expect(dead.closeReason).toBe('expired');
+
+      await seedDemo(app, { quiet: true });
+
+      // A DIFFERENT task, live, with a full window.
+      const live = await prisma.task.findFirstOrThrow({
+        where: { state: 'CLAIMED', closedAt: null },
+      });
+      expect(live.id).not.toBe(claimed.id);
+      expect(live.claimExpiresAt!.getTime() - Date.now()).toBeGreaterThan(
+        6 * 86_400_000,
+      );
+
+      // And the tickets balance out by the real rules: expiry returns 5, the
+      // replacement claim spends 5. Nothing was granted by hand.
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { mobile: DEMO_MOBILE_DEFAULT },
+      });
+      expect(await tickets.getBalance(user.id)).toBeGreaterThanOrEqual(5);
     });
 
     it('refuses to run against a database that is not a dev or test one', async () => {
