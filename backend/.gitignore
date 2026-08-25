@@ -16,6 +16,9 @@ logs
 
 # operator uploads (campaign images, etc.) — user content, never committed
 uploads
+# private uploads (verification screenshots — user PII), never committed
+private-uploads
+uploads-test
 
 # os / editor
 .DS_Store

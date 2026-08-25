@@ -10,6 +10,7 @@ import { StaffTokenService } from '../src/admin/staff-token.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TicketService } from '../src/tickets/ticket.service';
 import { WalletService } from '../src/wallet/wallet.service';
+import { resetDatabase } from './reset-db';
 
 /**
  * End-to-end for the withdrawal / cash-out flow (Phase 3). Boots the REAL app and
@@ -104,9 +105,7 @@ describe('Withdrawals (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "staff_users","users","campaigns","tasks","task_events","visibility_checks","ticket_entries","wallet_accounts","wallet_entries","ledger_transactions","payout_methods","withdrawals","refresh_tokens" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   const server = () => app.getHttpServer();
@@ -320,6 +319,179 @@ describe('Withdrawals (e2e)', () => {
       expect(queue.body).toHaveLength(1);
       expect(queue.body[0].user.mobile).toBe(u.mobile);
       expect(queue.body[0].payoutMethod.label).toContain('@okaxis');
+    });
+  });
+  /**
+   * THE TRAIL, END TO END.
+   *
+   * Before this, approving and paying a withdrawal wrote the staff id onto the
+   * withdrawal row and NOTHING to the audit log — the one action that takes money
+   * out of the company was the one action with no entry in the trail, while staff
+   * viewing a screenshot and staff logging in both had one.
+   *
+   * Read back through GET /admin/audit deliberately, not straight out of the
+   * table: what matters is not that a row exists somewhere, but that a payout
+   * appears in the SAME trail an admin already reads for everything else.
+   */
+  describe('the audit trail', () => {
+    async function auditRows(
+      admin: string,
+      action: string,
+    ): Promise<Array<{ metadata: Record<string, unknown> | null }>> {
+      const res = await request(server())
+        .get('/admin/audit')
+        .query({ action })
+        .set('authorization', `Bearer ${admin}`)
+        .expect(200);
+      return res.body.entries as Array<{
+        metadata: Record<string, unknown> | null;
+      }>;
+    }
+
+    it('marking a withdrawal paid leaves a row in the same trail as everything else', async () => {
+      const u = await makeUser();
+      await fund(u.id, 200_000n);
+      const methodId = await addUpi(u.token, 'ravi@okaxis');
+      const req = await request(server())
+        .post('/withdrawals')
+        .set('authorization', `Bearer ${u.token}`)
+        .send({ amountPaise: '59040', payoutMethodId: methodId })
+        .expect(201);
+      const admin = await adminToken();
+
+      await request(server())
+        .post(`/admin/withdrawals/${req.body.id}/approve`)
+        .set('authorization', `Bearer ${admin}`)
+        .expect(200);
+      await request(server())
+        .post(`/admin/withdrawals/${req.body.id}/mark-paid`)
+        .set('authorization', `Bearer ${admin}`)
+        .send({ utr: 'AXISR52026082512345' })
+        .expect(200);
+
+      const approved = await auditRows(admin, 'WITHDRAWAL_APPROVE');
+      expect(approved).toHaveLength(1);
+      expect(approved[0].metadata).toEqual({
+        withdrawalId: req.body.id,
+        amountPaise: '59040',
+        previousStatus: 'REQUESTED',
+      });
+
+      const paid = await auditRows(admin, 'WITHDRAWAL_MARK_PAID');
+      expect(paid).toHaveLength(1);
+      expect(paid[0].metadata).toEqual({
+        withdrawalId: req.body.id,
+        amountPaise: '59040',
+        previousStatus: 'APPROVED',
+        utr: 'AXISR52026082512345',
+      });
+    });
+
+    it('names the staff member who decided, and the user it was about', async () => {
+      const u = await makeUser();
+      await fund(u.id, 200_000n);
+      const methodId = await addUpi(u.token, 'ravi@okaxis');
+      const req = await request(server())
+        .post('/withdrawals')
+        .set('authorization', `Bearer ${u.token}`)
+        .send({ amountPaise: '50000', payoutMethodId: methodId })
+        .expect(201);
+      const admin = await adminToken();
+      await request(server())
+        .post(`/admin/withdrawals/${req.body.id}/approve`)
+        .set('authorization', `Bearer ${admin}`)
+        .expect(200);
+
+      // Filtering the trail by the USER must surface the payout decision, or a
+      // dispute about one person's money cannot be answered from the trail.
+      const byUser = await request(server())
+        .get('/admin/audit')
+        .query({ targetUserId: u.id, action: 'WITHDRAWAL_APPROVE' })
+        .set('authorization', `Bearer ${admin}`)
+        .expect(200);
+      expect(byUser.body.entries).toHaveLength(1);
+      expect(byUser.body.entries[0].targetUserId).toBe(u.id);
+      expect(byUser.body.entries[0].staff.email).toMatch(/@fayr\.local$/);
+    });
+
+    it('rejecting records the reason and the entry that gave the money back', async () => {
+      const u = await makeUser();
+      await fund(u.id, 200_000n);
+      const methodId = await addUpi(u.token, 'ravi@okaxis');
+      const req = await request(server())
+        .post('/withdrawals')
+        .set('authorization', `Bearer ${u.token}`)
+        .send({ amountPaise: '50000', payoutMethodId: methodId })
+        .expect(201);
+      const admin = await adminToken();
+      await request(server())
+        .post(`/admin/withdrawals/${req.body.id}/reject`)
+        .set('authorization', `Bearer ${admin}`)
+        .send({ reason: 'the account name does not match the PAN' })
+        .expect(200);
+
+      const rows = await auditRows(admin, 'WITHDRAWAL_REJECT');
+      expect(rows).toHaveLength(1);
+      const meta = rows[0].metadata as Record<string, string>;
+      expect(meta.reason).toBe('the account name does not match the PAN');
+      expect(meta.previousStatus).toBe('REQUESTED');
+      expect(meta.amountPaise).toBe('50000');
+      // The reversal really is the ledger entry that returned the money.
+      const txn = await prisma.ledgerTransaction.findUnique({
+        where: { id: meta.reversalTxnId },
+      });
+      expect(txn?.idempotencyKey).toBe(`withdrawal:reversal:${req.body.id}`);
+    });
+
+    it('a refused decision writes nothing at all', async () => {
+      const u = await makeUser();
+      await fund(u.id, 200_000n);
+      const methodId = await addUpi(u.token, 'ravi@okaxis');
+      const req = await request(server())
+        .post('/withdrawals')
+        .set('authorization', `Bearer ${u.token}`)
+        .send({ amountPaise: '50000', payoutMethodId: methodId })
+        .expect(201);
+      const admin = await adminToken();
+
+      // mark-paid on a REQUESTED withdrawal: refused, so nothing happened, so
+      // there is nothing to record.
+      await request(server())
+        .post(`/admin/withdrawals/${req.body.id}/mark-paid`)
+        .set('authorization', `Bearer ${admin}`)
+        .send({ utr: 'UTR-NOPE' })
+        .expect(409);
+      expect(await auditRows(admin, 'WITHDRAWAL_MARK_PAID')).toEqual([]);
+    });
+
+    it('marking a payout failed records that it moved from APPROVED', async () => {
+      const u = await makeUser();
+      await fund(u.id, 200_000n);
+      const methodId = await addUpi(u.token, 'ravi@okaxis');
+      const req = await request(server())
+        .post('/withdrawals')
+        .set('authorization', `Bearer ${u.token}`)
+        .send({ amountPaise: '50000', payoutMethodId: methodId })
+        .expect(201);
+      const admin = await adminToken();
+      await request(server())
+        .post(`/admin/withdrawals/${req.body.id}/approve`)
+        .set('authorization', `Bearer ${admin}`)
+        .expect(200);
+      await request(server())
+        .post(`/admin/withdrawals/${req.body.id}/mark-failed`)
+        .set('authorization', `Bearer ${admin}`)
+        .send({ reason: 'the bank returned the transfer' })
+        .expect(200);
+
+      const rows = await auditRows(admin, 'WITHDRAWAL_MARK_FAILED');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].metadata).toMatchObject({
+        previousStatus: 'APPROVED',
+        reason: 'the bank returned the transfer',
+      });
+      // And the money is back in the wallet.
+      expect(await walletPaise(u.token)).toBe('200000');
     });
   });
 });

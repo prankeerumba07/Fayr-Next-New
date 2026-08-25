@@ -1,0 +1,400 @@
+<title>One Number, Two Routes</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Alexandria:wght@600;700;800&family=Poppins:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {
+    --ground: #FBFBEF;
+    --surface: #FFFFFF;
+    --surface-2: #F6F7E6;
+    --line: #E3E5CF;
+    --line-soft: #EEEFDF;
+    --ink: #191919;
+    --ink-2: #3A3A34;
+    --sub: #5C5C5C;
+    --gold: #F5C400;
+    --gold-ink: #7A5E00;
+    --gold-bg: #FDF6D2;
+    --money-ink: #256F09;
+    --money-bg: #E9F5CE;
+    --stop: #B02617;
+    --stop-ink: #B02617;
+    --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+    --display: "Alexandria", "Trebuchet MS", sans-serif;
+    --head: "Poppins", "Helvetica Neue", Arial, sans-serif;
+    --body: "Inter", "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #15160F; --surface: #1D1E15; --surface-2: #24261A;
+      --line: #343626; --line-soft: #2A2C1F;
+      --ink: #F3F4E2; --ink-2: #DEDFCB; --sub: #A3A591;
+      --gold: #E4BE1E; --gold-ink: #EBCE5E; --gold-bg: #2C2810;
+      --money-ink: #96D46B; --money-bg: #1E2A13;
+      --stop: #F2907F; --stop-ink: #F2907F; --stop-bg: #33191A;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #15160F; --surface: #1D1E15; --surface-2: #24261A;
+    --line: #343626; --line-soft: #2A2C1F;
+    --ink: #F3F4E2; --ink-2: #DEDFCB; --sub: #A3A591;
+    --gold: #E4BE1E; --gold-ink: #EBCE5E; --gold-bg: #2C2810;
+    --money-ink: #96D46B; --money-bg: #1E2A13;
+    --stop: #F2907F; --stop-ink: #F2907F; --stop-bg: #33191A;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --ground: #FBFBEF; --surface: #FFFFFF; --surface-2: #F6F7E6;
+    --line: #E3E5CF; --line-soft: #EEEFDF;
+    --ink: #191919; --ink-2: #3A3A34; --sub: #5C5C5C;
+    --gold: #F5C400; --gold-ink: #7A5E00; --gold-bg: #FDF6D2;
+    --money-ink: #256F09; --money-bg: #E9F5CE;
+    --stop: #B02617; --stop-ink: #B02617; --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 24px 96px; }
+
+  .wordmark {
+    font-family: var(--display); font-weight: 800; font-size: 20px;
+    letter-spacing: -.02em; color: var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--head); font-weight: 700; font-size: 11.5px;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--gold-ink);
+    margin: 34px 0 10px;
+  }
+  h1 {
+    font-family: var(--display); font-weight: 700; font-size: 40px;
+    line-height: 1.1; letter-spacing: -.025em; margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--head); font-weight: 700; font-size: 21px;
+    letter-spacing: -.01em; margin: 52px 0 6px; text-wrap: balance;
+  }
+  p { margin: 0 0 16px; max-width: 66ch; }
+  .lede { font-size: 18.5px; color: var(--ink-2); }
+  .stamp {
+    font-family: var(--body); font-size: 13px; color: var(--sub);
+    border-top: 1px solid var(--line); padding-top: 12px; margin-top: 22px;
+  }
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+
+  .count {
+    display: flex; gap: 14px; flex-wrap: wrap; margin: 26px 0 6px;
+  }
+  .stat {
+    flex: 1 1 150px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 15px 16px; box-shadow: var(--shadow);
+  }
+  .stat .n {
+    font-family: var(--display); font-weight: 700; font-size: 30px;
+    line-height: 1; letter-spacing: -.03em;
+  }
+  .stat .k {
+    font-family: var(--head); font-weight: 600; font-size: 12px;
+    color: var(--sub); margin-top: 7px; line-height: 1.35;
+  }
+  .stat.good .n { color: var(--money-ink); }
+  .stat.warn .n { color: var(--stop-ink); }
+
+  .find {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 16px; padding: 18px 20px; margin: 14px 0;
+    box-shadow: var(--shadow);
+    display: grid; grid-template-columns: 34px 1fr; gap: 0 15px;
+  }
+  .find .idx {
+    font-family: var(--display); font-weight: 700; font-size: 15px;
+    color: var(--gold-ink); background: var(--gold-bg);
+    border-radius: 8px; height: 28px; display: flex;
+    align-items: center; justify-content: center; margin-top: 3px;
+  }
+  .find h3 {
+    font-family: var(--head); font-weight: 700; font-size: 16.5px;
+    margin: 0 0 7px; line-height: 1.38; text-wrap: balance;
+  }
+  .find p { margin: 0 0 9px; font-size: 15.5px; color: var(--ink-2); max-width: none; }
+  .find p:last-child { margin-bottom: 0; }
+  .find .cost {
+    font-size: 14.5px; color: var(--stop-ink); background: var(--stop-bg);
+    border-radius: 8px; padding: 8px 11px; margin: 10px 0 0;
+  }
+  .find .cost b { font-family: var(--head); font-weight: 700; }
+  .find .grid-span { grid-column: 2; }
+
+  blockquote {
+    margin: 14px 0 0; padding: 13px 16px;
+    background: var(--money-bg); border-radius: 10px;
+    font-size: 15.5px; color: var(--ink);
+  }
+  blockquote p { max-width: none; margin: 0; }
+  blockquote .who {
+    display: block; font-family: var(--head); font-weight: 700;
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--money-ink); margin-bottom: 5px;
+  }
+
+  .callout {
+    background: var(--surface-2); border: 1px solid var(--line-soft);
+    border-left: 3px solid var(--gold); border-radius: 12px;
+    padding: 17px 19px; margin: 26px 0;
+  }
+  .callout .title {
+    display: block; font-family: var(--head); font-weight: 700;
+    font-size: 15px; margin-bottom: 7px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.honest { border-left-color: var(--stop); }
+
+  ul { margin: 0 0 16px; padding-left: 22px; max-width: 66ch; }
+  li { margin-bottom: 9px; }
+
+  footer {
+    margin-top: 60px; border-top: 1px solid var(--line);
+    padding-top: 18px; font-size: 14px; color: var(--sub); max-width: 66ch;
+  }
+</style>
+
+<main>
+  <div class="wordmark">fayr.</div>
+
+  <p class="eyebrow">Engineering · founder review</p>
+  <h1>One number, two routes</h1>
+  <p class="lede">Ten defects were found and closed this sprint. Nine of them are
+    the same shape, and it is a shape worth naming out loud: <strong>one fact,
+    reached by two different paths, that agree today and drift tomorrow.</strong>
+    Every one of them was caught by us, before a user, a marketplace or an
+    auditor got there.</p>
+
+  <div class="count">
+    <div class="stat good"><div class="n">10</div><div class="k">Found and closed</div></div>
+    <div class="stat good"><div class="n">9</div><div class="k">Of one defect class</div></div>
+    <div class="stat warn"><div class="n">2</div><div class="k">Had already paid out real money</div></div>
+    <div class="stat good"><div class="n">0</div><div class="k">Found by anyone outside the team</div></div>
+  </div>
+  <p class="stamp">Every claim on this page is traceable to a commit and a test
+    that fails if the defect returns. Figures verified against the live
+    development database, 25 August 2026.</p>
+
+  <h2>Why this class is the dangerous one</h2>
+  <p>A crash announces itself. A number that is quietly wrong does not. If the
+    price on the screen and the price in the payment are computed by two separate
+    pieces of code, they will match on the day they are written, pass every test,
+    demo perfectly — and then one of them gets edited, and money starts moving
+    against a figure nobody is looking at.</p>
+  <p>So the rule we now build to is: <strong>a number that matters has exactly one
+    definition, and everything that needs it asks that one place.</strong> Most of
+    what follows is that rule being enforced after the fact.</p>
+
+  <h2>The ten</h2>
+
+  <div class="find">
+    <div class="idx">1</div>
+    <div>
+      <h3>A reviewer could correct a payout figure and be told it saved when it had not</h3>
+      <p>The safeguard that stops a double-click paying twice was built from the
+        <em>value</em> being submitted. So a reviewer who went 1 unit → 3 → back to
+        1 repeated an earlier key, and the system discarded the third press as a
+        duplicate — while the screen reloaded and said "Saved. Corrected to 1
+        unit."</p>
+      <p class="cost"><b>What it would have done:</b> on the amount control, ₹499
+        → ₹599 → ₹499 left <strong>₹599</strong> on file and paid it. Landing back
+        on a figure you tried earlier is an ordinary thing for a person to do.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">2</div>
+    <div>
+      <h3>The price shown to the user was not the price the refund was based on</h3>
+      <p>The app displayed the offer's listed price; the refund was calculated from
+        what the buyer was actually charged. Worse, a staff-decided refund appeared
+        under the sentence "Couldn't read the item price — refund can't be
+        computed", beneath a refund that had in fact been computed.</p>
+      <p class="cost"><b>What it would have done:</b> every discounted purchase
+        shows one figure and pays another. The first user to subtract them files a
+        complaint we could not answer.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">3</div>
+    <div>
+      <h3>We told users we had confirmed a public review page that does not exist</h3>
+      <p>Once a review was live, every platform got the same line: "Review
+        confirmed live · Publicly visible on the product page." Blinkit, Zepto and
+        Instamart have no public review page at all — they mark a rating on the
+        order inside the buyer's own account and publish nothing a stranger can
+        read.</p>
+      <p class="cost"><b>What it would have done:</b> this was on the demo path.
+        The first director to say "show me that review" would have found nothing to
+        show.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">4</div>
+    <div>
+      <h3>A comment in our own code was wrong, and the refund rule had been built on it</h3>
+      <p>The code stated that no marketplace tells us <em>which line</em> of an
+        order an item is, so refunds were keyed to the whole order number. Checking
+        the actual pages rather than the comment showed every platform we support
+        does name the line — Amazon by ASIN, Flipkart by its own product id.</p>
+      <p class="cost"><b>What it would have done:</b> two different offers bought
+        in one basket looked like one purchase claimed twice, so a legitimate
+        second refund was blocked — and the reverse case had no guard at all.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">5</div>
+    <div>
+      <h3>Twice, a required value was silently filled with a list position</h3>
+      <p>A function was given a required extra argument so the compiler would catch
+        anyone forgetting it. It did not: writing <code>list.map(fn)</code> hands
+        the callback the item <em>and its position in the list</em>, so the
+        argument was satisfied by 0, then 1, then 2. It compiled and ran.</p>
+      <p class="cost"><b>What it would have done:</b> the first offer in the feed
+        told buyers they had <strong>0 days</strong> to purchase, the second 1 day,
+        the third 2. Nothing failed anywhere.</p>
+      <p>It happened twice — once on the purchase deadline, once on the seat count.
+        The second time it was closed differently: the argument is now a
+        <em>shape</em> a list position cannot masquerade as, so the mistake is a
+        build failure rather than a wrong number on a screen. That is the pattern
+        worth carrying forward — make the error impossible, not merely tested for.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">6</div>
+    <div>
+      <h3>Two consecutive screens gave two different deadlines for the same seven days</h3>
+      <p>One screen said "within 7 days of joining — by 1 Sep, 4:00 PM". The next
+        said "for the next 6 days… until 1 Sep, 3:59 PM". Same window, computed
+        seconds apart by two routes, disagreeing by a minute <em>and</em> by a
+        whole day.</p>
+      <p class="cost"><b>What it would have done:</b> the exact deadline does not
+        exist until the server creates the claim, so the earlier screen was
+        forecasting. It now states a length and no clock at all.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">7</div>
+    <div>
+      <h3>A line under the login boxes told users something untrue</h3>
+      <p>It said the verification code was printed in the server console. With the
+        real text-message provider running, the code is never logged anywhere — only
+        a masked number and a provider reference.</p>
+      <p class="cost"><b>What it would have done:</b> it sat on screen while the
+        demo script says out loud that there is no shortcut behind the real text
+        message. Removed rather than reworded: the app is not told which provider
+        ran, so it cannot say anything true about it.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">8</div>
+    <div>
+      <h3>"Type-check clean" had never once been true</h3>
+      <p>One of our release checks ran from the top of the repository, walked into
+        the server code first, and stopped on the very first file — before reading a
+        single line of the phone app it was supposed to be checking. It had been
+        reported as passing because it exited quietly.</p>
+      <p class="cost"><b>What it would have done:</b> nothing it was supposed to
+        catch was being caught. The check is now scoped to the app, and it verifies
+        <em>which files it actually read</em> — because a mistyped path would empty
+        it and it would pass again on nothing.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">9</div>
+    <div>
+      <h3>The duplicate-image fraud check ignored every image we had deleted</h3>
+      <p>Reusing one screenshot across accounts is a fraud signal, and the design
+        was for the fingerprint to outlive the photograph so the signal survives
+        deletion. Writing the test that claimed exactly that showed the check was
+        skipping deleted images — so the signal died the moment the file did.</p>
+      <p class="cost"><b>What it would have done:</b> a 90-day retention policy
+        would have quietly become a 90-day amnesty. Found by asserting the
+        behaviour we had described, not by reading the code.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">10</div>
+    <div>
+      <h3>A column documented as the authoritative price is empty on every record</h3>
+      <p>Found this week. A database field described in our own notes as "the real
+        value" is filled from an older, ambiguous source, so it is empty for every
+        purchase the current code creates. Nothing reads it, so nothing on any
+        screen is wrong — the note describing it was the hazard, because it invited
+        someone to build a report on it.</p>
+      <p class="cost"><b>What it would have done:</b> any report written against
+        that column would have shown <strong>zero rupees</strong> for every task,
+        while the app displayed the correct figure. Caught as a trap rather than as
+        a bug — which is the cheapest possible place to catch it.</p>
+    </div>
+  </div>
+
+  <h2>The part that is not a success story</h2>
+  <div class="callout honest">
+    <span class="title">Two of these had already paid out real money</span>
+    <p>The rule that an offer must have <em>caused</em> a purchase did not exist
+      until this sprint. When it was added, every task then in the system failed it
+      — including two that had already been refunded, one for a purchase made
+      seventy-one days before the offer was claimed. They were internal test
+      accounts, so there is nothing to recover, and they are exempted by a single
+      dated line in the code rather than quietly ignored.</p>
+    <p>Say this if it comes up. It is a far better answer than a clean sheet
+      nobody believes.</p>
+  </div>
+
+  <h2>What actually changed, beyond ten fixes</h2>
+  <ul>
+    <li><strong>Every one is now guarded by a test that fails if it returns.</strong>
+      A fix without that is a fix with a shelf life.</li>
+    <li><strong>Three were found by writing the test that claimed the opposite.</strong>
+      Describing intended behaviour precisely enough to assert it is what exposed
+      the gap — the duplicate-image check, the deadline contradiction and the
+      empty column all surfaced that way.</li>
+    <li><strong>The best fix removes the possibility, not the instance.</strong>
+      The list-position defect came back once. The second time it was closed so
+      that the mistake cannot compile.</li>
+    <li><strong>Nothing on a screen states a number the server did not send.</strong>
+      Where a figure is missing, the app now says nothing rather than showing a
+      zero — a zero reads as an answer.</li>
+  </ul>
+
+  <h2>If you are asked one question, expect this one</h2>
+  <blockquote>
+    <span class="who">"How do you know there isn't an eleventh?"</span>
+    <p>We assume there is. Nine of the ten were the same shape, so it is now
+      searched for deliberately rather than stumbled upon, and the tenth was found
+      while looking. The honest answer is that this is a rate of discovery, not a
+      finish line — and a team that can tell you the shape of its own worst defect
+      is further along than one that reports none.</p>
+  </blockquote>
+
+  <footer>
+    Companion documents: <strong>Security and data, written against us</strong> —
+    the open holes, stated as an attacker would — and the <strong>demo
+    run-sheet</strong>, whose every quoted figure is produced by running the real
+    refund calculation against real rows rather than read off a screen.
+  </footer>
+</main>

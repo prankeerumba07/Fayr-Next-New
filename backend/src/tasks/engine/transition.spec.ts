@@ -86,6 +86,167 @@ describe('transition — forward progression', () => {
   });
 });
 
+// A miss is the ONLY outcome that leaves a task where it was, so it is the one
+// outcome that has to explain itself. These used to be silently dropped: the
+// Instamart dinner-set miss (2026-08-08) reached the backend with probe null
+// and no reason, and the only way left to tell "orders read, no match" from
+// "couldn't read orders at all" was the POST's Content-Length.
+describe('transition — a non-blocking miss keeps its diagnostics', () => {
+  const missEvidence = {
+    type: 'EVIDENCE' as const,
+    at: T0,
+    key: 'evidence:none:_',
+    evidence: {
+      blocker: null,
+      reason: "This product isn't in your Instamart orders yet.",
+      probe: { ordersFetched: true, ordersCount: 7, targetFound: false },
+    },
+  };
+
+  it('persists reason and probe without blocking or advancing', () => {
+    const t = transition(fresh(), missEvidence).task;
+    expect(t.state).toBe(STATES.CLAIMED);
+    expect(t.blocker).toBeNull();
+    expect(t.blockerReason).toBe(
+      "This product isn't in your Instamart orders yet.",
+    );
+    expect(t.probe).toEqual({
+      ordersFetched: true,
+      ordersCount: 7,
+      targetFound: false,
+    });
+  });
+
+  it('distinguishes the two miss kinds by their stored reason', () => {
+    const couldNotRead = transition(fresh(), {
+      type: 'EVIDENCE',
+      at: T0,
+      evidence: {
+        blocker: null,
+        reason: "Couldn't read your Instamart orders.",
+        probe: { ordersFetched: false },
+      },
+    }).task;
+    expect(couldNotRead.blockerReason).toBe(
+      "Couldn't read your Instamart orders.",
+    );
+    expect(couldNotRead.probe).toEqual({ ordersFetched: false });
+  });
+
+  it('a later successful read self-clears the stale reason and probe', () => {
+    const missed = transition(fresh(), missEvidence).task;
+    expect(missed.blockerReason).not.toBeNull();
+
+    const found = transition(missed, orderEvidence).task;
+    expect(found.state).toBe(STATES.PURCHASED);
+    expect(found.blockerReason).toBeNull();
+    expect(found.probe).toBeNull();
+  });
+
+  it('is still idempotent — a replayed miss key is a no-op', () => {
+    const once = transition(fresh(), missEvidence).task;
+    const twice = transition(once, missEvidence);
+    expect(twice.changed).toBe(false);
+    expect(twice.task.history).toHaveLength(once.history.length);
+  });
+});
+
+describe('transition — evidence source authority (OCR is the lowest tier)', () => {
+  const EARLIER = T0;
+  const LATER = T0 + 5 * DAY;
+
+  it('a lower-tier OCR delivery cannot override an earlier higher-tier delivery date', () => {
+    const t = drive(fresh(), [
+      orderEvidence,
+      {
+        type: 'EVIDENCE',
+        at: T0,
+        evidence: { delivery: { at: EARLIER, source: 'order-details' } },
+      },
+      // An OCR screenshot approved later, timestamped at its upload time (LATER):
+      {
+        type: 'EVIDENCE',
+        at: LATER,
+        evidence: { delivery: { at: LATER, source: 'ocr' } },
+      },
+    ]);
+    expect(t.delivery?.at).toBe(EARLIER); // the earlier, higher-tier date wins
+    expect(t.delivery?.source).toBe('order-details');
+  });
+
+  it('a higher-tier delivery DOES correct an earlier OCR delivery', () => {
+    const t = drive(fresh(), [
+      orderEvidence,
+      {
+        type: 'EVIDENCE',
+        at: T0,
+        evidence: { delivery: { at: LATER, source: 'ocr' } },
+      },
+      {
+        type: 'EVIDENCE',
+        at: T0,
+        evidence: { delivery: { at: EARLIER, source: 'order-details' } },
+      },
+    ]);
+    expect(t.delivery?.at).toBe(EARLIER);
+    expect(t.delivery?.source).toBe('order-details');
+  });
+
+  it('a lower-tier OCR order cannot wipe a higher-tier verified itemPaise', () => {
+    const t = drive(fresh(), [
+      orderEvidence, // order-details, itemPaise 129900n
+      {
+        type: 'EVIDENCE',
+        at: T0,
+        evidence: { order: { id: 'o1', itemPaise: null, source: 'ocr' } },
+      },
+    ]);
+    expect(t.order?.itemPaise).toBe(129900n);
+    expect(t.order?.source).toBe('order-details');
+  });
+
+  // The known limit of that carve-out, pinned so it cannot be mistaken for
+  // safety it does not provide. sourceRank is BINARY — only 'ocr' ranks low, so
+  // every scraper source ties and the incoming order replaces the incumbent
+  // WHOLESALE. A second fetch of the same order therefore erases whatever
+  // `match` the first one established.
+  //
+  // This used to matter for money: the refund gate read `match.amountOk`, so an
+  // erased `amountOk: false` silently re-opened the auto-refund path. The gate
+  // now recomputes the price question from the stored amounts at release time
+  // (chargedDisagreesWithCampaign), which is why this is documented as a
+  // limitation rather than a hole. `ambiguous` is the part that is still only
+  // device-sourced and still erasable — see the assertion below.
+  it('an equal-authority re-fetch REPLACES the stored match, erasing it', () => {
+    const t = drive(fresh(), [
+      {
+        type: 'EVIDENCE',
+        at: T0,
+        evidence: {
+          order: {
+            id: 'o1',
+            itemPaise: 129900n,
+            source: 'order-history',
+            match: { score: 1, amountOk: false, ambiguous: true, candidateCount: 2 },
+          },
+        },
+      },
+      // The same order read again — a purchase-only fetch followed by a
+      // purchase+delivery fetch mints a DIFFERENT idempotency key, so this
+      // applies rather than being deduped away.
+      {
+        type: 'EVIDENCE',
+        at: T0 + DAY,
+        evidence: { order: { id: 'o1', itemPaise: 129900n, source: 'order-history' } },
+      },
+    ]);
+    expect(t.order?.match ?? null).toBeNull();
+    // The amounts DO survive, which is what the release-time price check reads —
+    // so the money decision no longer depends on the erased field.
+    expect(t.order?.itemPaise).toBe(129900n);
+  });
+});
+
 describe('transition — guards & atomicity', () => {
   it('rejects MARK_REVIEWED before delivery, leaving the task untouched', () => {
     const before = fresh();
@@ -267,5 +428,48 @@ describe('shouldRecheckVisibility', () => {
     ]);
     expect(shouldRecheckVisibility(holding, T0 + 2 * DAY)).toBe(true);
     expect(shouldRecheckVisibility(fresh(), T0 + 2 * DAY)).toBe(false);
+  });
+});
+
+/**
+ * A duplicate-key EVIDENCE no-op must still surface the newest diagnostics.
+ * Live bug 2026-08-12: every Amazon miss keyed to `evidence:none:_`, so a task
+ * that had already missed once could never record why it missed again — the
+ * short-circuit returned before the handler ran and the probe was discarded.
+ */
+describe('duplicate evidence refreshes diagnostics', () => {
+  const evid = (probe: unknown, reason: string) => ({
+    type: 'EVIDENCE' as const,
+    key: 'evidence:none:nonames',
+    evidence: { reason, probe } as never,
+  });
+
+  it('reports no state change but carries the newest probe', () => {
+    const first = transition(
+      fresh(),
+      evid({ reviewsSeen: 12, namesResolved: 0 }, 'No matching review found for this task.'),
+    );
+    expect(first.changed).toBe(true);
+
+    const dup = transition(
+      first.task,
+      evid({ reviewsSeen: 14, namesResolved: 0 }, 'No matching review found for this task.'),
+    );
+    expect(dup.changed).toBe(false);
+    expect(dup.reason).toMatch(/duplicate event ignored/);
+    expect(dup.diagnostics).toBeDefined();
+    expect((dup.diagnostics!.probe as { reviewsSeen: number }).reviewsSeen).toBe(14);
+    expect(dup.diagnostics!.blockerReason).toBe('No matching review found for this task.');
+    expect(dup.task.state).toBe(first.task.state);
+  });
+
+  it('does NOT invent diagnostics for a duplicate non-evidence action', () => {
+    const first = transition(fresh(), evid({ reviewsSeen: 1, namesResolved: 0 }, 'x'));
+    const dupAction = transition(first.task, {
+      type: 'MARK_REVIEWED',
+      key: 'evidence:none:nonames',
+    });
+    expect(dupAction.changed).toBe(false);
+    expect(dupAction.diagnostics).toBeUndefined();
   });
 });

@@ -38,17 +38,38 @@ model User {
   // PAN anchor (fraud loophole 1): at most one account per PAN. Nullable until the
   // user first cashes out; @unique makes the one-user-per-PAN rule a DB invariant.
   pan       String?    @unique
+  // ── Profile, collected by the first-run setup sequence ───────────────────
+  // All optional: an account is fully usable before setup runs, and a user who
+  // skips or abandons setup must never be locked out of the app. `setupDoneAt`
+  // is what the app checks to decide whether to show the sequence again — a
+  // non-null name is NOT the same thing, because a user may finish setup while
+  // declining to give a name.
+  name        String?
+  ageBand     String? // one of AGE_BANDS; a band, never a date of birth
+  gender      String? // one of GENDERS, includes "Prefer not to say"
+  categories  String[] @default([]) // shopping interests, drives the feed later
+  platforms   String[] @default([]) // marketplaces they already shop on
+  setupDoneAt DateTime?
+
+  // CONSENT AS A RECORD, NOT A SCREEN.
+  // Under the DPDP Act a claim of consent with no timestamp and no version is
+  // worthless: you cannot show WHAT was agreed to or WHEN. Both are written by the
+  // SERVER when the user takes the affirmative action in setup — a client-supplied
+  // timestamp would prove nothing. Nullable because a user exists before consenting.
+  termsVersion    String?
+  termsAcceptedAt DateTime?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  otpChallenges    OtpChallenge[]
-  refreshTokens    RefreshToken[]
-  tasks            Task[]
-  ticketEntries    TicketEntry[]
-  walletAccounts   WalletAccount[]
-  supportQuestions SupportQuestion[]
-  payoutMethods    PayoutMethod[]
-  withdrawals      Withdrawal[]
+  otpChallenges     OtpChallenge[]
+  refreshTokens     RefreshToken[]
+  tasks             Task[]
+  ticketEntries     TicketEntry[]
+  walletAccounts    WalletAccount[]
+  supportQuestions  SupportQuestion[]
+  payoutMethods     PayoutMethod[]
+  withdrawals       Withdrawal[]
+  screenshotUploads ScreenshotUpload[]
 
   @@map("users")
 }
@@ -250,6 +271,23 @@ model Task {
   targetReviewId String?
 
   // Promoted, queryable projections of `evidence` (kept in sync on every write):
+  /// The marketplace order number. Promoted out of `evidence` so ONE real
+  /// purchase cannot be paid out on several campaigns unseen: the refund gate
+  /// looks for a sibling task on the same (platform, orderId).
+  orderId         String?
+  /// WHICH LINE of that order — the ASIN, Flipkart pid, Meesho sub-order id or
+  /// Instamart variant id, whichever the marketplace itself stated. Promoted for
+  /// the same reason as orderId: the gate reads an index, not JSONB.
+  ///
+  /// NULL is meaningful and is NOT "a different line". Two tasks on one order
+  /// number may both pay only when BOTH name a line and the lines differ;
+  /// anything else goes to a human. Zepto and Blinkit are permanently null here
+  /// because their only candidate identifier is a row number.
+  itemId          String?
+  /// Staff answer to a held (platform, orderId) collision: this really is a
+  /// separate item in one basket, pay it. Set only by a SUPPORT/ADMIN override,
+  /// audited, and read only by the refund gate.
+  duplicateOrderApproved Boolean @default(false)
   returned        Boolean? // TRI-STATE: null = unknown, which the refund gate treats differently from false
   itemPaise       BigInt? // the VERIFIED refundable item price (never the order total)
   deliveredAt     DateTime?
@@ -270,13 +308,16 @@ model Task {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  events           TaskEvent[]
-  visibilityChecks VisibilityCheck[]
+  events            TaskEvent[]
+  visibilityChecks  VisibilityCheck[]
+  screenshotUploads ScreenshotUpload[]
 
   @@index([userId, state])
   @@index([campaignId])
   @@index([state, windowEndsAt]) // scheduler: holds whose return window has ended
   @@index([state, claimExpiresAt]) // scheduler: claims that expired unpurchased
+  @@index([platform, orderId])
+  @@index([platform, itemId]) // refund gate: has this order already been paid out?
   @@map("tasks")
 }
 
@@ -563,4 +604,103 @@ model SupportReply {
 
   @@index([questionId, createdAt])
   @@map("support_replies")
+}
+
+// ===========================================================================
+// PHASE 5 — SCREENSHOT OCR VERIFICATION (tier-3, supporting only)
+// ===========================================================================
+//
+// A user may upload a screenshot as proof (purchase / delivery / review). Claude
+// vision EXTRACTS the key fields, which are MATCHED against the campaign/task,
+// producing a pending case a staff member must APPROVE before any evidence is
+// accepted (see CLAUDE.md — OCR never auto-approves, never sole evidence). The
+// image is PRIVATE PII: stored via StorageService.savePrivate (outside the public
+// /uploads mount) and streamed back only through an RBAC-checked endpoint.
+
+enum ScreenshotKind {
+  PURCHASE // order-confirmation / order-details screenshot
+  DELIVERY // "Delivered" status screenshot
+  REVIEW // the live review on the product page
+}
+
+/// A user-uploaded screenshot. The bytes live in private storage (storageKey);
+/// this row holds the metadata + the sha256 (dedup / forgery forensics — the same
+/// image reused across users/tasks is a fraud signal, and the hash outlives the
+/// image once retention purges it, setting deletedAt).
+model ScreenshotUpload {
+  id     String @id @default(uuid()) @db.Uuid
+  taskId String @db.Uuid
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  kind       ScreenshotKind
+  storageKey String // opaque key into StorageService's PRIVATE space — never a URL
+  mimetype   String
+  sizeBytes  Int
+  sha256     String // hex digest of the bytes
+
+  uploadedAt DateTime  @default(now())
+  deletedAt  DateTime? // set when the image is purged after retention; row/hash kept
+
+  submission EvidenceSubmission?
+
+  @@index([sha256]) // dedup: has this exact image been seen before?
+  @@index([taskId])
+  @@index([userId])
+  @@map("screenshot_uploads")
+}
+
+enum EvidenceSubmissionStatus {
+  UPLOADED // stored; extraction not yet run
+  EXTRACTING // vision call in flight
+  EXTRACTED // extracted + matched; awaiting staff review
+  FAILED // extraction failed; staff can still eyeball the raw screenshot
+  APPROVED // staff accepted → evidence funnelled into the task pipeline (source 'ocr')
+  REJECTED // staff rejected
+  NEEDS_MORE // staff asked the user for another screenshot
+}
+
+enum EvidenceVerdict {
+  MATCH // all key fields matched the campaign/task
+  PARTIAL // some matched, some didn't
+  MISMATCH // key fields disagree
+  UNKNOWN // couldn't tell (extraction failed / illegible)
+}
+
+/// The OCR "case" for one screenshot: the vision extraction, the match against the
+/// campaign/task, and the staff decision. 1:1 with a ScreenshotUpload. Extraction
+/// and match are JSON (the shape evolves); verdict + confidence are promoted for
+/// sorting the review queue. The reviewing staff id is a bare uuid (like
+/// Withdrawal.decidedByStaffId) so the record outlives any staff-account change.
+model EvidenceSubmission {
+  id                 String           @id @default(uuid()) @db.Uuid
+  screenshotUploadId String           @unique @db.Uuid
+  screenshot         ScreenshotUpload @relation(fields: [screenshotUploadId], references: [id], onDelete: Cascade)
+
+  status EvidenceSubmissionStatus @default(UPLOADED)
+
+  // Extraction (from Claude vision).
+  model        String? // the vision model that ran
+  extraction   Json? // extracted fields (order#, product, amountPaise, orderDate, …)
+  tokensIn     Int?
+  tokensOut    Int?
+  costMicroUsd Int? // extraction cost in micro-USD, for the daily spend cap + reporting
+  error        String? // extraction failure reason, if any
+
+  // Match against the campaign/task expectations.
+  match      Json? // per-field { expected, extracted, matched, note }
+  verdict    EvidenceVerdict?
+  confidence Int? // 0–100 (model confidence blended with match strength)
+
+  // Staff decision (the mandatory human gate).
+  reviewedByStaffId String?   @db.Uuid
+  reviewReason      String?
+  reviewedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt]) // the review queue
+  @@map("evidence_submissions")
 }

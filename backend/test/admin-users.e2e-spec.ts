@@ -12,6 +12,7 @@ import { StaffTokenService } from '../src/admin/staff-token.service';
 import { TaskService } from '../src/tasks/task.service';
 import { TicketService } from '../src/tickets/ticket.service';
 import { WalletService } from '../src/wallet/wallet.service';
+import { resetDatabase } from './reset-db';
 
 /**
  * End-to-end for the staff unified user view (2.2). Boots the REAL app; the load-
@@ -119,9 +120,7 @@ describe('Admin user view (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "staff_users","admin_audit_log","users","campaigns","tasks","task_events","visibility_checks","ticket_entries","wallet_accounts","wallet_entries","ledger_transactions","refresh_tokens" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   const server = () => app.getHttpServer();

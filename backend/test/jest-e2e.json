@@ -3,6 +3,11 @@
   "rootDir": "..",
   "testEnvironment": "node",
   "testRegex": "test/.*\\.e2e-spec\\.ts$",
-  "moduleFileExtensions": ["ts", "js", "json"],
-  "globalSetup": "<rootDir>/test/global-setup.ts"
+  "moduleFileExtensions": [
+    "ts",
+    "js",
+    "json"
+  ],
+  "globalSetup": "<rootDir>/test/global-setup.ts",
+  "maxWorkers": 1
 }

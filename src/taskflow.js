@@ -24,6 +24,7 @@
 import { toEpoch } from './extract.js';
 import { productScore, matchOrderByNameAmount } from './verify.js';
 import { toPaise } from './money.js';
+import { normalizeQuantity, payableQuantity } from './quantity.js';
 
 export const DAY = 86400000;
 
@@ -52,6 +53,11 @@ export const BLOCKERS = {
   NO_DELIVERY_DATE: 'no_delivery_date',
   REVIEW_NOT_PUBLIC: 'review_not_public',
   RETURNED: 'returned',
+  // Set by the BACKEND, never by this reader: the order is real and readable, it
+  // simply predates the claim (or postdates the purchase deadline). Kept separate
+  // from ORDER_UNREADABLE so the screen can say "this is a rule" and offer no
+  // screenshot — no picture can change a date. See backend order-window.ts.
+  ORDER_OUT_OF_WINDOW: 'order_out_of_window',
 };
 
 // Where a fact came from. Never let an unsourced value into the flow.
@@ -60,6 +66,83 @@ export const SOURCES = {
   ORDER_HISTORY: 'order-history', // Flipkart/Myntra: their authenticated JSON order API
   DKIM: 'dkim',                   // fallback for gap 1
   MANUAL: 'manual',               // last resort, user-entered
+  // WHO settled "is this review publicly visible" - a MACHINE did. Either the
+  // public review permalink was fetched (Amazon) or the marketplace stated its
+  // own moderation verdict (Flipkart says "approved"). Distinct from the order
+  // sources because it answers a different question, and it is the field the
+  // backend ranks when deciding whether a Fayr reviewer may fill the gap by eye.
+  // Mirrored in backend/src/tasks/engine/states.ts - keep the two in step.
+  REVIEW_PUBLIC: 'review-public',
+};
+
+// THE WORDS OF THE REVIEW, carried for the person who has to find it.
+//
+// Amazon, Flipkart and Meesho all emit the review's title and body, and all three
+// were read and discarded here. They matter in exactly one place: the staff
+// review-check queue, where a reviewer is asked to open a product page and find
+// one buyer's review among hundreds. With the words it is a lookup; without them
+// it is a hunt, and Meesho — the only platform that queue exists for — is also
+// the one whose public page we cannot read to help them.
+//
+// CAPPED, because this lands in the evidence JSONB on every write and a long
+// review would bloat every row it touches. The cut is MARKED with an ellipsis: a
+// silent truncation would let a reviewer read a fragment as the whole review and
+// conclude the page shows something different.
+const REVIEW_TEXT_MAX = 600;
+
+/** Trim a review field to something storable, or null. Pure. */
+export function reviewSnippet(value, max) {
+  if (typeof value !== 'string') return null;
+  const t = value.trim();
+  if (!t) return null;
+  const limit = max || REVIEW_TEXT_MAX;
+  return t.length <= limit ? t : t.slice(0, limit - 1) + '\u2026';
+}
+
+// WHICH LINE OF THE ORDER a fact is about.
+//
+// One purchase must pay one refund, and the gate enforcing that was keyed on the
+// ORDER NUMBER alone. That is wrong in both directions: a merged Amazon cart is
+// two different products under one order number and both are legitimate tasks,
+// while two claims on the SAME line are the fraud the gate exists to catch and
+// order-level keying cannot tell them apart.
+//
+// Four of the six live platforms state a real per-line identifier and every one
+// of them already reaches this file. The rule for using one is the quantity rule
+// again: only an identifier the MARKETPLACE states.
+//
+//   asin               Amazon. The review's ASIN is also an ASIN found on the
+//                      order DETAIL page - the join only succeeds when they
+//                      agree - so it identifies a line, not a listing guess.
+//   flipkart-pid       Flipkart's fsn, surfaced on the order object already.
+//   meesho-sub-order   Meesho issues a sub-order per line. Literally this.
+//   instamart-variant  productVariantId, the variant actually bought.
+//
+// REFUSED, and this is the important half: Zepto and Blinkit emit
+// `productid: orderId + "#" + idx`, which is the row's POSITION in the order.
+// Add or remove an item and "#2" silently means a different product. Keying money
+// on that would be worse than keying on the order, because it would look precise
+// while being wrong. Those two emit null with the reason 'positional-only', so a
+// later reader can see the refusal rather than rediscovering the trap.
+export const ITEM_ID_SOURCES = ['asin', 'flipkart-pid', 'meesho-sub-order', 'instamart-variant'];
+export const ITEM_ID_REASONS = ['not-stated', 'positional-only'];
+
+/**
+ * Normalize a stated line identifier. Pure: a non-empty string, or null.
+ * @param {*} value the raw field from the payload
+ * @param {string} source which ITEM_ID_SOURCES entry it came from
+ */
+export function statedItemId(value, source) {
+  const id = value == null ? null : String(value).trim();
+  if (!id) return { itemId: null, itemIdSource: null, itemIdReason: 'not-stated' };
+  return { itemId: id, itemIdSource: source, itemIdReason: null };
+}
+
+/** The refusal, named. Used where the only candidate is a row number. */
+export const POSITIONAL_ONLY = {
+  itemId: null,
+  itemIdSource: null,
+  itemIdReason: 'positional-only',
 };
 
 // ---------------------------------------------------------------------------
@@ -146,7 +229,27 @@ export function readAmazonEvidence(raw, target) {
   const reviews = (raw && raw.reviews) || [];
   const review = pickReview(reviews, t);
   if (!review) {
-    return { blocker: null, reason: 'No matching review found for this task.', review: null, order: null, delivery: null };
+    // WHY nothing matched. Four separate causes all produced the identical
+    // record - "No matching review found" with probe:null - and cost four
+    // sessions of guesswork. They are only distinguishable from these counts:
+    //
+    //   fetchError:'no_campaign_target' -> the script FAILED CLOSED on a missing
+    //     campaign ASIN and returned zero reviews before any name was scored
+    //     (platforms.js: `if (!targetAsin && !debug)`). Nothing to do with names.
+    //   reviewsSeen:0 with no fetchError -> the reviews page itself read empty.
+    //   namesResolved < reviewsSeen -> reviews came back but their permalinks
+    //     never yielded a product title, so productScore had nothing to compare
+    //     (a review with no name scores 0.00 no matter what the campaign says).
+    //   bestScore just under the bar -> a genuine name mismatch, the ONLY case
+    //     where changing the campaign productName can help.
+    return {
+      blocker: null,
+      reason: 'No matching review found for this task.',
+      review: null,
+      order: null,
+      delivery: null,
+      probe: amazonReviewProbe(raw, t, reviews),
+    };
   }
 
   const reviewFacts = {
@@ -158,6 +261,11 @@ export function readAmazonEvidence(raw, target) {
     // only signal that held in every capture, including runs where the orders
     // page failed entirely.
     published: review.published === true,
+    // A MACHINE reached that verdict, by fetching the public page. Recorded so a
+    // Fayr reviewer's eye-witness cannot overrule it later: a person remembering
+    // a page is weaker evidence than a fetch of that page, and treating them as
+    // peers would make the deleted-review countermeasure overridable by hand.
+    publishedSource: SOURCES.REVIEW_PUBLIC,
     verified: review.verified === true,
     // ANTI-REPLAY control: proves the review post-dates the order, which is what
     // stops a claim on a product reviewed years ago. Verified 2026-07-15 (the
@@ -166,6 +274,10 @@ export function readAmazonEvidence(raw, target) {
     // 4-digit year, so a bare "Reviewed in India " can't pass as one.
     reviewDate: toEpoch(review.reviewdate),
     reviewDateSource: review.reviewdatesource || null,
+    // The words, for the staff review-check queue. See reviewSnippet.
+    title: reviewSnippet(review.reviewtitle, 160),
+    text: reviewSnippet(review.reviewtext),
+    mediaCount: null,
   };
 
   // Gap 1: an empty detail page yields no ordersource. Report it as unreadable
@@ -201,11 +313,21 @@ export function readAmazonEvidence(raw, target) {
   }
 
   const deliveryEpoch = resolveDeliveryDate(review.deliverydate, review.orderdate);
+  // What the page said about units, and what may be COMPUTED from it — which are
+  // not the same thing. See payableQuantity in quantity.js.
+  const qty = payableQuantity({
+    quantity: normalizeQuantity(review.quantity),
+    source: review.quantitysource || null,
+    reason: review.quantityreason || null,
+  });
   return {
     blocker: null,
     review: reviewFacts,
     order: {
       id: review.orderid,
+      // WHICH line of that order. See statedItemId — the ASIN reached here only
+      // because the detail page carried it too.
+      ...statedItemId(review.asin, 'asin'),
       date: toEpoch(review.orderdate),
       dateRaw: review.orderdate || null,
       // REFUNDABLE figure. Campaigns pay a percentage of the ITEM, so this must
@@ -216,6 +338,25 @@ export function readAmazonEvidence(raw, target) {
       // and 938.00; refunding 90% of the total for the 388.00 item would pay
       // ~3.4x. Integer paise, string-parsed - see money.js.
       itemPaise: toPaise(review.itemamount),
+      // HOW MANY UNITS. Read from the item's OWN container on the order-details
+      // page, and only when that container LABELS the number ("Qty: 3") — see
+      // src/quantity.js for everything deliberately refused, and platforms.js
+      // statedQuantityIn for the reading. Null means the page did not say, and
+      // the refund then refuses rather than assuming one unit (chargedAmount.js).
+      // Amazon shows no label at all on a single-unit order, so null is the
+      // ORDINARY answer here, not a failure.
+      quantity: qty.quantity,
+      // What the page STATED, when that is more than one unit. Never computed
+      // with — the amount above could be a per-unit price or a line total, and we
+      // cannot yet tell which, so a human decides. This is here so that human can
+      // see the number instead of having to open the order themselves.
+      quantityObserved: qty.observed,
+      // Why the quantity is what it is, kept for the staff screen and the audit
+      // trail: 'label-qty' / 'label-quantity' when read, otherwise the reason
+      // nothing was ('not-stated', 'picker', 'conflicting', 'implausible',
+      // 'multi-unit-amount-unclear').
+      quantitySource: qty.source,
+      quantityReason: qty.reason,
       // Audit only. Deliberately NOT called `amount` so nothing can reach for it
       // by habit and pay out the wrong number.
       orderTotalPaise: toPaise(review.orderamount),
@@ -224,6 +365,13 @@ export function readAmazonEvidence(raw, target) {
       // means the item price is not trustworthy - surface it rather than pay it.
       itemAmountAmbiguous: review.itemamountambiguous === true,
       product: review.name || null,
+      // Already in the payload and previously discarded: the reviews list carries
+      // a product thumbnail, and the order-history graft adds a return status.
+      // The Task screen has always rendered both — Amazon just never filled them,
+      // which read as "Amazon shows less than quick-commerce" when in fact the
+      // data was there. No scraper change needed.
+      image: review.imageurl || null,
+      statusText: review.returnstatus || null,
       source: SOURCES.ORDER_DETAILS,
     },
     delivery: deliveryEpoch == null ? null : {
@@ -279,6 +427,48 @@ function pickReview(reviews, target) {
 // Not-a-failure: no order yet just means the user hasn't bought it (or it hasn't
 // posted to their order history). The task stays CLAIMED and the UI waits - it
 // does NOT block. A blocker is reserved for a genuine read failure.
+// Diagnostic for an Amazon review miss. Pure counts and one truncated sample -
+// deliberately no review text, no order ids, nothing about products other than
+// the campaign's (the ASIN filter in platforms.js is a PRIVACY boundary, and a
+// probe must not become the leak it was added to explain).
+function amazonReviewProbe(raw, target, reviews) {
+  const list = reviews || [];
+  let bestScore = 0;
+  let bestCandidate = null;
+  let namesResolved = 0;
+  for (const r of list) {
+    const name = r && r.name;
+    if (name) namesResolved++;
+    if (!target || !target.product) continue;
+    const s = productScore(target.product, name);
+    if (s > bestScore) {
+      bestScore = s;
+      bestCandidate = String(name).slice(0, 80);
+    }
+  }
+  return {
+    // The script's own fail-closed signal, which used to be discarded entirely.
+    fetchError: (raw && raw.error) || null,
+    targetAsinSet: !!(target && target.asin),
+    targetProductSet: !!(target && target.product),
+    // POST-filter — what actually arrived for matching.
+    reviewsSeen: list.length,
+    // PRE-filter counts, which separate two failures that otherwise look
+    // identical: reviewsFound 0 = the account's reviews page read empty;
+    // reviewsFound > 0 with asinOnlyCount 0 = reviews WERE read and the
+    // exact-ASIN filter discarded every one (Amazon's per-variant ASINs).
+    reviewsFound: raw && typeof raw.reviewsFound === 'number' ? raw.reviewsFound : null,
+    asinOnlyCount: raw && typeof raw.asinOnlyCount === 'number' ? raw.asinOnlyCount : null,
+    nameFallbackUsed: raw && raw.nameFallbackUsed === true,
+    // What the script says it SURFACED after its campaign filter, when present.
+    surfacedCount: raw && typeof raw.count === 'number' ? raw.count : null,
+    namesResolved,
+    bestScore: Math.round(bestScore * 100) / 100,
+    bestCandidate,
+    nameThreshold: 0.6,
+  };
+}
+
 function orderApiMiss(probe, platformName, reviewFacts) {
   const fetched = probe && probe.ordersFetched === true;
   return {
@@ -309,29 +499,61 @@ export function readFlipkartEvidence(raw, target) {
     // VERIFIED: the reviews fetch resolves this from Flipkart's own moderation
     // status ("approved") - see platforms.js. Here it is passed through only.
     published: review.published === true,
+    // Flipkart states its own publication verdict, so a machine has settled it
+    // and no staff check is needed - or permitted - on this platform.
+    publishedSource: SOURCES.REVIEW_PUBLIC,
     verified: review.verified === true,
     reviewDate: toEpoch(review.reviewdate),
     reviewDateSource: review.reviewdate ? 'flipkart-api' : null,
+    title: reviewSnippet(review.reviewtitle, 160),
+    text: reviewSnippet(review.reviewtext),
+    mediaCount: null,
   } : null;
 
   const order = (raw && raw.order) || null;
   if (!order) return orderApiMiss(probe, 'Flipkart', reviewFacts);
 
+  // What the records said about units, and what may be COMPUTED from it — see
+  // payableQuantity in quantity.js for why those differ.
+  const fkQty = payableQuantity({
+    quantity: normalizeQuantity(order.quantity),
+    source: order.quantitySource || null,
+    reason: order.quantityReason || null,
+  });
   return {
     blocker: null,
     review: reviewFacts,
     order: {
       id: order.orderId || null,
+      ...statedItemId(order.pid, 'flipkart-pid'),
       date: toEpoch(order.orderDate),
       dateRaw: order.orderDate == null ? null : String(order.orderDate),
       // REFUNDABLE figure. Flipkart exposes the item's OWN paid price
       // (moneyDataBag.itemSellingPrice), verified 2026-07-15 - never orderAmount,
       // which is the order total and can bundle unrelated items. Whole rupees.
       itemPaise: toPaise(order.itemAmount),
+      // HOW MANY UNITS. Flipkart states its orders as unit RECORDS, so this comes
+      // from a record stating its own count — never from counting the records,
+      // because one record could itself hold three units. Which field carries it
+      // is still unverified (no multi-unit Flipkart order has been captured), so
+      // in practice this reads null today and the refund holds for a human.
+      quantity: fkQty.quantity,
+      quantityObserved: fkQty.observed,
+      quantitySource: fkQty.source,
+      quantityReason: fkQty.reason,
       orderTotalPaise: toPaise(order.orderAmount),
       amountSource: order.itemAmount != null ? 'flipkart-itemSellingPrice' : null,
-      itemAmountAmbiguous: false,
+      // More than one unit record for this product in this order means the money
+      // above came from whichever record was read LAST, which is arbitrary. That
+      // makes the AMOUNT doubtful, not just the count — so it is flagged, which
+      // routes it to a person instead of being paid.
+      itemAmountAmbiguous: (order.unitRecords || 0) > 1,
       product: order.productName || (review && review.productname) || t.product || null,
+      // Flipkart's posted order already carries returnStatus and statusKey; only
+      // `returned` was ever read. statusKey is the fallback because it is present
+      // on a normal order too, where returnStatus is null. Flipkart exposes no
+      // per-order thumbnail, so image stays honestly absent rather than faked.
+      statusText: order.returnStatus || order.statusKey || null,
       // How this order was matched to the campaign (name + amount, no id). The
       // "is this your order?" screen shows this so a weak/ambiguous/amount-off
       // match is confirmed carefully rather than trusted blindly.
@@ -415,6 +637,157 @@ export function readMyntraEvidence(raw, target) {
 }
 
 // ---------------------------------------------------------------------------
+// MEESHO reader.
+//
+// Meesho gives us less than any other marketplace, and the reader's whole job is
+// to be honest about which parts are missing rather than to fill them in.
+//
+// WHAT THE PAYLOAD ACTUALLY CONTAINS (platforms.js, from orders.json):
+//   - the purchase: order number, sub-order number, product name, order date;
+//   - the STAR the user gave (`review.current_rating >= 1` means they rated it);
+//   - the review TEXT and any photos, but only when the app's rating call
+//     happened to be captured in the same session — on the web it usually is not.
+//
+// WHAT IT DOES NOT CONTAIN, and is therefore never invented here:
+//   - ANY amount. Not a per-item price, not even an order total. Meesho is the
+//     only marketplace that gives us no money figure at all, so the refund cannot
+//     be computed and waits for a person to state what one unit cost.
+//   - a delivery DATE. `statusmessage` says "Delivered", which is a status and not
+//     a date, and the return window is anchored to a date. So no delivery is
+//     emitted and none is guessed from the words.
+//   - a review PERMALINK. Nothing can re-check public visibility later, which is
+//     the countermeasure to a review deleted after payout. Recorded as a real
+//     limit of this marketplace, not worked around.
+//
+// THE ONE JUDGEMENT CALL, stated plainly: `approved: true` arrives hard-coded on
+// every rated sub-order in the payload. It means "the user gave a star", NOT "a
+// review is publicly visible" — and public visibility is what Fayr pays for. So
+// it is deliberately NOT read as the payout signal. A star with real review TEXT
+// behind it is the review Meesho shows a shopper, and counts. A bare star does
+// not: a star is not a review, and paying for one would pay for something no
+// other shopper can read.
+export function readMeeshoEvidence(raw, target) {
+  const t = target || {};
+  const reviews = (raw && raw.reviews) || [];
+  const totalSubOrders = raw && raw.totalSubOrders != null ? Number(raw.totalSubOrders) : 0;
+
+  // platforms.js emits ONLY rated sub-orders, so an empty list is ambiguous
+  // between "nothing was read" and "nothing is rated yet". totalSubOrders is what
+  // separates them, and the two need different sentences.
+  if (!reviews.length) {
+    return {
+      blocker: null,
+      reason: totalSubOrders > 0
+        ? 'Your Meesho order is there but not rated yet. Rate it in the Meesho app, then fetch again.'
+        : 'Couldn’t read your Meesho orders — open the Orders list, then Fetch.',
+      review: null, order: null, delivery: null, returned: null,
+    };
+  }
+
+  // Match by NAME ONLY. Every other marketplace matches on name + amount, but
+  // Meesho exposes no amount to compare, so passing one would let the matcher
+  // report an amount check it never actually ran.
+  const candidates = reviews.map((r) => ({
+    product: r.productname || null,
+    orderDate: r.orderdate != null ? r.orderdate : null,
+    _r: r,
+  }));
+  const m = t.product
+    ? matchOrderByNameAmount({ product: t.product, amount: null }, candidates)
+    : { order: null, score: 0, amountOk: null, ambiguous: false, candidateCount: 0 };
+  const picked = m.order && m.order._r ? m.order._r : null;
+
+  if (!picked) {
+    return {
+      blocker: null,
+      reason: 'This product isn’t in your rated Meesho orders yet.',
+      review: null, order: null, delivery: null, returned: null,
+    };
+  }
+
+  // A real comment (or review photos) is the difference between "they rated it"
+  // and "there is a review a shopper can read".
+  const hasText = typeof picked.reviewtext === 'string' && picked.reviewtext.trim().length > 0;
+  const mediaCount = Number.isFinite(Number(picked.mediacount)) ? Number(picked.mediacount) : 0;
+  const isPublicReview = hasText || mediaCount > 0;
+
+  const review = {
+    reviewId: picked.suborderid ? String(picked.suborderid) : null,
+    asin: null,
+    product: picked.productname || t.product || null,
+    rating: picked.rating != null ? Number(picked.rating) : null,
+    published: isPublicReview,
+    // DELIBERATELY UNSOURCED, in both directions. Nothing here looked at a public
+    // page: Meesho shows the star on the order and keeps the words inside its own
+    // app, so `published` is a reading of the payload rather than a check of the
+    // page. Leaving the verdict unsourced is what lets a Fayr reviewer fill it by
+    // eye - a null is a gap a person may fill, a source is a machine's answer they
+    // may not overrule.
+    publishedSource: null,
+    // "Verified" means the marketplace itself vouches the reviewer bought it.
+    // Meesho only lets you rate something you ordered, so the rating IS attached
+    // to a real purchase.
+    verified: true,
+    reviewDate: null,
+    reviewDateSource: 'meesho-orders-json',
+    // The whole point of carrying these: on Meesho a person has to go and find
+    // this review by eye, and these are the only clues they get.
+    title: null,
+    text: reviewSnippet(picked.reviewtext),
+    mediaCount: mediaCount,
+  };
+
+  return {
+    blocker: null,
+    // Said even on the good path, because "we can see the star but not the
+    // review" is the ordinary Meesho outcome and the user deserves to know why
+    // their task is waiting.
+    reason: isPublicReview
+      ? null
+      : 'We can see your Meesho star but not the review itself — Meesho only shows '
+        + 'the words in its app. A person at Fayr will check the product page.',
+    review,
+    order: {
+      id: picked.orderid || null,
+      // Meesho's own per-line id. The one platform where the identifier is not a
+      // product code but an order line, which is exactly what is wanted here.
+      ...statedItemId(picked.suborderid, 'meesho-sub-order'),
+      date: toEpoch(picked.orderdate),
+      dateRaw: picked.orderdate == null ? null : String(picked.orderdate),
+      // NO amount of any kind. Meesho publishes none, so the refund holds for a
+      // staff amount decision rather than guessing from the campaign price.
+      itemPaise: null,
+      quantity: null,
+      quantityObserved: null,
+      quantitySource: null,
+      quantityReason: 'not-stated',
+      orderTotalPaise: null,
+      amountSource: null,
+      itemAmountAmbiguous: false,
+      product: picked.productname || t.product || null,
+      image: picked.imageurl || null,
+      // "Delivered" / "Order placed" — a status, shown as one, never read as a date.
+      statusText: picked.statusmessage || null,
+      match: {
+        score: m.score != null ? m.score : null,
+        // Null, not false: no amount existed to check, and false would read as
+        // "the price disagreed" on a screen that warns about exactly that.
+        amountOk: null,
+        ambiguous: m.ambiguous === true,
+        candidateCount: m.candidateCount != null ? m.candidateCount : null,
+      },
+      source: SOURCES.ORDER_HISTORY,
+    },
+    // Meesho gives a status word, not a delivery date, and the return window is
+    // anchored to a date. Emitting null keeps the window honest.
+    delivery: null,
+    // Nothing in the payload reports a return, so this stays UNKNOWN rather than
+    // asserting "not returned", which the refund gate would take as proven.
+    returned: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // QUICK-COMMERCE order-first reader: Zepto, Blinkit, Instamart.
 //
 // These three parse their order data out of the authenticated API responses the
@@ -478,9 +851,20 @@ function readQuickCommerceEvidence(raw, target, platformName) {
     // Quick-commerce has no public per-product review permalink to fetch, so the
     // order's own rating marker is the visibility signal these platforms expose.
     published: true,
+    // Read off the marketplace's own order record, so it is machine-settled and
+    // never waits on a person. NOTE this is weaker than it looks: the marker says
+    // the account rated the item, not that anything is publicly readable - the
+    // difference is recorded in the security document rather than papered over.
+    publishedSource: SOURCES.ORDER_HISTORY,
     verified: true,
     reviewDate: null,
     reviewDateSource: `${platformName.toLowerCase()}-order-rating`,
+    // No words anywhere: these three publish no review text at all, so there is
+    // nothing for a person to look for and nothing to carry. Stated explicitly
+    // rather than left undefined, so the absence reads as an answer.
+    title: null,
+    text: null,
+    mediaCount: null,
   } : null;
 
   return {
@@ -488,6 +872,15 @@ function readQuickCommerceEvidence(raw, target, platformName) {
     review: reviewFacts,
     order: {
       id: picked.orderid || null,
+      // Three platforms, one reader, TWO different answers — decided by what the
+      // payload actually contains rather than by which reader we are in.
+      // Instamart states a real productVariantId. Zepto and Blinkit state
+      // `orderId + "#" + idx`, which is a row number dressed as an id: keying a
+      // refund on it would look precise and be wrong the moment the order's item
+      // list renders in a different order. See ITEM_ID_SOURCES.
+      ...(platformName === 'Instamart'
+        ? statedItemId(picked.productid, 'instamart-variant')
+        : POSITIONAL_ONLY),
       date: toEpoch(picked.orderdate),
       dateRaw: picked.orderdate == null ? null : String(picked.orderdate),
       // No per-item price on quick-commerce web -> itemPaise null, refund waits.
@@ -526,6 +919,7 @@ export function readEvidence(platform, raw, target) {
     case 'amazon': return readAmazonEvidence(raw, target);
     case 'flipkart': return readFlipkartEvidence(raw, target);
     case 'myntra': return readMyntraEvidence(raw, target);
+    case 'meesho': return readMeeshoEvidence(raw, target);
     case 'zepto': return readQuickCommerceEvidence(raw, target, 'Zepto');
     case 'blinkit': return readQuickCommerceEvidence(raw, target, 'Blinkit');
     case 'instamart': return readQuickCommerceEvidence(raw, target, 'Instamart');
@@ -577,7 +971,17 @@ const HANDLERS = {
         reason: e.blocker,
       };
     }
-    const patch = { blocker: null, blockerReason: null };
+    // A miss is NOT a blocker - the task waits rather than stalls (orderApiMiss,
+    // readQuickCommerceEvidence). It still carries WHY: `reason` (the sentence)
+    // and `probe` (the scraper counters). Both used to be dropped here, so a
+    // miss reached the backend carrying nothing to diagnose it with. Keep them;
+    // a successful read carries neither, so they self-clear. Mirrored in
+    // backend/src/tasks/engine/transition.ts - keep the two in step.
+    const patch = {
+      blocker: null,
+      blockerReason: e.reason || null,
+      probe: e.probe || null,
+    };
     if (e.review) patch.review = e.review;
     if (e.order) patch.order = e.order;
     if (e.delivery) patch.delivery = e.delivery;
@@ -697,7 +1101,21 @@ export function transition(task, event) {
   const at = ev.at != null ? ev.at : Date.now();
 
   if (ev.key && task.applied[ev.key]) {
-    return { task, changed: false, reason: `duplicate event ignored (${ev.key})` };
+    // Diagnostics survive a duplicate. A probe describes the LAST ATTEMPT, not
+    // task state, so refreshing it is safe — and discarding it (what this used to
+    // do) meant a task that had already recorded one miss could never report a
+    // fresher one. Mirrors the backend's TransitionResult.diagnostics.
+    const out = { task, changed: false, reason: `duplicate event ignored (${ev.key})` };
+    if (ev.type === 'EVIDENCE' && ev.evidence) {
+      out.diagnostics = {
+        probe: ev.evidence.probe || null,
+        blockerReason: ev.evidence.reason || null,
+        // Moves WITH the reason. Leaving it stale produced a self-contradicting
+        // record: blocker order_unreadable next to "No matching review found".
+        blocker: ev.evidence.blocker || null,
+      };
+    }
+    return out;
   }
   const handler = HANDLERS[ev.type];
   if (!handler) return { task, changed: false, reason: `unknown event ${ev.type}` };

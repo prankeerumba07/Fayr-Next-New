@@ -5,6 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type PayoutMethod, type Withdrawal } from '@prisma/client';
+import { AdminAuditService } from '../admin/admin-audit.service';
+import { AUDIT_ACTIONS } from '../admin/admin.constants';
+import { rupeesOf } from '../common/rupees';
 import { PrismaService } from '../prisma/prisma.service';
 import { TicketService } from '../tickets/ticket.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -52,6 +55,7 @@ export class WithdrawalService {
     private readonly prisma: PrismaService,
     private readonly wallet: WalletService,
     private readonly tickets: TicketService,
+    private readonly audit: AdminAuditService,
   ) {}
 
   // ── Payout methods ─────────────────────────────────────────────────────────
@@ -147,11 +151,15 @@ export class WithdrawalService {
     payoutMethodId: string,
   ): Promise<Withdrawal> {
     if (amountPaise <= 0n) {
-      throw new BadRequestException('Amount must be positive');
+      throw new BadRequestException('Enter an amount to withdraw.');
     }
     if (amountPaise < MIN_WITHDRAWAL_PAISE) {
+      // In RUPEES. This read "Minimum withdrawal is 10000 paise" — a first-time
+      // user does not think in paise and cannot tell 10000 paise from ₹10,000.
+      // Every figure the ledger holds is paise; every figure a person reads is
+      // rupees, and the conversion belongs at the boundary, here.
       throw new BadRequestException(
-        `Minimum withdrawal is ${MIN_WITHDRAWAL_PAISE.toString()} paise`,
+        `You need at least ${rupeesOf(MIN_WITHDRAWAL_PAISE)} in your wallet to withdraw.`,
       );
     }
     const method = await this.prisma.payoutMethod.findFirst({
@@ -166,7 +174,9 @@ export class WithdrawalService {
 
       const balance = await this.wallet.getUserBalance(userId, tx);
       if (balance < amountPaise) {
-        throw new ConflictException('Insufficient wallet balance');
+        throw new ConflictException(
+          `You have ${rupeesOf(balance)} in your wallet, so ${rupeesOf(amountPaise)} cannot be withdrawn.`,
+        );
       }
 
       const w = await tx.withdrawal.create({
@@ -229,13 +239,28 @@ export class WithdrawalService {
         'Only a requested withdrawal can be approved',
       );
     }
-    return this.prisma.withdrawal.update({
-      where: { id },
-      data: {
-        status: 'APPROVED',
-        decidedByStaffId: staffId,
-        decidedAt: new Date(),
-      },
+    // One transaction for the status change AND its audit row. The other staff
+    // actions record after the fact, best-effort; a payout decision should not be
+    // able to land without its trail, because the trail is the only place the
+    // decision is explained. A failed audit insert rolls the approval back, which
+    // leaves the withdrawal REQUESTED and the retry perfectly safe.
+    return this.prisma.$transaction(async (tx) => {
+      const approved = await tx.withdrawal.update({
+        where: { id },
+        data: {
+          status: 'APPROVED',
+          decidedByStaffId: staffId,
+          decidedAt: new Date(),
+        },
+      });
+      await this.recordDecision(
+        tx,
+        staffId,
+        w,
+        AUDIT_ACTIONS.WITHDRAWAL_APPROVE,
+        {},
+      );
+      return approved;
     });
   }
 
@@ -286,6 +311,16 @@ export class WithdrawalService {
           decidedAt: new Date(),
         },
       });
+      await this.recordDecision(
+        tx,
+        staffId,
+        w,
+        AUDIT_ACTIONS.WITHDRAWAL_MARK_PAID,
+        // The UTR is the ONLY link between a row in this database and money that
+        // actually left a bank. It goes in the trail, not just on the row it
+        // overwrites.
+        { utr },
+      );
       // The +10 completion grant: once the user has cashed out, every fully-
       // completed (REFUNDED) task earns its completion tickets. grantCompletion is
       // idempotent per task, so this lands exactly once per task across withdrawals.
@@ -301,6 +336,44 @@ export class WithdrawalService {
   }
 
   // ── internals ────────────────────────────────────────────────────────────────
+
+  /**
+   * The audit row for one payout decision.
+   *
+   * Every decision records the same four things — WHICH withdrawal, HOW MUCH,
+   * what it moved FROM, and (where there is one) the UTR — because "who approved
+   * this" is unanswerable without them. `previousStatus` is what makes a decision
+   * legible months later: APPROVED→FAILED and REQUESTED→REJECTED are different
+   * events, and only the withdrawal's CURRENT status survives on the row.
+   *
+   * amountPaise is a STRING: paise are bigint everywhere in this system, and a
+   * bigint in JSON metadata does not store a wrong number, it throws at the Prisma
+   * boundary and 500s the whole decision. The figure is copied from the same row
+   * the decision was made against — an audit row records what was true when the
+   * person acted, which is the one place a snapshot is the right answer.
+   */
+  private async recordDecision(
+    tx: Prisma.TransactionClient,
+    staffId: string,
+    w: Withdrawal,
+    action: string,
+    extra: Record<string, string | null>,
+  ): Promise<void> {
+    await this.audit.record(
+      {
+        staffUserId: staffId,
+        action,
+        targetUserId: w.userId,
+        metadata: {
+          withdrawalId: w.id,
+          amountPaise: w.amountPaise.toString(),
+          previousStatus: w.status,
+          ...extra,
+        },
+      },
+      tx,
+    );
+  }
 
   private async getById(id: string): Promise<Withdrawal> {
     const w = await this.prisma.withdrawal.findUnique({ where: { id } });
@@ -330,6 +403,18 @@ export class WithdrawalService {
         where: { idempotencyKey: withdrawalKey.reversal(w.id) },
         select: { id: true },
       });
+      await this.recordDecision(
+        tx,
+        staffId,
+        w,
+        status === 'REJECTED'
+          ? AUDIT_ACTIONS.WITHDRAWAL_REJECT
+          : AUDIT_ACTIONS.WITHDRAWAL_MARK_FAILED,
+        // reversalTxnId names the ledger movement that put the money back, so the
+        // trail and the ledger can be read against each other rather than taken on
+        // trust separately.
+        { reason, reversalTxnId: reversal?.id ?? null },
+      );
       return tx.withdrawal.update({
         where: { id: w.id },
         data: {

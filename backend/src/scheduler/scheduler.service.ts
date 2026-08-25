@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import type { Env } from '../config/env.validation';
+import { ScreenshotRetentionService } from '../ocr/screenshot-retention.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaskService } from '../tasks/task.service';
 import {
@@ -21,16 +22,20 @@ export interface TickReport {
   rechecked: number;
   regressed: number;
   released: number;
+  /** Private screenshots whose bytes were deleted after the retention period. */
+  purged: number;
 }
 
 /**
  * The maintenance scheduler (step 1.6).
  *
- * One cron tick per interval does three things, in this order: expire
+ * One cron tick per interval does four things, in this order: expire
  * unpurchased claims (returning tickets), RE-CHECK review visibility for every
  * HOLDING task (the loophole-3 clawback — a review deleted mid-hold regresses the
- * task so it can't refund), then AUTO-RELEASE any refund whose window has now
- * elapsed while still published.
+ * task so it can't refund), AUTO-RELEASE any refund whose window has now elapsed
+ * while still published, and DELETE the bytes of private screenshots past their
+ * retention period (keeping the row + hash, so the duplicate-image fraud signal
+ * outlives the image).
  *
  * Multi-instance-safe: the whole tick runs inside a Postgres advisory lock
  * (pg_try_advisory_xact_lock), so on a fleet of replicas exactly one runs each
@@ -49,6 +54,7 @@ export class SchedulerService implements OnModuleInit {
     private readonly tasks: TaskService,
     @Inject(REVIEW_VISIBILITY_CHECKER)
     private readonly checker: ReviewVisibilityChecker,
+    private readonly retention: ScreenshotRetentionService,
     private readonly registry: SchedulerRegistry,
     config: ConfigService<Env, true>,
   ) {
@@ -128,6 +134,7 @@ export class SchedulerService implements OnModuleInit {
       rechecked: 0,
       regressed: 0,
       released: 0,
+      purged: 0,
     };
 
     report.expired = (
@@ -164,6 +171,11 @@ export class SchedulerService implements OnModuleInit {
       const released = await this.tasks.autoRelease(task.id, now);
       if (released) report.released++;
     }
+
+    // LAST, and deliberately not gated on anything above: retention is a promise
+    // to the user about their own photographs, and it must not be skipped because
+    // a task loop had a bad day. Its own logging is inside the service.
+    report.purged = (await this.retention.purgeExpired(new Date(now))).purged;
 
     return report;
   }

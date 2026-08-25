@@ -1,5 +1,13 @@
 import type { Evidence, EvidenceReview } from './evidence.types';
-import { DAY, BLOCKERS, STATES, rank, type TaskStateName } from './states';
+import {
+  DAY,
+  BLOCKERS,
+  SOURCES,
+  STATES,
+  rank,
+  sourceRank,
+  type TaskStateName,
+} from './states';
 import type { EngineTask } from './task-state';
 import { windowDaysFor, type ReturnPolicy } from './return-policy';
 
@@ -31,6 +39,24 @@ export interface TransitionResult {
   changed: boolean;
   rejected?: boolean;
   reason: string | null;
+  /**
+   * Diagnostics that should be SAVED even though nothing changed — set only on a
+   * duplicate-key no-op. A probe is information about the last attempt, not task
+   * state, so refreshing it is safe and must not count as a transition: the
+   * caller updates these fields WITHOUT writing an event row, so a user
+   * re-fetching ten times gets ten fresh diagnostics and zero log growth.
+   */
+  diagnostics?: {
+    probe: unknown;
+    blockerReason: string | null;
+    /**
+     * Refreshed alongside the reason, NOT left behind. Omitting it produced a
+     * self-contradicting record on 2026-08-12: a Nike task showed
+     * blocker `order_unreadable` from an earlier attempt next to a reason from a
+     * later one ("No matching review found"), which are mutually exclusive paths.
+     */
+    blocker: string | null;
+  };
 }
 
 interface HandlerOutput {
@@ -51,6 +77,18 @@ export function transition(
       task,
       changed: false,
       reason: `duplicate event ignored (${event.key})`,
+      // Carry the newest diagnostics out even though the event is a no-op. The
+      // alternative — what this used to do — was to discard them, which meant a
+      // task that had already recorded a miss could never report a fresher one.
+      ...(event.type === 'EVIDENCE'
+        ? {
+            diagnostics: {
+              probe: event.evidence.probe ?? null,
+              blockerReason: event.evidence.reason ?? null,
+              blocker: event.evidence.blocker ?? null,
+            },
+          }
+        : {}),
     };
   }
   if (task.state === STATES.REFUNDED) {
@@ -129,23 +167,93 @@ function onEvidence(task: EngineTask, evidence: Evidence): HandlerOutput {
         blocker: e.blocker,
         blockerReason: e.reason ?? null,
         probe: e.probe ?? null,
-        review: e.review ?? task.review,
+        // Through the SAME authority check as the success path below. This branch
+        // used to replace the review wholesale, which was a second route straight
+        // past it: an Amazon read that failed at the ORDER stage still carries a
+        // review, and it would have silently undone a visibility verdict that
+        // outranks it.
+        review: e.review ? preferReview(task.review, e.review) : task.review,
       },
       to: task.state,
       reason: e.blocker,
     };
   }
 
-  const patch: Partial<EngineTask> = { blocker: null, blockerReason: null };
-  if (e.review) patch.review = e.review;
-  if (e.order) patch.order = e.order;
-  if (e.delivery) patch.delivery = e.delivery;
+  // A miss (nothing matched) is deliberately NOT a blocker — the task WAITS
+  // rather than stalls (see readQuickCommerceEvidence / orderApiMiss in
+  // src/taskflow.js). But it still carries diagnostics: `reason`, the human
+  // sentence saying WHICH miss it was, and `probe`, the scraper's counters.
+  // Both used to be dropped right here, on the one path every miss takes — so
+  // "why did this check find nothing" was invisible backend-side even though
+  // the device sent it and the DTO accepted it. Carry them. A successful read
+  // arrives with neither, so both self-clear instead of going stale.
+  const patch: Partial<EngineTask> = {
+    blocker: null,
+    blockerReason: e.reason ?? null,
+    probe: e.probe ?? null,
+  };
+  // `published` is a PAYOUT SIGNAL, so the review is merged by authority too —
+  // see preferReview. For every review written before `publishedSource` existed
+  // this is a no-op (rank 0 vs rank 0 keeps last-write-wins), which is deliberate:
+  // nothing that released yesterday behaves differently today.
+  if (e.review) patch.review = preferReview(task.review, e.review);
+  // Order & delivery carry a `source`: a LOWER-authority source (e.g. an
+  // OCR-read screenshot) must never overwrite a fact a HIGHER-authority source
+  // (DKIM/scraper order read) already established — otherwise a later OCR
+  // upload-time delivery could clobber an earlier, verified delivery date and
+  // move the return window. Keep the incumbent unless the incoming source ranks
+  // at least as high.
+  if (e.order) patch.order = preferByAuthority(task.order, e.order);
+  if (e.delivery) patch.delivery = preferByAuthority(task.delivery, e.delivery);
   if (e.returned != null) patch.returned = e.returned;
 
   let to = task.state;
   if (rank(to) < rank(STATES.PURCHASED) && e.order) to = STATES.PURCHASED;
   if (rank(to) < rank(STATES.DELIVERED) && e.delivery) to = STATES.DELIVERED;
   return { patch, to, reason: 'evidence applied' };
+}
+
+/**
+ * Choose between an incumbent sourced fact and an incoming one: keep the
+ * incumbent when the incoming source ranks strictly LOWER (see sourceRank);
+ * otherwise take the incoming (same-or-higher authority — preserves the prior
+ * last-write-wins among equal-tier sources).
+ */
+function preferByAuthority<T extends { source?: string | null }>(
+  incumbent: T | null,
+  incoming: T,
+): T {
+  if (incumbent && sourceRank(incoming.source) < sourceRank(incumbent.source)) {
+    return incumbent;
+  }
+  return incoming;
+}
+
+/**
+ * The same rule for a review, ranked on `publishedSource` rather than `source`,
+ * because `published` is the only fact on a review that money depends on.
+ *
+ * Both directions matter and each has cost real product behaviour:
+ *   - a device read that never looked at a public page must not undo a Fayr
+ *     reviewer who did (Meesho emits published:false on EVERY fetch, so without
+ *     this the eyes-on-page confirmation would survive until the user next
+ *     pressed Fetch);
+ *   - a machine that DID fetch the page must be able to overturn that reviewer,
+ *     or the confirmation becomes a hand-operated way to disarm the
+ *     deleted-review countermeasure.
+ */
+function preferReview(
+  incumbent: EvidenceReview | null,
+  incoming: EvidenceReview,
+): EvidenceReview {
+  if (
+    incumbent &&
+    sourceRank(incoming.publishedSource) <
+      sourceRank(incumbent.publishedSource)
+  ) {
+    return incumbent;
+  }
+  return incoming;
 }
 
 /** The user confirming "this is my order" — a human gate on real fetched values. */
@@ -248,11 +356,34 @@ function onReleaseRefund(
   };
 }
 
+/**
+ * Apply a VISIBILITY_CHECK verdict to the review.
+ *
+ * Stamped as a MACHINE read, because that is what it is: this event is only ever
+ * reached after the scheduler has fetched the review's public permalink (see
+ * SchedulerService.runTick, which skips any task without one and treats a
+ * transient fetch failure as "no answer" rather than "not visible"). Stamping it
+ * is what lets the re-check overturn a staff eye-witness — the loophole-3
+ * countermeasure has to be the strongest thing in the system, not a peer of
+ * somebody's recollection.
+ *
+ * The staff observation fields are cleared with it: a machine has now answered
+ * the question, so leaving "a person saw it at this URL on Tuesday" beside the
+ * newer verdict would produce a record that contradicts itself.
+ */
 function withPublished(
   review: EvidenceReview | null,
   published: boolean,
 ): EvidenceReview | null {
-  return review ? { ...review, published } : review;
+  return review
+    ? {
+        ...review,
+        published,
+        publishedSource: SOURCES.REVIEW_PUBLIC,
+        visibleUrl: null,
+        visibleCheckedAt: null,
+      }
+    : review;
 }
 
 export interface RefundEligibility {

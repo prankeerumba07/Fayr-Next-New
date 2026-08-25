@@ -1,0 +1,853 @@
+<title>Fayr Demo Run-Sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alexandria:wght@700;800&family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+
+<style>
+  /* Fayr's own palette (src/ui/theme.js) — cream ground, gold accent, refund
+     green. The three actor colours are semantic and deliberately separate from
+     the accent: gold is the brand, blue is "a person decides", green is money. */
+  :root {
+    --ground: #FBFBEF;
+    --surface: #FFFFFF;
+    --surface-2: #F6F7E6;
+    --line: #E3E5CF;
+    --line-soft: #EEEFDF;
+    --ink: #191919;
+    --ink-2: #3A3A34;
+    --sub: #5C5C5C;
+    --gold: #F5C400;
+    --gold-ink: #7A5E00;
+    --gold-bg: #FDF6D2;
+    --money: #2E8C0C;
+    --money-ink: #256F09;
+    --money-bg: #E9F5CE;
+    --staff: #2F6FD0;
+    --staff-ink: #1F55A8;
+    --staff-bg: #E8F1FF;
+    --warn-ink: #9A5B00;
+    --warn-bg: #FFF4D6;
+    --stop-ink: #B02617;
+    --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+    --display: "Alexandria", "Trebuchet MS", sans-serif;
+    --head: "Poppins", "Helvetica Neue", Arial, sans-serif;
+    --body: "Inter", "Helvetica Neue", Arial, sans-serif;
+  }
+
+  /* Dark: the same roles, on a near-black carrying the cream's yellow-green
+     bias so the page reads as the same object with the lamp off. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #15160F;
+      --surface: #1D1E15;
+      --surface-2: #24261A;
+      --line: #34362600;
+      --line: #343626;
+      --line-soft: #2A2C1F;
+      --ink: #F3F4E2;
+      --ink-2: #DEDFCB;
+      --sub: #A3A591;
+      --gold: #E4BE1E;
+      --gold-ink: #EBCE5E;
+      --gold-bg: #2C2810;
+      --money: #7CC44E;
+      --money-ink: #96D46B;
+      --money-bg: #1E2A13;
+      --staff: #78AEF7;
+      --staff-ink: #9CC4FA;
+      --staff-bg: #16233A;
+      --warn-ink: #E0AC55;
+      --warn-bg: #2E2412;
+      --stop-ink: #F2907F;
+      --stop-bg: #33191A;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #15160F;
+    --surface: #1D1E15;
+    --surface-2: #24261A;
+    --line: #343626;
+    --line-soft: #2A2C1F;
+    --ink: #F3F4E2;
+    --ink-2: #DEDFCB;
+    --sub: #A3A591;
+    --gold: #E4BE1E;
+    --gold-ink: #EBCE5E;
+    --gold-bg: #2C2810;
+    --money: #7CC44E;
+    --money-ink: #96D46B;
+    --money-bg: #1E2A13;
+    --staff: #78AEF7;
+    --staff-ink: #9CC4FA;
+    --staff-bg: #16233A;
+    --warn-ink: #E0AC55;
+    --warn-bg: #2E2412;
+    --stop-ink: #F2907F;
+    --stop-bg: #33191A;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --ground: #FBFBEF;
+    --surface: #FFFFFF;
+    --surface-2: #F6F7E6;
+    --line: #E3E5CF;
+    --line-soft: #EEEFDF;
+    --ink: #191919;
+    --ink-2: #3A3A34;
+    --sub: #5C5C5C;
+    --gold: #F5C400;
+    --gold-ink: #7A5E00;
+    --gold-bg: #FDF6D2;
+    --money: #2E8C0C;
+    --money-ink: #256F09;
+    --money-bg: #E9F5CE;
+    --staff: #2F6FD0;
+    --staff-ink: #1F55A8;
+    --staff-bg: #E8F1FF;
+    --warn-ink: #9A5B00;
+    --warn-bg: #FFF4D6;
+    --stop-ink: #B02617;
+    --stop-bg: #FCE3E0;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .bar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: baseline;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding: 12px 22px;
+    background: color-mix(in srgb, var(--ground) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .mark {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -.02em;
+  }
+  .mark span { color: var(--gold); }
+  .bar nav { display: flex; gap: 14px; flex-wrap: wrap; }
+  .bar a {
+    font-family: var(--head);
+    font-weight: 500;
+    font-size: 12.5px;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    color: var(--sub);
+    text-decoration: none;
+    border-bottom: 1.5px solid transparent;
+  }
+  .bar a:hover, .bar a:focus-visible { color: var(--ink); border-bottom-color: var(--gold); }
+
+  main { max-width: 74ch; margin: 0 auto; padding: 34px 22px 90px; }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(28px, 5vw, 40px);
+    line-height: 1.12;
+    letter-spacing: -.025em;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .lede { font-size: 17px; color: var(--ink-2); margin: 0 0 8px; }
+  .stamp {
+    font-family: var(--head);
+    font-size: 12px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--sub);
+    margin: 0 0 30px;
+  }
+
+  h2 {
+    font-family: var(--head);
+    font-weight: 700;
+    font-size: 21px;
+    letter-spacing: -.01em;
+    margin: 46px 0 6px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+  }
+  h2 .phase {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--gold-ink);
+    margin-bottom: 4px;
+  }
+  h2 + .note { margin-top: 0; }
+  h3 {
+    font-family: var(--head);
+    font-weight: 600;
+    font-size: 15.5px;
+    margin: 26px 0 8px;
+  }
+
+  p { margin: 0 0 14px; }
+  .note { color: var(--sub); font-size: 14.5px; margin: 6px 0 18px; }
+
+  /* A step: numbered gutter, actor chip, then the labelled slots. The numbers
+     are real — this is a sequence read in order, not decoration. */
+  .step {
+    display: grid;
+    grid-template-columns: 46px 1fr;
+    gap: 0 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin: 0 0 12px;
+    box-shadow: var(--shadow);
+  }
+  .n {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 22px;
+    line-height: 1;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+    padding-top: 2px;
+  }
+  .step-body > *:last-child { margin-bottom: 0; }
+  .act {
+    font-family: var(--head);
+    font-weight: 600;
+    font-size: 16.5px;
+    color: var(--ink);
+    margin: 0 0 6px;
+  }
+
+  .who {
+    display: inline-block;
+    font-family: var(--head);
+    font-weight: 600;
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    margin-bottom: 7px;
+  }
+  .who-you   { background: var(--gold-bg);  color: var(--gold-ink); }
+  .who-staff { background: var(--staff-bg); color: var(--staff-ink); }
+  .who-app   { background: var(--surface-2); color: var(--sub); }
+  .who-money { background: var(--money-bg); color: var(--money-ink); }
+
+  dl { margin: 10px 0 0; display: grid; gap: 7px; }
+  dt {
+    font-family: var(--head);
+    font-weight: 600;
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--sub);
+  }
+  dd { margin: 0 0 4px; font-size: 14.5px; color: var(--ink-2); }
+  /* One label in the run needs to stop the reader's eye: the claimed sheet's most
+     prominent button is the one not to press. */
+  dt.stopdt { color: var(--stop-ink); }
+  dd:last-child { margin-bottom: 0; }
+  dd.fix { color: var(--stop-ink); }
+
+  code, .mono {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .88em;
+    background: var(--surface-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 5px;
+    padding: 1px 5px;
+  }
+  pre {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    margin: 0 0 14px;
+  }
+  pre code { background: none; border: 0; padding: 0; font-size: 13.5px; }
+
+  .money { color: var(--money-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .callout {
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin: 0 0 14px;
+    font-size: 14.5px;
+    border: 1px solid;
+  }
+  .callout .title {
+    display: block;
+    font-family: var(--head);
+    font-weight: 700;
+    font-size: 11.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .stop { background: var(--stop-bg); border-color: color-mix(in srgb, var(--stop-ink) 32%, transparent); color: var(--ink-2); }
+  .stop .title { color: var(--stop-ink); }
+  .warn { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn-ink) 32%, transparent); color: var(--ink-2); }
+  .warn .title { color: var(--warn-ink); }
+  .win  { background: var(--money-bg); border-color: color-mix(in srgb, var(--money-ink) 30%, transparent); color: var(--ink-2); }
+  .win .title { color: var(--money-ink); }
+  .say  { background: var(--staff-bg); border-color: color-mix(in srgb, var(--staff-ink) 26%, transparent); color: var(--ink-2); }
+  .say .title { color: var(--staff-ink); }
+
+  .scroll { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th {
+    font-family: var(--head);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--sub);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  ul { margin: 0 0 14px; padding-left: 20px; }
+  li { margin-bottom: 5px; }
+
+  footer {
+    max-width: 74ch;
+    margin: 0 auto;
+    padding: 0 22px 60px;
+    color: var(--sub);
+    font-size: 13.5px;
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+  }
+
+  a { color: var(--staff-ink); }
+  a:focus-visible, .bar a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 3px; }
+
+  @media (max-width: 560px) {
+    .step { grid-template-columns: 34px 1fr; gap: 0 12px; padding: 14px; }
+    .n { font-size: 18px; }
+  }
+  @media print {
+    .bar { position: static; backdrop-filter: none; }
+    .step { break-inside: avoid; box-shadow: none; }
+  }
+</style>
+
+<header class="bar">
+  <span class="mark">fayr<span>.</span></span>
+  <nav>
+    <a href="#start">Before the room</a>
+    <a href="#numbers">Numbers</a>
+    <a href="#run">The run</a>
+    <a href="#extra">Optional</a>
+    <a href="#notyet">Not yet</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Demo run-sheet</h1>
+  <p class="lede">The whole sequence, in order, with every tap named — and every
+    point where a person has to do something called out before you get there.</p>
+  <p class="stamp">Verified against the live dev database · every quoted line re-checked against the app's real strings · startup sequence rehearsed cold from a dead machine · 25 August 2026</p>
+
+  <div class="callout win">
+    <span class="title">The one thing to remember</span>
+    <p>The strongest moment in this demo is not the app paying out. It is the app
+      <strong>refusing</strong> to pay out, in plain English, because it could not read
+      the price — and then a named person deciding it on the record. That is the
+      product. Lead with it.</p>
+  </div>
+
+  <h2 id="start"><span class="phase">Ten minutes before</span>What to start, in this order</h2>
+  <p class="note">Rehearsed cold on 25 August from a completely dead machine —
+    Docker quit, Postgres stopped, backend killed, Expo killed. Every timing below
+    was measured, not estimated. The work adds up to about <strong>thirty
+    seconds</strong>; the reason to allow ten minutes is the one trap in step 1,
+    which cost over ten on the rehearsal.</p>
+
+  <div class="callout warn">
+    <span class="title">The branch matters — check it first</span>
+    <p>Everything the demo shows lives on <code>main</code> as of 25 August. If you
+      are on any other branch, the app you start is not the app in this document.</p>
+    <pre><code>cd ~/FAYR-Review-Verifier
+git branch --show-current</code></pre>
+    <p>It must say <code>main</code>. If it does not, <code>git checkout main</code>
+      before you start anything below.</p>
+  </div>
+
+  <div class="step">
+    <div class="n">1</div>
+    <div class="step-body">
+      <span class="who who-you">You · terminal</span>
+      <p class="act">Docker — and the trap that eats ten minutes</p>
+      <pre><code>docker info &gt; /dev/null 2&gt;&amp;1 &amp;&amp; echo UP || echo DOWN</code></pre>
+      <dl>
+        <dt>If it says UP</dt><dd>Nothing to do. Go to step 2.</dd>
+        <dt>If it says DOWN</dt><dd>Do <strong>not</strong> just click the Docker icon. Run these two lines, in this order:
+          <pre><code>pkill -f "Docker Desktop"; pkill -f "com.docker.backend"
+open -a Docker</code></pre>
+          Then wait for <code>docker info</code> to answer UP. On the rehearsal that took <strong>10 seconds</strong>.</dd>
+        <dt class="stopdt">Why the kill first</dt><dd>Docker Desktop can sit in a half-dead state where the <em>app</em> is running but its engine is not — and because macOS already considers the app open, <code>open -a Docker</code> does nothing at all. On the rehearsal that state was waited out for <strong>ten minutes</strong> with no engine and no error. Killing both processes first is what makes the relaunch actually relaunch. If you find yourself waiting more than about thirty seconds, you are in this state: kill and reopen.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">2</div>
+    <div class="step-body">
+      <span class="who who-you">You · terminal</span>
+      <p class="act">The database</p>
+      <pre><code>docker start fayr-postgres
+docker exec fayr-postgres pg_isready -U fayr</code></pre>
+      <dl>
+        <dt>Look for</dt><dd><code>/var/run/postgresql:5432 - accepting connections</code>. Measured: <strong>2 seconds</strong>.</dd>
+        <dt>If it fails</dt><dd class="fix">If the error mentions the daemon, you are back in step 1. If it says no such container, the container was deleted — that is a rebuild, not a restart, and not something to do in the ten minutes before a demo.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">3</div>
+    <div class="step-body">
+      <span class="who who-you">You · terminal</span>
+      <p class="act">Migrations, then the seed — the seed is not optional</p>
+      <pre><code>cd backend
+npx prisma migrate deploy
+npx prisma db seed</code></pre>
+      <dl>
+        <dt>Look for</dt><dd><code>No pending migrations to apply.</code> then the seed's own list, ending <code>topped up the unbought claim’s purchase deadline</code>. Measured: <strong>2 seconds</strong> and <strong>6 seconds</strong>.</dd>
+        <dt class="stopdt">Run the seed even though nothing looks broken</dt><dd>One of the four product states on the demo account is a claim that has <em>not been bought yet</em>, and a claim expires seven days after it is made. The hourly maintenance sweep then closes it and hands the tickets back — so on any morning more than a week after the database was last seeded, that state is simply gone from the app with nothing on screen to say why. Running the seed pushes that deadline back out to a full week. It is safe to run any number of times: everything else is either already there or skipped, and it says which.</dd>
+        <dt>If it fails</dt><dd class="fix">The seed refuses outright on any database not named <code>*_dev</code> or <code>*_test</code> — that is deliberate, since it writes users, tasks and ledger entries. Any other failure names what it could not do; nothing is half-applied that a second run will not finish.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">4</div>
+    <div class="step-body">
+      <span class="who who-you">You · terminal</span>
+      <p class="act">The backend</p>
+      <pre><code>npm run start:dev</code></pre>
+      <dl>
+        <dt>Look for, at the very end</dt><dd><code>Fayr backend listening on http://0.0.0.0:3000</code>. Measured: <strong>5 seconds</strong>.</dd>
+        <dt class="stopdt">The text-message line is ABOVE the route list, not below it</dt><dd>This is the one line that decides whether a real code reaches a real phone, and it prints <em>before</em> the ninety-odd route lines — by the time booting finishes it has scrolled off the top. Scroll back up, or run <code>npm run start:dev | grep -i "active sender"</code> instead. The line reads:
+          <pre><code>Active sender: TWILIO — real SMS will be sent to real phones</code></pre>
+          Do not search for <code>[SmsSender]</code>. That bracketed form appears <strong>nowhere</strong> in this log — the component name is at the end of the line as <code>{"context":"SmsSender"}</code>, so searching for the bracket finds nothing and reads as though the line is missing.</dd>
+        <dt>Check this, it matters</dt><dd>If that line says <code>DEV</code> instead of <code>TWILIO</code>, no real text will be sent and the code only appears in this terminal. Stop and fix it before anyone is watching.</dd>
+        <dt>If it fails</dt><dd class="fix">A missing or malformed credential makes it refuse to boot <em>and name the variable</em> — read the message, it tells you which one. <code>EADDRINUSE</code> means an old backend is still alive: <code>pkill -f "nest start"</code> and start again.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">5</div>
+    <div class="step-body">
+      <span class="who who-you">You · terminal</span>
+      <p class="act">The phone app — in a NEW terminal, from the repo root</p>
+      <pre><code>cd ~/FAYR-Review-Verifier
+npx expo start</code></pre>
+      <dl>
+        <dt class="stopdt">Do not reuse the backend's terminal</dt><dd>Step 3 left that one inside <code>backend/</code>, and <code>npx expo start</code> run from there does not fail — it quietly starts <em>the backend folder</em> as if it were the phone app, prints <code>Starting project at …/backend</code>, and <strong>rewrites <code>backend/tsconfig.json</code></strong> on its way past. That happened on the rehearsal and had to be undone with <code>git checkout backend/tsconfig.json</code>. Check the <code>Starting project at</code> line names the repo root, not <code>backend</code>.</dd>
+        <dt>Look for</dt><dd><code>Starting project at /Users/…/FAYR-Review-Verifier</code>, then <code>env: export EXPO_PUBLIC_FAYR_API_BASE</code>, then the QR code. Measured: <strong>4 seconds</strong>.</dd>
+        <dt>Then</dt><dd>Scan the QR code with the phone. Same Wi-Fi as the laptop.</dd>
+        <dt>Ignore this warning</dt><dd>It lists three packages as slightly behind (<code>expo</code>, <code>expo-file-system</code>, <code>react-native-svg</code>) and says the project "may not work correctly". It works; this is not the week to change versions.</dd>
+        <dt>If the app cannot reach the backend</dt><dd class="fix">That <code>env: export EXPO_PUBLIC_FAYR_API_BASE</code> line means <code>.env.local</code> is already supplying your LAN address, which is the normal case. If it is missing, put your LAN address there as <code>EXPO_PUBLIC_FAYR_API_BASE</code> and restart Expo — the override always wins. The name matters: <code>EXPO_PUBLIC_API_BASE</code> without <code>FAYR</code> is read by nothing, so Expo restarts and the app still cannot connect.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">6</div>
+    <div class="step-body">
+      <span class="who who-you">You · browser</span>
+      <p class="act">The staff console</p>
+      <p>Open <code>admin-panel/index.html</code> in the browser — double-clicking the
+        file is enough, it talks to <code>http://localhost:3000</code> on its own.</p>
+      <dl>
+        <dt>Sign in with</dt><dd>The <strong>ADMIN</strong> account — the address in <code>STAFF_BOOTSTRAP_EMAIL</code>. ADMIN sees every queue, so one login runs the whole demo.</dd>
+        <dt>Look for</dt><dd>The sidebar, with a badge reading <strong>6</strong> next to <em>Unit counts</em> and <strong>1</strong> next to <em>Review checks</em>.</dd>
+        <dt>Review checks has something in it now</dt><dd>It used to be empty. It holds a Meesho task whose review no machine can settle, which is the queue's entire reason for existing: "Meesho keeps review text inside its own app, so a person opens the product page and records what they saw." Do not say "Meesho only" — the queue is derived from the evidence on each task, not from a list of platforms, so an Amazon review we cannot fetch lands in it too.</dd>
+        <dt>If it fails</dt><dd class="fix">"Can’t reach the Fayr server" means step 4 is not running. A wrong password locks nothing — just retype it.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">7</div>
+    <div class="step-body">
+      <span class="who who-you">You · terminal</span>
+      <p class="act">The pre-flight check — the one command that proves the demo is intact</p>
+      <pre><code>cd backend
+npx ts-node scripts/check-awaiting-amount.ts</code></pre>
+      <dl>
+        <dt>Look for</dt><dd><code>Refunds held for a person to decide: 6</code>, then six lines — Flipkart and Amazon needing a <em>count</em>, Blinkit, Instamart and Zepto needing an <em>amount</em>, and a second Blinkit needing a <em>count</em>.</dd>
+        <dt>Six, not five</dt><dd>The sixth (<code>a47b47b2</code>, Blinkit, order <code>BLK-88213004</code>) is seeded demo data, added so the queue is never empty on a fresh database. <strong>Use one of the first five for the live decision</strong> — those are the ones in the table below, with figures produced by running the real refund calculation against the real rows.</dd>
+        <dt>Why bother</dt><dd>This reads the real database through the real code. If it says 6, every step below will behave as written.</dd>
+        <dt>If it says something else</dt><dd class="fix">Somebody already cleared one of these on a previous run. The demo still works — just use whichever held task is still listed, and take its figure from the table below.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <h2 id="numbers"><span class="phase">Have these in your head</span>The numbers you will say out loud</h2>
+  <p class="note">Every figure here was produced by running the real refund
+    calculation against the real rows, not by hand. The panel will show you the
+    same number before you confirm anything.</p>
+
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>Task</th><th>Marketplace</th><th>Stage</th><th>Decision needed</th><th class="num">You enter</th><th class="num">It pays</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">e52de6fb</td><td>Blinkit</td><td>In hold</td><td>Amount</td><td class="num">₹599</td><td class="num money">₹539.10</td></tr>
+        <tr><td class="mono">2125ec4d</td><td>Zepto</td><td>Reviewed</td><td>Amount</td><td class="num">₹149</td><td class="num money">₹134.10</td></tr>
+        <tr><td class="mono">f2029517</td><td>Instamart</td><td>Delivered</td><td>Amount</td><td class="num">—</td><td class="num">no review yet</td></tr>
+        <tr><td class="mono">920244c9</td><td>Amazon</td><td>Reviewed</td><td>Count</td><td class="num">1</td><td class="num money">₹797.30</td></tr>
+        <tr><td class="mono">b6960b35</td><td>Flipkart</td><td>Delivered</td><td>Count</td><td class="num">1</td><td class="num money">₹128.70</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ul>
+    <li><strong>Tickets on the demo account:</strong> 40. A claim costs 5, so you have eight claims. No danger of running out.</li>
+    <li><strong>Wallet balance right now:</strong> ₹0, so when the refund lands the wallet goes from nothing to something — which is the shot you want. <strong>One</strong> earlier withdrawal took <strong>₹590.40</strong> out of this account. Do not say ₹3,787.40 or "two withdrawals": that total is the sum across two <em>different</em> accounts, and only ₹590.40 of it was ever this one's.</li>
+    <li><strong>If you open the withdrawal history on screen</strong>, that earlier payout's reference reads <code>DEV-PLACEHOLDER-20260813</code>. It is a real ledger movement with a stand-in reference, because no bank transfer was actually made. Say so plainly if it is spotted; do not present it as a bank reference.</li>
+    <li><strong>Payout destination:</strong> already saved on the account, so <em>Withdraw</em> is available the moment the balance clears ₹100.</li>
+    <li><strong>Active offers:</strong> 13. The thirteenth is a Meesho offer, and it is the <strong>last</strong> card in the feed — deliberately dated earliest so that adding it did not move anything above it. Scroll to the bottom if you want to talk about Meesho.</li>
+  </ul>
+
+  <h2 id="run"><span class="phase">The run</span>Sign in to money in the wallet</h2>
+
+  <div class="callout warn">
+    <span class="title">Read this before you touch the phone</span>
+    <p><strong>Sign in with the number that owns the demo data.</strong> Any other number
+      creates a brand-new empty account — the offers still load, but every screen
+      after the claim is blank, and there is no recovering that in the room.</p>
+    <p>We are on a Twilio trial, so a code can only be delivered to a
+      <strong>verified</strong> number. Yours is verified. A director's is not, and
+      cannot be added on the spot.</p>
+  </div>
+
+  <div class="step">
+    <div class="n">8</div>
+    <div class="step-body">
+      <span class="who who-you">You · phone</span>
+      <p class="act">Open the app and get to the sign-in screen</p>
+      <dl>
+        <dt>On screen</dt><dd>The <em>fayr.</em> splash, then the sign-in landing. Tap through.</dd>
+        <dt>The three onboarding cards may not appear</dt><dd>They are shown once per <strong>install</strong>, not once per account, so a handset that has run this app before goes straight from the splash to sign-in. Both are correct. If you want them on the projector, delete the app and reinstall before the room fills — do not go looking for them live.</dd>
+        <dt>If it fails</dt><dd class="fix">A blank white screen means the fonts or the bundle did not load — shake the phone, tap Reload.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">9</div>
+    <div class="step-body">
+      <span class="who who-you">You · phone</span>
+      <p class="act">Enter your mobile number and tap through</p>
+      <dl>
+        <dt>On screen</dt><dd>Six empty boxes, and a line telling you a code is on its way.</dd>
+        <dt>What happens</dt><dd>A real SMS arrives on the handset in the room. On iOS the keyboard usually offers the code above it — one tap fills all six boxes at once. Typing it works exactly as well.</dd>
+        <dt>Say this while you wait</dt><dd>"This is a real text message to a real number — there is no shortcut wired in behind it."</dd>
+        <dt>If no code arrives</dt><dd class="fix">Wait for the resend timer, then tap resend once. <strong>The code is not in the terminal.</strong> The real sender logs a masked number and a provider reference and never the code itself, so there is no way to read it off the screen behind you — if the text does not arrive, the fallback is to stop the backend, set <code>SMS_PROVIDER=dev</code>, restart it, and request a new code, which the terminal then prints. Say you are switching to the offline sender; do not pretend a text arrived.</dd>
+        <dt>Two limits, and they are different</dt><dd>The five-attempt lock counts <strong>wrong codes</strong> on one challenge, not resends. Resending too soon just gets a cooldown and the app only offers the link once its timer reaches zero. Each resend does issue a <em>new</em> code, so an earlier text stops working — use the newest one.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">10</div>
+    <div class="step-body">
+      <span class="who who-app">The app</span>
+      <p class="act">The setup questions run — this account has not done them yet</p>
+      <dl>
+        <dt>On screen, in order</dt><dd>Seven screens, and there are <strong>three</strong> questions, not one. Seven only while this account has answered nothing: answer one question in a rehearsal and the intro drops out, leaving six and changing the first line to "Pick up where you left off". Re-check with the pre-flight if you rehearse.
+          <br>1 &middot; <strong>"Let's set up your profile"</strong> — "Takes about 30 seconds — so we can show you campaigns worth your time.", button <em>LET'S GO</em>.
+          <br>2 &middot; <strong>STEP 1/3 "How Young Are you?"</strong> — an age band, then a <em>Gender</em> chip. Both are required.
+          <br>3 &middot; <strong>STEP 2/3 "What do you love shopping?"</strong> — categories. At least three. The button goes <em>grey</em> below three but it is still tappable: tapping it raises "Pick at least 3 categories to continue." Do not say "it won't let you" and then tap it.
+          <br>4 &middot; <strong>STEP 3/3 "Where do you shop the most?"</strong> — marketplaces. <strong>There is no minimum here</strong> — Next is live with none selected. Pick one or two and say nothing about a requirement; if asked directly, it is optional today.
+          <br>5 &middot; <strong>"Lastly / What shall we Call You?"</strong> — your name.
+          <br>6 &middot; <strong>"Finding &lt;first two categories&gt; campaigns for you…"</strong> — only the <strong>first two</strong> you picked, joined by "&amp;", so with three chosen one is not named. It spins and moves on by itself and says <em>"Auto-advances — no tap needed."</em> This is the one screen with no <em>Do this later</em> link; nothing is stuck, it advances in about two seconds.
+          <br>7 &middot; <strong>"Before your first campaign"</strong> — three cards: claims and slots, honest reviews only, and know the risk. The third is the warning that a marketplace may act on rewarded reviews.</dd>
+        <dt>Worth pointing at</dt><dd>The button on that last card reads <strong>I UNDERSTAND — CONTINUE</strong>, and pressing it is what <em>records</em> the consent: which version, and the exact time. Not a tickbox that vanishes.</dd>
+        <dt>Do NOT tap "Do this later" on the last card</dt><dd>Six of the seven screens carry that escape (the spinner does not) and answers already given are kept — but the last one is where consent is written, so skipping it leaves no consent on record. Tap the button.</dd>
+        <dt>If it fails</dt><dd class="fix">If it loops back to the intro, tap <em>Do this later</em> and carry on — the feed is the next screen either way.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">11</div>
+    <div class="step-body">
+      <span class="who who-you">You · phone</span>
+      <p class="act">Claim an offer from the feed — <strong>four screens, not one tap</strong></p>
+      <p>The offer is the Amazon <strong>5-layer vegetable rack</strong>, ₹2,222 at 90%.
+        <strong>Do not scan the feed for "Spin Your Storage"</strong> — that is the
+        internal campaign name and it is on no screen. The card reads
+        <em>"Amazon Brand - Solimo 5-Layer Revolving Vegetable Kitchen Rack…"</em>
+        and it is the <strong>8th card down</strong>, so scroll rather than hunt.</p>
+      <dl>
+        <dt>Why that one</dt><dd>It is the only active offer this account has never claimed. Every other card already has a task, so tapping one opens the existing task instead of a fresh claim — correct behaviour, wrong story.</dd>
+        <dt>The tap order, in full</dt><dd>
+          <br><strong>1 · The feed card.</strong> Green chip <em>90% Refund · up to ₹1,999</em>, footer <em>Claim · 5 tickets</em> and <em>Claim →</em>. Tap it.
+          <br><strong>2 · The product page.</strong> Sections run <em>Campaign overview · How it works · What to buy · Terms &amp; conditions · Frequently asked</em>. The button at the bottom reads <strong>Claim campaign · 5 tickets →</strong> with <em>"Claiming reserves this product for you"</em> under it. Tap it. <strong>Nothing is spent yet.</strong>
+          <br><strong>3 · "Confirm participation".</strong> This is new and it is where the tickets actually go. Four cards: the product, <em>Your refund</em> (<em>Refund — 90% of what you pay</em>, <em>Maximum — ₹1,999</em>), <em>Tickets</em> (<em>This claim uses 5 tickets</em>, <em>Your balance after 35 tickets</em>), and <em>Deadline</em> — <em>"Buy the product within 7 days of joining."</em>
+          <br><strong>Tick the box first.</strong> <em>"I'll write an honest review. I understand my rating never affects my refund."</em> <strong>CONFIRM &amp; JOIN stays grey and does nothing until it is ticked.</strong> Then tap it.
+          <br><strong>4 · "Product Claimed!"</strong> — a sheet with <em>"This product is yours until &lt;date and time&gt;. Buy it on Amazon before then."</em>, a chip reading <em>🎟 5 tickets held · returned if the claim expires</em>, and a countdown box showing <em>6d 23h · Remaining</em>.
+        </dd>
+        <dt class="stopdt">Do NOT tap the big green button</dt><dd><strong>"Go to Amazon →" opens Amazon's real website inside the app.</strong> Tap the quiet grey link underneath instead — <em>"I'll buy in a bit"</em> — which lands you on the task. This is the one place in the run where the most obvious button is the wrong one.</dd>
+        <dt>Say this at the honesty tick</dt><dd>"This is the moment the tickets are spent, so it is the moment we ask for something back: not a five-star promise, an honest one. The rating never changes the refund, and that sentence is on the screen where it costs us something to say it."</dd>
+        <dt>Say this at the deadline</dt><dd>"Seven days to buy, and that is the real number — the server sets the clock when the claim is created, and the same clock returns the tickets automatically if the purchase never happens."</dd>
+        <dt>What the task screen says</dt><dd>Its header is <strong>Task status</strong>. <strong>It does not say "Purchase pending"</strong> — that phrase is a chip in the <em>My Products</em> list, one screen away. Say "the task opens at the buy step", not the phrase.</dd>
+        <dt>Do not</dt><dd>Try to actually buy it. See <a href="#notyet">Not yet</a> for the sentence to use.</dd>
+        <dt>If the claim is refused</dt><dd class="fix">You land on a screen headed <strong>"Something went wrong"</strong> with the server's own reason printed underneath — so read the small line, not the headline. "You've already completed this campaign" there means you picked a card with a finished task: tap <em>Back to campaign</em> and use the vegetable rack.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">12</div>
+    <div class="step-body">
+      <span class="who who-you">You · phone</span>
+      <p class="act">Now open the Blinkit task — <em>Chrysanthemum Flower Pot</em></p>
+      <p>Find it under <em>My Products</em>. This is the centre of the demo.</p>
+      <dl>
+        <dt>On screen</dt><dd>The timeline is almost entirely done: bought, delivered, review written, <strong>Rating confirmed</strong> — "Your rating is on the order in your Blinkit account" — return window closed. And it still says <strong>Refund on hold</strong>.</dd>
+        <dt>If someone asks to see the review</dt><dd>There is nothing to show, and say so first: Blinkit has no public review page at all. What was verified is the rating marked on the order in their own account. "On Blinkit and Zepto we are paying for a rating nobody else can read. That is a deliberate call about two launch partners and it is on our own risk list — Amazon and Flipkart are the ones with a public review we fetch and re-check."</dd>
+        <dt>The words it shows</dt><dd>"We could not read the price you paid, so a person at Fayr will confirm it before your refund is paid. Nothing is lost and you do not need to do anything."</dd>
+        <dt>Say this</dt><dd>"Blinkit's order page gives us a basket total and no line price. We will not divide a basket to guess what one item cost, so this stops here and waits for a human. No enum on the screen, no dead end, and nothing lost."</dd>
+        <dt>If it fails</dt><dd class="fix">If the task shows nothing, pull down to refresh. If it still looks empty, you signed in with the wrong number.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="callout stop">
+    <span class="title">Stop — a person has to act now</span>
+    <p>Nothing else moves until a staff member decides the amount. Turn to the
+      browser. This hand-off <em>is</em> the demo — do not apologise for it.</p>
+  </div>
+
+  <div class="step">
+    <div class="n">13</div>
+    <div class="step-body">
+      <span class="who who-staff">Staff · console</span>
+      <p class="act">Open <em>Unit counts</em> in the sidebar and find the Blinkit card</p>
+      <dl>
+        <dt>On screen</dt><dd>Five cards. The Blinkit one asks for an amount and shows the order number, the order total, what the offer says the product costs, and the ceiling: <strong>"Most this can be: ₹604.00 — the order's own total"</strong>.</dd>
+        <dt>Say this</dt><dd>"The reviewer cannot type any number they like. One item cannot have cost more than the whole order did, so that is the ceiling — derived from the order, not a round number somebody picked."</dd>
+        <dt>If the queue is empty</dt><dd class="fix">Refresh the browser. If it is still empty, you are signed in as FINANCE or OPERATIONS — this queue is SUPPORT and ADMIN only.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">14</div>
+    <div class="step-body">
+      <span class="who who-staff">Staff · console</span>
+      <p class="act">Fill in the three fields and watch the preview line</p>
+      <ul>
+        <li><strong>What one unit cost:</strong> <code>599</code></li>
+        <li><strong>Where you read it:</strong> "The marketplace order page"</li>
+        <li><strong>What you saw:</strong> type a real sentence — "order page lists the pot at ₹599"</li>
+      </ul>
+      <dl>
+        <dt>On screen</dt><dd>Under the fields: <strong>"This pays <span class="money">₹539.10</span> — 90% of ₹599.00"</strong>, worked out by the server using the same calculation that will actually pay it.</dd>
+        <dt>Say this</dt><dd>"Where it came from is a fixed list, not free text — somewhere another person can go and check. If this payout is ever disputed, 'they typed 599' is not a defence; 'they read it off the order page, and here is their note' is."</dd>
+        <dt>Then</dt><dd>Tap <strong>Confirm amount</strong>. The card stays, marked <em>just decided</em>, so a mistyped figure can still be corrected.</dd>
+        <dt>If it refuses</dt><dd class="fix">A red line under the form says exactly why — most likely the note is too short, or the figure is above the ceiling. Fix and retry; nothing is lost.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">15</div>
+    <div class="step-body">
+      <span class="who who-you">You · phone</span>
+      <p class="act">Back to the phone. Pull down to refresh the Blinkit task</p>
+      <dl>
+        <dt>On screen</dt><dd>The hold message is gone. In its place: <strong>Release ₹539.10 to wallet</strong>.</dd>
+        <dt>Say this</dt><dd>"The reviewer never touched the money. They answered one question, and the same rule that was blocking the payout now allows it."</dd>
+        <dt>If the button does not appear</dt><dd class="fix">Refresh again — the phone re-reads the task from the server, not from its own memory. Still nothing: the panel refused the save; check step 14.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">16</div>
+    <div class="step-body">
+      <span class="who who-money">Money moves</span>
+      <p class="act">Tap <em>Release ₹539.10 to wallet</em></p>
+      <dl>
+        <dt>On screen</dt><dd>The task closes as refunded. Open <em>Earnings</em>: the wallet is <span class="money">₹539.10</span>, up from zero, and <em>"Your All Time Earnings ✨"</em> reads the same.</dd>
+        <dt>Say this</dt><dd>"That is a double-entry ledger entry in whole paise. Nothing is a floating-point number anywhere near the money."</dd>
+        <dt>If it fails</dt><dd class="fix">A message naming what is still missing — the return window, the review, or the amount — appears in plain words. Read it out; it is written to be read out.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="n">17</div>
+    <div class="step-body">
+      <span class="who who-you">You · phone, then console</span>
+      <p class="act">Optional finish: take the money out</p>
+      <dl>
+        <dt>On the phone</dt><dd><em>Wallet → Withdraw</em>. The minimum is ₹100 and a payout destination is already saved, so it goes through.</dd>
+        <dt>In the console</dt><dd><em>Withdrawals</em> queue → Approve → Mark paid. That queue is FINANCE and ADMIN — a different person from the one who set the amount.</dd>
+        <dt>Say this</dt><dd>"Deciding the amount and releasing the money are different jobs held by different roles. Neither one can do the other's."</dd>
+        <dt>If it fails</dt><dd class="fix">"You need at least ₹100 in your wallet to withdraw" means the release in step 16 did not land. Go back one step.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <h2 id="extra"><span class="phase">If you have more time</span>The two moments worth adding</h2>
+
+  <div class="step">
+    <div class="n">18</div>
+    <div class="step-body">
+      <span class="who who-staff">Staff · console</span>
+      <p class="act">The count decision, on the Amazon garment rack</p>
+      <p>Same queue, the <code>920244c9</code> card. It asks for a <em>count</em>, not an amount,
+        and it says why: the order page did not state one.</p>
+      <dl>
+        <dt>Enter</dt><dd><code>1</code>, with a note. The preview says it pays <span class="money">₹797.30</span>.</dd>
+        <dt>Say this</dt><dd>"A refund is for one unit. If the page does not say how many units were bought, we do not assume one — three units at a third of the price look identical on a receipt."</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <span class="title">Expect this next — it is a feature, not a fault</span>
+    <p>After you set the count, the app will <strong>still not release</strong> that one.
+      The ₹938 actually paid is well below the ₹1,331 the offer quotes, so the app asks
+      the person who bought it to stand behind the order first.</p>
+  </div>
+
+  <div class="step">
+    <div class="n">19</div>
+    <div class="step-body">
+      <span class="who who-you">You · phone</span>
+      <p class="act">Tap <em>Yes, this is my order</em> on the Amazon task, then release</p>
+      <dl>
+        <dt>On screen before you tap</dt><dd>Under <em>Refund on hold</em>: "the amount you paid doesn't match this offer — confirm this is your order".</dd>
+        <dt>Say this</dt><dd>"The price moved between us writing the offer and them buying it. That is usually a discount and it is fine — but we ask the buyer to confirm it is their order before we pay against a number that does not match."</dd>
+        <dt>Then</dt><dd>The release button appears with <span class="money">₹797.30</span> on it.</dd>
+        <dt>If it fails</dt><dd class="fix">If the button is greyed out it is already sending — wait two seconds rather than tapping again.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <h2 id="notyet"><span class="phase">Be straight about this</span>What not to demo, and what to say</h2>
+  <p class="note">Every line below is something a sharp person in the room might
+    reach for. Saying it first is stronger than being caught by it.</p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Don't</th><th>Because</th><th>Say</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Buy a product live</td>
+          <td>The purchase happens in the marketplace's own app, and it takes days to deliver.</td>
+          <td>"The purchase happens on Amazon, in their app, with their payment. We verify it afterwards from their own pages — we are never in the middle of the transaction."</td>
+        </tr>
+        <tr>
+          <td>Send a code to anyone else's phone</td>
+          <td>Twilio trial: only verified numbers, five of them ever, and the trial expires 30 days after it was opened.</td>
+          <td>"Texting is on a trial account today. Production needs Indian DLT registration — that is paperwork and a company entity, not engineering."</td>
+        </tr>
+        <tr>
+          <td>Promise marketing texts</td>
+          <td>Without DLT we can only send a code the user just asked for, and the route can be suspended without notice.</td>
+          <td>"One-time codes the user triggered, and nothing else. That is a deliberate limit, not an oversight."</td>
+        </tr>
+        <tr>
+          <td>Meesho or Myntra</td>
+          <td>The Meesho reader is next on the list. Myntra is deliberately dormant — not a partner right now, code left intact.</td>
+          <td>"Amazon and Flipkart first, quick-commerce behind them. Meesho is the next reader. Myntra is parked on purpose."</td>
+        </tr>
+        <tr>
+          <td>Lead with the screenshot upload</td>
+          <td>It works, but it is the lowest tier of evidence and never approves itself.</td>
+          <td>"A screenshot can be doctored and still read perfectly, so it is supporting evidence only — it never releases money on its own."</td>
+        </tr>
+        <tr>
+          <td>Quote the "paid out" total in Reports</td>
+          <td>It is summed from the withdrawals table, while the ledger's payout account has no matching entry when a transfer is marked paid. The two cannot agree yet.</td>
+          <td>"Reconciliation between the payout ledger and the withdrawal records is a known open item. I would rather show you the gap than a tidy number I cannot defend."</td>
+        </tr>
+        <tr>
+          <td>Wait for the automatic release</td>
+          <td>The scheduled release exists, but standing on stage waiting for a timer is a bad minute.</td>
+          <td>"Releases also run on a schedule; I am doing it by hand so you can see the moment."</td>
+        </tr>
+        <tr>
+          <td>Offer to delete the account</td>
+          <td>Account deletion is not built.</td>
+          <td>"Deletion and data export are on the compliance list, not built yet."</td>
+        </tr>
+        <tr>
+          <td>Sign in on a second device mid-demo</td>
+          <td>One account holds all the prepared data, and a second sign-in is a second live code.</td>
+          <td>Nothing — just don't offer.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout say">
+    <span class="title">If someone asks "what stops a staff member just paying their friend?"</span>
+    <p>Say: every figure a person types is capped by the order's own total, needs a
+      named source and a written note, is logged against that named account with the
+      previous value beside it, and cannot overwrite anything the marketplace itself
+      told us. And the person who sets the amount is not the person who approves the
+      transfer. Then say the honest part: <strong>nothing yet stops the same admin
+      doing both jobs</strong> — role separation is enforced, one person holding two
+      roles is not.</p>
+  </div>
+</main>
+
+<footer>
+  Every number in this sheet came from running the real refund calculation against
+  the live dev database — not from reading a screen — and was last re-run on
+  25 August 2026, along with a line-by-line check of every quoted sentence against
+  the app's own strings. Re-check the figures any time with
+  <code>npx ts-node scripts/check-awaiting-amount.ts</code> from the
+  <code>backend</code> directory.
+  <br><br>
+  The startup sequence above was rehearsed cold on 25 August — Docker quit,
+  Postgres stopped, backend and Expo killed — and every timing in it was measured
+  on that run rather than estimated. Two of its warnings exist because the
+  rehearsal hit them: Docker's half-dead state, and Expo rewriting
+  <code>backend/tsconfig.json</code> when started from the wrong directory.
+  <br><br>
+  One earlier figure was WRONG and is corrected here: the demo account's withdrawal
+  history is one payout of ₹590.40, not two totalling ₹3,787.40. That larger total
+  is real but spans two different accounts. The previous check confirmed the number
+  existed in the database without confirming whose it was — a figure can be true and
+  still be attributed to the wrong row.
+</footer>

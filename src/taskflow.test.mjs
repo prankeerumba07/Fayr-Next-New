@@ -35,6 +35,56 @@ ok(ev.returned===false,'returned false (proven)');
 ok(ev.review.reviewDate===Date.UTC(2026,5,22),'reviewDate now REAL -> '+new Date(ev.review.reviewDate).toUTCString().slice(0,16));
 ok(ev.review.reviewDate>ev.order.date,'ANTI-REPLAY: review post-dates the order');
 
+console.log('\n=== 2z. WHICH LINE of the order — the ASIN identifies it ===');
+// One purchase must pay one refund, and the gate enforcing that was keyed on the
+// ORDER because a comment claimed no per-line id survives the wire. It does: the
+// ASIN a review resolved to is also an ASIN found on the order DETAIL page — the
+// join only succeeds when both agree — so it identifies the line, not a listing.
+//
+// This fixture is exactly the case order-level keying gets wrong: order
+// 222-2222222-2222222 holds THREE different ASINs. A merged cart is two real
+// purchases under one order number, and both are legitimate tasks.
+{
+  const a = readAmazonEvidence(raw, { asin: 'B0TESTMERGA' });
+  const b = readAmazonEvidence(raw, { asin: 'B0TESTMERGB' });
+  ok(a.order.id === b.order.id, 'both items really are the same order number');
+  ok(a.order.itemId === 'B0TESTMERGA' && b.order.itemId === 'B0TESTMERGB',
+    'but each carries its OWN line id, so they are distinguishable');
+  ok(a.order.itemIdSource === 'asin' && b.order.itemIdSource === 'asin',
+    'named as the ASIN, so a payout can be explained a year later');
+  ok(a.order.itemIdReason === null, 'and nothing was refused');
+  const solo = readAmazonEvidence(raw, { asin: 'B0TESTSOLO' });
+  ok(solo.order.itemId === 'B0TESTSOLO' && solo.order.id === '111-1111111-1111111',
+    'a single-item order carries one too');
+}
+
+console.log('\n=== 2a. HOW MANY UNITS — read when labelled, unknown when not ===');
+// A refund is for ONE unit, so an amount without a unit count is unpayable. The
+// fixture carries all three real outcomes of the reader.
+ok(ev.order.quantity === null, 'a single-unit Amazon order prints no label, so quantity is UNKNOWN');
+ok(ev.order.quantityReason === 'not-stated', 'and it says the page was silent — not that anything failed');
+ok(ev.order.quantitySource === null, 'no source is claimed for a quantity we do not have');
+{
+  const one = readAmazonEvidence(raw, { asin: 'B0TESTQTY1' });
+  ok(one.order.quantity === 1, 'a LABELLED "Quantity: 1" IS payable — both readings of the amount agree');
+  ok(one.order.quantitySource === 'label-quantity', 'and where it came from is recorded for the audit trail');
+  ok(one.order.quantityReason === null, 'no reason is carried when there IS a payable quantity');
+
+  // The correction that matters: reading "Qty: 2" is NOT the same as knowing what
+  // the number beside it means. If that ₹388 is a per-unit price, dividing by 2
+  // underpays by half. So the count is kept for a human and never computed with.
+  const many = readAmazonEvidence(raw, { asin: 'B0TESTMERGA' });
+  ok(many.order.quantity === null, 'a labelled TWO does not pay automatically');
+  ok(many.order.quantityObserved === 2, 'but the number the page stated is carried for the staff member');
+  ok(many.order.quantityReason === 'multi-unit-amount-unclear', 'and the reason names the real gap');
+  ok(many.order.itemPaise === 38800, 'the amount itself is untouched — only the division is refused');
+
+  const picker = readAmazonEvidence(raw, { asin: 'B0TESTMERGB' });
+  ok(picker.order.quantity === null, 'a return form\'s quantity DROPDOWN is refused, not read as 1');
+  ok(picker.order.quantityReason === 'picker', 'and the refusal is named, so it can be looked at');
+  ok(picker.order.quantityObserved === null, 'nothing observed when nothing was accepted');
+}
+
 console.log('\n=== 2b. merged order: item price, NOT the order total ===');
 const m1=readAmazonEvidence(raw,{asin:'B0TESTMERGA'});
 const m2=readAmazonEvidence(raw,{asin:'B0TESTMERGB'});
@@ -111,6 +161,31 @@ const w1=refundEligibility(te2,after,pol).windowEndsAt;
 ok(w1===ev.delivery.at+10*DAY,'electronics -> 10 days from delivery');
 const td={...t,category:'unknown-thing'};
 ok(refundEligibility(td,after,pol).windowEndsAt===ev.delivery.at+7*DAY,'unknown category -> defaultDays');
+
+console.log('\n=== 10. a non-blocking miss keeps its diagnostics (reason + probe) ===');
+// A miss is the only outcome that leaves the task where it was, so it is the
+// one outcome that must explain itself. Both fields used to be dropped on this
+// exact path. Mirrors backend transition.spec.ts — keep the two in step.
+const missEv={ blocker:null, reason:"This product isn't in your Instamart orders yet.",
+  probe:{ordersFetched:true,ordersCount:7,targetFound:false}, review:null, order:null, delivery:null, returned:null };
+const tm=transition(createTask({id:'m',product:'Cello Dazzle Series Tropical Lagoon Dinner Set'}),
+  {type:'EVIDENCE',key:'evidence:none:_',evidence:missEv,at:1}).task;
+ok(tm.state===STATES.CLAIMED,'miss does not advance the task');
+ok(tm.blocker===null,'miss does not block the task');
+ok(tm.blockerReason===missEv.reason,'reason persisted: '+tm.blockerReason);
+ok(tm.probe && tm.probe.ordersFetched===true && tm.probe.targetFound===false,'probe persisted (ordersCount '+(tm.probe&&tm.probe.ordersCount)+')');
+// The distinction that needed Content-Length arithmetic to recover on 2026-08-08.
+const tm2=transition(createTask({id:'m2'}),{type:'EVIDENCE',key:'k2',
+  evidence:{...missEv,reason:"Couldn't read your Instamart orders.",probe:{ordersFetched:false}},at:1}).task;
+ok(tm2.blockerReason==="Couldn't read your Instamart orders.",'the OTHER miss kind is distinguishable');
+ok(tm2.probe.ordersFetched===false,'probe separates read-failed from no-match');
+// Stale diagnostics must not outlive the miss that produced them.
+const tm3=transition(tm,{type:'EVIDENCE',key:'ok',evidence:ev,at:2}).task;
+// The fixture carries order AND delivery, so a good read lands on DELIVERED.
+ok(tm3.order!==null && tm3.state===STATES.DELIVERED,'a later good read still advances (-> '+tm3.state+')');
+ok(tm3.blockerReason===null && tm3.probe===null,'success self-clears the stale reason + probe');
+const tm4=transition(tm,{type:'EVIDENCE',key:'evidence:none:_',evidence:missEv,at:3});
+ok(tm4.changed===false,'replayed miss key is a no-op (idempotent)');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

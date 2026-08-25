@@ -5,6 +5,7 @@ import { TicketModule } from '../tickets/ticket.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { AdminAuditController } from './admin-audit.controller';
 import { AdminAuthController } from './admin-auth.controller';
+import { AdminTaskController } from '../tasks/admin-task.controller';
 import { AdminAuditService } from './admin-audit.service';
 import { AdminStaffController } from './admin-staff.controller';
 import { AdminStaffService } from './admin-staff.service';
@@ -35,6 +36,10 @@ import { StaffTokenService } from './staff-token.service';
     AdminUsersController,
     AdminAuditController,
     AdminStaffController,
+    // Task-domain controller, hosted here because it needs the staff guards and
+    // the audit trail — and AdminModule already imports TaskModule, so the
+    // reverse registration would be a cycle.
+    AdminTaskController,
   ],
   providers: [
     StaffTokenService,

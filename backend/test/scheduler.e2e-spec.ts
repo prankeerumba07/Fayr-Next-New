@@ -12,6 +12,7 @@ import type { SubmitEvidenceDto } from '../src/tasks/dto/submit-evidence.dto';
 import { TaskService } from '../src/tasks/task.service';
 import { TicketService } from '../src/tickets/ticket.service';
 import { WalletService } from '../src/wallet/wallet.service';
+import { resetDatabase } from './reset-db';
 
 const DAY = 86_400_000;
 const LOCK_KEY = 999_001;
@@ -81,7 +82,7 @@ describe('Scheduler (e2e)', () => {
       userId,
       t.id,
       ev({
-        order: { id: 'o1', itemPaise: '129900', source: 'order-details' },
+        order: { id: 'o1', itemPaise: '129900', quantity: 1, source: 'order-details' },
         returned: false,
       }),
     );
@@ -126,9 +127,7 @@ describe('Scheduler (e2e)', () => {
 
   beforeEach(async () => {
     checker.results.clear();
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "users","campaigns","tasks","task_events","visibility_checks","ticket_entries","wallet_accounts","wallet_entries","ledger_transactions" RESTART IDENTITY CASCADE',
-    );
+    await resetDatabase(prisma);
   });
 
   describe('advisory lock', () => {

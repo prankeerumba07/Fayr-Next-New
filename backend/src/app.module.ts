@@ -12,6 +12,7 @@ import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { buildLoggerOptions } from './logging/pino-logger.config';
 import { MeModule } from './me/me.module';
+import { OcrModule } from './ocr/ocr.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReportModule } from './reports/report.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
@@ -68,6 +69,7 @@ import { WithdrawalModule } from './withdrawals/withdrawal.module';
     MeModule,
     WithdrawalModule,
     ReportModule,
+    OcrModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

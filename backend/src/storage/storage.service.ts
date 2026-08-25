@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -22,12 +22,28 @@ export const IMAGE_EXT_BY_MIME: Readonly<Record<string, string>> = {
 /** Max accepted image size — enforced by the upload controller's ParseFilePipe. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 
+/** Max accepted verification-screenshot size — screenshots run larger than logos. */
+export const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024; // 10 MB
+
 /** What a successful save returns: the stored key and its public URL path. */
 export interface StoredFile {
   /** Storage-relative key (e.g. "campaigns/<uuid>.jpg") — for a future delete. */
   key: string;
   /** Root-relative public URL (e.g. "/uploads/campaigns/<uuid>.jpg"). */
   url: string;
+}
+
+/**
+ * What a PRIVATE save returns. Deliberately carries NO url — private files (e.g.
+ * verification screenshots, which are user PII) are never publicly served; they
+ * are read back only through an RBAC-checked streaming endpoint by their `key`.
+ * The sha256 supports dedup + forgery forensics (the same image reused across
+ * users/tasks is a fraud signal, and it outlives the image after retention purge).
+ */
+export interface StoredPrivateFile {
+  key: string;
+  sha256: string;
+  sizeBytes: number;
 }
 
 /**
@@ -43,6 +59,24 @@ export abstract class StorageService {
     /** Sub-folder to group by purpose, e.g. "campaigns". */
     subdir: string;
   }): Promise<StoredFile>;
+
+  /**
+   * Persist a PRIVATE binary (never publicly served). Returns the key + sha256 +
+   * size; the caller streams it back later via {@link readPrivate} after an
+   * authorization check. Kept a distinct method (not `save`) so a private file
+   * can never accidentally get a public URL.
+   */
+  abstract savePrivate(input: {
+    buffer: Buffer;
+    mimetype: string;
+    subdir: string;
+  }): Promise<StoredPrivateFile>;
+
+  /** Read a private file's bytes by its key. Throws if the key is missing/unsafe. */
+  abstract readPrivate(key: string): Promise<Buffer>;
+
+  /** Delete a private file by key (retention purge). A missing file is a no-op. */
+  abstract deletePrivate(key: string): Promise<void>;
 }
 
 /**
@@ -54,6 +88,7 @@ export abstract class StorageService {
 @Injectable()
 export class LocalDiskStorageService extends StorageService {
   private readonly root: string;
+  private readonly privateRoot: string;
 
   constructor(config: ConfigService<Env, true>) {
     super();
@@ -61,6 +96,12 @@ export class LocalDiskStorageService extends StorageService {
     this.root = resolve(
       process.cwd(),
       config.get('UPLOAD_DIR', { infer: true }),
+    );
+    // A SEPARATE root, deliberately outside the static-served UPLOAD_DIR, so a
+    // private file can never be reached by a public /uploads URL.
+    this.privateRoot = resolve(
+      process.cwd(),
+      config.get('PRIVATE_UPLOAD_DIR', { infer: true }),
     );
   }
 
@@ -77,4 +118,53 @@ export class LocalDiskStorageService extends StorageService {
     const key = `${input.subdir}/${filename}`;
     return { key, url: `${UPLOADS_URL_PREFIX}/${key}` };
   }
+
+  async savePrivate(input: {
+    buffer: Buffer;
+    mimetype: string;
+    subdir: string;
+  }): Promise<StoredPrivateFile> {
+    const ext = IMAGE_EXT_BY_MIME[input.mimetype] ?? 'bin';
+    const filename = `${randomUUID()}.${ext}`;
+    const dir = join(this.privateRoot, sanitizeSubdir(input.subdir));
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, filename), input.buffer);
+    const sha256 = createHash('sha256').update(input.buffer).digest('hex');
+    return {
+      key: `${sanitizeSubdir(input.subdir)}/${filename}`,
+      sha256,
+      sizeBytes: input.buffer.length,
+    };
+  }
+
+  async readPrivate(key: string): Promise<Buffer> {
+    return readFile(this.privatePath(key));
+  }
+
+  async deletePrivate(key: string): Promise<void> {
+    try {
+      await unlink(this.privatePath(key));
+    } catch (err) {
+      // Retention purge is idempotent: an already-gone file is not an error.
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+  }
+
+  /**
+   * Resolve a storage key to an absolute path INSIDE privateRoot, refusing any
+   * key that would escape it (path traversal). Keys we mint never contain `..`,
+   * but this guards against a tampered/foreign key reaching the filesystem.
+   */
+  private privatePath(key: string): string {
+    const full = resolve(this.privateRoot, key);
+    if (full !== this.privateRoot && !full.startsWith(this.privateRoot + '/')) {
+      throw new Error('Unsafe storage key');
+    }
+    return full;
+  }
+}
+
+/** Keep a subdir to a simple, single-segment slug — no separators, no traversal. */
+function sanitizeSubdir(subdir: string): string {
+  return subdir.replace(/[^a-zA-Z0-9_-]/g, '');
 }

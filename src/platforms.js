@@ -89,6 +89,11 @@ const flipkart = {
         // Build pid -> order/unit facts from the order history units.
         var orders = (ordJson && ordJson.RESPONSE && ordJson.RESPONSE.multipleOrderDetailsView && ordJson.RESPONSE.multipleOrderDetailsView.orders) || [];
         var byPid = {};
+        // HOW MANY UNITS. Keyed by (order, product) and never by product alone:
+        // the same product bought in two different orders is two separate counts
+        // and adding them would invent a quantity nobody bought.
+        var unitTally = {};
+        function tallyKey(oid, pid){ return String(oid) + "|" + String(pid); }
         orders.forEach(function(o){
           var md = o.orderMetaData || {};
           var units = o.units || {};
@@ -106,6 +111,35 @@ const flipkart = {
             var money = u.moneyDataBag || {};
             var orderMoney = o.orderMoneyDataBag || {};
             var pid = meta.fsn || null;
+            // Flipkart states its orders as UNIT RECORDS. A record that states its
+            // own count is evidence. The NUMBER OF RECORDS is NOT: one record could
+            // itself represent three units, and reading the count as 1 would refund
+            // a third of what was charged. Both are collected; the combiner below
+            // only answers when every record stated a count.
+            //
+            // Which field carries it is UNVERIFIED — no multi-unit Flipkart order
+            // has been captured yet. These are the plausible names, and
+            // rawSample.quantityLikePaths in the same payload names the real one
+            // exactly on the first real fetch. Until then this simply reads null,
+            // which holds the refund for a human rather than guessing.
+            var statedQty = null;
+            var qtyFields = [
+              meta.quantity, u.quantity, meta.unitCount, u.unitCount,
+              meta.qty, u.qty, meta.itemCount, meta.unitsCount
+            ];
+            for (var qi = 0; qi < qtyFields.length; qi++) {
+              var qv = qtyFields[qi];
+              if (typeof qv === "number" && qv === Math.floor(qv) && qv >= 1 && qv <= 99) { statedQty = qv; break; }
+              if (typeof qv === "string" && /^\d{1,3}$/.test(qv)) {
+                var qn = Number(qv);
+                if (qn >= 1 && qn <= 99) { statedQty = qn; break; }
+              }
+            }
+            if (pid) {
+              var tk = tallyKey(md.orderId, pid);
+              if (!unitTally[tk]) { unitTally[tk] = []; }
+              unitTally[tk].push(statedQty);
+            }
             // Product NAME from the order unit - needed to match the campaign
             // (which carries a name, not a pid). Field name is unverified for the
             // order unit, so try the likely spots; orderProbe.nameAvailable
@@ -136,6 +170,42 @@ const flipkart = {
           });
         });
 
+        // Turn the tallied unit records into a quantity, or an honest null. Same
+        // rule as combineUnitQuantities in src/quantity.js, whose tests guard it.
+        function combineUnits(stated){
+          var out = { quantity: null, source: null, reason: "not-stated", records: stated.length };
+          if (!stated.length) { return out; }
+          var known = stated.filter(function(v){ return v != null; });
+          if (!known.length) { return out; }
+          // Some records state a count and some do not. Adding the known ones would
+          // undercount; treating the silent ones as 1 is the assumption this whole
+          // path exists to refuse.
+          if (known.length !== stated.length) { out.reason = "partial"; return out; }
+          var sum = 0, allOk = true;
+          known.forEach(function(v){
+            if (!(v === Math.floor(v) && v >= 1 && v <= 99)) { allOk = false; }
+            sum += v;
+          });
+          if (!allOk || sum > 99) { out.reason = "implausible"; return out; }
+          out.quantity = sum;
+          out.source = stated.length > 1 ? "unit-records-stated" : "unit-record-stated";
+          out.reason = null;
+          return out;
+        }
+        Object.keys(byPid).forEach(function(pid){
+          var e = byPid[pid];
+          var q = combineUnits(unitTally[tallyKey(e.orderId, pid)] || []);
+          e.quantity = q.quantity;
+          e.quantitySource = q.source;
+          e.quantityReason = q.reason;
+          // How many unit records this product had in that order. When it is more
+          // than one, the money fields above came from whichever record was read
+          // LAST — which is arbitrary — so the AMOUNT itself is doubtful, not just
+          // the count. Surfaced so a human is told that rather than left to
+          // discover it.
+          e.unitRecords = q.records;
+        });
+
         var products = (revJson && revJson.RESPONSE && revJson.RESPONSE.product) || [];
         var reviews = products.map(function(p){
           var om = (p.pid && byPid[p.pid]) || null;
@@ -161,6 +231,10 @@ const flipkart = {
             orderamount: om ? om.orderAmount : null,
             itemamount: om ? om.itemAmount : null,
             itemlistprice: om ? om.itemListPrice : null,
+            quantity: om ? om.quantity : null,
+            quantitysource: om ? om.quantitySource : null,
+            quantityreason: om ? om.quantityReason : null,
+            unitrecords: om ? om.unitRecords : null,
             returned: om ? om.returned : null,
             returnstatus: om ? om.returnStatus : null,
             statuscode: om ? om.statusKey : null,
@@ -205,6 +279,22 @@ const flipkart = {
             scanPrice(v, path + "." + k, d + 1);
           }
         })(firstOrder, "order", 0);
+        // The same scan for quantity-shaped leaves. This is the single cheapest
+        // thing in the payload: no extra request, and one real multi-unit order
+        // names the field exactly instead of it staying a guess.
+        var qtyLike = [];
+        (function scanQty(o, path, d){
+          if (o == null || d > 9 || qtyLike.length >= 40) { return; }
+          if (typeof o !== "object") { return; }
+          for (var k in o) {
+            if (!Object.prototype.hasOwnProperty.call(o, k)) { continue; }
+            var v = o[k];
+            if (/qty|quantity|unitcount|itemcount|count|units/i.test(k) && (typeof v === "number" || typeof v === "string")) {
+              if (qtyLike.length < 40) { qtyLike.push(path + "." + k + " = " + String(v).slice(0, 24)); }
+            }
+            scanQty(v, path + "." + k, d + 1);
+          }
+        })(firstOrder, "order", 0);
 
         diag.rawSample = {
           firstOrder: slice(firstOrder, 4000),
@@ -222,7 +312,15 @@ const flipkart = {
             .map(function(p){ return p.status; })
             .filter(function(v, i, a){ return v != null && a.indexOf(v) === i; }),
           orderCount: orders.length,
-          priceLikePaths: priceLike
+          priceLikePaths: priceLike,
+          quantityLikePaths: qtyLike,
+          // How many unit records each (order, product) had. A pid with more than
+          // one is the case that proves how Flipkart represents multiple units.
+          unitRecordCounts: (function(){
+            var m = {};
+            Object.keys(unitTally).forEach(function(k){ m[k] = unitTally[k].length; });
+            return m;
+          })()
         };
 
         // ORDER-FIRST surfacing (privacy-filtered). The campaign product's own
@@ -280,6 +378,8 @@ const flipkart = {
           pid: m.pid, productName: m.productName,
           orderId: m.orderId, orderDate: m.orderDate, deliveryDate: m.deliveryDate,
           itemAmount: m.itemAmount, orderAmount: m.orderAmount,
+          quantity: m.quantity, quantitySource: m.quantitySource,
+          quantityReason: m.quantityReason, unitRecords: m.unitRecords,
           returned: m.returned, returnStatus: m.returnStatus, statusKey: m.statusKey
         } : null;
         // The matched product's review, if one exists yet (later payout phase).
@@ -573,6 +673,78 @@ const amazon = {
                     // the walk escaped the row and probably hit the order summary,
                     // which is exactly the failure this needs to make visible rather
                     // than silently pay out on.
+                    // HOW MANY UNITS DID THEY BUY?
+                    //
+                    // The same rule as src/quantity.js, inlined because this is an
+                    // injected page script and cannot import. quantity.test.mjs
+                    // reads THIS FILE as text and fails if the two ever drift.
+                    //
+                    // Only a number the page LABELS is read. Refused on purpose:
+                    // a bare number beside the item (that is layout, and layout
+                    // changes without notice), a count inside the product title
+                    // ("Set of 2 Pieces" is one unit), and the option list of a
+                    // return form's quantity picker, which cleanText flattens to
+                    // the text "Quantity: 1 2 3" and would otherwise be read as 1
+                    // on an order of three.
+                    function statedQuantityIn(txt){
+                      var out = { quantity: null, source: null, reason: "not-stated", candidates: [] };
+                      if (!txt) { return out; }
+                      var labels = [
+                        { label: "qty", re: /\\bqty\\b\\s*[:.\\-]?\\s*(\\d{1,3})(?![\\d.])/gi },
+                        { label: "quantity", re: /\\bquantity\\b\\s*[:.\\-]?\\s*(\\d{1,3})(?![\\d.])/gi }
+                      ];
+                      labels.forEach(function(L){
+                        var m;
+                        while ((m = L.re.exec(txt)) !== null) {
+                          var value = Number(m[1]);
+                          var rest = txt.slice(m.index + m[0].length);
+                          var next = rest.match(/^\\s*(\\d{1,3})(?![\\d.])/);
+                          if (next && Number(next[1]) === value + 1) {
+                            out.candidates.push({ label: L.label, value: value, rejected: "picker" });
+                          } else {
+                            out.candidates.push({ label: L.label, value: value });
+                          }
+                        }
+                      });
+                      var accepted = out.candidates.filter(function(c){ return !c.rejected; });
+                      if (!accepted.length) {
+                        if (out.candidates.length) { out.reason = "picker"; }
+                        return out;
+                      }
+                      var distinct = [];
+                      accepted.forEach(function(c){ if (distinct.indexOf(c.value) < 0) { distinct.push(c.value); } });
+                      // Two different labelled numbers in ONE item's container means
+                      // the walk escaped the row. Not an answer about this item.
+                      if (distinct.length > 1) { out.reason = "conflicting"; return out; }
+                      var v = distinct[0];
+                      if (!(v === Math.floor(v) && v >= 1 && v <= 99)) { out.reason = "implausible"; return out; }
+                      out.quantity = v;
+                      out.source = accepted[0].label === "qty" ? "label-qty" : "label-quantity";
+                      out.reason = null;
+                      return out;
+                    }
+                    // DIAGNOSTIC ONLY, and it must stay that way: Amazon's own
+                    // "return or replace" and "buy it again" forms carry a quantity
+                    // field whose value is the FORM'S DEFAULT, not the purchase. The
+                    // point of collecting them is that one real capture then tells us
+                    // whether a trustworthy stated quantity exists on this page at
+                    // all - without adding a single request to find out.
+                    function markupQtyHits(html){
+                      if (!html) { return []; }
+                      var res = [
+                        /([a-z-]*(?:qty|quantity)[a-z-]*)\\s*=\\s*"(\\d{1,3})"/gi,
+                        /name\\s*=\\s*"([a-z-]*(?:qty|quantity)[a-z-]*)"[^>]*?value\\s*=\\s*"(\\d{1,3})"/gi
+                      ];
+                      var seen = [];
+                      res.forEach(function(re){
+                        var m;
+                        while ((m = re.exec(html)) !== null && seen.length < 8) {
+                          var hit = m[1] + '="' + m[2] + '"';
+                          if (seen.indexOf(hit) < 0) { seen.push(hit); }
+                        }
+                      });
+                      return seen;
+                    }
                     function itemPricesIn(root){
                       var prices = {}, dbg = [];
                       var els = root.querySelectorAll('a[href*="/dp/"], a[href*="/gp/product/"]');
@@ -594,14 +766,31 @@ const amazon = {
                             break;
                           }
                         }
+                        // The quantity is read from the SAME container the price
+                        // came from, never the page: a number belonging to another
+                        // item must not be able to divide this item's price.
+                        var q = statedQuantityIn(containerText);
                         if (tokens.length) {
-                          prices[asin] = { price: normAmount(tokens[0]), level: level, tokenCount: tokens.length };
+                          prices[asin] = {
+                            price: normAmount(tokens[0]), level: level, tokenCount: tokens.length,
+                            quantity: q.quantity, quantitySource: q.source, quantityReason: q.reason
+                          };
                         }
                         if (dbg.length < 4) {
                           dbg.push({
                             asin: asin, foundAtLevel: level, chosen: tokens[0] || null,
                             tokensInContainer: tokens.slice(0, 8),
                             ambiguous: tokens.length > 1,
+                            // PROOF for the quantity, to the same standard as the
+                            // price: what was chosen, why nothing was, every
+                            // labelled number seen, and the quantity-shaped markup
+                            // in the container. A null here has to be explainable
+                            // from the capture alone, or the next step is guessing.
+                            quantityChosen: q.quantity,
+                            quantitySource: q.source,
+                            quantityReason: q.reason,
+                            quantityCandidates: q.candidates.slice(0, 6),
+                            quantityMarkupHits: markupQtyHits(containerHtml),
                             containerTextHead: containerText.slice(0, 240),
                             // Raw structure, so a wrong pick can be turned into a
                             // real selector offline from this same capture.
@@ -656,7 +845,22 @@ const amazon = {
                     // which may be server-rendered. Anything found here OVERWRITES the
                     // list-derived facts, and records source:"order-details".
                     var detailDbg = [];
-                    var probeIds = orderIds.slice(0, 6); // bound the fan-out
+                    // Bound the fan-out, but not so tightly that a real purchase
+                    // falls outside it. Raised 6 -> 10 on 2026-08-12 after a
+                    // CONFIRMED miss, not a guess: Nike shoes order
+                    // 408-5614193-1514764 sat outside the 6 most recent orders, so
+                    // its detail page was never fetched and the task reported
+                    // order_unreadable while the review itself matched fine. The
+                    // list surfaced 7 order ids and only 6 were probed.
+                    //
+                    // 10 is a deliberate ceiling, not an opening: these run through
+                    // Promise.all, so the number IS the concurrent request count
+                    // against Amazon, and pushing it higher risks the bot-detection
+                    // and re-auth wall that already makes this page unreliable
+                    // (~2 of every 6 detail pages come back empty). Anything past
+                    // 10 should move to sequential or paginated fetching instead of
+                    // widening this.
+                    var probeIds = orderIds.slice(0, 10);
                     return Promise.all(probeIds.map(function(oid){
                       var durl = "https://www.amazon.in/gp/your-account/order-details?orderID=" + oid;
                       return fetch(durl, { credentials:"include", headers:{ "accept":"*/*" } })
@@ -717,6 +921,12 @@ const amazon = {
                                 itemamount: ip ? ip.price : null,
                                 itemamountlevel: ip ? ip.level : null,
                                 itemamountambiguous: ip ? ip.tokenCount > 1 : null,
+                                // The unit count, ONLY when the item's own container
+                                // states one. Null means unknown, and the refund
+                                // refuses rather than assuming one unit.
+                                quantity: ip ? ip.quantity : null,
+                                quantitysource: ip ? ip.quantitySource : null,
+                                quantityreason: ip ? ip.quantityReason : "no-item-container",
                                 orderamount: amt.orderamount,
                                 amountsource: amt.amountsource,
                                 deliverydate: dts.deliverydate,
@@ -742,6 +952,9 @@ const amazon = {
                         r.itemamount = of.itemamount;
                         r.itemamountlevel = of.itemamountlevel;
                         r.itemamountambiguous = of.itemamountambiguous;
+                        r.quantity = of.quantity;
+                        r.quantitysource = of.quantitysource;
+                        r.quantityreason = of.quantityreason;
                         r.orderamount = of.orderamount;
                         r.amountsource = of.amountsource;
                         r.deliverydate = of.deliverydate;
@@ -762,6 +975,7 @@ const amazon = {
                     // nothing about them may be emitted. Both values are injected by
                     // ConnectScreen from the campaign; neither defaults open.
                     var targetAsin = (typeof window !== "undefined" && window.__fayrTargetAsin) || null;
+                    var targetName = (typeof window !== "undefined" && window.__fayrTargetName) || null;
                     var debug = (typeof window !== "undefined" && window.__fayrDebugCapture === true);
 
                     // FAIL CLOSED. No campaign target and no explicit debug opt-in
@@ -783,6 +997,40 @@ const amazon = {
                     var surfaced = (targetAsin && !debug)
                       ? reviews.filter(function(r){ return r.asin === targetAsin; })
                       : reviews;
+
+                    // NAME FALLBACK — added 2026-08-12 after a live failure.
+                    //
+                    // Amazon issues a SEPARATE ASIN per size/colour variant, so the
+                    // ASIN on a campaign (taken from the listing) need not equal the
+                    // ASIN a review resolves to. Proven live: a Nike shoes task with
+                    // targetAsin B0F16FQFZY surfaced 0 of the account's reviews,
+                    // while a single-variant garment rack on the same account matched
+                    // first time. r.asin is also simply ABSENT when the permalink
+                    // fetch failed to yield a product link, which fails the exact
+                    // test just as silently.
+                    //
+                    // This stays a FILTER TO THE CAMPAIGN PRODUCT. It never widens to
+                    // "surface everything" - the privacy boundary above is that a
+                    // user's unrelated purchases must not leave the device, and a
+                    // name match honours that exactly as an ASIN match does. Scoring
+                    // is fkScore's proven method (same normalisation, same 0.6 bar
+                    // already used for Flipkart and quick-commerce), duplicated here
+                    // rather than shared because this script is a standalone string.
+                    var asinOnlyCount = surfaced.length;
+                    if (targetAsin && !debug && surfaced.length === 0 && targetName) {
+                      var azNrm = function(s){ return String(s==null?"":s).toLowerCase().replace(/[^a-z0-9]+/g," ").trim(); };
+                      var azScore = function(exp, cand){
+                        var e = azNrm(exp), c = azNrm(cand);
+                        if (!e || !c) return 0;
+                        if (c.indexOf(e) >= 0 || e.indexOf(c) >= 0) return 1;
+                        var toks = e.split(" ").filter(function(w){ return w.length > 2; });
+                        if (!toks.length) return 0;
+                        var h = 0;
+                        toks.forEach(function(w){ if (c.indexOf(w) >= 0) h++; });
+                        return h / toks.length;
+                      };
+                      surfaced = reviews.filter(function(r){ return azScore(targetName, r.name) >= 0.6; });
+                    }
 
                     // RAW SAMPLES (diagnostic only). The mapped review fields are
                     // a LOSSY view - notably no order amount is mapped at all, so
@@ -830,7 +1078,21 @@ const amazon = {
                     // production, so the whole sample is attached only under the
                     // debug flag. Omitting the key entirely (rather than emptying it)
                     // means there is no shape to accidentally leak through later.
-                    var out = { accountId: id, targetAsin: targetAsin, count: surfaced.length, reviews: surfaced };
+                    // reviewsFound / asinOnlyCount are PRE-FILTER counts, and they are
+                    // the difference between two failures that used to look identical:
+                    // "no reviews on this account at all" (reviewsFound 0) versus
+                    // "reviews were read and the ASIN filter discarded every one"
+                    // (reviewsFound > 0, asinOnlyCount 0). Counts only - no titles, no
+                    // ids, nothing about products other than the campaign's.
+                    var out = {
+                      accountId: id,
+                      targetAsin: targetAsin,
+                      reviewsFound: reviews.length,
+                      asinOnlyCount: asinOnlyCount,
+                      nameFallbackUsed: asinOnlyCount === 0 && surfaced.length > 0,
+                      count: surfaced.length,
+                      reviews: surfaced
+                    };
                     if (debug) { out.__amazonOrdersSample = sample; }
 
                     // PRIVACY-SAFE DIAGNOSTICS - always on, including production.
@@ -1244,6 +1506,105 @@ function discoveryHook() {
     } catch(e){}
   }
   setInterval(fayrAnnotateBlinkit, 1500);
+
+  // Blinkit: reach Order History with ZERO manual navigation.
+  //
+  // Zepto and Instamart deep-link straight to their orders route; Blinkit can't
+  // (see its startUrl comment - a cold /account/orders load renders a dead shell
+  // with no login and no way out). So we land on the homepage where login and
+  // navigation exist, and then walk Blinkit's own UI for the user - exactly what
+  // fayrOpenInstamartTab already does for Swiggy's Instamart tab.
+  //
+  // Why this cannot bring back that dead end:
+  //  - it never assigns location.href; it CLICKS a real in-page control, and
+  //    Blinkit is a Next.js SPA, so its router changes route with no document
+  //    load at all - there is no cold render to land in. The dead shell needed a
+  //    cold load of the orders URL; a client-side route inside an already
+  //    hydrated page cannot produce one,
+  //  - it is bounded (a few attempts), stops for good once the order list is
+  //    captured, and is silent: if no selector matches, the user taps through by
+  //    hand exactly as they do today. Worst case is the current behaviour.
+  //
+  // There is deliberately NO login check. The first version gated every click on
+  // a detectable auth token and, on a real device on 2026-08-10, never fired at
+  // all: the user was genuinely logged in the whole time, but Blinkit keeps its
+  // access token in an httpOnly cookie that document.cookie can never read, so
+  // the gate had no proof to find and correctly stayed silent rather than guess.
+  // An unobservable precondition is not a safeguard - it is an off switch. From
+  // the homepage the worst a click can do is open the account menu or land on
+  // Blinkit's own login screen, and both are recoverable in-page.
+  function fayrBlinkitOrdersLink(){
+    // 1. A real anchor to the orders route (what a Next.js <Link> renders).
+    var as = document.getElementsByTagName("a");
+    for (var i=0;i<as.length;i++){
+      var h = as[i].getAttribute("href") || "";
+      if (/\\/account\\/orders|\\/orders(\\?|$)/.test(h)) return as[i];
+    }
+    // 2. An SPA control whose whole label IS the orders entry.
+    var wanted = ["my orders", "orders", "order history", "your orders"];
+    var els = document.querySelectorAll("a,button,li,div,span,[role=button],[role=menuitem]");
+    for (var w=0; w<wanted.length; w++){
+      for (var j=0;j<els.length;j++){
+        var el = els[j];
+        if ((el.textContent || "").trim().toLowerCase() === wanted[w] && el.children.length <= 1) return el;
+      }
+    }
+    // 3. An accessibility/test label, for an icon-only entry. Anchored on both
+    //    ends so "reorder" and "reorder-history" can never match.
+    var lab = document.querySelectorAll("[aria-label],[data-testid]");
+    for (var m=0;m<lab.length;m++){
+      var al = (lab[m].getAttribute("aria-label") || "").trim().toLowerCase();
+      var dt = (lab[m].getAttribute("data-testid") || "").trim().toLowerCase();
+      if (/^(my |your )?orders?$/.test(al) || /^order[-_ ]?history$/.test(al)) return lab[m];
+      if (/^(my[-_]?)?orders?$/.test(dt) || /^order[-_]?history$/.test(dt)) return lab[m];
+    }
+    return null;
+  }
+  function fayrBlinkitAccountTrigger(){
+    // Orders normally sits behind the account drawer, so open that first.
+    var els = document.querySelectorAll("a,button,div,span,[role=button]");
+    for (var i=0;i<els.length;i++){
+      var el = els[i];
+      var t = (el.textContent || "").trim().toLowerCase();
+      if ((t === "account" || t === "my account" || t === "profile") && el.children.length <= 1) return el;
+      var a = ((el.getAttribute("aria-label") || "") + " " + (el.getAttribute("data-testid") || "")).toLowerCase();
+      if (/\\baccount\\b|\\bprofile\\b/.test(a)) return el;
+    }
+    return null;
+  }
+  var fayrBlinkitDone = false;
+  var fayrBlinkitLinkTries = 0;
+  var fayrBlinkitMenuTries = 0;
+  function fayrOpenBlinkitOrders(){
+    try {
+      if (fayrBlinkitDone) return;
+      if (!/blinkit\\.com/.test(location.host)) return;
+      // The authenticated order list is in hand - stop for good, rather than
+      // clicking over whatever the user chooses to do next.
+      var calls = window.__fayrCalls || [];
+      for (var i=0;i<calls.length;i++){
+        if (calls[i] && calls[i].url && calls[i].url.indexOf("/v1/layout/order_history") >= 0) { fayrBlinkitDone = true; return; }
+      }
+      if (fayrBlinkitLinkTries >= 3) return;
+      // Don't interrupt a flow that must not be interrupted. Everything else is
+      // fair game - reaching Order History is the entire purpose of this WebView.
+      //
+      // Deliberately a blocklist, not an allowlist of "/" + /account. Blinkit
+      // may well rewrite the homepage path once a delivery location is set, and
+      // an allowlist built on a path shape I have not actually observed would
+      // silently disable this whole function instead of failing loudly.
+      var p = location.pathname || "/";
+      if (/^\\/(checkout|cart|payment|pay)\\b/.test(p)) return;
+      if (/^\\/account\\/orders/.test(p)) return; // already there; the SPA fetches itself
+      var link = fayrBlinkitOrdersLink();
+      if (link) { fayrBlinkitLinkTries++; link.click(); return; }
+      if (fayrBlinkitMenuTries < 2) {
+        var acct = fayrBlinkitAccountTrigger();
+        if (acct) { fayrBlinkitMenuTries++; acct.click(); }
+      }
+    } catch(e){}
+  }
+  setInterval(fayrOpenBlinkitOrders, 1500);
 
   // Same idea for Instamart (Swiggy DASH): its web order list doesn't clearly
   // badge rated orders in the WebView. The DASH data has no product images to
@@ -1854,24 +2215,31 @@ const blinkit = {
   name: 'Blinkit',
   authCookies: ['gr_1_accessToken'],
   color: '#0C831F',
-  // Land DIRECTLY on Order History (like Zepto/Instamart) so the list loads and
-  // the discovery hook captures order_history without the user navigating.
+  // Land on the HOMEPAGE, not Order History.
   //
-  // CAVEAT (do not "fix" by reverting to home): Blinkit gates the account area
-  // behind a delivery-location selection. If this deep link ever shows a blank
-  // page with only a "Location" header, the saved delivery location was CLEARED
-  // (e.g. by a session wipe / clearSession) - not a code bug. Open blinkit.com
-  // home ONCE and set the delivery address; it persists in WebKit storage
-  // (localStorage/cookies) across relaunches, and Order History then opens
-  // directly again. (Zepto/Instamart don't hard-gate the deep link the same way.)
-  startUrl: 'https://blinkit.com/account/orders',
+  // This used to deep-link straight to /account/orders (like Zepto/Instamart),
+  // with a caveat here saying a blank page meant the saved delivery location had
+  // been cleared, and to fix it by setting the address on blinkit.com home once.
+  // A screen recording on 2026-08-09 disproved that remedy: the deep link renders
+  // an account shell with NO login option and NO navigation at all - no menu, no
+  // home link - and the location popup it offers reopens on the SAME page every
+  // time (the dimmed header behind it never changes, so the URL never changes).
+  // From that page, blinkit.com home is unreachable, which makes the documented
+  // fix impossible to perform and leaves the user with no way forward.
+  //
+  // So: land where login and navigation actually exist. The user sets their
+  // location, logs in, and walks to Account -> Orders through Blinkit's own UI.
+  // The interceptor below is unaffected - Blinkit is an SPA, so an in-app
+  // navigation reuses the same document and the hook (injected before content
+  // loads) keeps capturing into window.__fayrCalls the whole way.
+  startUrl: 'https://blinkit.com/',
   // Keep the interceptor: Blinkit's order data comes back as server-driven
   // "layout" widget trees (v1/layout/order_history + order_details). Those
   // endpoints need exact app headers/params the SPA computes, so instead of
   // re-fetching them blind we parse the real authenticated responses the hook
   // already captured while you browsed Account -> Orders.
   beforeLoadScript: discoveryHook(),
-  hint: 'Let your Orders list load, then tap "Fetch my reviews". (No need to open individual orders.)',
+  hint: 'Set your delivery location and log in, then open Account → Orders and let the list load before tapping "Fetch my reviews".',
   // Blinkit's WEB order_history layout gives full order facts (id, date, amount,
   // products, delivered/returned) but in our sample carried no star rating. A
   // rating, if the web surfaces one, appears on the order_DETAILS page - so we
@@ -2185,8 +2553,21 @@ const zepto = {
         orderDetailsCallsSeen: detailsSeen,
         ratedCount: rated.length,
         parsedCount: reviews.length,
-        // Show rated orders only when we have any; else everything for debugging.
-        reviews: rated.length ? rated : reviews
+        // ALWAYS every order, rated or not - rating is a FLAG on each entry
+        // (rating/published/reviewstatus), never a filter over the list.
+        //
+        // This used to be "rated.length ? rated : reviews", which silently
+        // dropped every unrated order the moment ANY order in the history had a
+        // star. That broke the core rule the other five platforms already
+        // follow: a PURCHASE is confirmed independently of whether it has been
+        // reviewed. Proven live on 2026-08-10 - a real, delivered, not-yet-rated
+        // Boldfit headband order was invisible to the matcher, and the task
+        // reported "This product isn't in your Zepto orders yet" while the
+        // orders had in fact been read.
+        //
+        // ratedCount above still reports how many carried a star, so the
+        // debugging signal the old filter was reaching for is not lost.
+        reviews: reviews
       });
     })()
   `

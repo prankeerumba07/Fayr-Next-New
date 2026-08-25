@@ -90,6 +90,25 @@ export class AuthService {
       },
     });
 
+    // A BLOCKED account gets NO code. The block check used to live only in
+    // verifyOtp — i.e. strictly AFTER delivery — so this row was loaded, its
+    // `status` thrown away, and a real SMS spent on an account the fraud team had
+    // already blocked. On a metered or free-tier SMS route that is money, and it
+    // is repeatable every cooldown window.
+    //
+    // The response below is returned UNCHANGED, and the challenge row above is
+    // written either way: identical body, identical timing (the argon2 hash is the
+    // expensive part), identical cooldown. Anything else would turn this endpoint
+    // into a way to find out which numbers are blocked. The user id is logged, not
+    // the number.
+    if (user?.status === 'BLOCKED') {
+      this.logger.warn(`OTP request for blocked account ${user.id} — no code sent`);
+      return {
+        expiresInSeconds: OTP_TTL_SECONDS,
+        resendInSeconds: OTP_RESEND_COOLDOWN_SECONDS,
+      };
+    }
+
     // Await delivery so a send failure surfaces as an error to the caller rather
     // than a code that silently never arrives.
     await this.sms.sendOtp(mobile, code);

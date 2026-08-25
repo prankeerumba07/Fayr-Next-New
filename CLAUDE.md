@@ -46,6 +46,28 @@ countermeasure to loophole 3 — it re-runs the public-visibility check so a
 review deleted mid-hold is caught **before** the refund releases. Do not weaken
 or shortcut it.
 
+## Screenshot OCR verification (tier-3, supporting only)
+
+OCR (Claude vision reads a user's screenshot) is a **producer of evidence
+fragments into the existing task/evidence engine — never a parallel system**.
+Non-negotiable invariants:
+
+- **Supporting only, never sole evidence.** OCR is tier 3, below DKIM email and
+  scraping. It validates "do the details match?", not "is the image authentic?"
+  (a doctored screenshot can extract cleanly).
+- **Never auto-approves.** Extraction + match produce a *pending* case; a staff
+  member (**SUPPORT** role, ADMIN via super-role) must approve before any
+  evidence is accepted or a task advances. No OCR path moves money on its own —
+  the holding period + `VISIBILITY_CHECK` and FINANCE-gated withdrawal still apply.
+- **The scraper is the primary path; OCR is the fallback.** Both feed one
+  internal evidence funnel (`submitEvidence(taskId, fragment, {source})`); `'ocr'`
+  is registered as the lowest-authority source. Do **not** modify the on-device
+  scraper (`src/verify.js`, `extract.js`, `session.js`, `platforms.js`, the
+  connect flow) — OCR only consumes/complements it.
+- **Screenshots are private PII.** Stored outside the public `/uploads` space,
+  reachable only through an RBAC-checked streaming endpoint (staff + owner).
+  Every upload, extraction, staff view, and review decision is audited.
+
 ## Ticket economy
 
 - Users start with **15 tickets**.

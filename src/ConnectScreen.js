@@ -12,6 +12,12 @@ import { restoreSession, persistSession, logoutPlatform } from './session';
 import { DEBUG_CAPTURE } from './config';
 import { readEvidence } from './taskflow';
 import { dispatch } from './taskStore';
+// Design tokens only. This screen's LOGIC and every WebView prop are unchanged —
+// the restyle (2026-08-10) is confined to the chrome around the page: the hint
+// bar, the fetch button, the results header/cards/errors. See the notes on the
+// WebView itself for the props that must not be touched.
+import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
+import { MarketplaceTag } from './ui/primitives';
 
 // Platforms whose fetch payload feeds the task flow. Amazon reads a review's
 // order (HTML scrape); Flipkart/Myntra are order-first (their JSON order API),
@@ -72,7 +78,7 @@ function ReviewCard({ item, color, platform }) {
   const reviewDate = fmt(item.reviewDate) || item.date || null;
   return (
     <View style={[styles.card, { borderLeftColor: color }]}>
-      <Text style={styles.marketplace}>{platform.name}</Text>
+      <MarketplaceTag marketplace={platform.key} />
       {(item.product || item.title) ? (
         <Text style={styles.product} numberOfLines={2}>{item.product || item.title}</Text>
       ) : null}
@@ -577,71 +583,109 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: COLOR.homeBg },
   flexOne: { flex: 1 },
   hidden: { display: 'none' },
-  resultsWrap: { ...StyleSheet.absoluteFillObject, backgroundColor: '#fff' },
+  // DELIBERATELY still an OPAQUE fill: this overlays the WebView, which stays
+  // MOUNTED underneath so returning from results doesn't reload the page and drop
+  // the marketplace session. Any transparency would show the page through it.
+  // The colour may change; absoluteFillObject and opacity must not.
+  resultsWrap: { ...StyleSheet.absoluteFillObject, backgroundColor: COLOR.homeBg },
+  // Stays WHITE, not cream, and not for consistency's sake: this sits where the
+  // page will paint, and a non-white ground shows as a coloured flash before a
+  // heavy SPA (Zepto/Blinkit/Swiggy) puts anything up. Matches the WebView's own
+  // backgroundColor for exactly that reason.
   webLoading: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
   },
-  hintBar: { paddingHorizontal: 14, paddingVertical: 10 },
-  hintText: { color: '#fff', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  // The hint bar keeps `platform.color` as its ground (applied inline). That is a
+  // deliberate exception to the fayr palette: the user is standing inside a
+  // marketplace's own site, and the brand colour is what tells them which one.
+  // Flattening all seven to gold would cost real orientation for no gain.
+  hintBar: {
+    paddingHorizontal: SPACE.lg, paddingVertical: 11,
+    borderBottomLeftRadius: RADIUS.lg, borderBottomRightRadius: RADIUS.lg,
+  },
+  hintText: {
+    color: '#fff', fontFamily: FONT.bodySemi, fontSize: 12.5,
+    textAlign: 'center', lineHeight: 17,
+  },
   fetchBtn: {
-    margin: 14, borderRadius: 14, paddingVertical: 16, alignItems: 'center',
-    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
+    margin: SPACE.lg, borderRadius: RADIUS.md, paddingVertical: 15,
+    alignItems: 'center', ...SHADOW.chip,
   },
-  devRow: { marginTop: 4 },
-  devToggle: { marginTop: 4, paddingVertical: 8, alignItems: 'center' },
-  devToggleOn: { backgroundColor: '#fff4f4', borderRadius: 8 },
-  devToggleText: { fontSize: 12, color: '#999', fontWeight: '600' },
-  devToggleTextOn: { color: '#b3261e' },
-  devClear: { marginTop: 2, paddingVertical: 8, alignItems: 'center' },
-  devClearText: { fontSize: 12, color: '#b3261e', fontWeight: '600', textDecorationLine: 'underline' },
-  fetchBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
+  fetchBtnText: { color: '#fff', fontFamily: FONT.displaySemi, fontSize: 15.5, letterSpacing: 0.2 },
   logoutBtn: {
-    marginHorizontal: 14, marginBottom: 6, paddingVertical: 12, alignItems: 'center',
-    borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e0b3b3', backgroundColor: '#fff6f6',
+    marginHorizontal: SPACE.lg, marginBottom: SPACE.sm, paddingVertical: 12,
+    alignItems: 'center', borderRadius: RADIUS.md, borderWidth: 1,
+    borderColor: '#F0BDB2', backgroundColor: '#FFF1EE',
   },
-  logoutBtnText: { fontSize: 13, color: '#b3261e', fontWeight: '700' },
+  logoutBtnText: { fontFamily: FONT.displaySemi, fontSize: 13, color: '#9E2B18' },
+
+  // dev-only controls (dead-code-eliminated in a production build)
+  devRow: { marginTop: SPACE.xs },
+  devToggle: { marginTop: SPACE.xs, paddingVertical: SPACE.sm, alignItems: 'center' },
+  devToggleOn: { backgroundColor: '#FFF1EE', borderRadius: RADIUS.sm },
+  devToggleText: { fontFamily: FONT.bodySemi, fontSize: 12, color: '#9a9b8c' },
+  devToggleTextOn: { color: '#9E2B18' },
+  devClear: { marginTop: 2, paddingVertical: SPACE.sm, alignItems: 'center' },
+  devClearText: {
+    fontFamily: FONT.bodySemi, fontSize: 12, color: '#9E2B18',
+    textDecorationLine: 'underline',
+  },
+
+  // results chrome
   resultsHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e2e2',
+    paddingHorizontal: SPACE.lg, paddingVertical: SPACE.md,
+    borderBottomWidth: 1, borderBottomColor: COLOR.line, backgroundColor: COLOR.surface,
   },
-  linkBtn: { paddingVertical: 4 },
-  link: { fontSize: 15, fontWeight: '600' },
-  count: { fontSize: 13, color: '#666', marginBottom: 8, marginLeft: 4 },
+  linkBtn: { paddingVertical: SPACE.xs },
+  link: { fontFamily: FONT.displaySemi, fontSize: 14 },
+  count: { fontFamily: FONT.body, fontSize: 12.5, color: COLOR.sub, marginBottom: SPACE.sm, marginLeft: 2 },
   targetInput: {
-    borderWidth: 1, borderColor: '#ddd', borderRadius: 10, paddingHorizontal: 12,
-    paddingVertical: 10, fontSize: 14, color: '#1a1a1a', backgroundColor: '#fafafa',
-    marginBottom: 8,
+    borderWidth: 1, borderColor: COLOR.line, borderRadius: RADIUS.md,
+    paddingHorizontal: SPACE.md, paddingVertical: 11, fontFamily: FONT.body,
+    fontSize: 14, color: COLOR.ink, backgroundColor: COLOR.surface, marginBottom: SPACE.sm,
   },
+
+  // one fetched item
   card: {
-    backgroundColor: '#fff', borderRadius: 12, borderLeftWidth: 4, padding: 12, marginBottom: 10,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: '#e6e6e6',
-    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    backgroundColor: COLOR.surface, borderRadius: RADIUS.lg, borderLeftWidth: 4,
+    padding: SPACE.md, marginBottom: 10, borderWidth: 1, borderColor: COLOR.line,
+    ...SHADOW.chip,
   },
-  marketplace: { fontSize: 11, fontWeight: '700', color: '#999', textTransform: 'uppercase', letterSpacing: 0.5 },
-  product: { fontSize: 15, fontWeight: '700', color: '#1a1a1a', marginTop: 4 },
-  stars: { fontSize: 15, color: '#f5a623', marginTop: 4 },
-  ratingNum: { fontSize: 12, color: '#777' },
-  ratedBadge: { fontSize: 14, fontWeight: '700', color: '#0C831F', marginTop: 4 },
-  ratedBadgeSub: { fontSize: 11, fontWeight: '400', color: '#999' },
-  notRatedBadge: { fontSize: 13, fontWeight: '600', color: '#b0772a', marginTop: 4 },
-  reviewTitle: { fontSize: 14, fontWeight: '600', color: '#333', marginTop: 6 },
-  reviewText: { fontSize: 13, color: '#444', marginTop: 4, lineHeight: 18 },
-  mediaNote: { fontSize: 12, color: '#0C831F', fontWeight: '600', marginTop: 6 },
-  mediaNoteMuted: { fontSize: 12, color: '#999', marginTop: 6 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, flexWrap: 'wrap' },
-  metaText: { fontSize: 12, color: '#777', marginRight: 14 },
-  productUrl: { fontSize: 12, color: '#2874F0', marginTop: 6, textDecorationLine: 'underline' },
-  errorBox: { margin: 16, padding: 16, borderRadius: 12, backgroundColor: '#fff4f4', borderWidth: 1, borderColor: '#f3caca' },
-  errorTitle: { fontSize: 15, fontWeight: '700', color: '#b3261e', marginBottom: 6 },
-  errorText: { fontSize: 13, color: '#7a1f1a', lineHeight: 18 },
-  errorHint: { fontSize: 12, color: '#999', marginTop: 8 },
-  rawBox: { flex: 1, backgroundColor: '#0d1117', padding: 12 },
+  product: { fontFamily: FONT.displaySemi, fontSize: 14.5, color: COLOR.ink, marginTop: SPACE.xs, lineHeight: 19 },
+  stars: { fontFamily: FONT.bodyBold, fontSize: 15, color: COLOR.amber, marginTop: SPACE.xs },
+  ratingNum: { fontFamily: FONT.body, fontSize: 12, color: COLOR.sub },
+  ratedBadge: { fontFamily: FONT.displaySemi, fontSize: 13.5, color: COLOR.refundInk, marginTop: SPACE.xs },
+  ratedBadgeSub: { fontFamily: FONT.body, fontSize: 11, color: '#9a9b8c' },
+  notRatedBadge: { fontFamily: FONT.bodySemi, fontSize: 13, color: '#b0772a', marginTop: SPACE.xs },
+  reviewTitle: { fontFamily: FONT.bodySemi, fontSize: 13.5, color: COLOR.ink2, marginTop: SPACE.sm },
+  reviewText: { fontFamily: FONT.body, fontSize: 13, color: COLOR.sub, marginTop: SPACE.xs, lineHeight: 18 },
+  mediaNote: { fontFamily: FONT.bodySemi, fontSize: 12, color: COLOR.refundInk, marginTop: SPACE.sm },
+  mediaNoteMuted: { fontFamily: FONT.body, fontSize: 12, color: '#9a9b8c', marginTop: SPACE.sm },
+  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: SPACE.sm, flexWrap: 'wrap' },
+  metaText: { fontFamily: FONT.body, fontSize: 12, color: COLOR.sub, marginRight: SPACE.lg },
+  productUrl: {
+    fontFamily: FONT.body, fontSize: 12, color: COLOR.purple,
+    marginTop: SPACE.sm, textDecorationLine: 'underline',
+  },
+
+  // Same treatment as TaskScreen's action-error card, so a failure looks the
+  // same wherever the user meets one.
+  errorBox: {
+    margin: SPACE.lg, padding: SPACE.lg, borderRadius: RADIUS.md,
+    backgroundColor: '#FFF1EE', borderWidth: 1, borderColor: '#F0BDB2',
+  },
+  errorTitle: { fontFamily: FONT.displaySemi, fontSize: 14.5, color: '#9E2B18', marginBottom: SPACE.xs },
+  errorText: { fontFamily: FONT.body, fontSize: 13, color: '#7a1f1a', lineHeight: 18 },
+  errorHint: { fontFamily: FONT.body, fontSize: 12, color: '#b08a82', marginTop: SPACE.sm },
+
+  // NOT restyled on purpose: this is the raw-payload inspector we have leaned on
+  // all week to diagnose misses. Dark + monospace is what makes a wall of JSON
+  // legible; fayr-ifying it would trade a working tool for consistency.
+  rawBox: { flex: 1, backgroundColor: '#0d1117', padding: SPACE.md },
   rawText: { color: '#c9d1d9', fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
 });
