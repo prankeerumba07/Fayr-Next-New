@@ -1,108 +1,34 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from '../src/app.module';
+import { seedDemo } from './demo-seed';
 
 /**
- * Idempotent seed of realistic Amazon campaigns for local testing (run with
- * `npx prisma db seed`). Fixed ids + upsert, so re-running never duplicates and
- * edits here propagate. Categories are chosen to exercise the return-window
- * policy (electronics 10d, apparel 15d, "home" → default 7d), and one PAUSED
- * campaign proves the list endpoint filters by status.
+ * `npx prisma db seed` — the whole demo database, built by the product itself.
  *
- * Money is integer paise (₹1,299 = 129900). Amazon only — the launch platform.
+ * This is a thin entry point on purpose. It boots the real application context so
+ * the seed can call the real services (claim, evidence, hold, release, request,
+ * approve, mark paid) rather than writing state columns, and everything worth
+ * reading lives in demo-seed.ts next to the reasoning for it.
+ *
+ * Safe to re-run: every write is an upsert or is skipped when already present.
+ * Refuses outright on any database not named *_dev or *_test.
  */
-const campaigns: Prisma.CampaignCreateInput[] = [
-  {
-    id: 'c0000000-0000-4000-8000-000000000001',
-    platform: 'AMAZON',
-    status: 'ACTIVE',
-    title: 'Review the boAt Rockerz 255 Pro+',
-    productName: 'boAt Rockerz 255 Pro+ Bluetooth Neckband Earphones',
-    category: 'electronics',
-    productPricePaise: 129900n, // ₹1,299
-    payoutPercent: 100,
-    payoutCapPaise: null,
-    ticketCost: 5,
-    returnWindowDays: null, // falls back to the electronics policy (10 days)
-    minRating: 4,
-    totalSlots: 50,
-    asin: 'B08TV2P5QL',
-    productUrl: 'https://www.amazon.in/dp/B08TV2P5QL',
-    imageUrl: 'https://m.media-amazon.com/images/I/hero-boat.jpg',
-  },
-  {
-    id: 'c0000000-0000-4000-8000-000000000002',
-    platform: 'AMAZON',
-    status: 'ACTIVE',
-    title: 'Review an Amazon Brand cotton T-shirt',
-    productName: 'Symbol Men’s Regular Fit Cotton T-Shirt',
-    category: 'apparel',
-    productPricePaise: 59900n, // ₹599
-    payoutPercent: 100,
-    payoutCapPaise: null,
-    ticketCost: 5,
-    returnWindowDays: null, // apparel policy (15 days)
-    minRating: 3,
-    totalSlots: 100,
-    asin: 'B07WHS7MDT',
-    productUrl: 'https://www.amazon.in/dp/B07WHS7MDT',
-    imageUrl: 'https://m.media-amazon.com/images/I/hero-tshirt.jpg',
-  },
-  {
-    id: 'c0000000-0000-4000-8000-000000000003',
-    platform: 'AMAZON',
-    status: 'ACTIVE',
-    title: 'Review a Milton Thermosteel flask',
-    productName: 'Milton Thermosteel Flip Lid Flask, 1 Litre',
-    category: 'home', // not in the policy table → default 7-day window
-    productPricePaise: 74900n, // ₹749
-    payoutPercent: 90, // partial payout with a cap, to exercise the policy maths
-    payoutCapPaise: 60000n, // ₹600 ceiling
-    ticketCost: 5,
-    returnWindowDays: null,
-    minRating: 4,
-    totalSlots: 30,
-    asin: 'B00LREO3QK',
-    productUrl: 'https://www.amazon.in/dp/B00LREO3QK',
-    imageUrl: 'https://m.media-amazon.com/images/I/hero-flask.jpg',
-  },
-  {
-    // Intentionally PAUSED: it must NOT appear in the active list, but is still
-    // fetchable by id (a task on it can still show its campaign).
-    id: 'c0000000-0000-4000-8000-000000000004',
-    platform: 'AMAZON',
-    status: 'PAUSED',
-    title: 'Review a Prestige induction cooktop (paused)',
-    productName: 'Prestige PIC 20 1600-Watt Induction Cooktop',
-    category: 'electronics',
-    productPricePaise: 189900n, // ₹1,899
-    payoutPercent: 100,
-    payoutCapPaise: null,
-    ticketCost: 5,
-    returnWindowDays: null,
-    minRating: 4,
-    totalSlots: 20,
-    asin: 'B00LZFH3AC',
-    productUrl: 'https://www.amazon.in/dp/B00LZFH3AC',
-    imageUrl: 'https://m.media-amazon.com/images/I/hero-cooktop.jpg',
-  },
-];
-
 async function main(): Promise<void> {
-  const prisma = new PrismaClient();
+  const app = await NestFactory.createApplicationContext(AppModule, {
+    // The seed's own log is the interesting one; Nest's module banner is not.
+    logger: ['warn', 'error'],
+  });
   try {
-    for (const campaign of campaigns) {
-      const { id, ...data } = campaign;
-      await prisma.campaign.upsert({
-        where: { id },
-        update: data,
-        create: campaign,
-      });
-    }
-    const active = campaigns.filter((c) => c.status === 'ACTIVE').length;
+    console.log('Seeding the demo database…');
+    const report = await seedDemo(app);
     console.log(
-      `Seeded ${campaigns.length} campaigns (${active} active, ${campaigns.length - active} paused).`,
+      `Done. ${report.campaigns} campaigns, ${report.staff} staff, `
+        + `${report.users} users.`,
     );
+    for (const j of report.journeys) console.log(`  built    ${j}`);
+    for (const s of report.skipped) console.log(`  present  ${s}`);
   } finally {
-    await prisma.$disconnect();
+    await app.close();
   }
 }
 
