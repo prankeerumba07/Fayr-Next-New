@@ -30,6 +30,14 @@ export const AUDIT_ACTIONS = {
   TASK_QUANTITY_SET: 'TASK_QUANTITY_SET', // staff read the unit count off the order page
   TASK_AMOUNT_SET: 'TASK_AMOUNT_SET', // staff read what one unit cost off a real document
   TASK_REVIEW_VISIBLE: 'TASK_REVIEW_VISIBLE', // staff opened the product page and said whether the review is there
+  // The four payout decisions. Kept as four tags rather than one WITHDRAWAL_DECISION
+  // so the trail can be filtered down to the money that actually LEFT — the audit
+  // list filters by action, and "show me every payout marked paid" is the question
+  // an auditor asks first.
+  WITHDRAWAL_APPROVE: 'WITHDRAWAL_APPROVE', // finance cleared a payout for disbursement
+  WITHDRAWAL_REJECT: 'WITHDRAWAL_REJECT', // finance refused it and returned the money
+  WITHDRAWAL_MARK_PAID: 'WITHDRAWAL_MARK_PAID', // finance recorded money leaving, with a UTR
+  WITHDRAWAL_MARK_FAILED: 'WITHDRAWAL_MARK_FAILED', // the transfer failed; money returned
 } as const;
 
 /** The staff roles an admin can assign. Kept here so the DTO + tests share one list. */
