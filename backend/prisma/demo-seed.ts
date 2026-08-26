@@ -126,6 +126,7 @@ const JOURNEY_OFFERS = [
   'Carry Your Laptop',
   'Prestige 1600W induction cooktop',
   'Dollar Bigboss Men Vest',
+  'Chrysanthemum Flower Pot',
 ] as const;
 
 const DAY = 86_400_000;
@@ -503,6 +504,49 @@ export async function seedDemo(
     },
     deliveredAfter: 26 * HOUR,
     advance: 'evidence',
+  });
+
+  // 4e. THE BEAT THE DEMO TURNS ON: a refund of this account's own, held because
+  //     the price could not be read.
+  //
+  //     Steps 12 to 16 of the run-sheet are one continuous move — open the task on
+  //     the phone, hand over to a staff member who confirms the price, come back,
+  //     release, watch the money land — and every step of it happens on the
+  //     account that is SIGNED IN on the handset. That went unnoticed for as long
+  //     as the demo and the run-sheet were written against the same account. The
+  //     moment the demo moved to a real number, the held task it walked through
+  //     belonged to somebody else and the phone had nothing to open.
+  //
+  //     The shape is the honest quick-commerce one, not a contrivance: Blinkit's
+  //     order page states a basket total and never a line price, so the refund
+  //     cannot be computed and waits for a person. The order total becomes the
+  //     ceiling the staff form enforces — one item cannot have cost more than the
+  //     whole order did.
+  //
+  //     Claimed THREE WEEKS back on purpose. The return window has to have closed
+  //     already, or confirming the price would release nothing and the demo would
+  //     stop one step after the hand-off. The order still falls inside the claim's
+  //     own window, so the order-window rule is satisfied rather than dodged.
+  const flowerPotForDemo = findCampaign('Chrysanthemum Flower Pot');
+  await journey({
+    label: 'refund held because the price could not be read',
+    user: demo,
+    campaignId: flowerPotForDemo.id,
+    claimedAt: now - 20 * DAY,
+    order: {
+      id: orderRef('BLK-21568718', demoMobile),
+      // NO price of any kind — that is the whole point. Only what the order as a
+      // whole came to, which is what the marketplace actually shows.
+      orderTotalPaise: '60400',
+      product: flowerPotForDemo.productName,
+      amountSource: 'blinkit-order-total',
+      itemAmountAmbiguous: true,
+    },
+    deliveredAfter: 1 * HOUR,
+    // Blinkit states the rating on the order itself, so visibility is settled and
+    // this task belongs in ONE queue, not two.
+    review: { rating: 5, published: true, publishedSource: 'order-history' },
+    advance: 'hold',
   });
 
   // 4d. Claimed, not bought — the one state with an expiry date on it, and so the

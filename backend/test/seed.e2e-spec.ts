@@ -372,6 +372,44 @@ describe('Demo seed (e2e)', () => {
       expect(await tickets.getBalance(user.id)).toBeGreaterThanOrEqual(5);
     });
 
+    it('gives the DEMO ACCOUNT the held refund the run-sheet walks through', async () => {
+      // THE BEAT THE WHOLE DEMO TURNS ON, and it was on the wrong account.
+      //
+      // Steps 12 to 16 are: open a task on the phone that says "we could not read
+      // the price you paid", hand over to a staff member who confirms it, come
+      // back, release, watch the money land. Every one of those happens on the
+      // account that is SIGNED IN on the handset. The held task the run-sheet
+      // named belonged to a different account entirely — which nobody noticed
+      // while the demo and the run-sheet were written against the same one.
+      //
+      // So the demo account gets its own, and it is the honest quick-commerce
+      // shape rather than a contrivance: Blinkit's order page states a basket
+      // total and no line price, so the refund cannot be computed and waits for a
+      // person. The order total is the ceiling the staff form enforces.
+      await seedDemo(app, { quiet: true });
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { mobile: DEMO_MOBILE_DEFAULT },
+      });
+
+      const held = await tasks.listAwaitingAmount();
+      const mine = held.items.filter((h) => h.user.id === user.id);
+      expect(mine).toHaveLength(1);
+      expect(mine[0].platform).toBe('BLINKIT');
+      expect(mine[0].action).toBe('amount');
+      expect(mine[0].heldExplanation).toBeTruthy();
+
+      // AND THE AMOUNT IS THE ONLY THING LEFT. If the return window were still
+      // running, confirming the price would not release anything and the demo
+      // would stop dead one step after the hand-off.
+      const task = await prisma.task.findUniqueOrThrow({
+        where: { id: mine[0].taskId },
+      });
+      expect(task.state).toBe('HOLDING');
+      expect(task.windowEndsAt).not.toBeNull();
+      expect(task.windowEndsAt!.getTime()).toBeLessThan(Date.now());
+      expect(task.reviewPublished).toBe(true);
+    });
+
     it('never pre-claims the offer the demo claims LIVE', async () => {
       // THE CONSTRAINT THAT MADE THIS A GUARD RATHER THAN A COMMENT.
       //
@@ -497,20 +535,25 @@ describe('Demo seed (e2e)', () => {
       )
         .map((t) => t.state)
         .sort();
-      expect(states).toEqual(['CLAIMED', 'DELIVERED', 'HOLDING', 'REFUNDED']);
+      expect(states).toEqual([
+        'CLAIMED',
+        'DELIVERED',
+        'HOLDING',
+        'HOLDING', // two: the cooktop's return window, and the held Blinkit price
+        'REFUNDED',
+      ]);
 
-      // And enough left to make the live claim the demo depends on.
-      expect(await tickets.getBalance(user.id)).toBeGreaterThanOrEqual(
-        TICKETS.DEFAULT_CLAIM_COST,
-      );
+      // EXACTLY one claim's worth left — not "at least". That is the "never more
+      // than the shortfall" property stated as an outcome: every correction is
+      // sized to what is missing, so however many runs it took, the account lands
+      // on the one claim the demo has to make and not a ticket over.
+      expect(await tickets.getBalance(user.id)).toBe(TICKETS.DEFAULT_CLAIM_COST);
 
-      // The top-up is ONE append-only correction to the signup baseline, not a
-      // hand-set balance and not an open tap.
+      // And the repair happened as append-only corrections, not a written balance.
       const corrections = await prisma.ticketEntry.findMany({
         where: { userId: user.id, reason: 'ADJUSTMENT', delta: { gt: 0 } },
       });
-      expect(corrections).toHaveLength(1);
-      expect(corrections[0].delta).toBe(TICKETS.SIGNUP_GRANT);
+      expect(corrections.length).toBeGreaterThanOrEqual(1);
 
       // The seed's own payout happened this time, and is identifiable as its own.
       expect(
@@ -529,20 +572,22 @@ describe('Demo seed (e2e)', () => {
       );
     });
 
-    it('does not top up an account that already has its signup grant', async () => {
-      // The top-up must be a repair, not a routine. A fresh account has 15, which
-      // is exactly what the documented arithmetic needs, so nothing is added —
-      // and the ticket economy the demo explains is the one actually running.
+    it('corrects the ticket balance by exactly the shortfall, never more', async () => {
+      // A fresh account cannot fund this seed from its signup grant alone: five
+      // journeys plus the live claim is thirty tickets, and the grants come to
+      // twenty-five. So a correction of exactly five is arithmetic, not a
+      // convenience — and the ONLY property worth pinning is that it is exactly
+      // the shortfall and the account still lands on one claim's worth, because
+      // the live claim is the one thing the demo cannot do without.
       await seedDemo(app, { quiet: true });
       const user = await prisma.user.findUniqueOrThrow({
         where: { mobile: DEMO_MOBILE_DEFAULT },
       });
-      expect(
-        await prisma.ticketEntry.count({
-          where: { userId: user.id, reason: 'ADJUSTMENT' },
-        }),
-      ).toBe(0);
-      // Ends on exactly one claim's worth, funded only by the real rules.
+      const corrections = await prisma.ticketEntry.findMany({
+        where: { userId: user.id, reason: 'ADJUSTMENT' },
+      });
+      expect(corrections).toHaveLength(1);
+      expect(corrections[0].delta).toBe(TICKETS.DEFAULT_CLAIM_COST);
       expect(await tickets.getBalance(user.id)).toBe(TICKETS.DEFAULT_CLAIM_COST);
     });
 
@@ -593,8 +638,11 @@ describe('Demo seed (e2e)', () => {
       const user = await prisma.user.findUniqueOrThrow({
         where: { mobile: DEMO_MOBILE_DEFAULT },
       });
+      const cooktop = await prisma.campaign.findFirstOrThrow({
+        where: { title: { contains: 'induction cooktop' } },
+      });
       const held = await prisma.task.findFirstOrThrow({
-        where: { userId: user.id, state: 'HOLDING' },
+        where: { userId: user.id, state: 'HOLDING', campaignId: cooktop.id },
       });
       const newest = await prisma.taskEvent.findFirstOrThrow({
         where: { taskId: held.id },
@@ -650,7 +698,13 @@ describe('Demo seed (e2e)', () => {
       const states = (await prisma.task.findMany({ where: { userId: user.id } }))
         .map((t) => t.state)
         .sort();
-      expect(states).toEqual(['CLAIMED', 'DELIVERED', 'HOLDING', 'REFUNDED']);
+      expect(states).toEqual([
+        'CLAIMED',
+        'DELIVERED',
+        'HOLDING',
+        'HOLDING', // two: the cooktop's return window, and the held Blinkit price
+        'REFUNDED',
+      ]);
       expect(await tickets.getBalance(user.id)).toBeGreaterThanOrEqual(
         TICKETS.DEFAULT_CLAIM_COST,
       );
