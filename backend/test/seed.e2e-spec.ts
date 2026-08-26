@@ -615,6 +615,47 @@ describe('Demo seed (e2e)', () => {
       expect(report.skipped.join(' | ')).not.toMatch(/reviewed, in the holding/i);
     });
 
+    it('tops the tickets up again when a later run is still short', async () => {
+      // The first version keyed the correction on the account alone, so an account
+      // could be repaired ONCE, ever. That broke immediately in practice: a run
+      // that failed part-way had already spent a claim, so the retry found a
+      // smaller balance, computed a smaller shortfall — and posted nothing,
+      // because the key was used up. It then ran out of tickets on the last
+      // journey and left the demo with no claim to make.
+      //
+      // The correction is keyed on the shortfall, not the account. It cannot
+      // inflate: the amount is always exactly what is missing, and what is
+      // "missing" is bounded by the claims still to make plus one.
+      await seedDemo(app, { quiet: true });
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { mobile: DEMO_MOBILE_DEFAULT },
+      });
+
+      // TWICE, because once is what a per-account key can already do. Each round
+      // wipes the tasks the way the reset that caused all this did and spends the
+      // balance down, so the second round is a second, genuine shortfall.
+      for (const round of [1, 2]) {
+        await prisma.taskEvent.deleteMany({
+          where: { task: { userId: user.id } },
+        });
+        await prisma.task.deleteMany({ where: { userId: user.id } });
+        const spare = await tickets.getBalance(user.id);
+        if (spare > 0) {
+          await tickets.adjust(user.id, -spare, `test:drain${round}:${user.id}`);
+        }
+        expect(await tickets.getBalance(user.id)).toBe(0);
+        await seedDemo(app, { quiet: true });
+      }
+
+      const states = (await prisma.task.findMany({ where: { userId: user.id } }))
+        .map((t) => t.state)
+        .sort();
+      expect(states).toEqual(['CLAIMED', 'DELIVERED', 'HOLDING', 'REFUNDED']);
+      expect(await tickets.getBalance(user.id)).toBeGreaterThanOrEqual(
+        TICKETS.DEFAULT_CLAIM_COST,
+      );
+    });
+
     it('says what it FOUND when it skips, not what it assumes', async () => {
       // The skip is keyed on (user, campaign) and not on state, so on an account
       // with history it fires for an offer that merely has a task on it. Reporting

@@ -724,11 +724,20 @@ export async function seedDemo(
     const balance = await tickets.getBalance(userId);
     if (balance >= needed) return;
 
+    // KEYED ON THE SHORTFALL, NOT THE ACCOUNT. Keyed on the account alone, a
+    // balance could be repaired exactly once ever — and the very first retry
+    // needed a second, smaller correction and silently got none, because the key
+    // was spent. It cannot inflate: the amount is always precisely what is
+    // missing, and what is missing is bounded by the claims still to make plus
+    // one for the day.
     const short = needed - balance;
+    const round = await prisma.ticketEntry.count({
+      where: { userId, reason: 'ADJUSTMENT' },
+    });
     await tickets.adjust(
       userId,
       short,
-      `demo-seed:ticket-baseline:${userId}`,
+      `demo-seed:ticket-baseline:${userId}:${round}`,
     );
     say(
       `  tickets    +${short} correction — the account had ${balance} and needs `
