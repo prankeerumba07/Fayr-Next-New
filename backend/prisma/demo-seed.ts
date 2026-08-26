@@ -10,6 +10,7 @@ import { WithdrawalService } from '../src/withdrawals/withdrawal.service';
 import { SupportQuestionService } from '../src/support/support-question.service';
 import { ScreenshotVerificationService } from '../src/ocr/screenshot.service';
 import type { Env } from '../src/config/env.validation';
+import { TICKETS } from '../src/tickets/ticket.constants';
 import { DEMO_CAMPAIGNS, type SeededCampaign } from './demo-catalogue';
 
 /**
@@ -69,6 +70,24 @@ const UNIT_COUNT_MOBILE = '+919000000003';
 
 /** ₹100 — the minimum a withdrawal may be (withdrawal.constants.ts). */
 const WITHDRAWAL_AMOUNT_PAISE = 10_000n;
+
+/**
+ * The reference on the seed's own payout, and the only way to tell it apart from
+ * a payout the account already had. See buildWithdrawals for why that distinction
+ * turned out to matter.
+ */
+export const DEMO_PAYOUT_UTR = 'UTR2608DEMO0001';
+
+/**
+ * The three offers the scripted journeys are built on, in the order they run.
+ * Named here as well as at each journey because the ticket check has to know what
+ * is coming before the first claim is made.
+ */
+const JOURNEY_OFFERS = [
+  'Carry Your Laptop',
+  'Prestige 1600W induction cooktop',
+  'Dollar Bigboss Men Vest',
+] as const;
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -284,6 +303,8 @@ export async function seedDemo(
   //     table, so it takes the 7-day default — the only way a claim inside the
   //     order-window rule's era (17 Aug onwards) can also have a window that has
   //     already closed.
+  await ensureTicketsForJourneys(demo.id);
+
   const laptopBag = findCampaign('Carry Your Laptop');
   const refunded = await journey({
     label: 'refunded + paid out',
@@ -335,8 +356,15 @@ export async function seedDemo(
       where: { email: 'finance@fayr.local' },
     });
 
+    // SCOPED TO THE SEED'S OWN PAYOUT, by its reference.
+    //
+    // Asking "has this account ever been paid?" was wrong the moment the demo was
+    // pointed at a real account: that one already carried a PAID withdrawal from
+    // an unrelated payout weeks earlier, so the seed skipped its own — and with it
+    // the +10 completion grant that funds the last three journeys. The run then
+    // died three claims later, a long way from the cause.
     const alreadyPaid = await prisma.withdrawal.findFirst({
-      where: { userId, status: 'PAID' },
+      where: { userId, status: 'PAID', utr: DEMO_PAYOUT_UTR },
     });
     if (!alreadyPaid) {
       const w = await withdrawals.requestWithdrawal(
@@ -345,7 +373,7 @@ export async function seedDemo(
         method.id,
       );
       await withdrawals.approve(finance.id, w.id);
-      await withdrawals.markPaid(finance.id, w.id, 'UTR2608DEMO0001');
+      await withdrawals.markPaid(finance.id, w.id, DEMO_PAYOUT_UTR);
       report.journeys.push('withdrawal paid out (+10 completion tickets)');
     }
 
@@ -602,6 +630,74 @@ export async function seedDemo(
    * tickets, and the replacement claim spends 5, so the account still lands on
    * exactly one claim's worth for the live demo.
    */
+  /**
+   * ENOUGH TICKETS TO BUILD THE JOURNEYS, AND ONE CLAIM LEFT OVER FOR THE DEMO.
+   *
+   * Why this exists at all: the signup grant is idempotent per user for life. The
+   * real demo account had spent all 15 of its own on claims whose tasks a database
+   * reset later removed, so it sat on a balance of zero with nothing able to put
+   * tickets back — and the seed's very first claim failed. Every test until then
+   * had started from a fresh user, so nothing could see it.
+   *
+   * WHAT IT WORKS OUT, rather than assumes:
+   *
+   *     needed = 5 per claim the seed still has to make
+   *            + 5 for the live claim the demo makes on the day
+   *            − 10 if the seed's own payout is still to happen (that pays the
+   *              completion grant back mid-run)
+   *
+   * On a fresh account that arithmetic comes to exactly 15 — the signup grant —
+   * so nothing is added and the ticket economy the demo explains is the one
+   * actually running. It only ever tops up to what is needed, never past it, and
+   * it is one append-only correction keyed per account, so it cannot become a tap.
+   *
+   * If the estimate is ever short, a claim fails loudly with the balance in the
+   * message. That is the right failure: a seed that silently under-funds itself
+   * leaves a state missing, which is the one thing this file exists to prevent.
+   */
+  async function ensureTicketsForJourneys(userId: string): Promise<void> {
+    const offerIds = JOURNEY_OFFERS.map((t) => findCampaign(t).id);
+    const builtByOffer = await prisma.task.groupBy({
+      by: ['campaignId'],
+      where: { userId, campaignId: { in: offerIds } },
+    });
+    const liveClaim = await prisma.task.count({
+      where: { userId, state: 'CLAIMED', closedAt: null },
+    });
+    const claimsToMake =
+      offerIds.length - builtByOffer.length + (liveClaim > 0 ? 0 : 1);
+
+    // The completion grant only arrives if the refunded journey is built AND the
+    // seed's payout has not already happened. Both are checkable, so neither is
+    // assumed.
+    const refundedOffer = findCampaign(JOURNEY_OFFERS[0]).id;
+    const refundedWillRun = !builtByOffer.some(
+      (g) => g.campaignId === refundedOffer,
+    );
+    const payoutDone = await prisma.withdrawal.findFirst({
+      where: { userId, status: 'PAID', utr: DEMO_PAYOUT_UTR },
+    });
+    const grantBack =
+      refundedWillRun && !payoutDone ? TICKETS.COMPLETION_GRANT : 0;
+
+    const needed =
+      TICKETS.DEFAULT_CLAIM_COST * (claimsToMake + 1) - grantBack;
+    const balance = await tickets.getBalance(userId);
+    if (balance >= needed) return;
+
+    const short = needed - balance;
+    await tickets.adjust(
+      userId,
+      short,
+      `demo-seed:ticket-baseline:${userId}`,
+    );
+    say(
+      `  tickets    +${short} correction — the account had ${balance} and needs `
+        + `${needed} for ${claimsToMake} claim(s) plus one live one`,
+    );
+    report.journeys.push(`restored the ticket baseline (+${short})`);
+  }
+
   async function ensureUnboughtClaim(
     userId: string,
     candidateTitles: string[],

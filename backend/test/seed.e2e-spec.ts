@@ -13,9 +13,11 @@ import { ReportService } from '../src/reports/report.service';
 import {
   seedDemo,
   DEMO_MOBILE_DEFAULT,
+  DEMO_PAYOUT_UTR,
   RESERVED_FOR_LIVE_CLAIM,
   assertCandidatesNotReserved,
 } from '../prisma/demo-seed';
+import { TICKETS } from '../src/tickets/ticket.constants';
 import { resetDatabase } from './reset-db';
 
 /**
@@ -437,6 +439,111 @@ describe('Demo seed (e2e)', () => {
         where: { title: { contains: RESERVED_FOR_LIVE_CLAIM } },
       });
       expect(live!.campaignId).not.toBe(reserved.id);
+    });
+
+    it('rebuilds every state on a real account that is out of tickets and has already been paid once', async () => {
+      // THE SHAPE OF THE ACTUAL DEMO ACCOUNT, once its real number was known —
+      // and it broke the seed in two places at once, neither of which any
+      // existing test could see, because every test started from a fresh user.
+      //
+      //   1. TICKETS. Its signup grant was spent long ago on claims whose tasks
+      //      no longer exist, leaving a balance of zero. grantSignup is
+      //      idempotent per user FOR LIFE, so the seed's very first claim had
+      //      nothing to spend and the whole run died on it.
+      //   2. THE PAYOUT GUARD. It already carried a PAID withdrawal from an
+      //      earlier, unrelated payout. The guard asked "has this ACCOUNT ever
+      //      been paid?" when the question it meant was "has the SEED's payout
+      //      happened?" — so it skipped its own, and with it the +10 completion
+      //      grant that funds the last three journeys.
+      //
+      // Reproduced by seeding once, then removing what a database reset removed:
+      // the tasks. The tickets stay spent and the PAID withdrawal stays on file,
+      // which is exactly the state that was found.
+      await seedDemo(app, { quiet: true });
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { mobile: DEMO_MOBILE_DEFAULT },
+      });
+      const panBefore = user.pan;
+      const methodsBefore = await prisma.payoutMethod.count({
+        where: { userId: user.id },
+      });
+
+      await prisma.taskEvent.deleteMany({ where: { task: { userId: user.id } } });
+      await prisma.task.deleteMany({ where: { userId: user.id } });
+      // The payout it already had was NOT the seed's — it was a real one, weeks
+      // earlier, with a real bank reference. Re-stamping the reference is what
+      // makes this fixture the account that was actually found rather than a
+      // second run of the seed against itself.
+      await prisma.withdrawal.updateMany({
+        where: { userId: user.id, status: 'PAID' },
+        data: { utr: '7876436794906727' },
+      });
+      const spare = await tickets.getBalance(user.id);
+      if (spare > 0) {
+        await tickets.adjust(user.id, -spare, `test:spent:${user.id}`);
+      }
+      expect(await tickets.getBalance(user.id)).toBe(0);
+      expect(
+        await prisma.withdrawal.count({
+          where: { userId: user.id, status: 'PAID' },
+        }),
+      ).toBeGreaterThan(0);
+
+      await seedDemo(app, { quiet: true });
+
+      // All four states back, through the real engine.
+      const states = (
+        await prisma.task.findMany({ where: { userId: user.id } })
+      )
+        .map((t) => t.state)
+        .sort();
+      expect(states).toEqual(['CLAIMED', 'DELIVERED', 'HOLDING', 'REFUNDED']);
+
+      // And enough left to make the live claim the demo depends on.
+      expect(await tickets.getBalance(user.id)).toBeGreaterThanOrEqual(
+        TICKETS.DEFAULT_CLAIM_COST,
+      );
+
+      // The top-up is ONE append-only correction to the signup baseline, not a
+      // hand-set balance and not an open tap.
+      const corrections = await prisma.ticketEntry.findMany({
+        where: { userId: user.id, reason: 'ADJUSTMENT', delta: { gt: 0 } },
+      });
+      expect(corrections).toHaveLength(1);
+      expect(corrections[0].delta).toBe(TICKETS.SIGNUP_GRANT);
+
+      // The seed's own payout happened this time, and is identifiable as its own.
+      expect(
+        await prisma.withdrawal.count({
+          where: { userId: user.id, status: 'PAID', utr: DEMO_PAYOUT_UTR },
+        }),
+      ).toBe(1);
+
+      // AND NOTHING ELSE ON THE ACCOUNT WAS TOUCHED. The PAN is anchored for
+      // life by the fraud rules; a seed that rewrote it would be destroying real
+      // identity data to make a demo tidy.
+      const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+      expect(after.pan).toBe(panBefore);
+      expect(await prisma.payoutMethod.count({ where: { userId: user.id } })).toBe(
+        methodsBefore,
+      );
+    });
+
+    it('does not top up an account that already has its signup grant', async () => {
+      // The top-up must be a repair, not a routine. A fresh account has 15, which
+      // is exactly what the documented arithmetic needs, so nothing is added —
+      // and the ticket economy the demo explains is the one actually running.
+      await seedDemo(app, { quiet: true });
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { mobile: DEMO_MOBILE_DEFAULT },
+      });
+      expect(
+        await prisma.ticketEntry.count({
+          where: { userId: user.id, reason: 'ADJUSTMENT' },
+        }),
+      ).toBe(0);
+      // Ends on exactly one claim's worth, funded only by the real rules.
+      expect(await tickets.getBalance(user.id)).toBe(TICKETS.DEFAULT_CLAIM_COST);
     });
 
     it('says what it FOUND when it skips, not what it assumes', async () => {
