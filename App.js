@@ -21,6 +21,7 @@ import MyProductsScreen from './src/MyProductsScreen';
 import EarningsScreen from './src/EarningsScreen';
 import ProfileScreen from './src/ProfileScreen';
 import ProofUploadScreen from './src/ProofUploadScreen';
+import RewardScreen from './src/RewardScreen';
 import ConfirmJoinScreen from './src/ConfirmJoinScreen';
 import {
   ClaimedScreen, NotEnoughTicketsScreen, JoinFailedScreen,
@@ -250,6 +251,9 @@ function AppInner() {
           <Stack.Screen name="Policy" component={PolicyScreen} options={{ headerShown: false }} />
           {/* Screenshot proof — the tier-3 fallback when the scraper can't read. */}
           <Stack.Screen name="ProofUpload" component={ProofUploadScreen} options={{ headerShown: false }} />
+          {/* The payoff. Reached only on a CONFIRMED transition to refunded (see
+              TaskScreen), never by opening a task that is already paid. */}
+          <Stack.Screen name="Reward" component={RewardScreen} options={{ headerShown: false }} />
           {/* The wallet owns its own gradient header and back button too. */}
           <Stack.Screen
             name="Wallet"

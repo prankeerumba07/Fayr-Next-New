@@ -11,7 +11,7 @@
 //
 // Claiming lives on DetailScreen; this screen is only ever the post-claim view.
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Image,
 } from 'react-native';
@@ -332,6 +332,30 @@ export default function TaskScreen({ navigation, route }) {
     const res = dispatch(campaignId, event);
     if (res.rejected) Alert.alert('Not yet', res.reason);
   }, [campaignId]);
+
+  // THE PAYOFF — on the TRANSITION to refunded, and only then.
+  //
+  // The release is asynchronous: dispatch() returns immediately and the server's
+  // answer arrives later, so navigating from the button would show a celebration
+  // before the money had moved. This watches `authoritative` — the SERVER's task,
+  // not the optimistic local one — so the screen only ever appears after a
+  // confirmed payment.
+  //
+  // `prev != null` is the load-bearing half. Opening an already-refunded task
+  // from My Products starts with authoritative null (the store has not read it
+  // yet) and then sets it to REFUNDED, which looks exactly like a transition. So
+  // only a move from a KNOWN earlier state counts; otherwise every visit to a
+  // finished task would bounce to a celebration and the timeline would be
+  // unreadable.
+  const prevState = useRef(authoritative ? authoritative.state : null);
+  useEffect(() => {
+    const state = authoritative ? authoritative.state : null;
+    const prev = prevState.current;
+    prevState.current = state;
+    if (state === STATES.REFUNDED && prev != null && prev !== STATES.REFUNDED) {
+      navigation.navigate('Reward', { campaignId });
+    }
+  }, [authoritative, navigation, campaignId]);
 
   if (!campaign) {
     return (
