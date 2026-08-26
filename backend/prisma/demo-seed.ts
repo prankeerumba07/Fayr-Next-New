@@ -680,7 +680,16 @@ export async function seedDemo(
       where: { userId: spec.user.id, campaignId: spec.campaignId },
     });
     if (existing) {
-      report.skipped.push(spec.label);
+      // SAY WHAT WAS FOUND, not what it implies. The skip is keyed on (user,
+      // campaign), NOT on state — so on an account with history it fires for a
+      // campaign that merely has a task on it. Reporting the journey's label alone
+      // read as "this state is already present", which on the real demo account
+      // was wrong for three of them: what was actually there were CLAIMED tasks
+      // that had expired and closed months of demo-time ago. A seed that
+      // misdescribes what it skipped is worse than one that skips silently,
+      // because the person reading the output stops checking.
+      const state = existing.closedAt ? `${existing.state}, closed` : existing.state;
+      report.skipped.push(`${spec.label} — offer already has a task (${state})`);
       return { created: false, taskId: existing.id };
     }
 

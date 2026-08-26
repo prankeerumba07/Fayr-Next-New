@@ -439,6 +439,21 @@ describe('Demo seed (e2e)', () => {
       expect(live!.campaignId).not.toBe(reserved.id);
     });
 
+    it('says what it FOUND when it skips, not what it assumes', async () => {
+      // The skip is keyed on (user, campaign) and not on state, so on an account
+      // with history it fires for an offer that merely has a task on it. Reporting
+      // only the journey's label read as "that state is already present" — which
+      // on the real demo account was wrong for three of four, where what existed
+      // were expired, closed claims. Someone reading a seed that misdescribes its
+      // own skips stops checking it.
+      await seedDemo(app, { quiet: true });
+      const second = await seedDemo(app, { quiet: true });
+      expect(second.skipped.length).toBeGreaterThan(0);
+      for (const line of second.skipped) {
+        expect(line).toMatch(/offer already has a task \((CLAIMED|PURCHASED|DELIVERED|REVIEWED|HOLDING|REFUNDED)(, closed)?\)/);
+      }
+    });
+
     it('refuses to run against a database that is not a dev or test one', async () => {
       // The guard the old seed did not have. It writes users, tasks and ledger
       // entries now, and pointing it at anything real would be unrecoverable.
