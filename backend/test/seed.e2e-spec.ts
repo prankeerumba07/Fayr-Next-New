@@ -10,7 +10,12 @@ import { WithdrawalService } from '../src/withdrawals/withdrawal.service';
 import { SupportQuestionService } from '../src/support/support-question.service';
 import { StaffVerificationService } from '../src/ocr/staff-verification.service';
 import { ReportService } from '../src/reports/report.service';
-import { seedDemo, DEMO_MOBILE_DEFAULT } from '../prisma/demo-seed';
+import {
+  seedDemo,
+  DEMO_MOBILE_DEFAULT,
+  RESERVED_FOR_LIVE_CLAIM,
+  assertCandidatesNotReserved,
+} from '../prisma/demo-seed';
 import { resetDatabase } from './reset-db';
 
 /**
@@ -363,6 +368,75 @@ describe('Demo seed (e2e)', () => {
         where: { mobile: DEMO_MOBILE_DEFAULT },
       });
       expect(await tickets.getBalance(user.id)).toBeGreaterThanOrEqual(5);
+    });
+
+    it('never pre-claims the offer the demo claims LIVE', async () => {
+      // THE CONSTRAINT THAT MADE THIS A GUARD RATHER THAN A COMMENT.
+      //
+      // One purchase per user per campaign is enforced at claim time. So if the
+      // seed ever takes a seat on the offer the run-sheet walks through, that
+      // live claim — the single most-watched moment of the demo — fails in front
+      // of the audience with "you have already claimed this".
+      //
+      // On the real demo account this is not hypothetical. It already has a task
+      // on every other candidate offer, leaving exactly TWO it has never touched,
+      // and one of those two IS the demo's offer. The fall-back "claim the first
+      // spare this account has never touched" would have walked into it.
+      await seedDemo(app, { quiet: true });
+      const reserved = await prisma.campaign.findFirstOrThrow({
+        where: { title: { contains: RESERVED_FOR_LIVE_CLAIM } },
+      });
+      const taken = await prisma.task.count({ where: { campaignId: reserved.id } });
+      expect(taken).toBe(0);
+
+      // The end state above is necessary but WEAK on its own: it would pass with
+      // no guard at all, simply because today's candidate list does not name the
+      // reserved offer. What has to hold is that ADDING it is refused — that is
+      // the mistake a future edit actually makes.
+      expect(() =>
+        assertCandidatesNotReserved(['Lukzer Garment Rack', 'Spin Your Storage']),
+      ).toThrow(/claims\s+LIVE|already claimed/i);
+      // A partial name must be caught too — nobody types the full title.
+      expect(() => assertCandidatesNotReserved(['Spin Your'])).toThrow();
+      // And an ordinary list must pass, or the guard is just a wall.
+      expect(() =>
+        assertCandidatesNotReserved(['Lukzer Garment Rack', 'Rate a Cotton Kurta Set']),
+      ).not.toThrow();
+    });
+
+    it('backfills the unbought claim on an account that already has history', async () => {
+      // The real account's shape: twelve tasks, one on every candidate offer, and
+      // all four of its own CLAIMED tasks long since expired and closed. It has
+      // three of the four states organically and is missing exactly one — a live
+      // claim nobody has bought yet — while every obvious candidate is used up.
+      await seedDemo(app, { quiet: true });
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { mobile: DEMO_MOBILE_DEFAULT },
+      });
+
+      // Close every live claim, the way an account whose claims all lapsed looks.
+      await prisma.task.updateMany({
+        where: { userId: user.id, state: 'CLAIMED' },
+        data: { closedAt: new Date(), closeReason: 'expired' },
+      });
+      const before = await prisma.task.count({ where: { userId: user.id } });
+
+      await seedDemo(app, { quiet: true });
+
+      const live = await prisma.task.findFirst({
+        where: { userId: user.id, state: 'CLAIMED', closedAt: null },
+      });
+      expect(live).not.toBeNull();
+      expect(live!.claimExpiresAt!.getTime() - Date.now()).toBeGreaterThan(
+        6 * 86_400_000,
+      );
+      // EXACTLY one task added — the missing state, and nothing else.
+      expect(await prisma.task.count({ where: { userId: user.id } })).toBe(before + 1);
+      // And still not the offer the demo needs live.
+      const reserved = await prisma.campaign.findFirstOrThrow({
+        where: { title: { contains: RESERVED_FOR_LIVE_CLAIM } },
+      });
+      expect(live!.campaignId).not.toBe(reserved.id);
     });
 
     it('refuses to run against a database that is not a dev or test one', async () => {

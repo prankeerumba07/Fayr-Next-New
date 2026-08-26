@@ -45,6 +45,23 @@ import { DEMO_CAMPAIGNS, type SeededCampaign } from './demo-catalogue';
  * test/seed.e2e-spec.ts.
  */
 
+/**
+ * THE OFFER THE DEMO CLAIMS LIVE — never seeded, on any account.
+ *
+ * One purchase per user per campaign is enforced at claim time, so a seeded seat
+ * on this offer makes the live claim — the most-watched moment of the run-sheet —
+ * fail in front of the audience with "you have already claimed this".
+ *
+ * This is not hypothetical. The real demo account already holds a task on every
+ * other candidate offer, leaving exactly TWO it has never touched, and one of
+ * those two is this one. The fall-back "claim the first spare offer this account
+ * has never touched" would have walked straight into it.
+ *
+ * Matched on a title fragment because the candidate lists are titles too, and
+ * enforced in ensureUnboughtClaim rather than trusted to whoever edits the list.
+ */
+export const RESERVED_FOR_LIVE_CLAIM = 'Spin Your Storage';
+
 /** Standing in for a real handset. See DEMO_MOBILE env note in seedDemo. */
 export const DEMO_MOBILE_DEFAULT = '+919000000001';
 const REVIEW_CHECK_MOBILE = '+919000000002';
@@ -97,6 +114,39 @@ const MEESHO_CAMPAIGN: SeededCampaign = {
     + 'Your refund is released after the return window closes and your review is still live.',
   createdAt: new Date('2026-08-03T09:00:00.000Z'),
 };
+
+/**
+ * Every campaign the seed upserts — the captured catalogue plus the one offer it
+ * adds. ONE list, because the journeys look offers up by title and a second list
+ * meant the added offer was writable but not findable.
+ */
+const ALL_SEEDED_CAMPAIGNS: SeededCampaign[] = [...DEMO_CAMPAIGNS, MEESHO_CAMPAIGN];
+
+/**
+ * THE GUARD, at module scope so it can be tested without a database.
+ *
+ * Refuses a candidate list that names the reserved offer, rather than trusting
+ * whoever edits that list next. A list is edited by someone who needs one more
+ * candidate; the cost of getting it wrong is paid live, once, in front of
+ * everyone.
+ *
+ * Matches in BOTH directions on purpose — a full title contains the fragment, and
+ * a shorthand someone actually types ("Spin Your") is contained BY it. Only
+ * checking one direction catches the case nobody makes.
+ */
+export function assertCandidatesNotReserved(candidateTitles: string[]): void {
+  const reserved = candidateTitles.filter(
+    (t) =>
+      t.includes(RESERVED_FOR_LIVE_CLAIM) || RESERVED_FOR_LIVE_CLAIM.includes(t),
+  );
+  if (reserved.length > 0) {
+    throw new Error(
+      `Demo seed: "${reserved.join('", "')}" names the offer the demo claims LIVE. `
+        + 'Seeding a claim on it makes that claim fail with "already claimed" '
+        + 'during the demo. Choose another offer.',
+    );
+  }
+}
 
 export interface SeedDemoOptions {
   /** Suppress the progress log (the e2e run does). */
@@ -174,7 +224,7 @@ export async function seedDemo(
   };
 
   // ── 1. the catalogue ──────────────────────────────────────────────────────
-  for (const campaign of [...DEMO_CAMPAIGNS, MEESHO_CAMPAIGN]) {
+  for (const campaign of ALL_SEEDED_CAMPAIGNS) {
     const { id, ...data } = campaign;
     await prisma.campaign.upsert({
       where: { id },
@@ -390,10 +440,17 @@ export async function seedDemo(
 
   // 4d. Claimed, not bought — the one state with an expiry date on it, and so the
   //     one that needs a guarantee rather than a row.
+  //     The list is ordered, and the order matters on an account with history:
+  //     the first three are the synthetic account's, and the Meesho offer is the
+  //     last resort — the only ACTIVE offer the real demo account has never
+  //     touched apart from the one reserved for the live claim. Claiming it also
+  //     puts Meesho on that account's products, which the demo's second beat can
+  //     use.
   await ensureUnboughtClaim(demo.id, [
     'Lukzer Garment Rack',
     'Train in Comfort',
     'bedside lamp',
+    'Rate a Cotton Kurta Set',
   ]);
 
   // ── 5. the two staff-decision queues ──────────────────────────────────────
@@ -495,7 +552,11 @@ export async function seedDemo(
   // ── helpers ───────────────────────────────────────────────────────────────
 
   function findCampaign(titleFragment: string): SeededCampaign {
-    const found = DEMO_CAMPAIGNS.find((c) => c.title.includes(titleFragment));
+    // Searches everything the seed upserts, not just the captured catalogue. It
+    // used to search DEMO_CAMPAIGNS alone, so the one offer the seed ADDS was
+    // invisible to its own journeys — findable in the database it had just
+    // written and not in the list it wrote from.
+    const found = ALL_SEEDED_CAMPAIGNS.find((c) => c.title.includes(titleFragment));
     if (!found) {
       // A renamed offer must break the seed loudly. Silently skipping a journey
       // would leave a queue empty and nothing to say why.
@@ -545,7 +606,10 @@ export async function seedDemo(
     userId: string,
     candidateTitles: string[],
   ): Promise<void> {
-    const candidates = candidateTitles.map((t) => findCampaign(t));
+    assertCandidatesNotReserved(candidateTitles);
+    const candidates = candidateTitles
+      .map((t) => findCampaign(t))
+      .filter((c) => !c.title.includes(RESERVED_FOR_LIVE_CLAIM));
 
     const live = await prisma.task.findFirst({
       where: {
