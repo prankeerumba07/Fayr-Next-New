@@ -21,6 +21,7 @@ import { UserJourneyService } from './user-journey.service';
 import { bestMatches, tsQueryFor, type PhraseCandidate } from './matching';
 import {
   AssistantError,
+  AssistantNotFoundError,
   type AnswerDraft,
   type AnswerFilter,
   type AnswerGiven,
@@ -55,6 +56,14 @@ const ANSWER_SUMMARY = {
   title: true,
   revision: true,
   status: true,
+} as const;
+
+/** Who asked, for the staff screens. Never the PAN, never a payout detail. */
+const ASKER = { id: true, displayId: true, mobile: true } as const;
+
+const WITH_CONTEXT = {
+  answerEntry: { select: ANSWER_SUMMARY },
+  user: { select: ASKER },
 } as const;
 
 /**
@@ -248,9 +257,9 @@ export class AssistantStore {
   async getQuestion(id: string): Promise<QuestionWithAnswer> {
     const found = await this.prisma.assistantQuestion.findUnique({
       where: { id },
-      include: { answerEntry: { select: ANSWER_SUMMARY } },
+      include: WITH_CONTEXT,
     });
-    if (!found) throw new AssistantError('no such question');
+    if (!found) throw new AssistantNotFoundError('no such question');
     return found;
   }
 
@@ -264,7 +273,7 @@ export class AssistantStore {
       this.prisma.assistantQuestion.count({ where }),
       this.prisma.assistantQuestion.findMany({
         where,
-        include: { answerEntry: { select: ANSWER_SUMMARY } },
+        include: WITH_CONTEXT,
         orderBy: { askedAt: 'desc' },
         take: filter.limit,
         skip: filter.offset,
@@ -652,7 +661,7 @@ export class AssistantStore {
     const found = await this.prisma.assistantQuestion.findUnique({
       where: { id: questionId },
     });
-    if (!found) throw new AssistantError('no such question');
+    if (!found) throw new AssistantNotFoundError('no such question');
     return found;
   }
 

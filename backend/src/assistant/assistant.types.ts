@@ -6,6 +6,7 @@ import type {
   AssistantQuestion,
   AssistantQuestionStatus,
   Prisma,
+  User,
 } from '@prisma/client';
 import type { ScoredMatch } from './matching';
 
@@ -15,6 +16,13 @@ import type { ScoredMatch } from './matching';
  * arrangement as TicketError and LedgerError.
  */
 export class AssistantError extends Error {}
+
+/**
+ * The narrower case, given its own class so the edge can turn it into a 404
+ * without matching on the text of a message — the same arrangement as
+ * InsufficientTicketsError under TicketError.
+ */
+export class AssistantNotFoundError extends AssistantError {}
 
 export interface RecordQuestionInput {
   userId: string;
@@ -81,6 +89,8 @@ export type QuestionWithAnswer = AssistantQuestion & {
     AnswerEntry,
     'id' | 'key' | 'language' | 'title' | 'revision' | 'status'
   > | null;
+  /** Who asked. The staff screens need to know; the app never reads this. */
+  user: Pick<User, 'id' | 'displayId' | 'mobile'>;
 };
 
 export interface QuestionPage {

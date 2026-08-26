@@ -58,10 +58,9 @@ export const DEFAULT_PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 200;
 
 /**
- * Audit tags for this module. Reading a queue is not audited — that is a tab
- * loading. Opening ONE question is, because it shows one named person's own words
- * and what they were doing at the time.
+ * Reading a queue is not audited — that is a tab loading. Opening ONE question is,
+ * because it shows one named person's own words and the record of what they were
+ * doing. The tag itself lives with every other audit tag in
+ * admin/admin.constants.ts rather than in a second list here, so the trail can be
+ * filtered by one vocabulary.
  */
-export const ASSISTANT_AUDIT_ACTIONS = {
-  ASSISTANT_QUESTION_VIEW: 'ASSISTANT_QUESTION_VIEW',
-} as const;
