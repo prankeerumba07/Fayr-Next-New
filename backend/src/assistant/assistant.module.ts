@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
+import { TicketModule } from '../tickets/ticket.module';
+import { WalletModule } from '../wallet/wallet.module';
 import { AssistantStore } from './assistant.store';
+import { UserJourneyService } from './user-journey.service';
 
 /**
  * The assistant's knowledge and its record of real activity.
@@ -11,8 +14,8 @@ import { AssistantStore } from './assistant.store';
  * it.
  */
 @Module({
-  imports: [PrismaModule],
-  providers: [AssistantStore],
-  exports: [AssistantStore],
+  imports: [PrismaModule, TicketModule, WalletModule],
+  providers: [AssistantStore, UserJourneyService],
+  exports: [AssistantStore, UserJourneyService],
 })
 export class AssistantModule {}

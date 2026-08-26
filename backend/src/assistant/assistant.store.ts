@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -17,6 +17,7 @@ import {
   TOPIC_MAX_LENGTH,
 } from './assistant.constants';
 import { detectLanguage, isKnownLanguage } from './language';
+import { UserJourneyService } from './user-journey.service';
 import { bestMatches, tsQueryFor, type PhraseCandidate } from './matching';
 import {
   AssistantError,
@@ -83,7 +84,12 @@ const ANSWER_SUMMARY = {
  */
 @Injectable()
 export class AssistantStore {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly log = new Logger(AssistantStore.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly journey: UserJourneyService,
+  ) {}
 
   // ── questions ──────────────────────────────────────────────────────────
 
@@ -112,6 +118,12 @@ export class AssistantStore {
     }
 
     const guess = detectLanguage(rawText);
+
+    // Taken here rather than left to the caller, because the one moment this can
+    // be captured is now. Reading their tasks next week tells you what is true
+    // next week, not what was true when they wrote in.
+    const journey = input.journey ?? (await this.snapshotOrNothing(userId));
+
     try {
       return await this.prisma.assistantQuestion.create({
         data: {
@@ -119,12 +131,39 @@ export class AssistantStore {
           rawText,
           detectedLanguage: guess.language,
           languageConfidence: guess.confidence,
-          journey: input.journey,
+          journey,
         },
       });
     } catch (err) {
       throw this.asAssistantError(err, 'that question could not be saved');
     }
+  }
+
+  /**
+   * The journey snapshot, or nothing at all.
+   *
+   * A question must never be lost because the CONTEXT for it could not be built.
+   * The question is what a person typed and what the whole thing learns from; the
+   * snapshot is a convenience for whoever reads it later. So a failure here is
+   * logged loudly and leaves the journey empty, which reads as "not captured"
+   * rather than as "nothing was happening".
+   */
+  private async snapshotOrNothing(
+    userId: string,
+  ): Promise<Prisma.InputJsonValue | undefined> {
+    try {
+      return this.toJson(await this.journey.snapshotFor(userId));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.log.warn(
+        `could not read what user ${userId} was doing when they asked: ${reason}`,
+      );
+      return undefined;
+    }
+  }
+
+  private toJson(value: unknown): Prisma.InputJsonValue {
+    return value as Prisma.InputJsonValue;
   }
 
   /** Record the reply that was given, as it was shown. */
