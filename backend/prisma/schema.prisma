@@ -61,15 +61,16 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  otpChallenges     OtpChallenge[]
-  refreshTokens     RefreshToken[]
-  tasks             Task[]
-  ticketEntries     TicketEntry[]
-  walletAccounts    WalletAccount[]
-  supportQuestions  SupportQuestion[]
-  payoutMethods     PayoutMethod[]
-  withdrawals       Withdrawal[]
-  screenshotUploads ScreenshotUpload[]
+  otpChallenges      OtpChallenge[]
+  refreshTokens      RefreshToken[]
+  tasks              Task[]
+  ticketEntries      TicketEntry[]
+  walletAccounts     WalletAccount[]
+  supportQuestions   SupportQuestion[]
+  payoutMethods      PayoutMethod[]
+  withdrawals        Withdrawal[]
+  screenshotUploads  ScreenshotUpload[]
+  assistantQuestions AssistantQuestion[]
 
   @@map("users")
 }
@@ -727,4 +728,187 @@ model CampaignCheckRun {
 
   @@index([ranAt])
   @@map("campaign_check_runs")
+}
+
+// ===========================================================================
+// PHASE 6 — THE ANSWER BOOK, AND THE RECORD OF EVERY REAL QUESTION
+// ===========================================================================
+//
+// Three tables, and the split between them is the whole design:
+//
+//   answer_entries       one answer, in one language. The thing a person reads.
+//   answer_phrases       the many ways somebody might ask for that answer.
+//   assistant_questions  what a real person actually typed, and what we said back.
+//
+// Questions are kept apart from answers because a hundred differently-worded
+// questions ("kab aayega", "refund not received", "मेरा पैसा कब आएगा") deserve ONE
+// good answer, and fixing that answer must fix all hundred at once. If the text a
+// user reads lived on the question, correcting it would mean correcting a hundred
+// rows and hoping none was missed.
+//
+// SEARCHING AT SCALE. There will be a handful of answers this week and thousands
+// in a year, and the matching may never read them all to find one. The migration
+// that creates these tables also creates two kinds of index that make that
+// possible without new infrastructure:
+//
+//   - a full-text index (GIN over to_tsvector) for matching by word, and
+//   - a trigram index (GIN over pg_trgm) for matching despite a typo.
+//
+// Both live in Postgres, which is already here. The alternative — embeddings in a
+// vector database — needs a paid model call on every question and a second service
+// to run, and can be added later behind the same method without moving this data.
+
+/// Is this answer live? RETIRED rather than deleted, because a question asked last
+/// month recorded which answer it was shown, and that has to stay readable.
+enum AnswerStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+/// Where an answer came from. Kept because "a person wrote this" and "this shipped
+/// with the app" are read very differently when an answer turns out to be wrong.
+enum AnswerOrigin {
+  SEED
+  STAFF
+}
+
+/// One answer, in one language.
+///
+/// `key` is the identity of the ANSWER; `language` is which wording of it. The
+/// same key carries every language, so a new language is new ROWS — never a
+/// migration, and never a change to the code that reads them.
+model AnswerEntry {
+  id       String @id @default(uuid()) @db.Uuid
+  key      String
+  /// Short tag: en, hi, hi-en. A String and not an enum on purpose — see above.
+  language String
+  /// What this answer is called in a list. Plain words.
+  title    String
+  /// The answer itself, exactly as a user will read it. Plain words, no jargon —
+  /// a rule the engine enforces in code before anything is ever returned.
+  body     String
+  /// Which part of the app this is about: refund, review, order, tickets, account.
+  topic    String
+
+  status AnswerStatus @default(DRAFT)
+  origin AnswerOrigin @default(SEED)
+
+  /// Bumped every time the words change, so a question can say which wording it
+  /// showed even after a person has improved it.
+  revision Int @default(1)
+
+  /// Who last wrote it, when a person did. Bare uuid, not a foreign key: this
+  /// record must outlive a staff account being removed.
+  updatedByStaffId String? @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  phrases   AnswerPhrase[]
+  questions AssistantQuestion[]
+
+  @@unique([key, language])
+  @@index([status, language])
+  @@index([topic])
+  @@map("answer_entries")
+}
+
+/// One way a real person might ask for one answer. This is the table the matching
+/// actually searches, which is why it is separate: an answer with forty known
+/// wordings is forty rows here and still one answer to correct.
+model AnswerPhrase {
+  id            String      @id @default(uuid()) @db.Uuid
+  answerEntryId String      @db.Uuid
+  answer        AnswerEntry @relation(fields: [answerEntryId], references: [id], onDelete: Cascade)
+
+  text     String
+  language String
+
+  createdAt DateTime @default(now())
+
+  @@index([answerEntryId])
+  @@index([language])
+  /// The near-miss index, declared here as well as in the migration that creates
+  /// it. Without this line Prisma does not know it exists and the next
+  /// `migrate dev` silently drops it — which would not fail a single test, and
+  /// would quietly turn every typo search into a full read of the table.
+  @@index([text(ops: raw("gin_trgm_ops"))], type: Gin, map: "answer_phrases_near_misses_idx")
+  @@map("answer_phrases")
+}
+
+/// Where the reply a user saw came from.
+enum AssistantAnswerOrigin {
+  ANSWER_BOOK /// matched a stored answer
+  MODEL /// written by a language model (not switched on yet)
+  STAFF /// a person answered it
+  NONE /// nothing matched, and we said so rather than inventing one
+}
+
+/// Who is waiting.
+enum AssistantQuestionStatus {
+  ANSWERED /// a reply was given; nobody is blocked
+  UNRESOLVED /// nothing matched, or the person said the reply did not help
+  RESOLVED /// closed, either by the person saying it helped or by staff
+}
+
+/// Every question a real person asked the assistant, and what happened next.
+///
+/// This is the record the whole thing learns from, so it keeps the EVIDENCE and
+/// not a tidied version of it: the raw text is stored exactly as typed, and the
+/// reply is snapshotted as shown rather than looked up later through a link that
+/// may since have been edited.
+model AssistantQuestion {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// EXACTLY what was typed. Never trimmed, corrected, or normalized: tomorrow's
+  /// answer gets written from these words, and a cleaned-up copy would hide the
+  /// spelling and the phrasing that are the most useful part.
+  rawText String
+
+  /// What language it LOOKS like, and how sure that guess was (0 to 100). Stored
+  /// as a guess, because that is what it is.
+  detectedLanguage   String
+  languageConfidence Int
+
+  askedAt DateTime @default(now())
+
+  /// Which stored answer was used, if one was.
+  answerEntryId  String?               @db.Uuid
+  answerEntry    AnswerEntry?          @relation(fields: [answerEntryId], references: [id], onDelete: SetNull)
+  /// The reply AS SHOWN to this person. Snapshotted: the entry above may be
+  /// corrected next week, and "what did this person actually read" has to stay
+  /// answerable after it is.
+  answerText     String?
+  answerOrigin   AssistantAnswerOrigin @default(NONE)
+  /// How well it matched, 0 to 100. Null when nothing was returned.
+  matchScore     Int?
+  /// Which wording of the answer was shown, in case it has since changed.
+  answerRevision Int?
+
+  status AssistantQuestionStatus @default(UNRESOLVED)
+
+  /// Did it help? Null until asked, and null forever if they never say.
+  helpful   Boolean?
+  helpfulAt DateTime?
+
+  /// When it stopped being anyone's problem. How long it took is this minus
+  /// askedAt — computed on read, never stored twice.
+  resolvedAt        DateTime?
+  resolvedByStaffId String?   @db.Uuid
+
+  /// What this person was doing in the app when they asked — a SNAPSHOT taken at
+  /// that moment, assembled from records the app already keeps. A snapshot and not
+  /// a live lookup, because reading their tasks next week tells you what is true
+  /// next week, not what was true when they wrote in. The same reasoning as the
+  /// offer check's findings, one table up.
+  journey Json?
+
+  @@index([status, askedAt])
+  @@index([userId, askedAt])
+  @@index([answerEntryId])
+  @@index([askedAt])
+  @@map("assistant_questions")
 }

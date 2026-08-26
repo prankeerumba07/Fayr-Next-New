@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AdminModule } from './admin/admin.module';
+import { AssistantModule } from './assistant/assistant.module';
 import { AuthModule } from './auth/auth.module';
 import { CampaignModule } from './campaigns/campaign.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
@@ -66,6 +67,7 @@ import { WithdrawalModule } from './withdrawals/withdrawal.module';
     TaskModule,
     SchedulerModule,
     CampaignHealthModule,
+    AssistantModule,
     AdminModule,
     SupportModule,
     MeModule,
