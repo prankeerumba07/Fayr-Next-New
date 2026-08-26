@@ -14,8 +14,22 @@ dist
 *.log
 logs
 
-# operator uploads (campaign images, etc.) — user content, never committed
-uploads
+# operator uploads — never committed, WITH ONE NARROW EXCEPTION below.
+uploads/*
+# The campaign product photos ARE committed, deliberately.
+#
+# Fourteen seeded campaigns reference /uploads/campaigns/*.png, and those files
+# existed on exactly one laptop and in no commit — so a fresh clone reproduced the
+# whole demo catalogue from prisma/demo-catalogue.ts and then showed a broken image
+# on every card. That is the same argument that got main pushed to origin: the demo
+# should not depend on one machine surviving.
+#
+# This is not the PII exception. Verification screenshots are user content and stay
+# ignored below; these are product photos an operator uploaded, and they are demo
+# fixtures. Restored automatically by cloning — no copy step to forget.
+!uploads/campaigns
+uploads/campaigns/*
+!uploads/campaigns/*.png
 # private uploads (verification screenshots — user PII), never committed
 private-uploads
 uploads-test
