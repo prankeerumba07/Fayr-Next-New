@@ -460,6 +460,7 @@ npx prisma db seed</code></pre>
           Do not search for <code>[SmsSender]</code>. That bracketed form appears <strong>nowhere</strong> in this log — the component name is at the end of the line as <code>{"context":"SmsSender"}</code>, so searching for the bracket finds nothing and reads as though the line is missing.</dd>
         <dt>Check this, it matters</dt><dd>If that line says <code>DEV</code> instead of <code>TWILIO</code>, no real text will be sent and the code only appears in this terminal. Stop and fix it before anyone is watching.</dd>
         <dt>If it fails</dt><dd class="fix">A missing or malformed credential makes it refuse to boot <em>and name the variable</em> — read the message, it tells you which one. <code>EADDRINUSE</code> means an old backend is still alive: <code>pkill -f "nest start"</code> and start again.</dd>
+        <dt>If it fails with NO MESSAGE AT ALL</dt><dd class="fix">A blank exit and nothing printed means <strong>the database is not reachable</strong> — nine times in ten, Postgres is not running. The reason is genuinely lost rather than hidden: the logger's output is buffered and the process exits before it flushes, so there is nothing to read and nothing wrong with your eyes. Go back to step 2, check <code>docker ps</code> shows <code>fayr-postgres</code>, and if the Docker <em>daemon</em> itself is dead use the kill-first trap in step 1. This cost ten minutes on a rehearsal, which is the only reason it is written down.</dd>
       </dl>
     </div>
   </div>
