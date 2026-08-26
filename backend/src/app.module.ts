@@ -16,6 +16,7 @@ import { OcrModule } from './ocr/ocr.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReportModule } from './reports/report.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { CampaignHealthModule } from './campaign-health/campaign-health.module';
 import { SupportModule } from './support/support.module';
 import { TaskModule } from './tasks/task.module';
 import { TicketModule } from './tickets/ticket.module';
@@ -64,6 +65,7 @@ import { WithdrawalModule } from './withdrawals/withdrawal.module';
     CampaignModule,
     TaskModule,
     SchedulerModule,
+    CampaignHealthModule,
     AdminModule,
     SupportModule,
     MeModule,

@@ -106,6 +106,18 @@ export const envSchema = z.object({
   // Standard 5-field cron. Default: hourly. A review hold lasts days, so this
   // cadence is ample; tighten per deploy if needed.
   SCHEDULER_CRON: z.string().min(1).default('0 * * * *'),
+  // --- The daily offer check -------------------------------------------------
+  // Every live offer, checked once a night: pictures, amounts, seats, words. It
+  // reads campaigns and tasks and writes only its own record of having run, so
+  // running it more often is safe — but the findings it produces need a person to
+  // act on them, and a report that arrives twice a day gets read half as often.
+  CAMPAIGN_CHECK_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // Default: 06:15, before anyone starts work, and off the hour so it never
+  // competes with the maintenance tick for the database.
+  CAMPAIGN_CHECK_CRON: z.string().min(1).default('15 6 * * *'),
   // Per-request timeout (ms) for the server-side review-permalink fetch.
   VISIBILITY_FETCH_TIMEOUT_MS: z.coerce
     .number()

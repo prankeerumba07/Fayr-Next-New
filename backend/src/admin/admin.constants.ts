@@ -24,6 +24,7 @@ export const AUDIT_ACTIONS = {
   CAMPAIGN_UPDATE: 'CAMPAIGN_UPDATE',
   CAMPAIGN_STATUS: 'CAMPAIGN_STATUS',
   REPORT_DOWNLOAD: 'REPORT_DOWNLOAD',
+  CAMPAIGN_CHECK_RUN: 'CAMPAIGN_CHECK_RUN', // someone ran the offer check by hand
   SCREENSHOT_VIEW: 'SCREENSHOT_VIEW', // staff streamed a private verification screenshot
   EVIDENCE_REVIEW: 'EVIDENCE_REVIEW', // staff approved / rejected / requested-more on a case
   DUPLICATE_ORDER_ALLOW: 'DUPLICATE_ORDER_ALLOW', // staff let a second task on one order be paid
