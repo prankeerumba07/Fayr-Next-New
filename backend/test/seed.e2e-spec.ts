@@ -546,6 +546,75 @@ describe('Demo seed (e2e)', () => {
       expect(await tickets.getBalance(user.id)).toBe(TICKETS.DEFAULT_CLAIM_COST);
     });
 
+    it('can seed a SECOND demo account on a database that already has one', async () => {
+      // THE THIRD TRAP THE REAL NUMBER FOUND, and this one was a fraud control
+      // doing its job. Every journey carried a hard-coded marketplace order id, so
+      // the moment a second account tried to build the same journey the
+      // (platform, orderId) gate refused the release: "this order has already been
+      // refunded on another offer". Correct — one purchase cannot fund two
+      // refunds — and it meant one demo account per database, for life.
+      //
+      // The order references are now derived from the account, the way the PAN and
+      // the UPI id already were, for exactly the same reason.
+      const second = '+919000000008';
+      await seedDemo(app, { quiet: true });
+      await seedDemo(app, { quiet: true, demoMobile: second });
+
+      for (const mobile of [DEMO_MOBILE_DEFAULT, second]) {
+        const user = await prisma.user.findUniqueOrThrow({ where: { mobile } });
+        const paid = await prisma.task.findFirst({
+          where: { userId: user.id, state: 'REFUNDED' },
+        });
+        expect(paid).not.toBeNull();
+      }
+
+      // And the two refunds are on genuinely different orders — not the same
+      // reference waved through twice, which is the failure this must not become.
+      const refs = await prisma.task.findMany({
+        where: { state: 'REFUNDED' },
+        select: { orderId: true },
+      });
+      expect(new Set(refs.map((r) => r.orderId)).size).toBe(refs.length);
+    });
+
+    it('finishes a journey a failed run left part-way', async () => {
+      // What a crash mid-journey actually leaves: an OPEN task short of where it
+      // was headed. The skip is keyed on (user, campaign), so the retry walked
+      // straight past it and the demo was missing a state with nothing in the
+      // output to say so — the same "a retry has to be able to finish the job"
+      // lesson the withdrawal step learned earlier.
+      //
+      // Rolled back one real step — the state AND the event that recorded it —
+      // because the engine records every transition it applies, so a state moved
+      // without its event is not a state the product could ever have been in.
+      // The hold step is the one used here on purpose: it moves no money, so the
+      // fixture leaves nothing behind in an append-only ledger.
+      await seedDemo(app, { quiet: true });
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { mobile: DEMO_MOBILE_DEFAULT },
+      });
+      const held = await prisma.task.findFirstOrThrow({
+        where: { userId: user.id, state: 'HOLDING' },
+      });
+      const newest = await prisma.taskEvent.findFirstOrThrow({
+        where: { taskId: held.id },
+        orderBy: { createdAt: 'desc' },
+      });
+      await prisma.taskEvent.delete({ where: { id: newest.id } });
+      await prisma.task.update({
+        where: { id: held.id },
+        data: { state: 'REVIEWED', closedAt: null, closeReason: null },
+      });
+
+      const report = await seedDemo(app, { quiet: true });
+
+      const after = await prisma.task.findUniqueOrThrow({ where: { id: held.id } });
+      expect(after.state).toBe('HOLDING');
+      // And it says it finished one, rather than reporting a clean skip.
+      expect(report.journeys.join(' | ')).toMatch(/finished a run/i);
+      expect(report.skipped.join(' | ')).not.toMatch(/reviewed, in the holding/i);
+    });
+
     it('says what it FOUND when it skips, not what it assumes', async () => {
       // The skip is keyed on (user, campaign) and not on state, so on an account
       // with history it fires for an offer that merely has a task on it. Reporting

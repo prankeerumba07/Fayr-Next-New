@@ -83,6 +83,45 @@ export const DEMO_PAYOUT_UTR = 'UTR2608DEMO0001';
  * Named here as well as at each journey because the ticket check has to know what
  * is coming before the first claim is made.
  */
+/**
+ * ONE ACCOUNT'S ORDER REFERENCE, derived from its mobile.
+ *
+ * The journeys used to carry hard-coded marketplace order numbers, and that made
+ * one demo account per database a hard limit: a purchase can fund exactly one
+ * refund, so the (platform, orderId) gate refused the second account's release
+ * with "this order has already been refunded on another offer". The gate was
+ * right. The fixed reference was the bug — the same one the PAN and the UPI id had
+ * already been fixed for.
+ *
+ * The last four digits are replaced rather than appended so the reference keeps
+ * the shape a real marketplace number has. Nothing validates that shape today,
+ * which is exactly why it should not be quietly abandoned.
+ */
+function orderRef(reference: string, mobile: string): string {
+  const digits = mobile.replace(/\D/g, '').slice(-4).padStart(4, '0');
+  return /\d{4}$/.test(reference)
+    ? reference.slice(0, -4) + digits
+    : `${reference}-${digits}`;
+}
+
+/** The journey states in the order the engine reaches them. */
+const STATE_ORDER: readonly string[] = [
+  'CLAIMED',
+  'PURCHASED',
+  'DELIVERED',
+  'REVIEWED',
+  'HOLDING',
+  'REFUNDED',
+];
+
+/** Where each `advance` setting is trying to get to. */
+const TARGET_STATE = {
+  claim: 'CLAIMED',
+  evidence: 'DELIVERED',
+  hold: 'HOLDING',
+  refund: 'REFUNDED',
+} as const;
+
 const JOURNEY_OFFERS = [
   'Carry Your Laptop',
   'Prestige 1600W induction cooktop',
@@ -312,7 +351,7 @@ export async function seedDemo(
     campaignId: laptopBag.id,
     claimedAt: now - 8 * DAY,
     order: {
-      id: 'AMZ-406-8871234-5540118',
+      id: orderRef('AMZ-406-8871234-5540118', demoMobile),
       unitPricePaise: laptopBag.productPricePaise.toString(),
       quantity: 1,
       product: laptopBag.productName,
@@ -438,7 +477,7 @@ export async function seedDemo(
     campaignId: cooktop.id,
     claimedAt: now - 2 * DAY,
     order: {
-      id: 'FK-OD433918274655',
+      id: orderRef('FK-OD433918274655', demoMobile),
       unitPricePaise: cooktop.productPricePaise.toString(),
       quantity: 1,
       product: cooktop.productName,
@@ -457,7 +496,7 @@ export async function seedDemo(
     campaignId: vest.id,
     claimedAt: now - 3 * DAY,
     order: {
-      id: 'FK-OD433901882314',
+      id: orderRef('FK-OD433901882314', demoMobile),
       unitPricePaise: vest.productPricePaise.toString(),
       quantity: 1,
       product: vest.productName,
@@ -766,6 +805,44 @@ export async function seedDemo(
     advance: 'claim' | 'evidence' | 'hold' | 'refund';
   }
 
+  /**
+   * Drive an OPEN task the rest of the way to what its journey was aiming at.
+   * Returns false if there is nothing to do, or nothing safe to do.
+   *
+   * Only the tail transitions are replayed. A task stopped at CLAIMED or
+   * PURCHASED is missing its order or its delivery evidence, and a seed guessing
+   * at half-written evidence would be inventing the very records the demo exists
+   * to show — so that case says what it found and what to do about it instead.
+   */
+  async function finishJourney(
+    spec: JourneySpec,
+    task: { id: string; state: string },
+  ): Promise<boolean> {
+    const at = STATE_ORDER.indexOf(task.state);
+    const want = STATE_ORDER.indexOf(TARGET_STATE[spec.advance]);
+    if (at < 0 || want < 0 || at >= want) return false;
+
+    if (at < STATE_ORDER.indexOf('DELIVERED')) {
+      say(
+        `  WARNING    ${spec.label} stopped at ${task.state} and cannot be `
+          + 'finished automatically — its order or delivery evidence is '
+          + `incomplete. Delete task ${task.id} and run the seed again.`,
+      );
+      return false;
+    }
+
+    if (at < STATE_ORDER.indexOf('REVIEWED')) {
+      await tasks.markReviewed(spec.user.id, task.id);
+    }
+    if (at < STATE_ORDER.indexOf('HOLDING')) {
+      await tasks.startHold(spec.user.id, task.id);
+    }
+    if (want === STATE_ORDER.indexOf('REFUNDED')) {
+      await tasks.releaseRefund(spec.user.id, task.id);
+    }
+    return true;
+  }
+
   async function journey(
     spec: JourneySpec,
   ): Promise<{ created: boolean; taskId: string | null }> {
@@ -784,6 +861,17 @@ export async function seedDemo(
       // that had expired and closed months of demo-time ago. A seed that
       // misdescribes what it skipped is worse than one that skips silently,
       // because the person reading the output stops checking.
+      // A CRASH MID-JOURNEY LEAVES AN OPEN TASK SHORT OF WHERE IT WAS HEADED,
+      // and the skip above is keyed on (user, campaign) — so the retry walked
+      // straight past it and the demo was missing a state with nothing in the
+      // output saying so. Same lesson the withdrawal step learned earlier: a
+      // retry has to be able to finish the job.
+      if (!existing.closedAt && (await finishJourney(spec, existing))) {
+        report.journeys.push(
+          `${spec.label} — finished a run that had stopped at ${existing.state}`,
+        );
+        return { created: false, taskId: existing.id };
+      }
       const state = existing.closedAt ? `${existing.state}, closed` : existing.state;
       report.skipped.push(`${spec.label} — offer already has a task (${state})`);
       return { created: false, taskId: existing.id };
