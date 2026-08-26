@@ -149,6 +149,49 @@ export class TicketService {
   }
 
   /**
+   * A MANUAL CORRECTION — the only way tickets move outside the two grants, the
+   * claim and the expiry return.
+   *
+   * It exists because of a state a real account was actually found in: the signup
+   * grant is idempotent per user for life, so an account that has already spent
+   * its 15 can never be re-granted, and nothing else could put tickets back. The
+   * demo seed needs to build claims on such an account; a support agent
+   * correcting a genuine mistake needs the same thing.
+   *
+   * It is a posting, not an edit. Append-only, floored at zero, serialized on the
+   * user row, idempotent by the caller's key — every guarantee the lifecycle
+   * postings have. No prior row is ever rewritten, which is the only reason a
+   * balance read as SUM(delta) can be trusted.
+   *
+   * The caller owns the key, and it is required: an unkeyed correction posts twice
+   * on a retry, and a doubled ticket balance is a fraud control quietly failing.
+   *
+   * Not reachable over HTTP. Deliberately: an endpoint that mints tickets needs an
+   * approval trail of its own, and that is a decision, not a helper.
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async adjust(
+    userId: string,
+    delta: number,
+    idempotencyKey: string,
+  ): Promise<TicketEntry> {
+    if (!Number.isInteger(delta) || delta === 0) {
+      throw new TicketError(
+        `a ticket adjustment must be a non-zero whole number, got ${delta}`,
+      );
+    }
+    if (typeof idempotencyKey !== 'string' || idempotencyKey.trim() === '') {
+      throw new TicketError('a ticket adjustment needs an idempotency key');
+    }
+    return this.post({
+      userId,
+      delta,
+      reason: 'ADJUSTMENT',
+      idempotencyKey,
+    });
+  }
+
+  /**
    * Post one ticket movement: atomic, serialized on the user row, floored at
    * zero, and idempotent by key. With a `tx`, it joins the caller's transaction;
    * otherwise it opens its own.
