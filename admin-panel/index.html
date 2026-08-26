@@ -112,20 +112,47 @@
       font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
       color: var(--muted); margin-left: 7px; vertical-align: 3px;
     }
-    .sidebar nav { flex: 1; }
-    .nav-group { margin-bottom: 18px; }
-    .nav-head {
-      font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
-      color: var(--muted); padding: 0 10px 6px;
+    /* Two levels: the team you are in, then its sections. A collapsed team is one
+       line, so the whole console is four lines plus wherever you are working — the
+       nine-flat-item list gave every role eight things it could not use. */
+    .sidebar nav { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .nav-group { margin-bottom: 2px; }
+    .team {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 10px; border-radius: 8px; cursor: pointer;
+      font-weight: 650; color: var(--text); line-height: 1.3;
+      font-size: 13.5px; letter-spacing: -.005em;
+    }
+    .team:hover { background: var(--surface-2); }
+    .team.open { color: var(--accent); }
+    .team-glyph {
+      width: 22px; height: 22px; flex: 0 0 22px; border-radius: 6px;
+      display: grid; place-items: center; font-size: 12px;
+      background: var(--surface-2); color: var(--muted);
+    }
+    .team.open .team-glyph { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+    .team-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .team-count {
+      font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+      color: var(--muted); background: var(--surface-2);
+      border-radius: 999px; padding: 1px 7px;
+    }
+    .team.open .team-count { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+    /* The sections sit under a hairline rail, so which team they belong to is
+       structural rather than something you have to remember. */
+    .team-sections {
+      margin: 2px 0 8px 21px; padding-left: 11px;
+      border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 1px;
     }
     .nav-item {
-      display: flex; align-items: center; gap: 10px;
-      padding: 8px 10px; border-radius: 8px; cursor: pointer;
-      font-weight: 600; color: var(--muted); line-height: 1.3;
+      display: flex; align-items: center; gap: 9px;
+      padding: 6px 9px; border-radius: 7px; cursor: pointer;
+      font-weight: 550; font-size: 13px; color: var(--muted); line-height: 1.3;
     }
     .nav-item:hover { background: var(--surface-2); color: var(--text); }
-    .nav-item.active { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
-    .nav-glyph { width: 18px; text-align: center; font-size: 13px; opacity: .85; }
+    .nav-item.active { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-weight: 650; }
+    .nav-glyph { width: 15px; text-align: center; font-size: 12px; opacity: .8; }
     .nav-label { flex: 1; min-width: 0; }
     .nav-badge {
       background: var(--accent); color: var(--accent-fg);
@@ -151,12 +178,16 @@
 
     .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
     header.top {
-      display: flex; align-items: center; gap: 16px;
-      padding: 14px 24px; background: var(--surface);
+      display: flex; align-items: flex-start; gap: 16px;
+      padding: 16px 28px 15px; background: var(--surface);
       border-bottom: 1px solid var(--border);
     }
-    .top-title { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
-    .top-sub { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+    .top-crumb {
+      font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 3px;
+    }
+    .top-title { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.015em; line-height: 1.2; }
+    .top-sub { font-size: 12.5px; color: var(--muted); margin-top: 3px; max-width: 68ch; }
     .spacer { flex: 1; }
     .quickfind {
       width: 260px; padding: 7px 11px; border-radius: 8px;
@@ -164,18 +195,31 @@
       font-family: inherit; font-size: 13px;
     }
     .quickfind:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-    main { flex: 1; overflow-y: auto; max-width: 1080px; width: 100%; padding: 20px 24px 80px; }
+    main { flex: 1; overflow-y: auto; max-width: 1100px; width: 100%; padding: 22px 28px 96px; }
 
     @media (max-width: 860px) {
       .shell { flex-direction: column; height: auto; overflow: visible; }
       .sidebar { flex: 0 0 auto; width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
-      .sidebar nav { display: flex; gap: 16px; flex-wrap: wrap; }
+      .sidebar nav { display: flex; gap: 4px; flex-wrap: wrap; }
+      .team-sections { margin-left: 0; border-left: none; padding-left: 0; }
       .pane { overflow: visible; }
       .quickfind { width: 160px; }
     }
 
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 16px; }
-    .card > h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 18px 20px; margin-bottom: 18px; }
+    .card > h3 { margin: 0 0 14px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; display: flex; align-items: center; gap: 8px; }
+
+    /* One finding: a severity, a plain sentence, and what it does to a user. The
+       left rail keeps several findings on one offer readable as a list. */
+    .finding { border-left: 2px solid var(--border); padding: 6px 0 6px 11px; margin-top: 8px; }
+    .finding:first-child { margin-top: 0; }
+    .stat { font-size: 26px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .stat-bad { color: var(--bad); }
+    .stat-warn { color: var(--warn); }
+    .stat-ok { color: var(--ok); }
+    .stat-neutral { color: var(--muted); }
+    .group-list { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 12.5px; }
+    .group-list li { margin-bottom: 2px; }
     .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
     .kv .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
@@ -269,7 +313,11 @@
       amounts: { loading: false, error: null, items: null, total: null, busy: null, actionError: null, notice: null },
       // Reviews only a person can check — Meesho keeps the words inside its app,
       // so no machine can ever say whether the review is on the page.
-      reviews: { loading: false, error: null, items: null, total: null, busy: null, actionError: null, notice: null }
+      reviews: { loading: false, error: null, items: null, total: null, busy: null, actionError: null, notice: null },
+      // What the nightly check found on every live offer. Not a work queue in the
+      // ticket sense — nothing here is assigned or closed — so it carries no badge
+      // count. A number beside it every single day would stop meaning anything.
+      offers: { loading: false, error: null, data: null, busy: false }
     };
     function freshAmounts() {
       return { loading: false, error: null, items: null, total: null, busy: null, actionError: null, notice: null };
@@ -295,6 +343,7 @@
       amounts: ["SUPPORT", "ADMIN"],
       reviews: ["SUPPORT", "ADMIN"],
       campaigns: ["OPERATIONS", "ADMIN"],
+      offers: ["OPERATIONS", "ADMIN"],
       reports: ["OPERATIONS", "FINANCE", "ADMIN"],
       search: ["SUPPORT", "FINANCE", "ADMIN"],
       staff: ["ADMIN"],
@@ -305,7 +354,7 @@
     }
     // The tab a role lands on after login: the first one it's allowed to see.
     function defaultScreen() {
-      var order = ["withdrawals", "queue", "verifications", "amounts", "reviews", "campaigns", "reports", "search", "staff"];
+      var order = ["withdrawals", "queue", "verifications", "amounts", "reviews", "offers", "campaigns", "reports", "search", "staff"];
       for (var i = 0; i < order.length; i++) if (roleCanSee(order[i])) return order[i];
       return "search";
     }
@@ -318,6 +367,7 @@
       else if (id === "campaigns" && state.campaigns.items === null && !state.campaigns.loading) loadCampaigns();
       else if (id === "reports" && state.reports.data === null && !state.reports.loading) openReports();
       else if (id === "amounts" && state.amounts.items === null && !state.amounts.loading) loadAmounts();
+      else if (id === "offers" && state.offers.data === null && !state.offers.loading) loadOffers(false);
       else if (id === "reviews" && state.reviews.items === null && !state.reviews.loading) loadReviewChecks();
     }
     function saveSession() {
@@ -630,23 +680,60 @@
     // things you maintain, two are things you look at. A queue with items waiting
     // carries a count, so an operator can see where the work is without opening
     // each one.
-    var NAV_GROUPS = [
-      ["Queues", [
-        ["withdrawals", "Withdrawals", "₹"],
+    // ── The four teams who actually use this ──────────────────────────────────
+    //
+    // The nine sections used to sit in three headings named after what they were
+    // — Queues, Catalogue, Insight — which meant nobody's own work was in one
+    // place. They are grouped by the TEAM THAT OWNS THEM instead, so a finance
+    // person opens the panel and sees finance, and the other seven sections are
+    // one level away rather than mixed in.
+    //
+    // Front-end operations owns what is live and visible in the app: the offers,
+    // their pictures, their words. That is why the nightly offer check lands in
+    // their tab and not in Operations'.
+    //
+    // FOUR TEAMS, NOT FOUR ROLES. The server's roles are still SUPPORT, FINANCE,
+    // OPERATIONS and ADMIN, and a team here can be visible to more than one of
+    // them — Front-end operations is permitted as OPERATIONS today. Naming a team
+    // the panel cannot enforce would be claiming a separation that does not exist,
+    // so the role tag under the name is the truth about what someone can reach.
+    //
+    // Shape: [key, team name, glyph, [[section id, label, glyph], ...]]
+    var TEAMS = [
+      ["finance", "Finance", "₹", [
+        ["withdrawals", "Withdrawals", "↗"],
+        ["reports", "Reports", "◱"],
+      ]],
+      ["support", "Customer support", "☎", [
         ["queue", "Questions", "✉"],
         ["verifications", "Screenshots", "▣"],
-        ["amounts", "Unit counts", "#"],
         ["reviews", "Review checks", "★"],
       ]],
-      ["Catalogue", [
-        ["campaigns", "Campaigns", "◈"],
-        ["staff", "Staff", "◍"],
-      ]],
-      ["Insight", [
-        ["reports", "Reports", "◱"],
+      ["operations", "Operations", "⚙", [
+        ["amounts", "Unit counts", "#"],
+        ["staff", "Staff accounts", "◍"],
         ["search", "Find a user", "⌕"],
       ]],
+      ["fops", "Front-end operations", "◈", [
+        ["offers", "Offer check", "!"],
+        ["campaigns", "Campaigns", "◈"],
+      ]],
     ];
+
+    /** Which team a section belongs to, or null. */
+    function teamOf(screenId) {
+      var id = screenId === "user" ? (state.user && state.user.from) || "search" : screenId;
+      for (var i = 0; i < TEAMS.length; i++) {
+        var sections = TEAMS[i][3];
+        for (var j = 0; j < sections.length; j++) if (sections[j][0] === id) return TEAMS[i];
+      }
+      return null;
+    }
+
+    /** Sections of a team this role may see. */
+    function visibleSections(team) {
+      return team[3].filter(function (d) { return roleCanSee(d[0]); });
+    }
 
     // How many items are waiting in each queue. Null until that queue has been
     // loaded once — a badge showing 0 when nothing has been counted would be a
@@ -681,23 +768,47 @@
     }
 
     function Sidebar() {
-      var groups = NAV_GROUPS.map(function (g) {
-        var items = g[1].filter(function (d) { return roleCanSee(d[0]); });
-        if (!items.length) return null; // a role that owns nothing here sees no heading
-        return h("div", { class: "nav-group" },
-          h("div", { class: "nav-head" }, g[0]),
-          h("div", null, items.map(function (d) {
-            var id = d[0], count = pendingCount(id);
-            return h("div", {
-              class: "nav-item" + (state.screen === id ? " active" : ""),
-              role: "button", tabindex: "0",
-              onclick: function () { switchTab(id); },
-              onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(id); } }
-            },
-              h("span", { class: "nav-glyph" }, d[2]),
-              h("span", { class: "nav-label" }, d[1]),
-              count ? h("span", { class: "nav-badge" }, String(count)) : null);
-          })));
+      var here = teamOf(state.screen);
+      var groups = TEAMS.map(function (team) {
+        var sections = visibleSections(team);
+        if (!sections.length) return null; // a role that owns nothing here sees no team
+
+        var open = here === team;
+        var waiting = sections.reduce(function (n, d) {
+          var c = pendingCount(d[0]);
+          return n + (c || 0);
+        }, 0);
+
+        // The team itself is the click target. Landing on its first section is the
+        // right default: every team has one section it lives in, and making people
+        // choose twice to get anywhere is the friction this grouping removes.
+        var head = h("div", {
+          class: "team" + (open ? " open" : ""),
+          role: "button", tabindex: "0",
+          "aria-expanded": open ? "true" : "false",
+          onclick: function () { switchTab(sections[0][0]); },
+          onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(sections[0][0]); } }
+        },
+          h("span", { class: "team-glyph" }, team[2]),
+          h("span", { class: "team-label" }, team[1]),
+          waiting ? h("span", { class: "team-count" }, String(waiting)) : null);
+
+        // Sections show for the team you are in. Collapsed teams stay one line, so
+        // the whole console is four lines when you are not using it.
+        var list = open ? h("div", { class: "team-sections" }, sections.map(function (d) {
+          var id = d[0], count = pendingCount(id);
+          return h("div", {
+            class: "nav-item" + (state.screen === id ? " active" : ""),
+            role: "button", tabindex: "0",
+            onclick: function () { switchTab(id); },
+            onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchTab(id); } }
+          },
+            h("span", { class: "nav-glyph" }, d[2]),
+            h("span", { class: "nav-label" }, d[1]),
+            count ? h("span", { class: "nav-badge" }, String(count)) : null);
+        })) : null;
+
+        return h("div", { class: "nav-group" }, head, list);
       }).filter(Boolean);
 
       return h("aside", { class: "sidebar" },
@@ -726,6 +837,7 @@
       amounts: ["Unit counts", "Refunds waiting on how many units were bought. Nothing here pays until someone says."],
       reviews: ["Review checks", "Reviews no machine can find. Open the page, then say what you see."],
       campaigns: ["Campaigns", "The offers users can claim."],
+      offers: ["Offer check", "Every live offer, checked once a night. What is wrong, what is everywhere, and what cannot be checked at all."],
       reports: ["Reports", "Counts and totals, downloadable as a spreadsheet."],
       search: ["Find a user", "Look someone up by mobile number."],
       staff: ["Staff accounts", "Who can sign in here, and what they can reach."],
@@ -734,8 +846,10 @@
 
     function Topbar() {
       var t = SCREEN_TITLE[state.screen] || ["", ""];
+      var team = teamOf(state.screen);
       return h("header", { class: "top" },
         h("div", { style: "min-width:0" },
+          team ? h("div", { class: "top-crumb" }, team[1]) : null,
           h("h1", { class: "top-title" }, t[0]),
           h("div", { class: "top-sub" }, t[1])),
         h("div", { class: "spacer" }),
@@ -851,6 +965,129 @@
       var t = c.payoutPercent + "% back";
       if (c.payoutCapPaise != null) t += " · up to " + rupees(c.payoutCapPaise);
       return t;
+    }
+
+    // ── The nightly offer check ───────────────────────────────────────────────
+    //
+    // Three sections, in this order, because that is the order they deserve
+    // attention in:
+    //
+    //   1. OFFERS WITH SOMETHING WRONG. Short by design — anything that turns out
+    //      to be on most of the catalogue is lifted into section 2 by the server,
+    //      so this list stays the exceptions.
+    //   2. ACROSS THE CATALOGUE. A problem on ten of thirteen offers is a decision
+    //      about a policy, not ten things to fix one at a time.
+    //   3. WHAT COULD NOT BE CHECKED. Said once, with the offers it applies to.
+    //      Never a pass, and never silent — a check that quietly skips something is
+    //      worse than one that says it skipped it.
+    //
+    // The panel makes no judgements of its own here. Every word, severity and count
+    // comes from the server, so this tab and the nightly run can never disagree
+    // about what a broken offer is.
+    function OffersScreen() {
+      var o = state.offers;
+      if (o.loading && !o.data) return h("div", { class: "muted" }, h("span", { class: "spin" }), " Checking every live offer…");
+      if (o.error) return h("div", { class: "flash flash-err" }, o.error);
+      if (!o.data) return h("div", { class: "empty" }, "Nothing loaded yet.");
+
+      var r = o.data.report, last = o.data.lastRun, fresh = o.data.newSinceLastRun || [];
+      var freshKeys = {};
+      fresh.forEach(function (f) { freshKeys[f.campaignId + ":" + f.code] = true; });
+
+      // fmtDate, not a "3 hours ago" of its own — the exact time is what tells
+      // you whether last night's run actually happened.
+      var when = last
+        ? "Last automatic check: " + fmtDate(last.ranAt) + " (" + last.trigger.toLowerCase()
+          + ") — " + last.checked + " offers, " + last.blocking + " blocking."
+        : "The nightly check has not run yet, so there is nothing to compare against.";
+
+      var head = h("div", { class: "card" },
+        h("div", { class: "row", style: "justify-content:space-between;align-items:flex-start" },
+          h("div", { style: "min-width:0" },
+            h("div", { class: "row", style: "gap:18px" },
+              Stat(r.checked, "live offers checked"),
+              Stat(r.counts.blocking, "blocking", r.counts.blocking ? "bad" : "ok"),
+              Stat(r.counts.attention, "worth a look", r.counts.attention ? "warn" : "ok"),
+              Stat(r.counts.unchecked, "not checkable", "neutral")),
+            h("div", { class: "muted", style: "margin-top:12px;font-size:12.5px" }, when),
+            fresh.length
+              ? h("div", { style: "margin-top:6px;font-size:12.5px" },
+                  h("span", { class: "pill pill-warn" }, fresh.length + " new"),
+                  h("span", { class: "muted" }, " since that run — marked below."))
+              : null),
+          h("button", {
+            class: "btn btn-sm", disabled: o.busy ? "" : null,
+            onclick: function () { loadOffers(true); }
+          }, o.busy ? "Checking…" : "Check again now")));
+
+      var wrong = r.offers.length === 0
+        ? h("div", { class: "card" },
+            h("h3", null, "Offers with something wrong"),
+            h("div", { class: "empty" }, "Nothing. Every live offer has a picture, a price that adds up, and seats to claim."))
+        : h("div", { class: "card" },
+            h("h3", null, "Offers with something wrong", h("span", { class: "pill pill-neutral" }, String(r.offers.length))),
+            h("div", null, r.offers.map(function (offer) {
+              return h("div", { class: "task" },
+                h("div", { class: "head" },
+                  h("span", { class: "pill pill-neutral" }, offer.platform),
+                  h("span", { class: "title" }, offer.title)),
+                h("div", { style: "margin-top:8px" }, offer.findings.map(function (f) {
+                  return h("div", { class: "finding" },
+                    h("div", { class: "row", style: "gap:8px" },
+                      h("span", { class: "pill " + sevPill(f.severity) }, f.severity),
+                      h("span", { style: "font-weight:600" }, f.title),
+                      freshKeys[offer.campaignId + ":" + f.code] ? h("span", { class: "pill pill-warn" }, "new") : null),
+                    h("div", { class: "muted", style: "margin-top:3px" }, f.detail));
+                })));
+            })));
+
+      var groups = [];
+      if (r.patterns && r.patterns.length) {
+        groups.push(h("div", { class: "card" },
+          h("h3", null, "Across the catalogue"),
+          h("div", { class: "muted", style: "font-size:12.5px;margin:-4px 0 12px" },
+            "On more than half the live offers, so listed once. These are decisions "
+            + "about how offers are set up, not a list to work through one at a time."),
+          r.patterns.map(GroupBlock)));
+      }
+      if (r.limits && r.limits.length) {
+        groups.push(h("div", { class: "card" },
+          h("h3", null, "What could not be checked"),
+          h("div", { class: "muted", style: "font-size:12.5px;margin:-4px 0 12px" },
+            "Not problems, and not passes either. Fayr does not read marketplace "
+            + "pages from the server — the app does that, signed in as a real "
+            + "person — so these are the things only somebody opening the page can "
+            + "settle."),
+          r.limits.map(GroupBlock)));
+      }
+
+      return h("div", null, head, wrong, groups);
+    }
+
+    function GroupBlock(g) {
+      return h("div", { class: "task" },
+        h("div", { class: "head" },
+          h("span", { class: "pill " + sevPill(g.severity) }, g.severity),
+          h("span", { class: "title" }, g.title),
+          h("span", { class: "muted" }, g.offers.length + " offers")),
+        h("div", { class: "muted", style: "margin-top:6px" }, g.detail),
+        h("details", { style: "margin-top:8px" },
+          h("summary", { class: "muted", style: "cursor:pointer;font-size:12.5px" }, "Which offers"),
+          h("ul", { class: "group-list" }, g.offers.map(function (o) {
+            return h("li", null, o.title);
+          }))));
+    }
+
+    function Stat(value, label, tone) {
+      return h("div", { class: "kv" },
+        h("div", { class: "v stat" + (tone ? " stat-" + tone : "") }, String(value)),
+        h("div", { class: "k" }, label));
+    }
+
+    function sevPill(sev) {
+      if (sev === "blocking") return "pill-bad";
+      if (sev === "attention") return "pill-warn";
+      return "pill-neutral";
     }
 
     function CampaignsScreen() {
@@ -1445,6 +1682,20 @@
     // reader saw, what it refused to assert, and what will actually be paid if
     // they enter a number. They should not have to open the marketplace order to
     // make an obvious call.
+    // The nightly offer check. GET recomputes it live so the tab is never stale;
+    // the recorded runs are what "new since last night" is measured against.
+    async function loadOffers(rerun) {
+      var o = state.offers;
+      if (rerun) o.busy = true; else o.loading = true;
+      o.error = null; render();
+      try {
+        o.data = rerun
+          ? await api("POST", "/admin/campaign-health/run")
+          : await api("GET", "/admin/campaign-health");
+      } catch (e) { o.error = e.message; }
+      o.loading = false; o.busy = false; render();
+    }
+
     async function loadAmounts() {
       var a = state.amounts;
       a.loading = true; a.error = null; render();
@@ -2409,6 +2660,7 @@
       else if (state.screen === "verifications") content = VerificationsScreen();
       else if (state.screen === "amounts") content = AmountsScreen();
       else if (state.screen === "reviews") content = ReviewChecksScreen();
+      else if (state.screen === "offers") content = OffersScreen();
       else if (state.screen === "campaigns") content = CampaignsScreen();
       else if (state.screen === "reports") content = ReportsScreen();
       else if (state.screen === "search") content = SearchScreen();

@@ -41,8 +41,14 @@ web-preview/bundle.js
 
 # typescript
 *.tsbuildinfo
-# root TS config is not used by the RN app build (Metro/Babel); left out for now
+# The root tsconfig.json USED to be excluded here, on the grounds that the RN app
+# build (Metro/Babel) does not read it. It has since become load-bearing: the
+# typecheck gate reads it, and src/tsconfig.test.mjs runs the compiler against it.
+# Cloning the repository proved the cost — a complete checkout with no root config
+# and two failing gates. It is hand-written, not generated, so it belongs in here.
+# The rule stays for tsconfigs anywhere else, which are generated.
 tsconfig.json
+!/tsconfig.json
 
 # generated native folders
 /ios

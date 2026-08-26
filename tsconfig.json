@@ -1,0 +1,27 @@
+{
+  // THE DEVICE APP, AND ONLY THE DEVICE APP.
+  //
+  // This check had never once been green. Expo's base config excludes
+  // node_modules, android and ios and nothing else, so `tsc --noEmit` at the repo
+  // root swept into backend/ and died on the first NestJS decorator — before it
+  // read a single device file. backend/ has its own tsconfig (its own decorator
+  // settings, its own lib set) and its own clean check, and that one is the
+  // authority for backend code.
+  //
+  // Scoped by `include` rather than by `exclude` on purpose: a new top-level
+  // folder is then outside this check by default instead of quietly inside it.
+  // The cost of that choice is that a typo in a path here would empty the program
+  // and leave tsc exiting 0 on nothing at all, so src/tsconfig.test.mjs runs the
+  // compiler and asserts what it ACTUALLY read — App.js, index.js and the whole
+  // of src/, and no backend, panel, prototype or build output.
+  //
+  // checkJs stays off (the Expo base default): the app is all JavaScript, so this
+  // check parses every file but does not type it. Verified by experiment — it
+  // catches a syntax error and does not catch a broken import. Switching checkJs
+  // on today surfaces 139 errors across the device app, all of them inference
+  // noise from un-annotated JS rather than real defects. The gate that does
+  // resolve every import is `npx expo export --platform ios`.
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {},
+  "include": ["App.js", "index.js", "src/**/*", "plugins/**/*", "app.json"]
+}

@@ -30,12 +30,12 @@ console.log('=== 1. the whole script parses ===');
   ok(parsed, 'index.html parses as JavaScript' + (err ? ` (${err})` : ''));
 }
 
-console.log('\n=== 2. every tab is wired all the way through ===');
+console.log('\n=== 2. every section is wired all the way through ===');
 {
-  // Sidebar ids, from NAV_GROUPS.
-  const navBlock = (script.match(/var NAV_GROUPS = \[([\s\S]*?)\n    \];/) || [])[1] || '';
-  const ids = [...navBlock.matchAll(/\["([a-z]+)",\s*"/g)].map((m) => m[1]);
-  ok(ids.length >= 7, `found ${ids.length} sidebar entries`);
+  // Section ids, read out of the TEAMS structure the sidebar is built from.
+  const teamsBlock = (script.match(/var TEAMS = \[([\s\S]*?)\n    \];/) || [])[1] || '';
+  const ids = [...teamsBlock.matchAll(/\["([a-z]+)",\s*"[^"]+",\s*"[^"]*"\]/g)].map((m) => m[1]);
+  ok(ids.length >= 9, `found ${ids.length} sections across the teams`);
   for (const id of ids) {
     ok(new RegExp(`\\b${id}:\\s*\\[`).test(script), `${id} has a role list (TAB_ROLES)`);
     ok(new RegExp(`\\b${id}:\\s*\\[\\s*"`).test(script), `${id} has a screen title`);
@@ -44,8 +44,177 @@ console.log('\n=== 2. every tab is wired all the way through ===');
       `${id} is dispatched by the router — not a tab that opens an empty pane`,
     );
   }
-  ok(ids.includes('amounts'), 'the unit-count queue is in the sidebar, not hidden in a menu');
-  ok(ids.includes('reviews'), 'the review-check queue is in the sidebar too — a power with no queue is a dead end');
+  ok(ids.includes('amounts'), 'the unit-count queue is reachable, not hidden in a menu');
+  ok(ids.includes('reviews'), 'the review-check queue is reachable too — a power with no queue is a dead end');
+}
+
+console.log('\n=== 2b. the four teams, and nothing lost on the way to them ===');
+{
+  // THE RISK THIS SECTION EXISTS FOR. Nine sections were regrouped into four
+  // teams by hand. The way that goes wrong is silently: a section left out of the
+  // new structure is still routed, still permitted, still loads — and simply
+  // cannot be reached by anybody. Nothing errors.
+  const teamsBlock = (script.match(/var TEAMS = \[([\s\S]*?)\n    \];/) || [])[1] || '';
+  const teams = [...teamsBlock.matchAll(/\n      \["([a-z]+)",\s*"([^"]+)"/g)].map((m) => [m[1], m[2]]);
+  ok(teams.length === 4, `four teams, found ${teams.length}: ${teams.map((t) => t[1]).join(', ')}`);
+
+  // Who owns what, as decided. Not a guess — the ownership was named, and if it
+  // moves, it moves here first.
+  const OWNERSHIP = {
+    finance: ['withdrawals', 'reports'],
+    support: ['queue', 'verifications', 'reviews'],
+    operations: ['amounts', 'staff', 'search'],
+    fops: ['offers', 'campaigns'],
+  };
+  for (const [key, expected] of Object.entries(OWNERSHIP)) {
+    // Each team's own block, from its key to the start of the next team.
+    const at = teamsBlock.indexOf(`["${key}",`);
+    ok(at >= 0, `the ${key} team exists`);
+    if (at < 0) continue;
+    const nextAt = teams
+      .map((t) => teamsBlock.indexOf(`["${t[0]}",`))
+      .filter((i) => i > at)
+      .sort((a, b) => a - b)[0];
+    const block = teamsBlock.slice(at, nextAt === undefined ? undefined : nextAt);
+    const sections = [...block.matchAll(/\["([a-z]+)",\s*"[^"]+",\s*"[^"]*"\]/g)].map((m) => m[1]);
+    ok(
+      JSON.stringify(sections) === JSON.stringify(expected),
+      `${key} owns exactly [${expected.join(', ')}] — found [${sections.join(', ')}]`,
+    );
+  }
+
+  // Every section that existed before the regrouping is still reachable, in
+  // exactly one team. This is the assertion that catches a dropped tab.
+  const BEFORE = ['withdrawals', 'queue', 'verifications', 'amounts', 'reviews', 'campaigns', 'reports', 'search', 'staff'];
+  const all = [...teamsBlock.matchAll(/\["([a-z]+)",\s*"[^"]+",\s*"[^"]*"\]/g)].map((m) => m[1]);
+  for (const id of BEFORE) {
+    ok(
+      all.filter((x) => x === id).length === 1,
+      `${id} appears in exactly one team (${all.filter((x) => x === id).length})`,
+    );
+  }
+  ok(all.includes('offers'), 'the offer check has a home, in the team that owns the offers');
+
+  // Every ROUTED screen belongs to a team, or it is unreachable. 'user' is the one
+  // exception and it is reached from a search result, never from the sidebar.
+  const routed = [...script.matchAll(/state\.screen === "([a-z]+)"/g)].map((m) => m[1]);
+  for (const id of new Set(routed)) {
+    ok(
+      id === 'user' || all.includes(id),
+      `${id} is routed AND reachable from the sidebar`,
+    );
+  }
+}
+
+console.log('\n=== 2c. the offer check reads the server, and never grades a picture itself ===');
+{
+  // The check is a backend job. The panel's job is to show what it found — so the
+  // panel must not start deciding what counts as a problem, or there would be two
+  // definitions of a broken offer and the tab would disagree with the nightly run.
+  ok(/admin\/campaign-health/.test(script), 'the tab reads /admin/campaign-health');
+  // Scoped to the screen itself: the campaign EDITOR legitimately handles a cap,
+  // because that is where a cap is set. What must not happen is this tab deciding
+  // what counts as a problem, which would give a broken offer two definitions.
+  const screen = (script.match(/function OffersScreen\(\)[\s\S]*?\n    function GroupBlock/) || [''])[0];
+  ok(screen.length > 500, 'found the offer-check screen');
+  ok(
+    !/looksLikeImage|payoutCapPaise|productPricePaise|payoutPercent/.test(screen),
+    'and it judges nothing itself — every word and severity comes from the server',
+  );
+  ok(!/relTime|Math\.floor\(.*60/.test(screen), 'and it does not invent its own clock arithmetic');
+  ok(/newSinceLastRun/.test(script), 'it shows what is new since the last nightly run');
+  ok(/lastRun/.test(script), 'and when that run was, so silence can be told from staleness');
+}
+
+console.log('\n=== 2d. the offer-check screen actually renders ===');
+{
+  // WHY A RENDER TEST AND NOT ANOTHER GREP. The parse check above catches a
+  // syntax error; it does not catch calling a helper that does not exist. The
+  // first version of this screen called relTime(), which was never written — the
+  // file parsed, every grep passed, and the tab would have thrown on open in
+  // front of whoever was demoing.
+  //
+  // So the screen's own functions are lifted out and called with a stub h() and a
+  // realistic report. No DOM, no browser: the point is that every name it reaches
+  // for resolves.
+  // One contiguous span: the screen and the three helpers only it uses, from its
+  // own definition up to the next screen's.
+  const from = script.indexOf('function OffersScreen()');
+  const to = script.indexOf('function CampaignsScreen()');
+  const src = from >= 0 && to > from ? script.slice(from, to) : '';
+  ok(src.includes('OffersScreen') && src.includes('sevPill'), 'the screen\'s functions were found');
+
+  const REPORT = {
+    report: {
+      ranAt: '2026-08-26T06:15:00.000Z',
+      checked: 13,
+      counts: { blocking: 1, attention: 3, unchecked: 21 },
+      offers: [{
+        campaignId: 'c1', title: 'Rate a Cotton Kurta Set', platform: 'MEESHO',
+        findings: [{ code: 'picture-missing', severity: 'blocking', title: 'This offer has no picture', detail: 'A placeholder shows instead.' }],
+      }],
+      patterns: [{
+        code: 'return-window-is-the-default', severity: 'attention',
+        title: 'These offers fall back to the default return window',
+        detail: 'Ten of them.', offers: [{ campaignId: 'c2', title: 'Another offer' }],
+      }],
+      limits: [{
+        code: 'picture-not-verified', severity: 'unchecked',
+        title: 'Nobody can tell whether these pictures are the right products',
+        detail: 'No product links.', offers: [{ campaignId: 'c3', title: 'A third offer' }],
+      }],
+    },
+    lastRun: { ranAt: '2026-08-26T06:15:00.000Z', trigger: 'SCHEDULED', checked: 13, blocking: 1, attention: 3, unchecked: 21 },
+    newSinceLastRun: [{ campaignId: 'c1', title: 'Rate a Cotton Kurta Set', code: 'picture-missing', severity: 'blocking' }],
+  };
+
+  // A stub h() that records the tree as plain objects, and the two helpers the
+  // screen borrows from the rest of the panel.
+  const harness = `
+    var seen = [];
+    function h(tag, attrs) {
+      var kids = Array.prototype.slice.call(arguments, 2);
+      var node = { tag: tag, attrs: attrs || {}, kids: kids };
+      seen.push(node);
+      return node;
+    }
+    function fmtDate(iso) { return new Date(iso).toISOString(); }
+    var state = { offers: { loading: false, error: null, data: DATA, busy: false } };
+    function loadOffers() {}
+    ${src}
+    return { tree: OffersScreen(), seen: seen };
+  `;
+
+  for (const [label, data] of [
+    ['a full report', REPORT],
+    ['a clean catalogue', { ...REPORT, report: { ...REPORT.report, offers: [], counts: { blocking: 0, attention: 0, unchecked: 4 } } }],
+    ['no nightly run yet', { ...REPORT, lastRun: null, newSinceLastRun: [] }],
+    ['no patterns or limits', { ...REPORT, report: { ...REPORT.report, patterns: [], limits: [] } }],
+  ]) {
+    let threw = null, out = null;
+    try {
+      out = new Function('DATA', harness)(data);
+    } catch (e) { threw = e.message; }
+    ok(!threw, `renders ${label}` + (threw ? ` — threw: ${threw}` : ''));
+    if (out) {
+      const text = JSON.stringify(out.seen);
+      ok(!/undefined/.test(text), `${label}: nothing renders as "undefined"`);
+      ok(!/NaN/.test(text), `${label}: no NaN reaches the screen`);
+    }
+  }
+
+  // And the words a reader actually needs are in the output, not just the shape.
+  const out = new Function('DATA', harness)(REPORT);
+  const text = JSON.stringify(out.seen);
+  ok(/Last automatic check/.test(text), 'it says when the nightly check last ran');
+  ok(/This offer has no picture/.test(text), 'the finding\'s own words are shown');
+  ok(/new/.test(text), 'and what is new since that run is marked');
+
+  const clean = new Function('DATA', harness)({ ...REPORT, report: { ...REPORT.report, offers: [] } });
+  ok(
+    /Nothing\./.test(JSON.stringify(clean.seen)),
+    'a clean catalogue says so in words rather than showing an empty box',
+  );
 }
 
 console.log('\n=== 3. the panel never computes money itself ===');

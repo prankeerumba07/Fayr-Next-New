@@ -38,6 +38,26 @@ point.
 cd ~/FAYR-Next/backend && npm run start:dev      # on :3001
 ```
 
-The staff console at `admin-panel/index.html` talks to `http://localhost:3000`
-by default — the DEMO backend. When working on the panel here, point it at 3001
-first, and never commit a change that leaves the demo copy pointing at 3001.
+The staff console needs no edit to point at this copy — it takes the address
+from the query string:
+
+```
+admin-panel/index.html?api=http://localhost:3001
+```
+
+Opened without `?api=`, it talks to `http://localhost:3000` — the DEMO backend.
+So never hard-code a port into the panel: the copy that gets demoed on Monday
+must keep working from a plain double-click.
+
+## If the backend exits with no output
+
+It used to do exactly that, and the answer was almost always "Postgres is not
+running". A boot failure now prints its reason to stderr before it exits — the
+logger's own transport was being killed by `process.exit` before it could flush,
+so the message was composed and lost. If you see a bare exit code from an older
+checkout, start with:
+
+```sh
+docker ps                      # is fayr-postgres up?
+docker start fayr-postgres     # and if the daemon itself is dead, restart Docker
+```
