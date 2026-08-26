@@ -704,8 +704,11 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
       <span class="who who-money">Money moves</span>
       <p class="act">Tap <em>Release ₹539.10 to wallet</em></p>
       <dl>
-        <dt>On screen</dt><dd>The task closes as refunded. Open <em>Earnings</em>: the wallet is <span class="money">₹539.10</span>, up from zero, and <em>"Your All Time Earnings ✨"</em> reads the same.</dd>
+        <dt>On screen</dt><dd><strong>A new screen now appears</strong> — the phone leaves the timeline for a celebration: a green tick, <em>REFUND PAID</em>, <strong>"You've been paid"</strong>, the amount <span class="money">₹539.10</span> between two hairlines, a chip reading <em>"✓ Credited to fayr Wallet"</em>, and one line underneath — <em>"Paid ₹599.00 × 90% refund. Your honest review made this happen."</em> The two figures in that sentence are the price the payout was actually based on and the campaign's percentage, not the listed price.</dd>
+        <dt>Then tap</dt><dd>The green <em>VIEW WALLET</em> pill, which lands on <em>Earnings</em>: the wallet is <span class="money">₹539.10</span>, up from zero, and <em>"Your All Time Earnings ✨"</em> reads the same. (<em>Explore more campaigns</em> underneath goes back to the feed — not the way you want to go here.)</dd>
         <dt>Say this</dt><dd>"That is a double-entry ledger entry in whole paise. Nothing is a floating-point number anywhere near the money."</dd>
+        <dt>Worth pointing at</dt><dd>The amount reads <strong>₹539.10</strong>, not ₹539. The design's own version of this screen rounded to whole rupees and took its percentage from the listed price — both were changed, because the number on the celebration has to be the number in the ledger.</dd>
+        <dt>It appears once, on purpose</dt><dd>This screen is shown on the <strong>transition</strong> to refunded, not whenever a paid task is opened. Going back into that task from <em>My Products</em> afterwards shows the timeline, not the celebration. If you want the celebration again you need another release.</dd>
         <dt>If it fails</dt><dd class="fix">A message naming what is still missing — the return window, the review, or the amount — appears in plain words. Read it out; it is written to be read out.</dd>
       </dl>
     </div>
