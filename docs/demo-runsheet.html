@@ -490,7 +490,7 @@ npx expo start</code></pre>
         file is enough, it talks to <code>http://localhost:3000</code> on its own.</p>
       <dl>
         <dt>Sign in with</dt><dd>The <strong>ADMIN</strong> account — the address in <code>STAFF_BOOTSTRAP_EMAIL</code>. ADMIN sees every queue, so one login runs the whole demo.</dd>
-        <dt>Look for</dt><dd>The sidebar, with a badge reading <strong>6</strong> next to <em>Unit counts</em> and <strong>1</strong> next to <em>Review checks</em>.</dd>
+        <dt>Look for</dt><dd>The sidebar, with a badge reading <strong>7</strong> next to <em>Unit counts</em> and <strong>1</strong> next to <em>Review checks</em>.</dd>
         <dt>Review checks has something in it now</dt><dd>It used to be empty. It holds a Meesho task whose review no machine can settle, which is the queue's entire reason for existing: "Meesho keeps review text inside its own app, so a person opens the product page and records what they saw." Do not say "Meesho only" — the queue is derived from the evidence on each task, not from a list of platforms, so an Amazon review we cannot fetch lands in it too.</dd>
         <dt>If it fails</dt><dd class="fix">"Can’t reach the Fayr server" means step 4 is not running. A wrong password locks nothing — just retype it.</dd>
       </dl>
@@ -505,9 +505,9 @@ npx expo start</code></pre>
       <pre><code>cd backend
 npx ts-node scripts/check-awaiting-amount.ts</code></pre>
       <dl>
-        <dt>Look for</dt><dd><code>Refunds held for a person to decide: 6</code>, then six lines — Flipkart and Amazon needing a <em>count</em>, Blinkit, Instamart and Zepto needing an <em>amount</em>, and a second Blinkit needing a <em>count</em>.</dd>
-        <dt>Six, not five</dt><dd>The sixth (<code>a47b47b2</code>, Blinkit, order <code>BLK-88213004</code>) is seeded demo data, added so the queue is never empty on a fresh database. <strong>Use one of the first five for the live decision</strong> — those are the ones in the table below, with figures produced by running the real refund calculation against the real rows.</dd>
-        <dt>Why bother</dt><dd>This reads the real database through the real code. If it says 6, every step below will behave as written.</dd>
+        <dt>Look for</dt><dd><code>Refunds held for a person to decide: 7</code>, then seven lines — three needing a <em>count</em> (Flipkart, Amazon, Blinkit) and four needing an <em>amount</em> (two Blinkit, Instamart, Zepto).</dd>
+        <dt>Use the one that is YOURS</dt><dd>Two of the seven are Blinkit asking for an amount, and only one of them is on the account you will be signed in on: <code>94e45c7d</code>, order <code>BLK-21562792</code>, ceiling <code>max 60400</code>. <strong>Match the order number, not the marketplace.</strong> The other six belong to other accounts — decide one of those and the phone in your hand will not move, which is a very confusing thirty seconds in front of an audience.</dd>
+        <dt>Why bother</dt><dd>This reads the real database through the real code. If it says 7 and <code>BLK-21562792</code> is in the list, every step below will behave as written.</dd>
         <dt>If it says something else</dt><dd class="fix">Somebody already cleared one of these on a previous run. The demo still works — just use whichever held task is still listed, and take its figure from the table below.</dd>
       </dl>
     </div>
@@ -518,12 +518,19 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
     calculation against the real rows, not by hand. The panel will show you the
     same number before you confirm anything.</p>
 
+  <p class="note"><strong>The first row is the one to use.</strong> <code>94e45c7d</code>
+    (order <code>BLK-21562792</code>) is the only one of these on the account you
+    will be signed in on, so it is the only one whose release the phone in your
+    hand will show. The other five sit on other accounts. They are listed because
+    they are what fills the queue on screen — not because any of them is yours.</p>
+
   <div class="scroll">
     <table>
       <thead>
         <tr><th>Task</th><th>Marketplace</th><th>Stage</th><th>Decision needed</th><th class="num">You enter</th><th class="num">It pays</th></tr>
       </thead>
       <tbody>
+        <tr><td class="mono"><strong>94e45c7d</strong></td><td>Blinkit</td><td>In hold</td><td>Amount</td><td class="num">₹599</td><td class="num money">₹539.10</td></tr>
         <tr><td class="mono">e52de6fb</td><td>Blinkit</td><td>In hold</td><td>Amount</td><td class="num">₹599</td><td class="num money">₹539.10</td></tr>
         <tr><td class="mono">2125ec4d</td><td>Zepto</td><td>Reviewed</td><td>Amount</td><td class="num">₹149</td><td class="num money">₹134.10</td></tr>
         <tr><td class="mono">f2029517</td><td>Instamart</td><td>Delivered</td><td>Amount</td><td class="num">—</td><td class="num">no review yet</td></tr>
@@ -534,9 +541,10 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
   </div>
 
   <ul>
-    <li><strong>Tickets on the demo account:</strong> 40. A claim costs 5, so you have eight claims. No danger of running out.</li>
-    <li><strong>Wallet balance right now:</strong> ₹0, so when the refund lands the wallet goes from nothing to something — which is the shot you want. <strong>One</strong> earlier withdrawal took <strong>₹590.40</strong> out of this account. Do not say ₹3,787.40 or "two withdrawals": that total is the sum across two <em>different</em> accounts, and only ₹590.40 of it was ever this one's.</li>
-    <li><strong>If you open the withdrawal history on screen</strong>, that earlier payout's reference reads <code>DEV-PLACEHOLDER-20260813</code>. It is a real ledger movement with a stand-in reference, because no bank transfer was actually made. Say so plainly if it is spotted; do not present it as a bank reference.</li>
+    <li><strong>Tickets on the demo account:</strong> <strong>5</strong> — a claim costs 5, so you have <strong>exactly one</strong>, and step 11 is it. This is the tightest figure in the run. Two consequences: the <em>Confirm participation</em> screen will read <code>Your balance after 0 tickets</code>, and if you rehearse the claim beforehand there is nothing left for the live one. If you must rehearse, rehearse everything except step 11.</li>
+    <li><strong>Wallet balance right now:</strong> <strong>₹4,299.10</strong>. The old script said ₹0 and "from nothing to something" — that was a different account. The shot is now <em>₹4,299.10 → ₹4,838.20</em>, which reads as an account with a history rather than a first-ever payment. Lead with the change, not the total: "that is the refund landing, ₹539.10, in a wallet that already had earnings in it."</li>
+    <li><strong>The big number at the top of Earnings</strong> is not the wallet. It reads <strong>₹7,696.10</strong> now and <strong>₹8,235.20</strong> after the release, because it adds the balance to everything already withdrawn or on its way. If someone asks why it is bigger than the wallet, that is the answer.</li>
+    <li><strong>Three withdrawals are on this account</strong>, and they are not all alike. One of <strong>₹3,197.00</strong>, paid in July, carries a genuine bank reference. One of <strong>₹100.00</strong> is seeded and its reference reads <code>UTR2608DEMO0001</code>. One of <strong>₹100.00</strong> is still waiting for FINANCE. If the seeded reference is spotted, say plainly that it is a stand-in on a real ledger movement, because no bank transfer was made for it — do not present it as a bank reference.</li>
     <li><strong>Payout destination:</strong> already saved on the account, so <em>Withdraw</em> is available the moment the balance clears ₹100.</li>
     <li><strong>Active offers:</strong> 13. The thirteenth is a Meesho offer, and it is the <strong>last</strong> card in the feed — deliberately dated earliest so that adding it did not move anything above it. Scroll to the bottom if you want to talk about Meesho.</li>
   </ul>
@@ -585,9 +593,10 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
     <div class="n">10</div>
     <div class="step-body">
       <span class="who who-app">The app</span>
-      <p class="act">The setup questions run — this account has not done them yet</p>
+      <p class="act">The setup questions — this account has already answered them, so expect to skip straight to the feed</p>
       <dl>
-        <dt>On screen, in order</dt><dd>Seven screens, and there are <strong>three</strong> questions, not one. Seven only while this account has answered nothing: answer one question in a rehearsal and the intro drops out, leaving six and changing the first line to "Pick up where you left off". Re-check with the pre-flight if you rehearse.
+        <dt>Read this first</dt><dd>The account behind your number finished this flow in July, so <strong>none of the screens below will appear</strong> — sign-in lands you on the feed. That is correct behaviour and it is not worth a pause; carry straight on to step 11. The script for the flow is kept here because it is worth <em>describing</em> in one sentence ("there are three questions, and the last card is where consent is recorded"), and because it will run on any number that has never signed in.<br><br>If you would rather show it live, it takes clearing one field on the account and it is reversible — ask before the room fills, not during.</dd>
+        <dt>What it would show, in order</dt><dd>Seven screens, and there are <strong>three</strong> questions, not one. Seven only while an account has answered nothing: answer one question and the intro drops out, leaving six and changing the first line to "Pick up where you left off".
           <br>1 &middot; <strong>"Let's set up your profile"</strong> — "Takes about 30 seconds — so we can show you campaigns worth your time.", button <em>LET'S GO</em>.
           <br>2 &middot; <strong>STEP 1/3 "How Young Are you?"</strong> — an age band, then a <em>Gender</em> chip. Both are required.
           <br>3 &middot; <strong>STEP 2/3 "What do you love shopping?"</strong> — categories. At least three. The button goes <em>grey</em> below three but it is still tappable: tapping it raises "Pick at least 3 categories to continue." Do not say "it won't let you" and then tap it.
@@ -613,11 +622,11 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
         <em>"Amazon Brand - Solimo 5-Layer Revolving Vegetable Kitchen Rack…"</em>
         and it is the <strong>8th card down</strong>, so scroll rather than hunt.</p>
       <dl>
-        <dt>Why that one</dt><dd>It is the only active offer this account has never claimed. Every other card already has a task, so tapping one opens the existing task instead of a fresh claim — correct behaviour, wrong story.</dd>
+        <dt>Why that one</dt><dd>It is the offer this run is built on, and the only active one deliberately left unclaimed. Five of the thirteen cards already have a task on this account and open it instead of claiming — correct behaviour, wrong story. The other seven <em>would</em> claim, and you have tickets for exactly one claim, so a wrong tap that reaches CONFIRM &amp; JOIN spends them on the wrong offer and step 11 cannot be redone. Scroll to the eighth card; do not explore.</dd>
         <dt>The tap order, in full</dt><dd>
           <br><strong>1 · The feed card.</strong> Green chip <em>90% Refund · up to ₹1,999</em>, footer <em>Claim · 5 tickets</em> and <em>Claim →</em>. Tap it.
           <br><strong>2 · The product page.</strong> Sections run <em>Campaign overview · How it works · What to buy · Terms &amp; conditions · Frequently asked</em>. The button at the bottom reads <strong>Claim campaign · 5 tickets →</strong> with <em>"Claiming reserves this product for you"</em> under it. Tap it. <strong>Nothing is spent yet.</strong>
-          <br><strong>3 · "Confirm participation".</strong> This is new and it is where the tickets actually go. Four cards: the product, <em>Your refund</em> (<em>Refund — 90% of what you pay</em>, <em>Maximum — ₹1,999</em>), <em>Tickets</em> (<em>This claim uses 5 tickets</em>, <em>Your balance after 35 tickets</em>), and <em>Deadline</em> — <em>"Buy the product within 7 days of joining."</em>
+          <br><strong>3 · "Confirm participation".</strong> This is new and it is where the tickets actually go. Four cards: the product, <em>Your refund</em> (<em>Refund — 90% of what you pay</em>, <em>Maximum — ₹1,999</em>), <em>Tickets</em> (<em>This claim uses 5 tickets</em>, <em>Your balance after 0 tickets</em>), and <em>Deadline</em> — <em>"Buy the product within 7 days of joining."</em>
           <br><strong>Tick the box first.</strong> <em>"I'll write an honest review. I understand my rating never affects my refund."</em> <strong>CONFIRM &amp; JOIN stays grey and does nothing until it is ticked.</strong> Then tap it.
           <br><strong>4 · "Product Claimed!"</strong> — a sheet with <em>"This product is yours until &lt;date and time&gt;. Buy it on Amazon before then."</em>, a chip reading <em>🎟 5 tickets held · returned if the claim expires</em>, and a countdown box showing <em>6d 23h · Remaining</em>.
         </dd>
@@ -636,7 +645,7 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
     <div class="step-body">
       <span class="who who-you">You · phone</span>
       <p class="act">Now open the Blinkit task — <em>Chrysanthemum Flower Pot</em></p>
-      <p>Find it under <em>My Products</em>. This is the centre of the demo.</p>
+      <p>Find it under <em>My Products</em> — order <code>BLK-21562792</code>. This is the centre of the demo.</p>
       <dl>
         <dt>On screen</dt><dd>The timeline is almost entirely done: bought, delivered, review written, <strong>Rating confirmed</strong> — "Your rating is on the order in your Blinkit account" — return window closed. And it still says <strong>Refund on hold</strong>.</dd>
         <dt>If someone asks to see the review</dt><dd>There is nothing to show, and say so first: Blinkit has no public review page at all. What was verified is the rating marked on the order in their own account. "On Blinkit and Zepto we are paying for a rating nobody else can read. That is a deliberate call about two launch partners and it is on our own risk list — Amazon and Flipkart are the ones with a public review we fetch and re-check."</dd>
@@ -659,7 +668,8 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
       <span class="who who-staff">Staff · console</span>
       <p class="act">Open <em>Unit counts</em> in the sidebar and find the Blinkit card</p>
       <dl>
-        <dt>On screen</dt><dd>Five cards. The Blinkit one asks for an amount and shows the order number, the order total, what the offer says the product costs, and the ceiling: <strong>"Most this can be: ₹604.00 — the order's own total"</strong>.</dd>
+        <dt>On screen</dt><dd>Seven cards. <strong>Two of them are Blinkit asking for an amount</strong>, so go by the order number: yours is <code>BLK-21562792</code>. It shows the order number, the order total, what the offer says the product costs, and the ceiling: <strong>"Most this can be: ₹604.00 — the order's own total"</strong>.</dd>
+        <dt>The other Blinkit card is a trap</dt><dd>It looks identical and asks for the same ₹599, because it is the same product on another account. Decide that one and the panel will accept it happily — and the phone in your hand will not change, because nothing about your task moved. If the phone does not update at step 15, this is why: check which order number you confirmed.</dd>
         <dt>Say this</dt><dd>"The reviewer cannot type any number they like. One item cannot have cost more than the whole order did, so that is the ceiling — derived from the order, not a round number somebody picked."</dd>
         <dt>If the queue is empty</dt><dd class="fix">Refresh the browser. If it is still empty, you are signed in as FINANCE or OPERATIONS — this queue is SUPPORT and ADMIN only.</dd>
       </dl>
@@ -705,7 +715,7 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
       <p class="act">Tap <em>Release ₹539.10 to wallet</em></p>
       <dl>
         <dt>On screen</dt><dd><strong>A new screen now appears</strong> — the phone leaves the timeline for a celebration: a green tick, <em>REFUND PAID</em>, <strong>"You've been paid"</strong>, the amount <span class="money">₹539.10</span> between two hairlines, a chip reading <em>"✓ Credited to fayr Wallet"</em>, and one line underneath — <em>"Paid ₹599.00 × 90% refund. Your honest review made this happen."</em> The two figures in that sentence are the price the payout was actually based on and the campaign's percentage, not the listed price.</dd>
-        <dt>Then tap</dt><dd>The green <em>VIEW WALLET</em> pill, which lands on <em>Earnings</em>: the wallet is <span class="money">₹539.10</span>, up from zero, and <em>"Your All Time Earnings ✨"</em> reads the same. (<em>Explore more campaigns</em> underneath goes back to the feed — not the way you want to go here.)</dd>
+        <dt>Then tap</dt><dd>The green <em>VIEW WALLET</em> pill, which lands on <em>Earnings</em>: the wallet reads <span class="money">₹4,838.20</span>, up from ₹4,299.10, and the big figure at the top — <em>"Your All Time Earnings ✨"</em> — reads <span class="money">₹8,235.20</span>, because it adds in what has already been withdrawn. Point at the change, not the total. (<em>Explore more campaigns</em> underneath goes back to the feed — not the way you want to go here.)</dd>
         <dt>Say this</dt><dd>"That is a double-entry ledger entry in whole paise. Nothing is a floating-point number anywhere near the money."</dd>
         <dt>Worth pointing at</dt><dd>The amount reads <strong>₹539.10</strong>, not ₹539. The design's own version of this screen rounded to whole rupees and took its percentage from the listed price — both were changed, because the number on the celebration has to be the number in the ledger.</dd>
         <dt>It appears once, on purpose</dt><dd>This screen is shown on the <strong>transition</strong> to refunded, not whenever a paid task is opened. Going back into that task from <em>My Products</em> afterwards shows the timeline, not the celebration. If you want the celebration again you need another release.</dd>
@@ -723,12 +733,24 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
         <dt>On the phone</dt><dd><em>Wallet → Withdraw</em>. The minimum is ₹100 and a payout destination is already saved, so it goes through.</dd>
         <dt>In the console</dt><dd><em>Withdrawals</em> queue → Approve → Mark paid. That queue is FINANCE and ADMIN — a different person from the one who set the amount.</dd>
         <dt>Say this</dt><dd>"Deciding the amount and releasing the money are different jobs held by different roles. Neither one can do the other's."</dd>
-        <dt>If it fails</dt><dd class="fix">"You need at least ₹100 in your wallet to withdraw" means the release in step 16 did not land. Go back one step.</dd>
+        <dt>Note</dt><dd>This account is already well above the minimum, so <em>Withdraw</em> works whether or not step 16 landed. That means it will not tell you if the release failed — check the wallet figure moved before you rely on this step as proof of anything.</dd>
       </dl>
     </div>
   </div>
 
   <h2 id="extra"><span class="phase">If you have more time</span>The two moments worth adding</h2>
+
+  <div class="callout warn">
+    <span class="title">Read this before you plan on these two</span>
+    <p>Both sit on task <code>920244c9</code>, which belongs to <strong>another
+      account</strong> — the same mismatch that had to be fixed in steps 12–16.
+      Step 18 is a console decision and still demonstrates perfectly well: the
+      card is real, the queue is real, the figure is real. <strong>Step 19 cannot
+      be run</strong>, because it needs that task on the phone in your hand and it
+      is not there. Describe it instead — the sentence is worth saying even
+      without the tap — or ask for a sixth journey to be seeded onto the demo
+      account, which is a small change and not a rushed one.</p>
+  </div>
 
   <div class="step">
     <div class="n">18</div>
@@ -754,8 +776,8 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
   <div class="step">
     <div class="n">19</div>
     <div class="step-body">
-      <span class="who who-you">You · phone</span>
-      <p class="act">Tap <em>Yes, this is my order</em> on the Amazon task, then release</p>
+      <span class="who who-you">Describe, do not tap</span>
+      <p class="act">What happens next on the buyer's phone — <em>Yes, this is my order</em></p>
       <dl>
         <dt>On screen before you tap</dt><dd>Under <em>Refund on hold</em>: "the amount you paid doesn't match this offer — confirm this is your order".</dd>
         <dt>Say this</dt><dd>"The price moved between us writing the offer and them buying it. That is usually a discount and it is fine — but we ask the buyer to confirm it is their order before we pay against a number that does not match."</dd>
@@ -837,10 +859,11 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
 <footer>
   Every number in this sheet came from running the real refund calculation against
   the live dev database — not from reading a screen — and was last re-run on
-  25 August 2026, along with a line-by-line check of every quoted sentence against
-  the app's own strings. Re-check the figures any time with
+  <strong>26 August 2026</strong>, along with a line-by-line check of every quoted
+  sentence against the app's own strings. Re-check the figures any time with
   <code>npx ts-node scripts/check-awaiting-amount.ts</code> from the
-  <code>backend</code> directory.
+  <code>backend</code> directory, or the whole picture with
+  <code>npx ts-node scripts/verify-demo-state.ts</code>.
   <br><br>
   The startup sequence above was rehearsed cold on 25 August — Docker quit,
   Postgres stopped, backend and Expo killed — and every timing in it was measured
@@ -848,9 +871,18 @@ npx ts-node scripts/check-awaiting-amount.ts</code></pre>
   rehearsal hit them: Docker's half-dead state, and Expo rewriting
   <code>backend/tsconfig.json</code> when started from the wrong directory.
   <br><br>
-  One earlier figure was WRONG and is corrected here: the demo account's withdrawal
-  history is one payout of ₹590.40, not two totalling ₹3,787.40. That larger total
-  is real but spans two different accounts. The previous check confirmed the number
-  existed in the database without confirming whose it was — a figure can be true and
-  still be attributed to the wrong row.
+  <strong>26 August: the demo moved to Prakash's own number, and that changed more
+  than a login.</strong> Every figure above that describes "the demo account" now
+  describes a different account from the one the earlier drafts measured — the
+  tickets (40 → 5), the wallet (₹0 → ₹4,299.10), the withdrawal history, the setup
+  questions in step 10, and above all the held refund at the centre of steps 12–16,
+  which belonged to another account entirely and has been given to this one. The
+  five other held refunds are still listed because they are what fills the queue on
+  screen, not because any of them is yours.
+  <br><br>
+  The same mistake caused both this and the correction before it: a figure was
+  confirmed to exist in the database without confirming whose row it came from. A
+  number can be true and still belong to somebody else. Where a figure is
+  account-specific, this sheet now names the account's own order number so it can be
+  matched rather than assumed.
 </footer>
