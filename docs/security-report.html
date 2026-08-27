@@ -1,0 +1,435 @@
+<title>Breaking Into Fayr</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Alexandria:wght@600;700;800&family=Poppins:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {
+    --ground: #FBFBEF;
+    --surface: #FFFFFF;
+    --surface-2: #F6F7E6;
+    --line: #E3E5CF;
+    --line-soft: #EEEFDF;
+    --ink: #191919;
+    --ink-2: #3A3A34;
+    --sub: #5C5C5C;
+    --gold: #F5C400;
+    --gold-ink: #7A5E00;
+    --gold-bg: #FDF6D2;
+    --money-ink: #256F09;
+    --money-bg: #E9F5CE;
+    --stop: #B02617;
+    --stop-ink: #B02617;
+    --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+    --display: "Alexandria", "Trebuchet MS", sans-serif;
+    --head: "Poppins", "Helvetica Neue", Arial, sans-serif;
+    --body: "Inter", "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #15160F; --surface: #1D1E15; --surface-2: #24261A;
+      --line: #343626; --line-soft: #2A2C1F;
+      --ink: #F3F4E2; --ink-2: #DEDFCB; --sub: #A3A591;
+      --gold: #E4BE1E; --gold-ink: #EBCE5E; --gold-bg: #2C2810;
+      --money-ink: #96D46B; --money-bg: #1E2A13;
+      --stop: #F2907F; --stop-ink: #F2907F; --stop-bg: #33191A;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #15160F; --surface: #1D1E15; --surface-2: #24261A;
+    --line: #343626; --line-soft: #2A2C1F;
+    --ink: #F3F4E2; --ink-2: #DEDFCB; --sub: #A3A591;
+    --gold: #E4BE1E; --gold-ink: #EBCE5E; --gold-bg: #2C2810;
+    --money-ink: #96D46B; --money-bg: #1E2A13;
+    --stop: #F2907F; --stop-ink: #F2907F; --stop-bg: #33191A;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --ground: #FBFBEF; --surface: #FFFFFF; --surface-2: #F6F7E6;
+    --line: #E3E5CF; --line-soft: #EEEFDF;
+    --ink: #191919; --ink-2: #3A3A34; --sub: #5C5C5C;
+    --gold: #F5C400; --gold-ink: #7A5E00; --gold-bg: #FDF6D2;
+    --money-ink: #256F09; --money-bg: #E9F5CE;
+    --stop: #B02617; --stop-ink: #B02617; --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 24px 96px; }
+
+  .wordmark {
+    font-family: var(--display); font-weight: 800; font-size: 20px;
+    letter-spacing: -.02em; color: var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--head); font-weight: 700; font-size: 11.5px;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--gold-ink);
+    margin: 34px 0 10px;
+  }
+  h1 {
+    font-family: var(--display); font-weight: 700; font-size: 40px;
+    line-height: 1.1; letter-spacing: -.025em; margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--head); font-weight: 700; font-size: 21px;
+    letter-spacing: -.01em; margin: 52px 0 6px; text-wrap: balance;
+  }
+  p { margin: 0 0 16px; max-width: 66ch; }
+  .lede { font-size: 18.5px; color: var(--ink-2); }
+  .stamp {
+    font-family: var(--body); font-size: 13px; color: var(--sub);
+    border-top: 1px solid var(--line); padding-top: 12px; margin-top: 22px;
+  }
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+
+  .count {
+    display: flex; gap: 14px; flex-wrap: wrap; margin: 26px 0 6px;
+  }
+  .stat {
+    flex: 1 1 150px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 15px 16px; box-shadow: var(--shadow);
+  }
+  .stat .n {
+    font-family: var(--display); font-weight: 700; font-size: 30px;
+    line-height: 1; letter-spacing: -.03em;
+  }
+  .stat .k {
+    font-family: var(--head); font-weight: 600; font-size: 12px;
+    color: var(--sub); margin-top: 7px; line-height: 1.35;
+  }
+  .stat.good .n { color: var(--money-ink); }
+  .stat.warn .n { color: var(--stop-ink); }
+
+  .find {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 16px; padding: 18px 20px; margin: 14px 0;
+    box-shadow: var(--shadow);
+    display: grid; grid-template-columns: 34px 1fr; gap: 0 15px;
+  }
+  .find .idx {
+    font-family: var(--display); font-weight: 700; font-size: 15px;
+    color: var(--gold-ink); background: var(--gold-bg);
+    border-radius: 8px; height: 28px; display: flex;
+    align-items: center; justify-content: center; margin-top: 3px;
+  }
+  .find h3 {
+    font-family: var(--head); font-weight: 700; font-size: 16.5px;
+    margin: 0 0 7px; line-height: 1.38; text-wrap: balance;
+  }
+  .find p { margin: 0 0 9px; font-size: 15.5px; color: var(--ink-2); max-width: none; }
+  .find p:last-child { margin-bottom: 0; }
+  .find .cost {
+    font-size: 14.5px; color: var(--stop-ink); background: var(--stop-bg);
+    border-radius: 8px; padding: 8px 11px; margin: 10px 0 0;
+  }
+  .find .cost b { font-family: var(--head); font-weight: 700; }
+  .find .grid-span { grid-column: 2; }
+
+  blockquote {
+    margin: 14px 0 0; padding: 13px 16px;
+    background: var(--money-bg); border-radius: 10px;
+    font-size: 15.5px; color: var(--ink);
+  }
+  blockquote p { max-width: none; margin: 0; }
+  blockquote .who {
+    display: block; font-family: var(--head); font-weight: 700;
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--money-ink); margin-bottom: 5px;
+  }
+
+  .callout {
+    background: var(--surface-2); border: 1px solid var(--line-soft);
+    border-left: 3px solid var(--gold); border-radius: 12px;
+    padding: 17px 19px; margin: 26px 0;
+  }
+  .callout .title {
+    display: block; font-family: var(--head); font-weight: 700;
+    font-size: 15px; margin-bottom: 7px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.honest { border-left-color: var(--stop); }
+
+  ul { margin: 0 0 16px; padding-left: 22px; max-width: 66ch; }
+  li { margin-bottom: 9px; }
+
+  footer {
+    margin-top: 60px; border-top: 1px solid var(--line);
+    padding-top: 18px; font-size: 14px; color: var(--sub); max-width: 66ch;
+  }
+</style>
+<style>
+  /* Two additions only: a severity chip, and a two-column check list. */
+  .sev { display:inline-block; font-family:Inter,sans-serif; font-weight:700;
+         font-size:11px; letter-spacing:.04em; text-transform:uppercase;
+         padding:3px 9px; border-radius:999px; border:1px solid; }
+  .sev-open  { color:var(--stop);      background:#FCE9E7; border-color:#F0BDB7; }
+  .sev-fixed { color:var(--money-ink); background:var(--money-bg); border-color:#BEDF95; }
+  .sev-ok    { color:var(--sub);       background:var(--surface-2); border-color:var(--line); }
+  .sev-ask   { color:var(--gold-ink);  background:var(--gold-bg); border-color:#EBD77A; }
+  .checked { display:grid; gap:10px; margin:18px 0 26px; }
+  .checked > div { display:grid; grid-template-columns:120px 1fr; gap:14px;
+                   align-items:start; padding:12px 14px; background:var(--surface);
+                   border:1px solid var(--line); border-radius:12px; }
+  .checked strong { font-family:Poppins,sans-serif; font-size:14px; }
+  @media (max-width:640px) { .checked > div { grid-template-columns:1fr; } }
+</style>
+
+<main>
+  <div class="wordmark">fayr.</div>
+
+  <p class="eyebrow">Security · plain language</p>
+  <h1>Breaking into Fayr</h1>
+  <p class="lede">We spent a day trying to break into Fayr on purpose. Not by
+    guessing passwords, but the way it really happens: <strong>somebody who has
+    the app on their phone, has a perfectly good account of their own, can see
+    every address the app calls, and wants other people's money and other
+    people's details.</strong> This page says what we tried, what we found, what
+    we fixed, and what still needs a decision.</p>
+
+  <div class="count">
+    <div class="stat good"><div class="n">44</div><div class="k">Attacks tried, all written as tests</div></div>
+    <div class="stat good"><div class="n">3</div><div class="k">Real problems found</div></div>
+    <div class="stat good"><div class="n">3</div><div class="k">Fixed</div></div>
+    <div class="stat warn"><div class="n">3</div><div class="k">Need a decision from you</div></div>
+  </div>
+  <p class="stamp">Every attack on this page is a test that runs on every change,
+    so if one of these ever starts working again, it fails before anybody ships
+    it. Checked on 27 August 2026 against the working copy, not the copy being
+    shown on Monday.</p>
+
+  <h2>The attack that empties real companies</h2>
+  <p>It is almost never a broken password. It is this: a person signs in
+    completely normally, then changes one number in the address the app is
+    calling, and reads somebody else's record. Every single screen has to get
+    that right on its own. There is no one place you can check instead.</p>
+  <p>So we made two real accounts, gave them two real sign-ins, and had the first
+    one try to reach everything belonging to the second. Her offers. Her wallet.
+    Her requests to be paid. Her bank details. Her messages to us. Her chat. The
+    photos she sent as proof. Her name and phone number.</p>
+  <p><strong>Every one was refused.</strong> And they are refused in the safer of
+    the two possible ways: Fayr says "there is nothing here" rather than "that is
+    not yours". Saying "not yours" would confirm to a stranger that the record
+    exists and belongs to somebody.</p>
+  <p>The worst thing we tried was asking Fayr to send <em>our</em> money to
+    <em>her</em> bank account. It was refused. And to be sure that refusal is
+    real and not an accident, we deliberately broke it, watched the test fail,
+    and put it back. A test nobody has watched fail is not a test.</p>
+
+  <h2>The three real problems, and what we did</h2>
+
+  <div class="find">
+    <div class="idx">1</div>
+    <div>
+      <h3>Fayr was not telling browsers to protect themselves <span class="sev sev-fixed">Fixed</span></h3>
+      <p>Every answer Fayr sent carried no protective instructions at all. It did
+        helpfully tell the world what it was built with, which is free
+        reconnaissance for somebody deciding how to attack it.</p>
+      <p>Why this one actually mattered here, rather than being a box to tick:
+        Fayr serves <strong>pictures that people themselves sent us</strong>. Without
+        an instruction not to guess at what a file is, a browser can be talked
+        into treating one of those uploads as a web page and running it — on
+        Fayr's own address, which is where a staff member's sign-in lives. Two
+        instructions close that off, and they are now on every single answer,
+        including refusals.</p>
+      <p>One of these instructions is dangerous to get wrong. It tells a browser
+        "only ever use the secure version of this site, for a year". Send it by
+        mistake from a laptop that is not using the secure version and you have
+        locked yourself out of your own machine, and you cannot take it back. So
+        it is switched on only in the real production setting, and there is a test
+        that checks it is <em>absent</em> everywhere else.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">2</div>
+    <div>
+      <h3>A phone number was travelling inside a web address <span class="sev sev-fixed">Fixed</span></h3>
+      <p>When a staff member looked somebody up by phone number, the number went
+        into the address. An address is the most copied thing on the internet: it
+        goes into Fayr's own records of what happened, into the records of
+        anything sitting between the laptop and the server, and into the browser
+        history of that laptop, where it stays.</p>
+      <p>This took two goes, and the first one looked finished. We stopped
+        recording the address's extra part and checked the real records again —
+        the number was still there, because the address itself was being recorded
+        whole. It is now cut off at the question mark, which keeps the useful half
+        (which screen was opened) and throws away the half that can carry a
+        person. Then the search itself was changed so the number is sent
+        privately instead of in the address at all.</p>
+      <p>Both times we checked by reading what Fayr actually wrote down, not by
+        reading the instructions that were supposed to make it do so. That
+        distinction is the whole reason the first fix was not enough.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">3</div>
+    <div>
+      <h3>One invisible character could break the new chat <span class="sev sev-fixed">Fixed</span></h3>
+      <p>There is a character no keyboard produces, which can only get into a
+        message if somebody puts it there on purpose. Sending it in a chat
+        question made Fayr answer with a raw database complaint — which both
+        failed, and told whoever sent it something about how Fayr is built
+        underneath.</p>
+      <p>It is now refused politely, and not quietly cleaned up. Cleaning it up
+        would have broken a promise we care about: <strong>a question is stored
+        exactly as the person typed it</strong>, because tomorrow's answer gets
+        written from those words, and a tidied copy hides the spelling and
+        phrasing that are the most useful part.</p>
+    </div>
+  </div>
+
+  <h2>What we checked, and what we found</h2>
+  <div class="checked">
+    <div><strong>Every address</strong><div>All twenty-four groups of addresses
+      require a sign-in, except the two that cannot (signing in itself, and the
+      "is the server alive" check). Every one is protected at the top level, so a
+      new screen added tomorrow inherits it rather than having to remember.
+      <span class="sev sev-ok">Already right</span></div></div>
+
+    <div><strong>Guessing addresses</strong><div>Changing an identifier in an
+      address gets nothing. An identifier that is not really an identifier is
+      refused outright rather than searched for. No staff screen opens with an
+      app sign-in, and — the direction people forget — no app screen opens with a
+      staff sign-in either. The two are separate worlds and neither can verify
+      the other's pass. <span class="sev sev-ok">Already right</span></div></div>
+
+    <div><strong>Signing in</strong><div>Asking for a code is limited to five
+      tries a minute, checking one to ten, and staff sign-in to ten. Codes and
+      passwords are stored only as a one-way scramble, never as themselves.
+      Sign-ins expire, and the long-lived pass is swapped for a new one every
+      time it is used, so a stolen one is noticed. We added a limit to two doors
+      that only had the general one. <span class="sev sev-fixed">One small fix</span></div></div>
+
+    <div><strong>What leaks</strong><div>We read what Fayr actually writes down,
+      not the code that writes it. No phone number, no password, no code, no
+      pass. Message bodies are never recorded at all. Phone numbers in the log
+      are shown with most digits hidden. <span class="sev sev-fixed">One fix, above</span></div></div>
+
+    <div><strong>Hostile input</strong><div>Fourteen of the classic
+      break-the-database strings, sent at the newest search in the project and
+      again through the app. Nothing was destroyed, nothing was obeyed, and the
+      words were stored exactly as typed. Every hand-written database instruction
+      in the whole project passes a person's words as a separate parcel rather
+      than gluing them into the instruction. <span class="sev sev-ok">Already right</span></div></div>
+
+    <div><strong>Uploaded photos</strong><div>Checked by what the file actually
+      is, not what it is called. Size limited. Stored outside anything the public
+      can reach, and only handed back through a door that checks who is asking.
+      A made-up address cannot reach one, and there is a guard against an address
+      that tries to climb out of the folder. <span class="sev sev-ok">Already right</span></div></div>
+
+    <div><strong>Secrets in the project</strong><div>We searched all two hundred
+      and twelve saved versions of the project, not just the current one. No
+      keys, no passwords, no certificates — ever. The three near-misses are an
+      obviously fake example used in tests. The one file that does hold real
+      settings has never been saved into the project and cannot be.
+      <span class="sev sev-ok">Already right</span></div></div>
+
+    <div><strong>Which websites may call us</strong><div>A named list, never
+      "anybody". With no list set, a real production server allows nothing at
+      all, which is the safe direction to fail in.
+      <span class="sev sev-ok">Already right</span></div></div>
+
+    <div><strong>The four staff teams</strong><div>Every team tried against every
+      other team's work. Customer support cannot approve a payment. Finance
+      cannot write an answer users will read, and cannot publish an offer. Only an
+      administrator sees the record of who did what. The teams are separated by
+      the <em>server</em>, not by what the screen chooses to show — which is the
+      difference between a real wall and a curtain.
+      <span class="sev sev-ok">Already right</span></div></div>
+
+    <div><strong>Money</strong><div>We tried to take money that was not ours:
+      asking for a payout with an empty wallet, asking for more than we had,
+      asking for negative and fractional and absurd amounts, and sending two
+      requests for the same money at the same moment. All refused, and every
+      movement of money still adds up to exactly zero afterwards.
+      <span class="sev sev-ok">Already right</span></div></div>
+  </div>
+
+  <h2>The three things that need a decision from you</h2>
+
+  <div class="find">
+    <div class="idx">A</div>
+    <div>
+      <h3>The wallet has no floor in the database <span class="sev sev-ask">Your call</span></h3>
+      <p>Tickets cannot go below zero: the database itself refuses. Money can, if
+        something ever asks it to directly. <strong>Nothing can ask it to today</strong> —
+        every door that moves money checks the balance first, and there is a test
+        proving that — so this is a second lock missing, not an open door.</p>
+      <p>It is not fixed yet on purpose, because adding the floor decides
+        something you have not decided. Our own terms say that if somebody
+        deletes their review after being paid, Fayr may take that money back out
+        of their wallet. If the wallet is empty, does that stop at zero and the
+        rest becomes a debt, or does the wallet go negative? Put the floor in
+        first and the answer is decided by accident. Tell us which, and the fix
+        is a few lines.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">B</div>
+    <div>
+      <h3>Three warnings need a big upgrade of a core part <span class="sev sev-ask">Your call</span></h3>
+      <p>The automatic check on the outside parts Fayr uses reported six warnings.
+        One was fixed on the spot with no risk. The other five need more thought:</p>
+      <p><strong>Three</strong> are in the tool that manages the database, and they
+        are only reachable while <em>we</em> are building — that tool is not part of
+        the running service. Clearing them needs moving to the next major version
+        of that tool, which is the single most central thing in the project.
+        Worth doing on a quiet day with a full test run, not today.</p>
+      <p><strong>Two</strong> are in the spreadsheet library used for staff
+        reports. The only offered fix is going <em>backwards</em> to a version from
+        several years ago, which would break the reports. We checked how the
+        library actually uses the affected part: it never uses it in the way the
+        warning is about. So the warning is real and the fix is worse than the
+        problem. Leave it, and revisit if a proper fix appears.</p>
+    </div>
+  </div>
+
+  <div class="find">
+    <div class="idx">C</div>
+    <div>
+      <h3>The one file that holds real settings <span class="sev sev-ask">Worth knowing</span></h3>
+      <p>There is a settings file on this laptop holding real identifiers for the
+        text-message service, and an email address. It has never been saved into
+        the project and cannot be — that is deliberate and correct, and we
+        checked every saved version to be sure.</p>
+      <p>Two things worth knowing anyway. Anything in that file should be treated
+        as needing replacement if the laptop is ever lost or shared, because a
+        file that is safe today is only safe while the machine is. And when we
+        eventually switch on the language model, its key goes in that same file
+        and nowhere else — never in the project, never in a message, never in a
+        conversation with a tool like this one.</p>
+    </div>
+  </div>
+
+  <h2>What this page does not cover</h2>
+  <p>Said plainly, because a security page that reads as "everything is fine" is
+    the least useful kind.</p>
+  <p>This was a day of deliberate attacking by the people who wrote the code.
+    That finds the mistakes we are capable of making. It does not replace somebody
+    from outside trying, with no knowledge of how it was built, which is a
+    different and better test and worth paying for before real money is at scale.</p>
+  <p>Nothing here covers the machines Fayr will eventually run on: who can log
+    into the server, how the database is backed up, who holds the production
+    keys. None of that exists yet, so none of it was checked. It becomes the most
+    important section on this page the day it does.</p>
+  <p>And nothing here tests a person being tricked. The commonest way money
+    leaves a company is somebody being talked into sending it, and no code change
+    prevents that.</p>
+
+  <p class="stamp">Nothing on this page contains a real key, password or phone
+    number, and nothing was copied out of the settings file to write it.</p>
+</main>
