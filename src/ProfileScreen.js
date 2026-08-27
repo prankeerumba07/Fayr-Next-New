@@ -172,7 +172,13 @@ export default function ProfileScreen({ navigation }) {
           <Row icon="📄" title="Terms & Conditions" sub={`Last updated ${POLICY_VERSION}`}
             onPress={() => navigation.navigate('Policy', { doc: 'terms' })} />
           <Row icon="🔒" title="Privacy Policy" sub="What we read, store and share"
-            onPress={() => navigation.navigate('Policy', { doc: 'privacy' })} last />
+            onPress={() => navigation.navigate('Policy', { doc: 'privacy' })} />
+          {/* Shown to everybody, and useless to everybody but staff: the screen
+              itself asks for a staff sign-in, and the server refuses an app login.
+              Hiding it would mean guessing who is staff from the app side, which
+              the app has no way to know. */}
+          <Row icon="🔍" title="Check offer pages" sub="For Fayr staff. Opens every offer page to see if it still works"
+            onPress={() => navigation.navigate('LiveCheck')} last />
         </View>
 
         <TouchableOpacity

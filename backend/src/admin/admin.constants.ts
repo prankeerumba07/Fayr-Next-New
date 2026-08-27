@@ -32,6 +32,7 @@ export const AUDIT_ACTIONS = {
   // reach a real person, and "who let this out" is the question asked afterwards.
   ASSISTANT_ANSWER_APPROVE: 'ASSISTANT_ANSWER_APPROVE',
   ASSISTANT_ANSWER_RETIRE: 'ASSISTANT_ANSWER_RETIRE', // staff withdrew an answer
+  LIVE_PAGE_CHECK_RUN: 'LIVE_PAGE_CHECK_RUN', // somebody opened every offer's real shop page
   SCREENSHOT_VIEW: 'SCREENSHOT_VIEW', // staff streamed a private verification screenshot
   EVIDENCE_REVIEW: 'EVIDENCE_REVIEW', // staff approved / rejected / requested-more on a case
   DUPLICATE_ORDER_ALLOW: 'DUPLICATE_ORDER_ALLOW', // staff let a second task on one order be paid

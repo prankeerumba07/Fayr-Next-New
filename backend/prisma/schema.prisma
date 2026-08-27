@@ -239,6 +239,16 @@ model Campaign {
   productUrl String?
   imageUrl   String?
 
+  /// WHAT THE SHOP'S OWN PAGE LOOKED LIKE the last time a person opened it, and
+  /// when. One of LIVE_STATES in live-check/live-page.rules.ts.
+  ///
+  /// A PROJECTION of the most recent live check, never the source of truth — the
+  /// runs themselves are in live_page_check_runs. It lives here because the app's
+  /// feed reads it on every load and must not join to a history table to draw a
+  /// card. Written only by the live check.
+  liveState     String?
+  liveCheckedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -913,4 +923,39 @@ model AssistantQuestion {
   @@index([answerEntryId])
   @@index([askedAt])
   @@map("assistant_questions")
+}
+
+/// One morning's look at every live offer's real shop page.
+///
+/// Separate from the nightly offer check, which only reads Fayr's OWN records.
+/// This one is about whether a page opens the way a shopper would see it, so it
+/// can only be done from a real phone with a real signed-in shop session — which
+/// is why it is started by hand and why the run records who started it.
+///
+/// The findings are a JSON snapshot for the same reason the offer check's are:
+/// nothing joins to one, and the only questions a live query cannot answer are
+/// "did somebody do this today" and "what changed since".
+model LivePageCheckRun {
+  id    String   @id @default(uuid()) @db.Uuid
+  ranAt DateTime @default(now())
+
+  /// Which staff member ran it. A bare uuid, not a foreign key: the record must
+  /// outlive a staff account being removed.
+  startedByStaffId String @db.Uuid
+
+  /// How many live offers were looked at.
+  checked      Int
+  /// One count per state, so a screen never has to add up a JSON blob.
+  opened       Int
+  expired      Int
+  soldOut      Int
+  unavailable  Int
+  couldNotOpen Int
+  noLink       Int
+
+  /// [{ campaignId, title, platform, state, httpStatus, evidence }] — a snapshot.
+  findings Json
+
+  @@index([ranAt])
+  @@map("live_page_check_runs")
 }

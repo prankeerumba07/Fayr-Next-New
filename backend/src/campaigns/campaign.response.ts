@@ -1,5 +1,9 @@
 import type { Campaign, CampaignStatus, Platform } from '@prisma/client';
 import { seatsLeft } from './seats';
+import {
+  offerAvailability,
+  type OfferAvailability,
+} from '../live-check/live-page.rules';
 
 /**
  * The public shape of a campaign. Money is integer paise, but JSON cannot carry
@@ -55,6 +59,15 @@ export interface CampaignResponse {
   asin: string | null;
   productUrl: string | null;
   imageUrl: string | null;
+  /**
+   * Whether the app should show this offer greyed out, and what to say on it.
+   *
+   * Worked out HERE rather than in the app, from two things the app cannot see
+   * together: how many places are left, and what the shop's own page looked like
+   * the last time a person opened it. One definition, so a card and the claim gate
+   * can never disagree about whether an offer is usable.
+   */
+  availability: OfferAvailability;
   createdAt: string;
   updatedAt: string;
 }
@@ -85,6 +98,12 @@ export interface CampaignResponse {
 export interface CampaignResponseContext {
   claimWindowDays: number;
   claimedCount: number;
+  /**
+   * Now, passed in rather than read here, so a test can put the clock where it
+   * needs it — the greyed-out state depends on how OLD the last look at the shop
+   * page was, and a function that reads its own clock cannot be tested at the edge.
+   */
+  now?: Date;
 }
 
 /** Map a Campaign row to its public response (BigInt→string, Date→ISO). */
@@ -116,6 +135,12 @@ export function toCampaignResponse(
     asin: c.asin,
     productUrl: c.productUrl,
     imageUrl: c.imageUrl,
+    availability: offerAvailability({
+      seatsLeft: seatsLeft(c.totalSlots, ctx.claimedCount),
+      liveState: c.liveState,
+      liveCheckedAt: c.liveCheckedAt,
+      now: ctx.now ?? new Date(),
+    }),
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };

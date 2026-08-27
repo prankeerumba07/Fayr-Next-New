@@ -946,6 +946,55 @@ export const ANSWER_DRAFTS: AnswerDraftSet[] = [
     },
   },
 
+  {
+    key: 'offer-will-not-open',
+    topic: 'order',
+    drawnFrom:
+      'The greyed-out states in src/live-check/live-page.rules.ts, which are the only reasons Fayr ever hides an offer, and the terms section "What Fayr is".',
+    wordings: {
+      en: {
+        title: 'An offer will not open, or has gone grey',
+        body:
+          'A grey offer is one you cannot join right now. Either all its places ' +
+          'are taken, or the shop\u2019s own page for it has stopped working. The ' +
+          'grey card says which. It stays on your list on purpose, so you can see ' +
+          'it is still there. These often come back, so it is worth looking again.',
+        phrases: [
+          'why is this offer grey',
+          'the offer will not open',
+          'the shop page is not working',
+          'why can i not join this offer',
+          'this offer has disappeared',
+        ],
+      },
+      hi: {
+        title: 'ऑफर नहीं खुल रहा, या धुँधला हो गया है',
+        body:
+          'धुँधला ऑफर वह है जिसमें आप अभी शामिल नहीं हो सकते। या तो उसकी सारी जगहें ' +
+          'भर गई हैं, या दुकान का उसका पेज काम करना बंद कर चुका है। धुँधले कार्ड पर ' +
+          'लिखा होता है कि कारण क्या है। वह आपकी सूची में जान‑बूझकर बना रहता है, ' +
+          'ताकि आप देख सकें कि वह अब भी है। ये अक्सर वापस आ जाते हैं, इसलिए फिर से ' +
+          'देखना अच्छा रहता है।',
+        phrases: ['ऑफर धुँधला क्यों है', 'ऑफर नहीं खुल रहा', 'ऑफर गायब हो गया'],
+      },
+      'hi-en': {
+        title: 'Offer nahi khul raha, ya dhundhla ho gaya hai',
+        body:
+          'Dhundhla offer wo hai jisme aap abhi shamil nahi ho sakte. Ya to uski ' +
+          'saari jagahein bhar gayi hain, ya dukaan ka uska page kaam karna band ' +
+          'kar chuka hai. Dhundhle card par likha hota hai ki karan kya hai. Wo ' +
+          'aapki suchi mein jaan boojhkar bana rehta hai, taki aap dekh sakein ki ' +
+          'wo ab bhi hai. Ye aksar wapas aa jate hain, isliye phir se dekhna accha ' +
+          'rehta hai.',
+        phrases: [
+          'offer dhundhla kyun hai',
+          'offer nahi khul raha',
+          'offer gayab ho gaya',
+        ],
+      },
+    },
+  },
+
   // ── the four where the project has never written the answer down ────────
   {
     key: 'how-long-does-a-refund-take',

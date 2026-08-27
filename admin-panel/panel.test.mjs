@@ -64,7 +64,7 @@ console.log('\n=== 2b. the four teams, and nothing lost on the way to them ===')
     finance: ['withdrawals', 'reports'],
     support: ['queue', 'chat', 'answers', 'verifications', 'reviews'],
     operations: ['amounts', 'staff', 'search'],
-    fops: ['offers', 'campaigns'],
+    fops: ['offers', 'livepages', 'campaigns'],
   };
   for (const [key, expected] of Object.entries(OWNERSHIP)) {
     // Each team's own block, from its key to the start of the next team.
@@ -342,6 +342,14 @@ console.log('\n=== 6. the hold is explained in words, never as an enum ===');
     'no internal source name is printed to the screen either');
 }
 
+/** The section ids one team owns, read out of the sidebar's own structure. */
+function teamsFor(key) {
+  const block = (script.match(/var TEAMS = \[([\s\S]*?)\n    \];/) || [])[1] || '';
+  const all = new Function('return [' + block + ']')();
+  const team = all.find((t) => t[0] === key);
+  return team ? team[3].map((sec) => sec[0]) : [];
+}
+
 console.log('\n=== 7. the assistant screens ===');
 {
   // Both sit under Customer support, because the answer book and the questions
@@ -375,6 +383,22 @@ console.log('\n=== 7. the assistant screens ===');
   ok(script.includes('Nobody who speaks this language has checked the wording'),
     'and a non-English draft says the wording is unchecked');
   ok(script.includes('Approve and make live'), 'there is a clear approve action');
+}
+
+console.log('\n=== 7c. the live page check screen ===');
+{
+  ok(teamsFor('fops').includes('livepages'),
+    'Live pages is a Front-end operations section');
+  ok(/livepages:\s*\["OPERATIONS", "ADMIN"\]/.test(script),
+    'gated to operations and admin, the team that owns what is live');
+  ok(script.includes('/admin/live-check'), 'it reads the real findings');
+  // The honest headline: most offers carry no shop page, so most of the catalogue
+  // cannot be looked at, and the screen has to lead with that not with "all clear".
+  ok(script.includes('have no page saved'), 'it says how many cannot be checked at all');
+  ok(script.includes('Not a pass and not a failure'),
+    'and says plainly that could-not-look is neither');
+  ok(script.includes('go to My Profile, then Check offer pages'),
+    'it says how to run it, because it cannot run itself');
 }
 
 console.log('\n=== 7b. the assistant screens actually render ===');
@@ -447,8 +471,27 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     function checkAnswerWords() {} function saveAnswer() {} function setAnswerLive() {}
     var state = STATE;
     ${src}
-    return { chat: ChatQuestionsScreen(), book: AnswerBookScreen(), seen: seen };
+    return { chat: ChatQuestionsScreen(), book: AnswerBookScreen(), live: LivePagesScreen(), seen: seen };
   `;
+
+  const LIVE = {
+    lastRun: {
+      ranAt: '2026-08-27T04:00:00.000Z', startedByStaffId: 's1', checked: 13,
+      opened: 2, expired: 1, soldOut: 0, unavailable: 0, couldNotOpen: 1, noLink: 9,
+      findings: [
+        { campaignId: 'c1', title: 'Rate a Cotton Kurta Set', platform: 'MEESHO', state: 'expired', says: 'The page says this offer has ended.', httpStatus: 200, evidence: 'The page says "this offer has ended".', greyedOutInTheApp: true },
+        { campaignId: 'c2', title: 'Carry Your Laptop', platform: 'AMAZON', state: 'no-link', says: 'This offer has no shop page saved, so there was nothing to open.', httpStatus: null, evidence: 'This offer has no shop page saved.', greyedOutInTheApp: false },
+        { campaignId: 'c3', title: 'Prestige cooktop', platform: 'AMAZON', state: 'could-not-open', says: 'We could not open the page, so we do not know either way.', httpStatus: 0, evidence: 'Nothing came back from the shop.', greyedOutInTheApp: false },
+      ],
+    },
+    recent: [
+      { ranAt: '2026-08-27T04:00:00.000Z', startedByStaffId: 's1', checked: 13, opened: 2, expired: 1, soldOut: 0, unavailable: 0, couldNotOpen: 1, noLink: 9 },
+      { ranAt: '2026-08-26T04:00:00.000Z', startedByStaffId: 's1', checked: 13, opened: 3, expired: 0, soldOut: 0, unavailable: 0, couldNotOpen: 1, noLink: 9 },
+    ],
+    toCheck: { total: 13, withAPage: 4, withNoPage: 9 },
+  };
+
+  const liveBranch = (over) => ({ loading: false, error: null, data: LIVE, ...over });
 
   const chatState = (over) => ({
     chat: { loading: false, error: null, items: QUESTIONS, total: 2, stats: STATS,
@@ -456,6 +499,7 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     answers: { loading: false, error: null, items: ANSWERS, total: 4,
                filter: { language: '', status: '' }, draft: null, warnings: [],
                busy: null, notice: null, actionError: null },
+    livepages: liveBranch(),
   });
   const bookState = (over) => ({
     chat: { loading: false, error: null, items: QUESTIONS, total: 2, stats: STATS,
@@ -463,7 +507,9 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     answers: { loading: false, error: null, items: ANSWERS, total: 4,
                filter: { language: '', status: '' }, draft: null, warnings: [],
                busy: null, notice: null, actionError: null, ...over },
+    livepages: liveBranch(),
   });
+  const liveState = (over) => ({ ...chatState({}), livepages: liveBranch(over) });
 
   const states = [
     ['everything present', chatState({})],
@@ -478,6 +524,12 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     ['writing a new answer', bookState({ draft: { id: null, key: '', language: 'en', title: '', body: '', topic: 'refund', phrases: '' } })],
     ['correcting one, with warnings', bookState({ draft: { id: 'a1', key: 'tickets', language: 'en', title: 'What tickets are', body: 'The API endpoint failed.', topic: 'tickets', phrases: 'what are tickets' }, warnings: ['"api" is not a word a person here would use. Instead, say "the app".'] })],
     ['approving one', bookState({ busy: 'a1' })],
+    ['the live pages screen', liveState({})],
+    ['live pages, loading', liveState({ loading: true, data: null })],
+    ['live pages, failed', liveState({ data: null, error: 'Could not reach the Fayr server.' })],
+    ['live pages, nobody has run it yet', liveState({ data: { ...LIVE, lastRun: null, recent: [] } })],
+    ['live pages, a clean run', liveState({ data: { ...LIVE, lastRun: { ...LIVE.lastRun, expired: 0, findings: [] } } })],
+    ['live pages, no offer has a page at all', liveState({ data: { ...LIVE, toCheck: { total: 13, withAPage: 0, withNoPage: 13 } } })],
   ];
 
   for (const [label, st] of states) {

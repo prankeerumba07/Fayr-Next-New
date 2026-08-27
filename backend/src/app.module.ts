@@ -11,6 +11,7 @@ import { CampaignModule } from './campaigns/campaign.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { LiveCheckModule } from './live-check/live-check.module';
 import { buildLoggerOptions } from './logging/pino-logger.config';
 import { MeModule } from './me/me.module';
 import { OcrModule } from './ocr/ocr.module';
@@ -67,6 +68,7 @@ import { WithdrawalModule } from './withdrawals/withdrawal.module';
     TaskModule,
     SchedulerModule,
     CampaignHealthModule,
+    LiveCheckModule,
     AssistantModule,
     AdminModule,
     SupportModule,

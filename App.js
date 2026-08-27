@@ -15,6 +15,7 @@ import DetailScreen from './src/DetailScreen';
 import WalletScreen from './src/WalletScreen';
 import SupportScreen from './src/SupportScreen';
 import ChatScreen from './src/ChatScreen';
+import LiveCheckScreen from './src/LiveCheckScreen';
 import PolicyScreen from './src/PolicyScreen';
 import FirstRunFlow from './src/firstrun/FirstRunFlow';
 import SetupFlow from './src/setup/SetupFlow';
@@ -251,6 +252,8 @@ function AppInner() {
           <Stack.Screen name="Support" component={SupportScreen} options={{ headerShown: false }} />
           {/* "Chat with us" — the fast answer. Owns its header too. */}
           <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
+          {/* The morning job. Staff only, and it asks for a staff sign-in itself. */}
+          <Stack.Screen name="LiveCheck" component={LiveCheckScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Policy" component={PolicyScreen} options={{ headerShown: false }} />
           {/* Screenshot proof — the tier-3 fallback when the scraper can't read. */}
           <Stack.Screen name="ProofUpload" component={ProofUploadScreen} options={{ headerShown: false }} />

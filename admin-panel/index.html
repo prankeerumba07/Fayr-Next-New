@@ -303,6 +303,9 @@
         loading: false, error: null, items: null, total: 0, stats: null,
         filter: "UNRESOLVED", busy: null, notice: null, actionError: null
       },
+      // This morning's look at every offer's real shop page. Read-only here: the
+      // looking itself can only happen on a phone with a signed-in shop session.
+      livepages: { loading: false, error: null, data: null },
       // The answer book. `draft` is whatever somebody is writing right now, and
       // `warnings` is what the plain-language check said about it.
       answers: {
@@ -358,6 +361,7 @@
       answers: ["SUPPORT", "ADMIN"],
       campaigns: ["OPERATIONS", "ADMIN"],
       offers: ["OPERATIONS", "ADMIN"],
+      livepages: ["OPERATIONS", "ADMIN"],
       reports: ["OPERATIONS", "FINANCE", "ADMIN"],
       search: ["SUPPORT", "FINANCE", "ADMIN"],
       staff: ["ADMIN"],
@@ -368,7 +372,7 @@
     }
     // The tab a role lands on after login: the first one it's allowed to see.
     function defaultScreen() {
-      var order = ["withdrawals", "queue", "chat", "answers", "verifications", "amounts", "reviews", "offers", "campaigns", "reports", "search", "staff"];
+      var order = ["withdrawals", "queue", "chat", "answers", "verifications", "amounts", "reviews", "offers", "livepages", "campaigns", "reports", "search", "staff"];
       for (var i = 0; i < order.length; i++) if (roleCanSee(order[i])) return order[i];
       return "search";
     }
@@ -385,6 +389,7 @@
       else if (id === "reviews" && state.reviews.items === null && !state.reviews.loading) loadReviewChecks();
       else if (id === "chat" && state.chat.items === null && !state.chat.loading) loadChatQuestions();
       else if (id === "answers" && state.answers.items === null && !state.answers.loading) loadAnswerBook();
+      else if (id === "livepages" && state.livepages.data === null && !state.livepages.loading) loadLivePages();
     }
     function saveSession() {
       if (state.token) sessionStorage.setItem(SS + "token", state.token);
@@ -734,6 +739,7 @@
       ]],
       ["fops", "Front-end operations", "◈", [
         ["offers", "Offer check", "!"],
+        ["livepages", "Live pages", "🔍"],
         ["campaigns", "Campaigns", "◈"],
       ]],
     ];
@@ -858,6 +864,7 @@
       offers: ["Offer check", "Every live offer, checked once a night. What is wrong, what is everywhere, and what cannot be checked at all."],
       reports: ["Reports", "Counts and totals, downloadable as a spreadsheet."],
       search: ["Find a user", "Look someone up by mobile number."],
+      livepages: ["Live pages", "Whether each offer's real shop page still opens for a shopper. Somebody runs this from a phone each morning."],
       chat: ["Chat questions", "What people asked the assistant, and the ones it could not answer."],
       answers: ["Answer book", "Every answer the assistant can give. Nothing is live until somebody approves it."],
       staff: ["Staff accounts", "Who can sign in here, and what they can reach."],
@@ -1221,6 +1228,87 @@
             h("button", { class: "btn", onclick: checkAnswerWords }, "Check the words"),
             h("button", { class: "btn", onclick: cancelAnswerEdit }, "Cancel"))));
     }
+    function LivePagesScreen() {
+      var st = state.livepages;
+      if (st.loading && !st.data) return h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading…");
+      if (st.error) return h("div", { class: "flash flash-err" }, st.error);
+      if (!st.data) return h("div", { class: "empty" }, "Nothing yet.");
+
+      var d = st.data;
+      var last = d.lastRun;
+      var findings = last && Array.isArray(last.findings) ? last.findings : [];
+      var cannotBuy = findings.filter(function (f) {
+        return f.state === "expired" || f.state === "sold-out" || f.state === "unavailable";
+      });
+      var couldNotLook = findings.filter(function (f) {
+        return f.state === "could-not-open" || f.state === "no-link";
+      });
+
+      return h("div", null,
+        // THE HONEST HEADLINE FIRST. Most offers carry no shop page at all, so most
+        // of the catalogue cannot be looked at, and a screen that led with "all
+        // clear" would be lying by omission.
+        h("div", { class: "stat-row" },
+          Stat(String(d.toCheck.total), "live offers", ""),
+          Stat(String(d.toCheck.withAPage), "have a page to open", ""),
+          Stat(String(d.toCheck.withNoPage), "have no page saved",
+            d.toCheck.withNoPage > 0 ? "warn" : ""),
+          Stat(last ? String(cannotBuy.length) : "not yet",
+            "a shopper cannot buy", cannotBuy.length > 0 ? "bad" : "ok")),
+
+        last
+          ? h("div", { class: "muted", style: "margin-bottom:14px" },
+              "Last run ", fmtDate(last.ranAt), " — ", String(last.checked), " looked at.")
+          : h("div", { class: "flash flash-info" },
+              "Nobody has run this yet. It is done from a phone: open the Fayr app, "
+              + "go to My Profile, then Check offer pages."),
+
+        cannotBuy.length
+          ? h("div", null,
+              h("h2", { style: "margin:18px 0 10px;font-size:18px" }, "A shopper cannot buy these"),
+              cannotBuy.map(LivePageCard))
+          : last
+            ? h("div", { class: "empty" }, "Every page that could be opened, opened.")
+            : null,
+
+        couldNotLook.length
+          ? h("div", null,
+              h("h2", { style: "margin:18px 0 10px;font-size:18px" }, "Could not be looked at"),
+              h("div", { class: "muted", style: "margin-bottom:10px" },
+                "Not a pass and not a failure. These are offers with no shop page saved, "
+                + "or pages that did not answer."),
+              couldNotLook.map(LivePageCard))
+          : null,
+
+        d.recent.length > 1
+          ? h("div", null,
+              h("h2", { style: "margin:18px 0 10px;font-size:18px" }, "Is this happening every day"),
+              h("ul", { class: "group-list" }, d.recent.map(function (r) {
+                return h("li", null, fmtDate(r.ranAt), " — ", String(r.checked),
+                  " looked at, ", String(r.expired + r.soldOut + r.unavailable),
+                  " a shopper cannot buy");
+              })))
+          : null);
+    }
+
+    function LivePageCard(f) {
+      var bad = f.state === "expired" || f.state === "sold-out" || f.state === "unavailable";
+      return h("div", { class: "card finding" },
+        h("div", { class: "row", style: "justify-content:space-between;gap:10px" },
+          h("div", { style: "min-width:0" },
+            h("div", { style: "font-weight:700;font-size:15px" }, f.title),
+            h("div", { class: "muted mono", style: "margin-top:4px" }, f.platform)),
+          h("div", { class: "row", style: "gap:8px" },
+            sevPill(bad ? "blocking" : "unchecked"),
+            f.greyedOutInTheApp
+              ? h("span", { class: "sev sev-warn" }, "Greyed out in the app")
+              : h("span", { class: "sev sev-" }, "Still on the feed"))),
+        h("div", { style: "margin-top:10px" }, f.says),
+        f.evidence ? h("div", { class: "muted", style: "margin-top:6px;font-size:12px" }, f.evidence) : null,
+        f.httpStatus ? h("div", { class: "muted mono", style: "margin-top:4px;font-size:12px" },
+          "The shop answered ", String(f.httpStatus)) : null);
+    }
+
     // ── assistant screens: end ───────────────────────────────────────────────
 
     function OffersScreen() {
@@ -2462,6 +2550,13 @@
       state.answers.busy = null; render();
     }
 
+    async function loadLivePages() {
+      state.livepages.loading = true; state.livepages.error = null; render();
+      try { state.livepages.data = await api("GET", "/admin/live-check"); }
+      catch (e) { state.livepages.error = e.message; }
+      state.livepages.loading = false; render();
+    }
+
     async function loadReviewChecks() {
       var r = state.reviews;
       r.loading = true; r.error = null; render();
@@ -3015,6 +3110,7 @@
       else if (state.screen === "reviews") content = ReviewChecksScreen();
       else if (state.screen === "chat") content = ChatQuestionsScreen();
       else if (state.screen === "answers") content = AnswerBookScreen();
+      else if (state.screen === "livepages") content = LivePagesScreen();
       else if (state.screen === "offers") content = OffersScreen();
       else if (state.screen === "campaigns") content = CampaignsScreen();
       else if (state.screen === "reports") content = ReportsScreen();
