@@ -51,8 +51,14 @@ describe('meaningfulWords', () => {
     expect(meaningfulWords('REFUND!!! refund, Refund?')).toEqual(['refund']);
   });
 
-  it('reads Hindi letters as words', () => {
-    expect(meaningfulWords('मेरा पैसा')).toEqual(['मेरा', 'पैसा']);
+  it('reads Hindi letters as whole words', () => {
+    // Guards the letters-and-marks pattern: with letters alone, पैसा splits into
+    // प and स. Both words here carry meaning, so neither is dropped as common.
+    expect(meaningfulWords('रिव्यू पैसा')).toEqual(['रिव्यू', 'पैसा']);
+  });
+
+  it('drops the Hindi words every question contains', () => {
+    expect(meaningfulWords('मेरा पैसा कब आएगा')).toEqual(['पैसा', 'आएगा']);
   });
 
   it('returns nothing for text with no words in it', () => {
@@ -97,6 +103,17 @@ describe('sharedWordScore', () => {
       'refund late order review delivery tickets account withdrawal',
     );
     expect(tight).toBeGreaterThan(padded);
+  });
+
+  it('carries a whole-sentence near miss when no word is shared', () => {
+    // "my refnud has not arived" shares no meaning word with anything, and the
+    // engine used to say it did not know. The letters alone have to be enough.
+    const typo = scoreCandidate(
+      'my refnud has not arived',
+      candidate('my refund has not arrived', 0.8),
+      'en',
+    );
+    expect(typo).toBeGreaterThan(55);
   });
 
   it('never leaves the 0 to 1 range', () => {
@@ -300,8 +317,10 @@ describe('tsQueryFor', () => {
     expect(tsQueryFor('when will my refund arrive')).toBe('refund | arrive');
   });
 
-  it('keeps Hindi words whole', () => {
-    expect(tsQueryFor('मेरा पैसा कब आएगा')).toBe('मेरा | पैसा | कब | आएगा');
+  it('keeps Hindi words whole, and drops the Hindi ones every question contains', () => {
+    // "मेरा" and "कब" are as common in a Hindi question as "my" and "when" are in
+    // an English one, so searching for them finds everything and means nothing.
+    expect(tsQueryFor('मेरा पैसा कब आएगा')).toBe('पैसा | आएगा');
   });
 
   it('says there is nothing to search for rather than sending an empty query', () => {

@@ -32,9 +32,10 @@ import { ENGLISH_MARKERS } from './language';
  * Deliberately NOT the words Fayr questions are actually about — refund, review,
  * order, tickets, money, paisa — because those are the whole signal.
  *
- * Latin letters only for now. The Hindi-script equivalents (है, का, को, से) belong
- * here too and adding them is adding to this list, which is the point of it being
- * a list.
+ * Both alphabets. The Hindi-letter half was added after a live failure: without it
+ * "kya", "aap" and "hain" written in Devanagari counted as words that carry
+ * meaning, and a question we have no answer for matched a Hindi phrase just by
+ * sharing them. Adding a language is still only adding to this list.
  */
 // prettier-ignore
 export const COMMON_WORDS: ReadonlySet<string> = new Set<string>([
@@ -46,6 +47,16 @@ export const COMMON_WORDS: ReadonlySet<string> = new Set<string>([
   'aur', 'bhi', 'toh', 'lekin', 'magar', 'phir', 'jab', 'tab',
   'kab', 'kya', 'kyun', 'kyu', 'kaise', 'kahan', 'kaun',
   'ji', 'bhai', 'bhaiya', 'didi',
+  // The same function words in Hindi letters. They were missing, and the effect
+  // was a wrong answer, not a missing one: "kya", "aap" and "hain" counted as
+  // MEANING in Devanagari, so a question about something we have no answer for
+  // scored highly against any Hindi phrase that happened to share them.
+  'मेरा', 'मेरी', 'मेरे', 'आप', 'आपका', 'आपकी', 'अपना', 'हमारा',
+  'है', 'हैं', 'था', 'थी', 'थे', 'हो', 'हुआ', 'हुई', 'होगा', 'रहा', 'रही', 'रहे',
+  'का', 'की', 'के', 'को', 'से', 'में', 'पर', 'तक', 'ने', 'भी',
+  'और', 'लेकिन', 'तो', 'फिर', 'जब', 'तब', 'ही', 'यह', 'वह', 'जो', 'कि',
+  'क्या', 'कब', 'क्यों', 'कैसे', 'कहाँ', 'कौन', 'कितना', 'नहीं', 'हाँ',
+  'अभी', 'कुछ', 'कोई',
 ]);
 
 /** How much of the letters have to line up before we call it a near miss. */
@@ -59,6 +70,22 @@ const NEAR_MISS_FLOOR = 0.3;
 const WEIGHT_SAME_WORDS = 0.62;
 const WEIGHT_NEAR_MISS = 0.3;
 const WEIGHT_SAME_LANGUAGE = 0.08;
+
+/**
+ * What a near miss is worth ON ITS OWN, when no word is shared at all.
+ *
+ * Needed because of a real question: "my refnud has not arived". Every word that
+ * carries meaning is misspelled, so the shared-words number is zero and the two
+ * signals added together could not reach the confidence line however close the
+ * letters were. The engine said "I do not know" to a question any person would
+ * have read instantly.
+ *
+ * So the score is the BETTER of the two readings: the two signals together, or the
+ * letters alone at this weight. It takes a whole-sentence closeness of about 0.65
+ * to clear the line this way, and unrelated text measures around 0.04, so the two
+ * are nowhere near each other.
+ */
+const WEIGHT_NEAR_MISS_ALONE = 0.85;
 
 /**
  * A word is letters AND the marks that attach to them. The marks matter: Hindi
@@ -133,10 +160,11 @@ export function scoreCandidate(
   const words = sharedWordScore(question, candidate.phrase);
   const nearness = clamp01(candidate.nearness);
   const sameLanguage = candidate.phraseLanguage === askedLanguage ? 1 : 0;
-  const raw =
-    WEIGHT_SAME_WORDS * words +
-    WEIGHT_NEAR_MISS * nearness +
-    WEIGHT_SAME_LANGUAGE * sameLanguage;
+  const language = WEIGHT_SAME_LANGUAGE * sameLanguage;
+  const together =
+    WEIGHT_SAME_WORDS * words + WEIGHT_NEAR_MISS * nearness + language;
+  const lettersAlone = WEIGHT_NEAR_MISS_ALONE * nearness + language;
+  const raw = Math.max(together, lettersAlone);
   return Math.min(100, Math.max(0, Math.round(raw * 100)));
 }
 
