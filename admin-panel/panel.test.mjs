@@ -385,6 +385,18 @@ console.log('\n=== 7. the assistant screens ===');
   ok(script.includes('Approve and make live'), 'there is a clear approve action');
 }
 
+console.log('\n=== 7d. no personal detail travels in a web address ===');
+{
+  // A mobile number in an address lands in this laptop's browser history and in
+  // every log between here and the server. The search sends it in the body.
+  ok(!/\/admin\/users\/search\?/.test(script),
+    'the user search does not put the mobile number in the address');
+  ok(script.includes('"POST", "/admin/users/search"'),
+    'it posts the number in the body instead');
+  ok(!/api\("GET",\s*"[^"]*\?[^"]*mobile/.test(script),
+    'and nothing else puts a mobile number in a query string either');
+}
+
 console.log('\n=== 7c. the live page check screen ===');
 {
   ok(teamsFor('fops').includes('livepages'),

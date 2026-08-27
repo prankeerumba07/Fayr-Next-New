@@ -131,8 +131,8 @@ describe('Admin user view (e2e)', () => {
       const user = await seedUser();
 
       const res = await request(server())
-        .get('/admin/users/search')
-        .query({ mobile: user.mobile })
+        .post('/admin/users/search')
+        .send({ mobile: user.mobile })
         .set('authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -148,8 +148,8 @@ describe('Admin user view (e2e)', () => {
       const token = await adminToken();
       const user = await seedUser();
       await request(server())
-        .get('/admin/users/search')
-        .query({ mobile: user.mobile })
+        .post('/admin/users/search')
+        .send({ mobile: user.mobile })
         .set('authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -163,8 +163,8 @@ describe('Admin user view (e2e)', () => {
     it('404s an unknown mobile (still a valid E.164)', async () => {
       const token = await adminToken();
       await request(server())
-        .get('/admin/users/search')
-        .query({ mobile: '+919000000001' })
+        .post('/admin/users/search')
+        .send({ mobile: '+919000000001' })
         .set('authorization', `Bearer ${token}`)
         .expect(404);
     });
@@ -172,8 +172,8 @@ describe('Admin user view (e2e)', () => {
     it('rejects a Fayr display id as the lookup input (400)', async () => {
       const token = await adminToken();
       await request(server())
-        .get('/admin/users/search')
-        .query({ mobile: 'FAYR-100001' })
+        .post('/admin/users/search')
+        .send({ mobile: 'FAYR-100001' })
         .set('authorization', `Bearer ${token}`)
         .expect(400);
     });
@@ -181,16 +181,16 @@ describe('Admin user view (e2e)', () => {
     it('rejects a UUID as the lookup input (400)', async () => {
       const token = await adminToken();
       await request(server())
-        .get('/admin/users/search')
-        .query({ mobile: '11111111-1111-4111-8111-111111111111' })
+        .post('/admin/users/search')
+        .send({ mobile: '11111111-1111-4111-8111-111111111111' })
         .set('authorization', `Bearer ${token}`)
         .expect(400);
     });
 
     it('is 401 without a staff token, and for a user token', async () => {
       await request(server())
-        .get('/admin/users/search')
-        .query({ mobile: '+919000000002' })
+        .post('/admin/users/search')
+        .send({ mobile: '+919000000002' })
         .expect(401);
 
       const someUser = await prisma.user.create({
@@ -201,8 +201,8 @@ describe('Admin user view (e2e)', () => {
         { secret: config.get<string>('JWT_ACCESS_SECRET'), expiresIn: '15m' },
       );
       await request(server())
-        .get('/admin/users/search')
-        .query({ mobile: someUser.mobile })
+        .post('/admin/users/search')
+        .send({ mobile: someUser.mobile })
         .set('authorization', `Bearer ${userJwt}`)
         .expect(401);
     });

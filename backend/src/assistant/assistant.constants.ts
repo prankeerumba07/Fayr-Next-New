@@ -64,3 +64,27 @@ export const MAX_PAGE_SIZE = 200;
  * admin/admin.constants.ts rather than in a second list here, so the trail can be
  * filtered by one vocabulary.
  */
+
+/**
+ * Characters a database text column physically cannot hold.
+ *
+ * A null character is the one that matters. Postgres refuses it outright — the
+ * error is "invalid byte sequence for encoding UTF8: 0x00" — so a question
+ * containing one cannot be stored AND cannot be searched for. Found by sending
+ * one at the search: it came back as a raw database complaint, which is both an
+ * unhandled failure and a free lesson for whoever sent it about how the query is
+ * built.
+ *
+ * Nobody types a null character. It arrives only in a request somebody crafted.
+ * So the answer is an honest refusal rather than quietly stripping it: stripping
+ * would break the promise that a question is stored exactly as typed, and that
+ * promise is worth more than accepting a character no keyboard produces.
+ *
+ * The other C0 control characters go with it, except tab, newline and carriage
+ * return, which somebody really does type.
+ */
+const UNSTORABLE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/;
+
+export function hasUnstorableCharacters(text: unknown): boolean {
+  return typeof text === 'string' && UNSTORABLE.test(text);
+}

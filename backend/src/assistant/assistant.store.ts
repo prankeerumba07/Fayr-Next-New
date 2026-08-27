@@ -16,6 +16,7 @@ import {
   QUESTION_MAX_LENGTH,
   SEARCH_CANDIDATE_CAP,
   TOPIC_MAX_LENGTH,
+  hasUnstorableCharacters,
 } from './assistant.constants';
 import { detectLanguage, isKnownLanguage } from './language';
 import { UserJourneyService } from './user-journey.service';
@@ -126,6 +127,13 @@ export class AssistantStore {
     if (rawText.length > QUESTION_MAX_LENGTH) {
       throw new AssistantError(
         `that question is longer than ${QUESTION_MAX_LENGTH} characters`,
+      );
+    }
+    // A null character cannot be stored at all, and cannot be searched for. See
+    // hasUnstorableCharacters: refused honestly rather than quietly stripped.
+    if (hasUnstorableCharacters(rawText)) {
+      throw new AssistantError(
+        'that question contains characters we cannot store — please retype it',
       );
     }
 
@@ -488,6 +496,10 @@ export class AssistantStore {
     options: AnswerSearchOptions,
   ): Promise<AnswerSearchHit[]> {
     const text = typeof options.text === 'string' ? options.text : '';
+    // Nothing to search for, and searching for it would be a raw database error
+    // rather than an empty result. Guarded here as well as at the question,
+    // because every future caller of the search comes through this line.
+    if (hasUnstorableCharacters(text)) return [];
     const limit = Math.min(
       MAX_SEARCH_LIMIT,
       Math.max(1, options.limit ?? DEFAULT_SEARCH_LIMIT),
@@ -748,6 +760,11 @@ export class AssistantStore {
   private requireText(value: unknown, what: string, max?: number): string {
     if (typeof value !== 'string' || value.trim() === '') {
       throw new AssistantError(`an answer needs a ${what}`);
+    }
+    if (hasUnstorableCharacters(value)) {
+      throw new AssistantError(
+        `that ${what} contains characters we cannot store`,
+      );
     }
     const trimmed = value.trim();
     if (max !== undefined && trimmed.length > max) {

@@ -621,7 +621,10 @@
       state.search = { mobile: mobile, loading: true, error: null, notFound: false, result: null };
       render();
       try {
-        state.search.result = await api("GET", "/admin/users/search?mobile=" + encodeURIComponent(mobile));
+        // A POST with the number in the body, never in the address. A mobile
+        // number in a web address lands in this laptop's browser history and in
+        // every log between here and the server.
+        state.search.result = await api("POST", "/admin/users/search", { mobile: mobile });
       } catch (e) {
         if (e.status === 404) state.search.notFound = true;
         else state.search.error = e.message;
