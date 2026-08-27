@@ -13,6 +13,13 @@ export interface SeedDraftsReport {
   refused: string[];
 }
 
+export interface PublishForPracticeReport {
+  /** Untouched assistant drafts that are now readable in the chat. */
+  published: number;
+  /** Skipped because a person had already decided about them. */
+  leftAlone: number;
+}
+
 /**
  * PUTTING THE DRAFTED ANSWERS INTO THE ANSWER BOOK.
  *
@@ -103,5 +110,66 @@ export class AssistantSeedService implements OnModuleInit {
       }
     }
     return report;
+  }
+
+  /**
+   * PRACTICE AND DEVELOPMENT DATABASES ONLY — make the drafted answers readable.
+   *
+   * Without this, a fresh practice database has seventy five answers in it and
+   * "Chat with us" cannot answer a single question, because every one of them is
+   * waiting for a person. Nobody is going to approve seventy five answers by hand
+   * before a screen can be shown working, so on a practice database we do it here
+   * and the chat is usable the moment the app opens.
+   *
+   * A REAL DEPLOYMENT MUST NEVER COME THROUGH HERE. The drafts were written by the
+   * assistant from the policy screens. No person has read them, and the Hindi ones
+   * have not been read by a Hindi speaker at all. Publishing them to real people
+   * would be putting unchecked words in Fayr's mouth. So this refuses outright on
+   * any database not named *_dev or *_test — the same guard the demo seed makes
+   * before it writes users and ledger entries, repeated here so the rule travels
+   * with the method rather than depending on who calls it.
+   *
+   * IT ONLY EVER TOUCHES AN UNTOUCHED ASSISTANT DRAFT. Something a person wrote,
+   * or retired, or already decided about, is left exactly as they left it.
+   */
+  async publishDraftsForPractice(
+    staffUserId: string,
+    databaseNameOverride?: string,
+  ): Promise<PublishForPracticeReport> {
+    await this.assertPracticeDatabase(databaseNameOverride);
+
+    const untouchedDrafts = await this.prisma.answerEntry.findMany({
+      where: { origin: 'ASSISTANT', status: 'DRAFT' },
+      select: { id: true },
+    });
+    const decidedByAPerson = await this.prisma.answerEntry.count({
+      where: { NOT: { origin: 'ASSISTANT', status: 'DRAFT' } },
+    });
+
+    for (const entry of untouchedDrafts) {
+      await this.store.setAnswerStatus(entry.id, 'PUBLISHED', staffUserId);
+    }
+
+    return {
+      published: untouchedDrafts.length,
+      leftAlone: decidedByAPerson,
+    };
+  }
+
+  private async assertPracticeDatabase(override?: string): Promise<void> {
+    let name = override;
+    if (name == null) {
+      const rows = await this.prisma.$queryRawUnsafe<
+        { current_database: string }[]
+      >('SELECT current_database()');
+      name = rows[0]?.current_database ?? '';
+    }
+    if (!/_dev$|_test$/.test(name)) {
+      throw new Error(
+        `Refused to publish the drafted answers: "${name}" is not a practice `
+          + 'or development database. On a real one a person has to read every '
+          + 'answer and approve it.',
+      );
+    }
   }
 }
