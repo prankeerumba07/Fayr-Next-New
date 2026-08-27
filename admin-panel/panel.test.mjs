@@ -62,7 +62,7 @@ console.log('\n=== 2b. the four teams, and nothing lost on the way to them ===')
   // moves, it moves here first.
   const OWNERSHIP = {
     finance: ['withdrawals', 'reports'],
-    support: ['queue', 'verifications', 'reviews'],
+    support: ['queue', 'chat', 'answers', 'verifications', 'reviews'],
     operations: ['amounts', 'staff', 'search'],
     fops: ['offers', 'campaigns'],
   };
@@ -340,6 +340,163 @@ console.log('\n=== 6. the hold is explained in words, never as an enum ===');
     'no internal reason string is printed to the screen');
   ok(!/staff-confirmed-visible|publishedSource/.test(script),
     'no internal source name is printed to the screen either');
+}
+
+console.log('\n=== 7. the assistant screens ===');
+{
+  // Both sit under Customer support, because the answer book and the questions
+  // people ask are that team's work.
+  const teamsBlock = (script.match(/var TEAMS = \[([\s\S]*?)\n    \];/) || [])[1] || '';
+  const teams = new Function('return [' + teamsBlock + ']')();
+  const support = teams.find((t) => t[0] === 'support');
+  const ids = support[3].map((sec) => sec[0]);
+  ok(ids.includes('chat'), 'Chat questions is a Customer support section');
+  ok(ids.includes('answers'), 'the Answer book is a Customer support section');
+
+  ok(/chat:\s*\["SUPPORT", "ADMIN"\]/.test(script),
+    'chat questions are gated to support and admin on this side too');
+  ok(/answers:\s*\["SUPPORT", "ADMIN"\]/.test(script),
+    'the answer book is gated the same way');
+
+  ok(script.includes('/admin/assistant/questions'), 'it reads the real queue');
+  ok(script.includes('/admin/assistant/answers'), 'and the real answer book');
+  ok(script.includes('/admin/assistant/stats'), 'and the real resolution times');
+
+  // The plain-language check is the SERVER'S. A second copy of the rule in this
+  // file would drift from the one that actually refuses an approval.
+  ok(script.includes('/admin/assistant/answers/check'),
+    'the wording warning comes from the server, not from a copy of the rule here');
+  ok(!/JARGON|MAX_WORDS_PER_SENTENCE/.test(script),
+    'the panel holds no copy of the plain-language rule');
+
+  // A drafted answer must SAY it has not been read by anybody.
+  ok(script.includes('No person has read this yet'),
+    'a drafted answer says out loud that nobody has approved it');
+  ok(script.includes('Nobody who speaks this language has checked the wording'),
+    'and a non-English draft says the wording is unchecked');
+  ok(script.includes('Approve and make live'), 'there is a clear approve action');
+}
+
+console.log('\n=== 7b. the assistant screens actually render ===');
+{
+  // Same reasoning as 2d: a parse check cannot catch a call to a helper that does
+  // not exist. Both screens are lifted out and rendered against realistic data.
+  const from = script.indexOf('// ── assistant screens: begin');
+  const to = script.indexOf('// ── assistant screens: end');
+  const src = from >= 0 && to > from ? script.slice(from, to) : '';
+  ok(src.includes('ChatQuestionsScreen') && src.includes('AnswerBookScreen'),
+    "both screens' functions were found");
+
+  const QUESTIONS = [
+    {
+      id: 'q1', askedAt: '2026-08-27T06:00:00.000Z',
+      rawText: 'mera refund kab aayega',
+      language: { tag: 'hi-en', name: 'Hindi written in English letters', confidence: 88 },
+      status: 'ANSWERED',
+      answer: {
+        origin: 'ANSWER_BOOK', text: 'Aapka paisa review dikhne ke baad aata hai.',
+        score: 91, revision: 1,
+        entry: { id: 'a1', key: 'refund-not-arrived', language: 'hi-en', languageName: 'Hindi written in English letters', title: 'Aapka paisa abhi tak wapas nahi aaya', revision: 1, status: 'PUBLISHED' },
+      },
+      helpful: true, helpfulAt: '2026-08-27T06:01:00.000Z',
+      resolvedAt: '2026-08-27T06:01:00.000Z', secondsToResolve: 60, timeToResolve: '1 minute',
+      user: { id: 'u1', displayId: 'FAYR-100004' },
+    },
+    {
+      id: 'q2', askedAt: '2026-08-27T05:00:00.000Z',
+      rawText: 'do you deliver to Kathmandu',
+      language: { tag: 'en', name: 'English', confidence: 80 },
+      status: 'UNRESOLVED', answer: null, helpful: null, helpfulAt: null,
+      resolvedAt: null, secondsToResolve: null, timeToResolve: null,
+      user: { id: 'u2', displayId: 'FAYR-100011' },
+    },
+  ];
+  const STATS = {
+    windowDays: 30, asked: 40, answered: 12, unresolved: 8, resolved: 20,
+    saidItHelped: 18, saidItDidNotHelp: 2, didNotSay: 20,
+    resolution: {
+      counted: 20,
+      fastest: { seconds: 30, inWords: '30 seconds' },
+      typical: { seconds: 1200, inWords: '20 minutes' },
+      slowest: { seconds: 86400, inWords: '1 day' },
+      nineOutOfTenWithin: { seconds: 7200, inWords: '2 hours' },
+    },
+  };
+  const ANSWERS = [
+    { id: 'a1', key: 'tickets', language: 'en', languageName: 'English', title: 'What tickets are', body: 'Tickets are what you spend to join an offer.', topic: 'tickets', status: 'DRAFT', origin: 'ASSISTANT', revision: 1, waysOfAsking: 5, updatedByStaffId: null, createdAt: '2026-08-27T05:00:00.000Z', updatedAt: '2026-08-27T05:00:00.000Z' },
+    { id: 'a2', key: 'tickets', language: 'hi', languageName: 'Hindi', title: 'टिकट क्या हैं', body: 'ऑफर में शामिल होने के लिए टिकट खर्च होते हैं।', topic: 'tickets', status: 'DRAFT', origin: 'ASSISTANT', revision: 1, waysOfAsking: 3, updatedByStaffId: null, createdAt: '2026-08-27T05:00:00.000Z', updatedAt: '2026-08-27T05:00:00.000Z' },
+    { id: 'a3', key: 'refund-timing', language: 'en', languageName: 'English', title: 'When your money comes back', body: 'After your review is live.', topic: 'refund', status: 'PUBLISHED', origin: 'STAFF', revision: 3, waysOfAsking: 8, updatedByStaffId: 's1', createdAt: '2026-08-27T05:00:00.000Z', updatedAt: '2026-08-27T05:00:00.000Z' },
+    { id: 'a4', key: 'old-one', language: 'en', languageName: 'English', title: 'An old answer', body: 'Withdrawn.', topic: 'about', status: 'RETIRED', origin: 'SEED', revision: 2, waysOfAsking: 0, updatedByStaffId: null, createdAt: '2026-08-27T05:00:00.000Z', updatedAt: '2026-08-27T05:00:00.000Z' },
+  ];
+
+  const harness = `
+    var seen = [];
+    function h(tag, attrs) {
+      var kids = Array.prototype.slice.call(arguments, 2);
+      var node = { tag: tag, attrs: attrs || {}, kids: kids, value: "",
+                   oninput: null, onblur: null, onchange: null,
+                   appendChild: function (k) { this.kids.push(k); } };
+      seen.push(node);
+      return node;
+    }
+    function fmtDate(iso) { return new Date(iso).toISOString(); }
+    function Stat(v, l, tone) { return h("div", { class: "stat stat-" + (tone || "") }, v, l); }
+    function sevPill(sev) { return h("span", { class: "sev sev-" + sev }, sev); }
+    function setChatFilter() {} function closeChatQuestion() {}
+    function setAnswerFilter() {} function editAnswer() {} function cancelAnswerEdit() {}
+    function checkAnswerWords() {} function saveAnswer() {} function setAnswerLive() {}
+    var state = STATE;
+    ${src}
+    return { chat: ChatQuestionsScreen(), book: AnswerBookScreen(), seen: seen };
+  `;
+
+  const chatState = (over) => ({
+    chat: { loading: false, error: null, items: QUESTIONS, total: 2, stats: STATS,
+            filter: 'UNRESOLVED', busy: null, notice: null, actionError: null, ...over },
+    answers: { loading: false, error: null, items: ANSWERS, total: 4,
+               filter: { language: '', status: '' }, draft: null, warnings: [],
+               busy: null, notice: null, actionError: null },
+  });
+  const bookState = (over) => ({
+    chat: { loading: false, error: null, items: QUESTIONS, total: 2, stats: STATS,
+            filter: 'UNRESOLVED', busy: null, notice: null, actionError: null },
+    answers: { loading: false, error: null, items: ANSWERS, total: 4,
+               filter: { language: '', status: '' }, draft: null, warnings: [],
+               busy: null, notice: null, actionError: null, ...over },
+  });
+
+  const states = [
+    ['everything present', chatState({})],
+    ['still loading', chatState({ loading: true, items: null, stats: null })],
+    ['the queue failed', chatState({ items: null, error: 'Could not reach the Fayr server.' })],
+    ['an empty queue', chatState({ items: [], total: 0 })],
+    ['no resolution times yet', chatState({ stats: { ...STATS, resolution: { counted: 0, fastest: { seconds: null, inWords: null }, typical: { seconds: null, inWords: null }, slowest: { seconds: null, inWords: null }, nineOutOfTenWithin: { seconds: null, inWords: null } } } })],
+    ['closing one', chatState({ busy: 'q2' })],
+    ['a notice and an error at once', chatState({ notice: 'Closed.', actionError: 'That did not work.' })],
+    ['the answer book, loading', bookState({ loading: true, items: null })],
+    ['the answer book, empty', bookState({ items: [], total: 0 })],
+    ['writing a new answer', bookState({ draft: { id: null, key: '', language: 'en', title: '', body: '', topic: 'refund', phrases: '' } })],
+    ['correcting one, with warnings', bookState({ draft: { id: 'a1', key: 'tickets', language: 'en', title: 'What tickets are', body: 'The API endpoint failed.', topic: 'tickets', phrases: 'what are tickets' }, warnings: ['"api" is not a word a person here would use. Instead, say "the app".'] })],
+    ['approving one', bookState({ busy: 'a1' })],
+  ];
+
+  for (const [label, st] of states) {
+    let threw = null, out = null;
+    try {
+      out = new Function('STATE', 'QUESTIONS', 'STATS', 'ANSWERS', harness)(st, QUESTIONS, STATS, ANSWERS);
+    } catch (e) { threw = e.message; }
+    ok(!threw, `renders ${label}` + (threw ? ` — threw: ${threw}` : ''));
+    if (threw) continue;
+
+    const flat = JSON.stringify(out.seen, (k, v) => (typeof v === 'function' ? undefined : v));
+    ok(!flat.includes('undefined'), `${label}: nothing "undefined" reaches the screen`);
+    ok(!flat.includes('NaN'), `${label}: no "NaN" reaches the screen`);
+    ok(!flat.includes('[object Object]'), `${label}: no raw object reaches the screen`);
+  }
+
+  // And no internal name leaks into what a person reads.
+  ok(!/ANSWER_BOOK|UNRESOLVED"\s*,\s*"/.test(src) || src.includes('Waiting for approval'),
+    'states are shown in words, not as stored names');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
