@@ -26,6 +26,12 @@ export const AUDIT_ACTIONS = {
   REPORT_DOWNLOAD: 'REPORT_DOWNLOAD',
   CAMPAIGN_CHECK_RUN: 'CAMPAIGN_CHECK_RUN', // someone ran the offer check by hand
   ASSISTANT_QUESTION_VIEW: 'ASSISTANT_QUESTION_VIEW', // staff opened one person's own words + what they were doing
+  ASSISTANT_QUESTION_RESOLVE: 'ASSISTANT_QUESTION_RESOLVE', // staff closed a chat question
+  ASSISTANT_ANSWER_SAVE: 'ASSISTANT_ANSWER_SAVE', // staff wrote or corrected an answer
+  // Kept apart from SAVE deliberately: approving is the act that lets an answer
+  // reach a real person, and "who let this out" is the question asked afterwards.
+  ASSISTANT_ANSWER_APPROVE: 'ASSISTANT_ANSWER_APPROVE',
+  ASSISTANT_ANSWER_RETIRE: 'ASSISTANT_ANSWER_RETIRE', // staff withdrew an answer
   SCREENSHOT_VIEW: 'SCREENSHOT_VIEW', // staff streamed a private verification screenshot
   EVIDENCE_REVIEW: 'EVIDENCE_REVIEW', // staff approved / rejected / requested-more on a case
   DUPLICATE_ORDER_ALLOW: 'DUPLICATE_ORDER_ALLOW', // staff let a second task on one order be paid

@@ -1,10 +1,14 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -27,6 +31,8 @@ import {
   type AssistantQuestionSummary,
   type StatsResponse,
 } from './assistant.response';
+import { plainLanguageProblems } from './plain-language';
+import { CheckWordsDto, SaveAnswerDto } from './dto/save-answer.dto';
 import { ListAnswersQueryDto } from './dto/list-answers.query';
 import { ListAssistantQuestionsQueryDto } from './dto/list-questions.query';
 import { AssistantStatsQueryDto } from './dto/stats.query';
@@ -36,6 +42,12 @@ interface QuestionPageResponse {
   limit: number;
   offset: number;
   questions: AssistantQuestionSummary[];
+}
+
+/** A saved answer, and what is wrong with the way it is written. */
+interface SavedAnswerResponse {
+  answer: AnswerSummaryResponse;
+  plainLanguage: { ok: boolean; problems: string[] };
 }
 
 interface AnswerPageResponse {
@@ -137,6 +149,153 @@ export class AdminAssistantController {
     };
   }
 
+  /**
+   * Write an answer, or correct one.
+   *
+   * A new answer is saved as a DRAFT and marked as written by a person; approving
+   * is a separate act, below, because approving is what lets it reach somebody.
+   * Correcting one that is ALREADY approved leaves it approved: somebody trusted
+   * to let an answer out is trusted to fix it, and the alternative is a person
+   * fixing a bad answer and watching nothing change.
+   *
+   * THE PLAIN-LANGUAGE PROBLEMS COME BACK AS A WARNING, NOT A REFUSAL. Somebody
+   * halfway through rewriting an answer must not lose the work because the wording
+   * is not finished. The refusal is at the approve step, where it matters.
+   */
+  @Post('answers')
+  async saveAnswer(
+    @CurrentStaff() staff: AuthenticatedStaff,
+    @Body() dto: SaveAnswerDto,
+  ): Promise<SavedAnswerResponse> {
+    const saved = await this.translate(() =>
+      this.store.saveAnswer({
+        key: dto.key,
+        language: dto.language,
+        title: dto.title,
+        body: dto.body,
+        topic: dto.topic,
+        // NO status passed on purpose. A NEW answer starts as a draft. Correcting
+        // one that is already approved LEAVES IT APPROVED, so the fix is live for
+        // the next person who asks — which is the whole promise of this screen.
+        // Sending it back for approval every time would mean a person fixes a bad
+        // answer, watches nothing change, and stops bothering.
+        origin: 'STAFF',
+        phrases: dto.phrases,
+        updatedByStaffId: staff.id,
+      }),
+    );
+    await this.audit.record({
+      staffUserId: staff.id,
+      action: AUDIT_ACTIONS.ASSISTANT_ANSWER_SAVE,
+      metadata: {
+        key: saved.key,
+        language: saved.language,
+        revision: saved.revision,
+      },
+    });
+    const full = await this.translate(() => this.store.getAnswer(saved.id));
+    return {
+      answer: toAnswerSummary(full),
+      plainLanguage: this.checkWords(dto.title, dto.body, dto.language),
+    };
+  }
+
+  /** Check the words without saving anything. What the screen warns from. */
+  @Post('answers/check')
+  @HttpCode(HttpStatus.OK)
+  check(@Body() dto: CheckWordsDto): { ok: boolean; problems: string[] } {
+    return this.checkWords(dto.title ?? '', dto.body, dto.language);
+  }
+
+  /**
+   * Approve an answer, so the assistant may start giving it.
+   *
+   * REFUSED if it does not read plainly. Not out of tidiness: the engine holds
+   * back an answer that breaks the rule whatever its state, so publishing one
+   * would leave staff believing they had fixed something while every person who
+   * asks still gets "I could not answer this yet". Better to refuse here, with the
+   * list of what to change.
+   */
+  @Post('answers/:id/approve')
+  @HttpCode(HttpStatus.OK)
+  async approve(
+    @CurrentStaff() staff: AuthenticatedStaff,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<SavedAnswerResponse> {
+    const existing = await this.translate(() => this.store.getAnswer(id));
+    const words = this.checkWords(
+      existing.title,
+      existing.body,
+      existing.language,
+    );
+    if (!words.ok) {
+      throw new BadRequestException([
+        'This answer cannot be approved until it reads plainly.',
+        ...words.problems,
+      ]);
+    }
+    const updated = await this.translate(() =>
+      this.store.setAnswerStatus(id, 'PUBLISHED', staff.id),
+    );
+    await this.audit.record({
+      staffUserId: staff.id,
+      action: AUDIT_ACTIONS.ASSISTANT_ANSWER_APPROVE,
+      metadata: {
+        key: updated.key,
+        language: updated.language,
+        revision: updated.revision,
+      },
+    });
+    const full = await this.translate(() => this.store.getAnswer(id));
+    return { answer: toAnswerSummary(full), plainLanguage: words };
+  }
+
+  /** Withdraw an answer. Kept, not deleted, so old questions still make sense. */
+  @Post('answers/:id/retire')
+  @HttpCode(HttpStatus.OK)
+  async retire(
+    @CurrentStaff() staff: AuthenticatedStaff,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<SavedAnswerResponse> {
+    const updated = await this.translate(() =>
+      this.store.setAnswerStatus(id, 'RETIRED', staff.id),
+    );
+    await this.audit.record({
+      staffUserId: staff.id,
+      action: AUDIT_ACTIONS.ASSISTANT_ANSWER_RETIRE,
+      metadata: { key: updated.key, language: updated.language },
+    });
+    const full = await this.translate(() => this.store.getAnswer(id));
+    return {
+      answer: toAnswerSummary(full),
+      plainLanguage: this.checkWords(
+        updated.title,
+        updated.body,
+        updated.language,
+      ),
+    };
+  }
+
+  /** Close a question a person has dealt with. */
+  @Post('questions/:id/resolve')
+  @HttpCode(HttpStatus.OK)
+  async resolve(
+    @CurrentStaff() staff: AuthenticatedStaff,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<AssistantQuestionDetail> {
+    const closed = await this.translate(() =>
+      this.store.resolveByStaff(id, staff.id),
+    );
+    await this.audit.record({
+      staffUserId: staff.id,
+      action: AUDIT_ACTIONS.ASSISTANT_QUESTION_RESOLVE,
+      targetUserId: closed.userId,
+      metadata: { questionId: closed.id },
+    });
+    const full = await this.translate(() => this.store.getQuestion(id));
+    return toQuestionDetail(full, full.user);
+  }
+
   /** How long questions are taking to settle. */
   @Get('stats')
   async stats(@Query() query: AssistantStatsQueryDto): Promise<StatsResponse> {
@@ -152,6 +311,25 @@ export class AdminAssistantController {
    * By CLASS, not by the text of a message: a 404 that depends on a sentence
    * somebody may reword is a 404 that stops working silently.
    */
+  /**
+   * The plain-language problems for a title and a body, as lines a screen can put
+   * in front of a person. One place, so the warning on the way in and the refusal
+   * at the approve step can never disagree.
+   */
+  private checkWords(
+    title: string,
+    body: string,
+    language: string,
+  ): { ok: boolean; problems: string[] } {
+    const problems = [
+      ...plainLanguageProblems(body, language),
+      ...plainLanguageProblems(title, language).map(
+        (p) => `In the title: ${p}`,
+      ),
+    ];
+    return { ok: problems.length === 0, problems };
+  }
+
   private async translate<T>(run: () => Promise<T>): Promise<T> {
     try {
       return await run();

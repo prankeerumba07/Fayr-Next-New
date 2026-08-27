@@ -27,6 +27,7 @@ import {
   type AnswerFilter,
   type AnswerGiven,
   type AnswerPage,
+  type AnswerWithPhraseCount,
   type AnswerSearchHit,
   type AnswerSearchOptions,
   type QuestionFilter,
@@ -37,6 +38,7 @@ import {
 } from './assistant.types';
 import type {
   AnswerEntry,
+  AnswerStatus,
   AssistantQuestion,
   AssistantQuestionStatus,
 } from '@prisma/client';
@@ -417,6 +419,39 @@ export class AssistantStore {
       }
       return entry;
     });
+  }
+
+  /**
+   * Approve an answer, so the engine may start giving it.
+   *
+   * The plain-language check is NOT here. It belongs at the edge, where the
+   * problems can be handed back to the person who has to fix them — the store's
+   * job is to change the state, and a store that silently refuses would leave the
+   * screen with nothing to show.
+   */
+  async setAnswerStatus(
+    answerEntryId: string,
+    status: AnswerStatus,
+    staffUserId: string,
+  ): Promise<AnswerEntry> {
+    const existing = await this.prisma.answerEntry.findUnique({
+      where: { id: answerEntryId },
+    });
+    if (!existing) throw new AssistantNotFoundError('no such answer');
+    return this.prisma.answerEntry.update({
+      where: { id: answerEntryId },
+      data: { status, updatedByStaffId: staffUserId },
+    });
+  }
+
+  /** One answer, with how many wordings lead to it. */
+  async getAnswer(answerEntryId: string): Promise<AnswerWithPhraseCount> {
+    const found = await this.prisma.answerEntry.findUnique({
+      where: { id: answerEntryId },
+      include: { _count: { select: { phrases: true } } },
+    });
+    if (!found) throw new AssistantNotFoundError('no such answer');
+    return found;
   }
 
   /** One page of the answer book. */
