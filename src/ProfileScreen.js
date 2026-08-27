@@ -162,6 +162,11 @@ export default function ProfileScreen({ navigation }) {
         </View>
 
         <View style={styles.group}>
+          {/* "Chat with us" first: it answers in seconds, and Help is where a
+              question goes when it needs a person. Putting the slower door first
+              would send everybody down it. */}
+          <Row icon="💬" title="Chat with us" sub="Ask a question and get an answer straight away"
+            onPress={() => navigation.navigate('Chat')} />
           <Row icon="🆘" title="Help & support" sub="Ask a question about a claim or a payment"
             onPress={() => navigation.navigate('Support')} />
           <Row icon="📄" title="Terms & Conditions" sub={`Last updated ${POLICY_VERSION}`}
