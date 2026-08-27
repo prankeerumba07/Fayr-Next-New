@@ -41,6 +41,17 @@ export const envSchema = z.object({
   // use, so a stolen refresh token is caught by reuse detection.
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 
+  // --- The assistant ---------------------------------------------------------
+  // Which answer source is asked FIRST. 'answer-book' searches the stored answers
+  // and is the only one that answers anything today. 'model' puts a language model
+  // in front of it — the seam exists, the model does not, so selecting it changes
+  // nothing at all and every question falls straight through to the answer book.
+  // Kept as a validated setting so a typo stops the boot instead of silently
+  // choosing the default.
+  ASSISTANT_ANSWER_SOURCE: z
+    .enum(['answer-book', 'model'])
+    .default('answer-book'),
+
   // Comma-separated allowlist of browser origins permitted via CORS (e.g. the
   // web prototype at http://localhost:8000). In non-production an empty value
   // reflects the request origin for local convenience; in production an empty
@@ -227,7 +238,12 @@ export const envSchema = z.object({
   // Their docs show +91XXXXXXXXXX; plain national is also widely accepted. Switch
   // rather than edit code if this account wants the other one.
   TWOFACTOR_NUMBER_FORMAT: z.enum(['e164', 'national']).default('e164'),
-  TWOFACTOR_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
+  TWOFACTOR_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(60000)
+    .default(15000),
 
   // Twilio Programmable Messaging. We supply the body and the code — never Twilio
   // Verify, which generates and validates its own.
@@ -249,7 +265,12 @@ export const envSchema = z.object({
     .string()
     .regex(/^\d{1,3}$/, 'TWILIO_COUNTRY_CODE must be 1-3 digits')
     .default('91'),
-  TWILIO_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
+  TWILIO_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(60000)
+    .default(15000),
 
   // Fast2SMS, Quick route (route=q): no DLT, random numeric sender, about Rs 5 a
   // message — so the Rs 50 free credit is roughly TEN messages.
@@ -262,9 +283,13 @@ export const envSchema = z.object({
     .string()
     .regex(/^\d{1,3}$/, 'FAST2SMS_COUNTRY_CODE must be 1-3 digits')
     .default('91'),
-  FAST2SMS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
+  FAST2SMS_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(60000)
+    .default(15000),
 });
-
 
 /**
  * Cross-field rules that a per-field schema cannot express.
@@ -286,13 +311,16 @@ const withCrossFieldRules = envSchema.superRefine((env, ctx) => {
       code: z.ZodIssueCode.custom,
       path: ['SMS_PROVIDER'],
       message:
-        'SMS_PROVIDER=dev is refused when NODE_ENV=production: the console sender '
-        + 'writes live login codes into the log and sends no SMS. Name a real provider.',
+        'SMS_PROVIDER=dev is refused when NODE_ENV=production: the console sender ' +
+        'writes live login codes into the log and sends no SMS. Name a real provider.',
     });
   }
 
   if (env.SMS_PROVIDER === 'fast2sms') {
-    if (env.FAST2SMS_API_KEY == null || env.FAST2SMS_API_KEY.trim().length === 0) {
+    if (
+      env.FAST2SMS_API_KEY == null ||
+      env.FAST2SMS_API_KEY.trim().length === 0
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['FAST2SMS_API_KEY'],
@@ -319,22 +347,25 @@ const withCrossFieldRules = envSchema.superRefine((env, ctx) => {
     // One sender is mandatory, and neither is required on its own — so the rule is
     // "at least one", stated as such rather than as two confusing failures.
     if (
-      env.TWILIO_FROM_NUMBER.trim().length === 0
-      && env.TWILIO_MESSAGING_SERVICE_SID.trim().length === 0
+      env.TWILIO_FROM_NUMBER.trim().length === 0 &&
+      env.TWILIO_MESSAGING_SERVICE_SID.trim().length === 0
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['TWILIO_FROM_NUMBER'],
         message:
-          'TWILIO_FROM_NUMBER (or TWILIO_MESSAGING_SERVICE_SID) is required when '
-          + 'SMS_PROVIDER=twilio',
+          'TWILIO_FROM_NUMBER (or TWILIO_MESSAGING_SERVICE_SID) is required when ' +
+          'SMS_PROVIDER=twilio',
       });
     }
     return;
   }
 
   if (env.SMS_PROVIDER === '2factor') {
-    if (env.TWOFACTOR_API_KEY == null || env.TWOFACTOR_API_KEY.trim().length === 0) {
+    if (
+      env.TWOFACTOR_API_KEY == null ||
+      env.TWOFACTOR_API_KEY.trim().length === 0
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['TWOFACTOR_API_KEY'],
@@ -368,8 +399,8 @@ const withCrossFieldRules = envSchema.superRefine((env, ctx) => {
       code: z.ZodIssueCode.custom,
       path: ['MESSAGECENTRAL_PASSWORD_BASE64'],
       message:
-        'MESSAGECENTRAL_PASSWORD_BASE64 must be base 64 encoded '
-        + "(run: printf '%s' 'your-password' | base64)",
+        'MESSAGECENTRAL_PASSWORD_BASE64 must be base 64 encoded ' +
+        "(run: printf '%s' 'your-password' | base64)",
     });
   }
 });

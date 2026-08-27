@@ -9,6 +9,7 @@ import {
   DEFAULT_STATS_WINDOW_DAYS,
   MAX_PHRASES_PER_ANSWER,
   MAX_SEARCH_LIMIT,
+  MAX_PAGE_SIZE,
   MAX_STATS_WINDOW_DAYS,
   NEAR_MISS_THRESHOLD,
   PHRASE_MAX_LENGTH,
@@ -232,6 +233,50 @@ export class AssistantStore {
         status: helpful ? 'RESOLVED' : 'UNRESOLVED',
         resolvedAt: helpful ? now : null,
       },
+    });
+  }
+
+  /**
+   * Record whether it helped, on a question that BELONGS to this person.
+   *
+   * Separate from recordHelpful on purpose. That one is the plain write and is
+   * called from staff paths; this one is what the app calls, and the app is where
+   * somebody hostile is holding the phone. A question id belonging to anybody else
+   * is refused exactly as if it did not exist — never "not yours", which would
+   * confirm that it is somebody's.
+   */
+  async recordHelpfulForOwner(
+    userId: string,
+    questionId: string,
+    helpful: boolean,
+  ): Promise<AssistantQuestion> {
+    if (typeof userId !== 'string' || userId.trim() === '') {
+      throw new AssistantError('no account was named');
+    }
+    if (typeof helpful !== 'boolean') {
+      throw new AssistantError('that has to be a yes or a no');
+    }
+    const owned = await this.prisma.assistantQuestion.findFirst({
+      where: { id: questionId, userId },
+      select: { id: true },
+    });
+    if (!owned) throw new AssistantNotFoundError('no such question');
+    return this.recordHelpful(questionId, helpful);
+  }
+
+  /** This person's own questions, newest first. Never anybody else's. */
+  async listForOwner(
+    userId: string,
+    limit: number,
+  ): Promise<QuestionWithAnswer[]> {
+    if (typeof userId !== 'string' || userId.trim() === '') {
+      throw new AssistantError('no account was named');
+    }
+    return this.prisma.assistantQuestion.findMany({
+      where: { userId },
+      include: WITH_CONTEXT,
+      orderBy: { askedAt: 'desc' },
+      take: Math.min(MAX_PAGE_SIZE, Math.max(1, limit)),
     });
   }
 
