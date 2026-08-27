@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# ONE COMMAND TO CHECK EVERYTHING.
+#
+#   ./check
+#
+# It runs every check in the project — the backend, the app, and the staff panel —
+# and finishes with a plain-language summary. The last thing you see is a
+# sentence, not a wall of test output.
+#
+# It does not stop at the first failure. If two areas are broken you want to know
+# about both.
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
+LOGS="$HERE/.local-logs"
+mkdir -p "$LOGS"
+
+printf '\n\033[1mChecking all of Fayr. This takes about three minutes.\033[0m\n'
+printf 'Nothing is skipped, and it does not stop at the first problem.\n'
+
+# name | what it means in ordinary words | log file | command
+AREAS=(
+  "The backend's own checks|Every rule about money, tickets, offers, the assistant and the plain-language rule|backend-unit|cd backend && npm test"
+  "The backend end to end|The real server answering real requests against a real database, including every break-in attempt|backend-e2e|cd backend && npm run test:e2e"
+  "The app and the staff panel|Every decision the app and the panel make on their own: what a screen shows, what it refuses, what it says|device|npm test"
+  "The backend's types|Whether the backend code contradicts itself|backend-types|cd backend && npm run typecheck"
+  "The app's types|Whether the app code contradicts itself|device-types|npm run typecheck"
+)
+
+PASSED=()
+FAILED=()
+COUNTS=()
+
+for area in "${AREAS[@]}"; do
+  IFS='|' read -r name meaning slug cmd <<< "$area"
+  printf '\n\033[1m→ %s\033[0m\n  %s\n' "$name" "$meaning"
+  if bash -c "$cmd" > "$LOGS/check-$slug.log" 2>&1; then
+    printf '  \033[32mall good\033[0m'
+    PASSED+=("$name")
+  else
+    printf '  \033[31mSOMETHING IS WRONG\033[0m'
+    FAILED+=("$name|$meaning|$slug")
+  fi
+  # Pull the numbers out, whichever runner it was.
+  #
+  # The two runners count differently and one of them counts MANY TIMES. Jest
+  # prints one total at the end; the app's own runner prints a line per file, so
+  # taking the last line reported seven checks when there were fifteen hundred.
+  # Adding them up is the only honest answer.
+  n="$(grep -oE 'Tests: +[0-9]+ passed, [0-9]+ total' "$LOGS/check-$slug.log" 2>/dev/null | tail -1)"
+  if [ -z "$n" ]; then
+    n="$(awk '/^[0-9]+ passed, [0-9]+ failed/ { p += $1; f += $3 }
+              END { if (p + f > 0) printf "%d passed, %d failed", p, f }' \
+         "$LOGS/check-$slug.log" 2>/dev/null)"
+  fi
+  if [ -n "$n" ]; then
+    printf '  (%s)' "$n"
+    COUNTS+=("$name: $n")
+  fi
+  printf '\n'
+done
+
+# ── the summary, which is the point of this script ──────────────────────────
+TOTAL="$(( ${#PASSED[@]} + ${#FAILED[@]} ))"
+printf '\n\033[1m─────────────────────────────────────────────────────\033[0m\n'
+if [ ${#FAILED[@]} -eq 0 ]; then
+  printf '\033[1;32m  ALL %s AREAS ARE GOOD\033[0m\n' "$TOTAL"
+  printf '\033[1m─────────────────────────────────────────────────────\033[0m\n\n'
+  for c in ${COUNTS+"${COUNTS[@]}"}; do printf '  %s\n' "$c"; done
+  printf '\n  Nothing is broken. It is safe to show this to somebody.\n\n'
+  exit 0
+fi
+
+printf '\033[1;31m  %s OF %s AREAS HAVE A PROBLEM\033[0m\n' "${#FAILED[@]}" "$TOTAL"
+printf '\033[1m─────────────────────────────────────────────────────\033[0m\n'
+for c in ${COUNTS+"${COUNTS[@]}"}; do printf '  %s\n' "$c"; done
+
+printf '\n\033[1mWhat is broken, and what it means:\033[0m\n'
+for entry in "${FAILED[@]}"; do
+  IFS='|' read -r name meaning slug <<< "$entry"
+  printf '\n  \033[31m%s\033[0m\n  %s\n' "$name" "$meaning"
+  printf '  The full detail is in  .local-logs/check-%s.log\n' "$slug"
+  printf '  The failing check said:\n'
+  grep -E '●|✕|FAIL |error TS' "$LOGS/check-$slug.log" 2>/dev/null \
+    | grep -v 'Test suite failed to run' | head -4 | sed 's/^/    /'
+done
+
+printf '
+\033[1mOne thing to know before you worry:\033[0m
+  There is a known flaw in the "backend end to end" area that fails about one
+  run in four for reasons that have nothing to do with the code. The way to tell
+  is the phrase "socket hang up" in the log. If that is what it says, run
+  ./check again. If it passes, that was it.
+
+  Anything else is real. Do not ship it.
+
+'
+exit 1

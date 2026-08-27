@@ -1,0 +1,413 @@
+<title>Checking Fayr Yourself</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Alexandria:wght@600;700;800&family=Poppins:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {
+    --ground: #FBFBEF;
+    --surface: #FFFFFF;
+    --surface-2: #F6F7E6;
+    --line: #E3E5CF;
+    --line-soft: #EEEFDF;
+    --ink: #191919;
+    --ink-2: #3A3A34;
+    --sub: #5C5C5C;
+    --gold: #F5C400;
+    --gold-ink: #7A5E00;
+    --gold-bg: #FDF6D2;
+    --money-ink: #256F09;
+    --money-bg: #E9F5CE;
+    --stop: #B02617;
+    --stop-ink: #B02617;
+    --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+    --display: "Alexandria", "Trebuchet MS", sans-serif;
+    --head: "Poppins", "Helvetica Neue", Arial, sans-serif;
+    --body: "Inter", "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #15160F; --surface: #1D1E15; --surface-2: #24261A;
+      --line: #343626; --line-soft: #2A2C1F;
+      --ink: #F3F4E2; --ink-2: #DEDFCB; --sub: #A3A591;
+      --gold: #E4BE1E; --gold-ink: #EBCE5E; --gold-bg: #2C2810;
+      --money-ink: #96D46B; --money-bg: #1E2A13;
+      --stop: #F2907F; --stop-ink: #F2907F; --stop-bg: #33191A;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #15160F; --surface: #1D1E15; --surface-2: #24261A;
+    --line: #343626; --line-soft: #2A2C1F;
+    --ink: #F3F4E2; --ink-2: #DEDFCB; --sub: #A3A591;
+    --gold: #E4BE1E; --gold-ink: #EBCE5E; --gold-bg: #2C2810;
+    --money-ink: #96D46B; --money-bg: #1E2A13;
+    --stop: #F2907F; --stop-ink: #F2907F; --stop-bg: #33191A;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --ground: #FBFBEF; --surface: #FFFFFF; --surface-2: #F6F7E6;
+    --line: #E3E5CF; --line-soft: #EEEFDF;
+    --ink: #191919; --ink-2: #3A3A34; --sub: #5C5C5C;
+    --gold: #F5C400; --gold-ink: #7A5E00; --gold-bg: #FDF6D2;
+    --money-ink: #256F09; --money-bg: #E9F5CE;
+    --stop: #B02617; --stop-ink: #B02617; --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 24px 96px; }
+
+  .wordmark {
+    font-family: var(--display); font-weight: 800; font-size: 20px;
+    letter-spacing: -.02em; color: var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--head); font-weight: 700; font-size: 11.5px;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--gold-ink);
+    margin: 34px 0 10px;
+  }
+  h1 {
+    font-family: var(--display); font-weight: 700; font-size: 40px;
+    line-height: 1.1; letter-spacing: -.025em; margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--head); font-weight: 700; font-size: 21px;
+    letter-spacing: -.01em; margin: 52px 0 6px; text-wrap: balance;
+  }
+  p { margin: 0 0 16px; max-width: 66ch; }
+  .lede { font-size: 18.5px; color: var(--ink-2); }
+  .stamp {
+    font-family: var(--body); font-size: 13px; color: var(--sub);
+    border-top: 1px solid var(--line); padding-top: 12px; margin-top: 22px;
+  }
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+
+  .count {
+    display: flex; gap: 14px; flex-wrap: wrap; margin: 26px 0 6px;
+  }
+  .stat {
+    flex: 1 1 150px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 15px 16px; box-shadow: var(--shadow);
+  }
+  .stat .n {
+    font-family: var(--display); font-weight: 700; font-size: 30px;
+    line-height: 1; letter-spacing: -.03em;
+  }
+  .stat .k {
+    font-family: var(--head); font-weight: 600; font-size: 12px;
+    color: var(--sub); margin-top: 7px; line-height: 1.35;
+  }
+  .stat.good .n { color: var(--money-ink); }
+  .stat.warn .n { color: var(--stop-ink); }
+
+  .find {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 16px; padding: 18px 20px; margin: 14px 0;
+    box-shadow: var(--shadow);
+    display: grid; grid-template-columns: 34px 1fr; gap: 0 15px;
+  }
+  .find .idx {
+    font-family: var(--display); font-weight: 700; font-size: 15px;
+    color: var(--gold-ink); background: var(--gold-bg);
+    border-radius: 8px; height: 28px; display: flex;
+    align-items: center; justify-content: center; margin-top: 3px;
+  }
+  .find h3 {
+    font-family: var(--head); font-weight: 700; font-size: 16.5px;
+    margin: 0 0 7px; line-height: 1.38; text-wrap: balance;
+  }
+  .find p { margin: 0 0 9px; font-size: 15.5px; color: var(--ink-2); max-width: none; }
+  .find p:last-child { margin-bottom: 0; }
+  .find .cost {
+    font-size: 14.5px; color: var(--stop-ink); background: var(--stop-bg);
+    border-radius: 8px; padding: 8px 11px; margin: 10px 0 0;
+  }
+  .find .cost b { font-family: var(--head); font-weight: 700; }
+  .find .grid-span { grid-column: 2; }
+
+  blockquote {
+    margin: 14px 0 0; padding: 13px 16px;
+    background: var(--money-bg); border-radius: 10px;
+    font-size: 15.5px; color: var(--ink);
+  }
+  blockquote p { max-width: none; margin: 0; }
+  blockquote .who {
+    display: block; font-family: var(--head); font-weight: 700;
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--money-ink); margin-bottom: 5px;
+  }
+
+  .callout {
+    background: var(--surface-2); border: 1px solid var(--line-soft);
+    border-left: 3px solid var(--gold); border-radius: 12px;
+    padding: 17px 19px; margin: 26px 0;
+  }
+  .callout .title {
+    display: block; font-family: var(--head); font-weight: 700;
+    font-size: 15px; margin-bottom: 7px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.honest { border-left-color: var(--stop); }
+
+  ul { margin: 0 0 16px; padding-left: 22px; max-width: 66ch; }
+  li { margin-bottom: 9px; }
+
+  footer {
+    margin-top: 60px; border-top: 1px solid var(--line);
+    padding-top: 18px; font-size: 14px; color: var(--sub); max-width: 66ch;
+  }
+</style>
+<style>
+  /* Three additions: a big command, a numbered walk, and an expectation box. */
+  .cmd { display:block; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+         font-size:20px; font-weight:700; background:var(--ink); color:#FFF9D6;
+         padding:16px 20px; border-radius:12px; margin:14px 0 18px;
+         letter-spacing:.02em; overflow-x:auto; }
+  .expect { background:var(--money-bg); border:1px solid #BEDF95; border-radius:12px;
+            padding:14px 18px; margin:14px 0 22px; }
+  .expect strong { font-family:Poppins,sans-serif; font-size:14px; color:var(--money-ink); }
+  .walk { counter-reset:w; display:grid; gap:12px; margin:18px 0 26px; }
+  .walk > div { counter-increment:w; position:relative; padding:14px 18px 14px 56px;
+                background:var(--surface); border:1px solid var(--line); border-radius:12px; }
+  .walk > div::before { content:counter(w); position:absolute; left:16px; top:14px;
+                        font-family:Poppins,sans-serif; font-weight:700; font-size:18px;
+                        color:var(--gold-ink); }
+  .walk h3 { margin:0 0 6px; font-size:15px; }
+  .walk p { margin:0 0 6px; }
+  .where { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px;
+           background:var(--surface-2); padding:2px 7px; border-radius:6px;
+           border:1px solid var(--line); }
+</style>
+
+<main>
+  <div class="wordmark">fayr.</div>
+
+  <p class="eyebrow">For Prakash · no help needed</p>
+  <h1>Checking Fayr yourself</h1>
+  <p class="lede">This page assumes nobody is available to help you and no
+    assistant has any credit left. Everything below is two commands and a list of
+    things to look at. <strong>You do not need to understand any of it.</strong>
+    You need to be able to type two short things and know what a working screen
+    looks like.</p>
+
+  <p class="stamp">Written 27 August 2026. Both commands on this page were run
+    from start to finish before it was written, including on purpose with
+    something broken, to check they explain themselves.</p>
+
+  <h2>Before you start</h2>
+  <p>You need three things open or available.</p>
+  <ul>
+    <li>The <strong>Terminal</strong> app on your Mac. It is in Applications, then
+      Utilities. It is the window where you type the two commands.</li>
+    <li>Your <strong>phone on the same wifi</strong> as this laptop. Not mobile
+      data. The same wifi.</li>
+    <li>The <strong>Expo Go</strong> app on your phone, if you have an Android
+      phone. On an iPhone you use the normal Camera app instead.</li>
+  </ul>
+
+  <h2>Start everything: one command</h2>
+  <p>Open Terminal and type these two lines, pressing return after each.</p>
+  <span class="cmd">cd ~/FAYR-Next</span>
+  <span class="cmd">./start</span>
+  <p>That is it. It takes about a minute. It will start the database if it is not
+    running, bring it up to date, put the practice data in, start the Fayr server,
+    put the staff panel on the network, and start the app for your phone.</p>
+
+  <div class="expect">
+    <strong>What you should see</strong>
+    <p>Nine numbered steps, each ending in a green word: done. Then a box that
+      says EVERYTHING IS RUNNING, followed by three addresses. Then a large square
+      black and white pattern.</p>
+    <p>If any step goes wrong it stops there, in red, saying which step failed and
+      what to try. It will never just stop with nothing.</p>
+  </div>
+
+  <h2>Open the staff panel on your laptop</h2>
+  <p>In the box it printed, find the line under THE STAFF PANEL, ON THIS LAPTOP.
+    Copy the whole address, including everything after the question mark, and paste
+    it into Chrome or Safari.</p>
+  <p>The part after the question mark is not decoration. It tells the panel which
+    copy of Fayr to talk to. Without it the panel talks to the other copy, the one
+    being shown on Monday, and everything will look subtly wrong.</p>
+  <div class="expect">
+    <strong>What you should see</strong>
+    <p>A sign in box. Use a staff email and password. The start command prints
+      all four of them, one for each team, at the step where it puts the practice
+      data in. Scroll up in the Terminal window to find them.</p>
+  </div>
+
+  <h2>Open the staff panel on your phone</h2>
+  <p>Find the line under THE STAFF PANEL, ON YOUR PHONE. It has numbers in it rather
+    than a word. Type that whole address into your phone browser, or send it to
+    yourself in a message and tap it.</p>
+  <p>If your phone says it cannot reach it, the cause is almost always one of two
+    things: your phone is on mobile data instead of wifi, or your phone is on a
+    different wifi network from the laptop.</p>
+
+  <h2>Open the app on your phone</h2>
+  <p>Look at the large square black and white pattern in the Terminal window.</p>
+  <ul>
+    <li><strong>iPhone:</strong> open the Camera app and point it at the pattern.
+      A banner appears at the top. Tap it.</li>
+    <li><strong>Android:</strong> open Expo Go, choose Scan QR code, and point it
+      at the pattern.</li>
+  </ul>
+  <p>The Fayr app opens on your phone. It is talking to this copy of Fayr, not the
+    Monday one. The start command sets that up for you every time.</p>
+
+  <h2>Check everything: one command</h2>
+  <p>Stop the running one first by pressing Control and C together in the Terminal
+    window. Then type this.</p>
+  <span class="cmd">./check</span>
+  <p>It runs every check in the whole project. It takes about three minutes and it
+    does not stop at the first problem, because if two things are broken you want
+    to know about both.</p>
+  <div class="expect">
+    <strong>What you should see</strong>
+    <p>Five areas, each with a green all good, and then a green box saying ALL 5
+      AREAS ARE GOOD, with the numbers beneath it, and the sentence: Nothing is
+      broken. It is safe to show this to somebody.</p>
+    <p>If something is wrong you get a red box instead, naming which area, what
+      that area means in ordinary words, and the first few failing checks. The last
+      thing on screen is always a sentence, never a wall of output.</p>
+  </div>
+  <p><strong>One thing to know before you worry.</strong> There is a known flaw in
+    the area called the backend end to end. It fails roughly one run in four for
+    reasons that have nothing to do with the code. The way to tell is the phrase
+    socket hang up in the detail. If that is what it says, run <span class="where">./check</span>
+    again, and if it passes then that was all it was. Anything else is real.</p>
+
+  <h2>The new things to look at, and what working looks like</h2>
+
+  <div class="walk">
+    <div>
+      <h3>Chat with us, in the app</h3>
+      <p>On your phone: tap My Profile at the bottom, then Chat with us at the top
+        of the list.</p>
+      <p>Type <span class="where">what are tickets</span> and send it. Then try
+        <span class="where">mera refund kab aayega</span>. Then try something silly
+        like <span class="where">do you deliver to Kathmandu</span>.</p>
+      <p><strong>Working looks like:</strong> the first two get a real answer, and
+        the Hindi one answers in Hindi written with English letters. The silly one
+        comes back in an orange bubble with a small label saying Waiting for a
+        person. After every reply it asks Did that help, with two buttons.</p>
+      <p><strong>One thing that will surprise you:</strong> at first nothing gets
+        answered at all. That is correct. Every answer starts as a draft and a
+        person has to approve it, which is the next thing on this list.</p>
+    </div>
+
+    <div>
+      <h3>The answer book, in the staff panel</h3>
+      <p>Sign in as the customer support account. In the left hand list, under
+        Customer support, choose Answer book.</p>
+      <p><strong>Working looks like:</strong> seventy five answers, twenty five
+        subjects in three languages. Every one says Waiting for approval and
+        Drafted by the assistant. Each one also carries a line saying no person has
+        read it yet, and the Hindi ones add that nobody who speaks the language has
+        checked the wording.</p>
+      <p>Pick one, read it, and press Approve and make live. Then go back to Chat
+        with us on your phone and ask about it. It answers now, immediately. That
+        is the whole point of the screen.</p>
+      <p>Try Correct the words on a live answer, change a word, and save. It stays
+        live and the change is there the next time somebody asks. Now try writing a
+        new answer and put a technical word in the body, one a shopper would never
+        say out loud. It saves, and it warns you, and it refuses to be approved
+        until you fix it.</p>
+    </div>
+
+    <div>
+      <h3>Chat questions, in the staff panel</h3>
+      <p>Under Customer support, choose Chat questions.</p>
+      <p><strong>Working looks like:</strong> a row of numbers across the top,
+        then the questions you asked from your phone, in your own words, with which
+        answer was used and how well it matched. The silly one you asked sits under
+        Waiting. Press Close on it and it leaves the queue.</p>
+    </div>
+
+    <div>
+      <h3>Live pages, in the staff panel</h3>
+      <p>Sign in as the operations account instead. Under Front end operations,
+        choose Live pages.</p>
+      <p><strong>Working looks like:</strong> it says nobody has run this yet, and
+        tells you how. Most offers have no shop page saved, and it says so as a
+        number rather than pretending everything is fine.</p>
+      <p>To run it: on your phone, My Profile, then Check offer pages. Sign in with
+        the operations staff email and password. Press the button. Then reload the
+        Live pages screen on the laptop and the findings are there.</p>
+    </div>
+
+    <div>
+      <h3>A greyed out offer, in the app</h3>
+      <p>This is the one worth seeing. After running the live page check, if any
+        offer came back as ended or sold out, go to Home in the app.</p>
+      <p><strong>Working looks like:</strong> that offer is still in the list, not
+        missing. It is faded, with an orange strip across the top saying what
+        happened and that it may come back, and the button says Not right now
+        instead of Claim.</p>
+      <p>It never disappears. That is deliberate. Somebody who saw it yesterday has
+        to be able to find it and see why.</p>
+    </div>
+
+    <div>
+      <h3>The offer check, in the staff panel</h3>
+      <p>Under Front end operations, choose Offer check. This is the older one that
+        reads only Fayr's own records, so it needs nothing from a phone.</p>
+      <p><strong>Working looks like:</strong> thirteen offers looked at, one
+        blocking problem, and a list. It finds the offer with no picture, and the
+        two offers sharing one picture. It also says clearly what it cannot check
+        rather than counting that as a pass.</p>
+    </div>
+  </div>
+
+  <h2>When something does not start</h2>
+  <p>Work down this list. Stop when it works.</p>
+  <ul>
+    <li><strong>It said which step failed.</strong> Read what it told you to try.
+      That text was written for exactly that failure and it is more specific than
+      anything on this page.</li>
+    <li><strong>It mentions Docker.</strong> Open the Docker app from Applications
+      by hand. Wait until the whale icon in the top menu bar stops moving. Then run
+      <span class="where">./start</span> again.</li>
+    <li><strong>The app on the phone says it cannot reach Fayr.</strong> Your phone
+      is on mobile data, or on a different wifi. Fix that and shake the phone to
+      reload, or close and reopen the app.</li>
+    <li><strong>The panel says it cannot reach the Fayr server.</strong> You
+      probably pasted the address without the part after the question mark. Go back
+      to the Terminal window and copy the whole line.</li>
+    <li><strong>Something is still running from last time.</strong> Close the
+      Terminal window entirely and open a new one, then start again.</li>
+    <li><strong>You want to see exactly what a part said.</strong> Everything is
+      written down. In Finder, press Command Shift G and go to
+      <span class="where">~/FAYR-Next/.local-logs</span>. One file per part.</li>
+  </ul>
+
+  <h2>Two things to be careful about</h2>
+  <p><strong>This is for checking on your own machine.</strong> The start command
+    deliberately makes Fayr reachable from your phone across your wifi, which is
+    what lets you check the app for real. That is right here and would be wrong on
+    a real server. It does not switch off any sign in and it does not remove any
+    security protection. It does mean anything else on your wifi can reach the
+    address while it is running, so do not leave it running on a network you do not
+    know.</p>
+  <p><strong>The other copy is untouched.</strong> Everything on this page happens
+    in the folder called FAYR-Next, on its own database and its own port. The copy
+    being shown on Monday is a different folder and nothing here can reach it. The
+    start command writes down which copy your phone talks to, every single time,
+    because pointing at the wrong one is the easiest mistake to make and the
+    hardest to notice.</p>
+
+  <p class="stamp">If you get stuck on something this page does not cover, the
+    thing to write down is what you typed and the last five lines you saw. That is
+    almost always enough for somebody to tell you what happened.</p>
+</main>

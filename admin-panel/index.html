@@ -218,6 +218,19 @@
     .stat-warn { color: var(--warn); }
     .stat-ok { color: var(--ok); }
     .stat-neutral { color: var(--muted); }
+    /* A row of headline numbers. Wraps by itself, so it is readable on a phone
+       without needing a width rule to remember it — the columns are a minimum
+       size and the browser fits as many as it can. */
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 18px;
+    }
     .group-list { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 12.5px; }
     .group-list li { margin-bottom: 2px; }
     .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -1024,7 +1037,7 @@
     function answerOrigin(a) {
       if (a.origin === "STAFF") return { text: "Written by a person", tone: "ok" };
       if (a.origin === "ASSISTANT") return { text: "Drafted by the assistant", tone: "warn" };
-      return { text: "Shipped with the app", tone: "" };
+      return { text: "Shipped with the app", tone: "neutral" };
     }
 
     /** The one thing somebody has to know before approving a drafted answer. */
@@ -1085,7 +1098,7 @@
             h("div", { class: "muted mono", style: "margin-top:4px" },
               q.user.displayId, "  ·  ", fmtDate(q.askedAt), "  ·  ", q.language.name)),
           h("div", { class: "row", style: "gap:8px" },
-            sevPill(waiting ? "blocking" : "unchecked"),
+            statePill(waiting ? "Waiting" : "Answered", waiting ? "bad" : "neutral"),
             waiting
               ? h("button", {
                   class: "btn btn-sm",
@@ -1160,9 +1173,11 @@
               "  ·  ", String(a.waysOfAsking), " ways of asking",
               "  ·  wording ", String(a.revision))),
           h("div", { class: "row", style: "gap:8px" },
-            h("span", { class: "sev sev-" + (live ? "ok" : a.status === "RETIRED" ? "" : "warn") },
-              live ? "Live" : a.status === "RETIRED" ? "Withdrawn" : "Waiting for approval"),
-            h("span", { class: "sev sev-" + origin.tone }, origin.text))),
+            statePill(
+              live ? "Live" : a.status === "RETIRED" ? "Withdrawn" : "Waiting for approval",
+              live ? "ok" : a.status === "RETIRED" ? "neutral" : "warn",
+            ),
+            statePill(origin.text, origin.tone))),
         note ? h("div", { class: "flash flash-info", style: "margin:10px 0 0" }, note) : null,
         h("div", { style: "margin-top:10px" }, a.body),
         h("div", { class: "row", style: "gap:8px;margin-top:12px" },
@@ -1302,10 +1317,10 @@
             h("div", { style: "font-weight:700;font-size:15px" }, f.title),
             h("div", { class: "muted mono", style: "margin-top:4px" }, f.platform)),
           h("div", { class: "row", style: "gap:8px" },
-            sevPill(bad ? "blocking" : "unchecked"),
+            statePill(bad ? "Cannot be bought" : "Nothing to act on", bad ? "bad" : "neutral"),
             f.greyedOutInTheApp
-              ? h("span", { class: "sev sev-warn" }, "Greyed out in the app")
-              : h("span", { class: "sev sev-" }, "Still on the feed"))),
+              ? statePill("Greyed out in the app", "warn")
+              : statePill("Still on the feed", "neutral"))),
         h("div", { style: "margin-top:10px" }, f.says),
         f.evidence ? h("div", { class: "muted", style: "margin-top:6px;font-size:12px" }, f.evidence) : null,
         f.httpStatus ? h("div", { class: "muted mono", style: "margin-top:4px;font-size:12px" },
@@ -1412,6 +1427,18 @@
       return h("div", { class: "kv" },
         h("div", { class: "v stat" + (tone ? " stat-" + tone : "") }, String(value)),
         h("div", { class: "k" }, label));
+    }
+
+    /**
+     * A pill, as an ELEMENT. Not to be confused with sevPill below, which returns
+     * a CLASS NAME — two of the assistant screens used that one as if it returned
+     * an element, and the literal text "pill-bad" appeared on screen. The render
+     * smoke test could not catch it: a wrong string is still a valid child, so
+     * nothing threw and nothing was undefined. It was caught by reading the
+     * stylesheet for a class that did not exist.
+     */
+    function statePill(text, tone) {
+      return h("span", { class: "pill pill-" + (tone || "neutral") }, text);
     }
 
     function sevPill(sev) {

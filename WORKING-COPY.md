@@ -61,3 +61,27 @@ checkout, start with:
 docker ps                      # is fayr-postgres up?
 docker start fayr-postgres     # and if the daemon itself is dead, restart Docker
 ```
+
+## Starting and checking it, in one command each
+
+Two files at the top of this folder, both meant to be run by a person with no
+help available:
+
+```sh
+./start     # database, migrations, practice data, backend, staff panel, phone app
+./check     # every check in the project, then a plain-language summary
+```
+
+`./start` writes `.env.local` on every run so the phone app points at THIS copy's
+port (3001). That line exists because the other copy uses 3000 and a stale address
+means the phone quietly talks to the wrong backend while everything looks fine.
+Only the port is written down; the host is worked out by the app from wherever it
+downloaded its code, so changing wifi fixes itself.
+
+Both bind to every network address so a phone on the same wifi can reach them.
+That is for local checking only. It switches nothing off — every sign-in and every
+security header still applies — but it does mean anything on the wifi can reach
+the address while it is running.
+
+The guide written for using these without any help is
+`docs/how-to-check-fayr.html`. The security review is `docs/security-report.html`.

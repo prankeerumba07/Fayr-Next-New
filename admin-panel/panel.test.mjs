@@ -383,6 +383,21 @@ console.log('\n=== 7. the assistant screens ===');
   ok(script.includes('Nobody who speaks this language has checked the wording'),
     'and a non-English draft says the wording is unchecked');
   ok(script.includes('Approve and make live'), 'there is a clear approve action');
+
+  // sevPill returns a CLASS NAME; statePill returns an ELEMENT. Two of these
+  // screens used the first as if it were the second, and the literal text
+  // "pill-bad" was drawn on screen. The render test could not catch it, because a
+  // wrong string is still a valid child — so this checks it by name.
+  ok(!/sevPill\((?!f\.severity|g\.severity)/.test(
+        script.slice(script.indexOf('// ── assistant screens: begin'),
+                     script.indexOf('// ── assistant screens: end'))),
+    'the assistant screens use statePill, not the class-name helper');
+  // The styles live in the <style> block, not the <script> one — a class used in
+  // the code with no rule behind it renders as an unstyled stack, which is how
+  // .stat-row shipped in the first place.
+  ok(/\.stat-row\s*\{/.test(html), 'the row of headline numbers is actually styled');
+  ok(/minmax\(/.test(html), 'and it wraps by itself, so it works at phone width');
+  ok(!/class:\s*"sev /.test(script), 'no screen uses a "sev" class, which was never defined');
 }
 
 console.log('\n=== 7d. no personal detail travels in a web address ===');
@@ -477,7 +492,8 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     }
     function fmtDate(iso) { return new Date(iso).toISOString(); }
     function Stat(v, l, tone) { return h("div", { class: "stat stat-" + (tone || "") }, v, l); }
-    function sevPill(sev) { return h("span", { class: "sev sev-" + sev }, sev); }
+    function sevPill(sev) { return "pill-" + sev; }
+    function statePill(text, tone) { return h("span", { class: "pill pill-" + (tone || "neutral") }, text); }
     function setChatFilter() {} function closeChatQuestion() {}
     function setAnswerFilter() {} function editAnswer() {} function cancelAnswerEdit() {}
     function checkAnswerWords() {} function saveAnswer() {} function setAnswerLive() {}

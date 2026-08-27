@@ -53,3 +53,7 @@ tsconfig.json
 # generated native folders
 /ios
 /android
+
+# What ./start and ./check write down. Useful on this machine, meaningless in the
+# project, and they can contain a staff email address.
+.local-logs/

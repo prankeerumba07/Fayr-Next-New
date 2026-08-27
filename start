@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+# ONE COMMAND TO START ALL OF FAYR.
+#
+#   ./start
+#
+# It checks the database is running and starts it if not, brings the database up
+# to date, puts the practice data in, starts the backend, serves the staff panel,
+# and starts the app for your phone. Then it tells you exactly what to open.
+#
+# It is written to be read. Every step says what it is doing before it does it,
+# and if a step fails it says WHICH step and what to try, never just stops.
+#
+# THIS IS FOR CHECKING THINGS ON YOUR OWN LAPTOP. It deliberately makes the
+# backend and the panel reachable from your phone over the same wifi, which is
+# what lets you check the app for real. That is fine here and would be wrong on a
+# real server: it does not switch off any sign-in and it does not remove any
+# security header, but it does mean anything on your wifi can reach the address.
+# See docs/how-to-check-fayr.html.
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
+
+BACKEND_PORT=3001
+PANEL_PORT=8091
+LOGS="$HERE/.local-logs"
+mkdir -p "$LOGS"
+
+# ── how it talks to you ─────────────────────────────────────────────────────
+step=0
+say()   { printf '\n\033[1m%s\033[0m\n' "$1"; }
+doing() { step=$((step+1)); printf '\n\033[1m[%s] %s\033[0m\n' "$step" "$1"; }
+ok()    { printf '    \033[32mdone\033[0m  %s\n' "${1:-}"; }
+note()  { printf '    %s\n' "$1"; }
+
+# Every failure ends here, so no step can fail quietly.
+fail() {
+  printf '\n\033[31m─────────────────────────────────────────────────────\033[0m\n'
+  printf '\033[31mSTEP %s FAILED: %s\033[0m\n' "$step" "$1"
+  printf '\n\033[1mWhat to try:\033[0m\n%s\n' "$2"
+  printf '\n\033[31m─────────────────────────────────────────────────────\033[0m\n'
+  stop_everything
+  exit 1
+}
+
+PIDS=()
+stop_everything() {
+  for pid in ${PIDS+"${PIDS[@]}"}; do
+    kill "$pid" 2>/dev/null || true
+  done
+}
+trap 'printf "\n\nStopping everything.\n"; stop_everything; exit 0' INT TERM
+
+say "Starting Fayr. This takes about a minute the first time."
+note "Working copy: $HERE"
+note "If anything goes wrong it will say which step and what to try."
+
+# ── 1. Docker ───────────────────────────────────────────────────────────────
+doing "Checking the database software is running"
+if docker info >/dev/null 2>&1; then
+  ok "Docker was already running."
+else
+  note "Docker is not running. Starting it and waiting up to two minutes."
+  open -a Docker 2>/dev/null || true
+  for _ in $(seq 1 60); do
+    docker info >/dev/null 2>&1 && break
+    sleep 2
+  done
+  docker info >/dev/null 2>&1 \
+    || fail "Docker would not start" \
+"  1. Open the Docker app from your Applications folder by hand.
+  2. Wait until its whale icon in the menu bar stops moving.
+  3. Run ./start again.
+
+  If Docker is not installed at all, install Docker Desktop first."
+  ok "Docker is running now."
+fi
+
+# ── 2. the database itself ──────────────────────────────────────────────────
+doing "Making sure the Fayr database is up"
+if [ "$(docker inspect -f '{{.State.Running}}' fayr-postgres 2>/dev/null)" = "true" ]; then
+  ok "It was already running."
+else
+  note "Starting it."
+  (cd "$HERE/backend" && docker compose up -d >"$LOGS/database.log" 2>&1) \
+    || fail "The database would not start" \
+"  Look at what it said:  cat .local-logs/database.log
+
+  The commonest cause is something else already using the database port.
+  To see what:  lsof -i :5432"
+  ok "Started."
+fi
+
+note "Waiting for it to be ready to answer."
+for _ in $(seq 1 60); do
+  docker exec fayr-postgres pg_isready -U fayr >/dev/null 2>&1 && break
+  sleep 1
+done
+docker exec fayr-postgres pg_isready -U fayr >/dev/null 2>&1 \
+  || fail "The database started but never became ready" \
+"  Look at what it said:  docker logs fayr-postgres
+
+  If it mentions a broken data folder, this wipes it and starts fresh
+  (you lose the practice data, which ./start puts back):
+    cd backend && docker compose down -v && cd .. && ./start"
+ok "The database is ready."
+
+# ── 3. bring the database up to date ────────────────────────────────────────
+doing "Bringing the database up to date"
+(cd "$HERE/backend" && npx prisma migrate deploy >"$LOGS/migrate.log" 2>&1) \
+  || fail "The database could not be brought up to date" \
+"  Look at what it said:  cat .local-logs/migrate.log
+
+  If it says a change cannot be applied on top of what is already there,
+  this starts the practice database over from nothing:
+    cd backend && npx prisma migrate reset --force"
+APPLIED="$(grep -cE '^[[:space:]]+└─' "$LOGS/migrate.log" 2>/dev/null | tr -d '[:space:]')"
+ok "${APPLIED:-0} change(s) applied, or already up to date."
+
+# ── 4. the practice data ────────────────────────────────────────────────────
+doing "Putting the practice data in"
+(cd "$HERE/backend" && npx ts-node prisma/seed.ts >"$LOGS/seed.log" 2>&1) \
+  || fail "The practice data could not be added" \
+"  Look at what it said:  cat .local-logs/seed.log
+
+  This step is safe to run again, and safe to skip: the app works without
+  practice data, there is just nothing to look at."
+ok "In."
+note "Staff sign-ins for the panel (all four use the same local password):"
+note "  support@fayr.local   the questions, the answer book, the screenshots"
+note "  ops@fayr.local       the offers, the offer check, the live pages"
+note "  finance@fayr.local   the payouts and the reports"
+note "  admin@fayr.local     everything, plus the record of who did what"
+note "The password is the one in backend/.env under DEMO_STAFF_PASSWORD, or"
+note "'fayr-demo-only' if that is not set. It is a local practice password only."
+
+# ── 5. this machine's address on the wifi ───────────────────────────────────
+doing "Working out this laptop's address on your wifi"
+LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+if [ -z "$LAN_IP" ]; then
+  note "Could not find one. Your phone will not be able to reach this laptop,"
+  note "but everything still works on the laptop itself."
+  LAN_IP="localhost"
+else
+  ok "$LAN_IP"
+fi
+
+# ── 6. point the phone app at THIS copy ─────────────────────────────────────
+doing "Pointing the phone app at this copy of Fayr"
+# This matters more than it sounds. There are two copies of Fayr on this machine
+# and the other one runs on port 3000. A stale address here means the app on the
+# phone quietly talks to the WRONG backend, and everything looks like it works.
+#
+# Only the PORT is written down. The host is worked out by the app itself from
+# wherever it downloaded its code seconds earlier, so moving between wifi and a
+# phone hotspot fixes itself and there is no address to keep up to date.
+ENV_LOCAL="$HERE/.env.local"
+{
+  echo "# Written by ./start. Do not edit by hand — it is rewritten each time."
+  echo "#"
+  echo "# Only the port is here. The address of this laptop is worked out by the"
+  echo "# app itself, so it keeps working when you change wifi."
+  echo "#"
+  echo "# This is the WORKING copy's port. The other copy of Fayr uses 3000, and"
+  echo "# pointing the phone at the wrong one is the mistake this line prevents."
+  echo "EXPO_PUBLIC_FAYR_API_PORT=$BACKEND_PORT"
+} > "$ENV_LOCAL"
+ok "Set to port $BACKEND_PORT (this copy). The other copy uses 3000."
+
+# ── 7. the backend ──────────────────────────────────────────────────────────
+doing "Starting the Fayr backend"
+if lsof -ti ":$BACKEND_PORT" >/dev/null 2>&1; then
+  note "Something is already using port $BACKEND_PORT. Stopping it."
+  lsof -ti ":$BACKEND_PORT" | xargs kill -9 2>/dev/null || true
+  sleep 1
+fi
+(cd "$HERE/backend" && exec npm run start:dev >"$LOGS/backend.log" 2>&1) &
+PIDS+=($!)
+note "Waiting for it to say it is listening."
+for _ in $(seq 1 90); do
+  grep -q "listening on" "$LOGS/backend.log" 2>/dev/null && break
+  grep -qi "failed to start" "$LOGS/backend.log" 2>/dev/null && break
+  sleep 1
+done
+if ! grep -q "listening on" "$LOGS/backend.log" 2>/dev/null; then
+  printf '\n    ── the last few lines it printed ──\n'
+  tail -12 "$LOGS/backend.log" 2>/dev/null | sed 's/^/    /'
+  fail "The backend did not start" \
+"  The lines above are what it said. The full log is in
+    .local-logs/backend.log
+
+  The two commonest causes:
+   * A setting is missing or wrong. It names the exact one.
+   * The database is not reachable. Run ./start again from the top."
+fi
+ok "Listening on port $BACKEND_PORT."
+
+# ── 8. the staff panel ──────────────────────────────────────────────────────
+doing "Serving the staff panel"
+if lsof -ti ":$PANEL_PORT" >/dev/null 2>&1; then
+  lsof -ti ":$PANEL_PORT" | xargs kill -9 2>/dev/null || true
+  sleep 1
+fi
+# Bound to every network address, not just this laptop, so the phone can open it.
+(cd "$HERE/admin-panel" && exec python3 -m http.server "$PANEL_PORT" --bind 0.0.0.0 >"$LOGS/panel.log" 2>&1) &
+PIDS+=($!)
+# A bounded wait, like every other step. A fixed one-second sleep was not enough
+# on a cold start, and the step failed while the panel was perfectly fine — which
+# is a worse failure than a slow one, because it sends somebody looking in the
+# wrong place.
+PANEL_UP=""
+for _ in $(seq 1 20); do
+  if curl -s -o /dev/null "http://localhost:$PANEL_PORT/"; then PANEL_UP="yes"; break; fi
+  sleep 1
+done
+[ -n "$PANEL_UP" ] \
+  || fail "The staff panel would not serve" \
+"  Look at what it said:  cat .local-logs/panel.log
+  Then check python3 is installed:  python3 --version
+
+  If it says the address is already in use, something else has port $PANEL_PORT:
+    lsof -i :$PANEL_PORT"
+ok "Serving on port $PANEL_PORT."
+
+# ── what to do now ──────────────────────────────────────────────────────────
+PANEL_LAPTOP="http://localhost:$PANEL_PORT/?api=http://localhost:$BACKEND_PORT"
+PANEL_PHONE="http://$LAN_IP:$PANEL_PORT/?api=http://$LAN_IP:$BACKEND_PORT"
+
+printf '\n\033[1m─────────────────────────────────────────────────────\033[0m\n'
+printf '\033[1m  EVERYTHING IS RUNNING\033[0m\n'
+printf '\033[1m─────────────────────────────────────────────────────\033[0m\n'
+printf '
+  THE STAFF PANEL, ON THIS LAPTOP
+  Open this address in your browser. Copy the whole thing including the
+  part after the question mark:
+
+    %s
+
+  THE STAFF PANEL, ON YOUR PHONE
+  Your phone must be on the same wifi as this laptop. Open:
+
+    %s
+
+  THE APP, ON YOUR PHONE
+  In a moment a square black-and-white pattern appears below.
+   * iPhone: open the Camera app and point it at the pattern.
+   * Android: open the Expo Go app and use "Scan QR code".
+  The app opens on your phone and talks to THIS copy of Fayr, on port %s.
+
+  TO STOP EVERYTHING
+  Press Control and C together, in this window.
+
+  IF SOMETHING LOOKS WRONG
+  The full guide is docs/how-to-check-fayr.html. Open it in your browser.
+  What each part wrote down is in the .local-logs folder.
+
+' "$PANEL_LAPTOP" "$PANEL_PHONE" "$BACKEND_PORT"
+
+doing "Starting the app for your phone"
+note "The square pattern appears below. Leave this window open."
+printf '\n'
+# In the foreground on purpose: Control-C then stops everything, which is the
+# one thing somebody will definitely try.
+cd "$HERE" && npx expo start --clear
+stop_everything
