@@ -766,11 +766,13 @@ enum AnswerStatus {
   RETIRED
 }
 
-/// Where an answer came from. Kept because "a person wrote this" and "this shipped
-/// with the app" are read very differently when an answer turns out to be wrong.
+/// Where an answer came from. Kept because "a person wrote this", "the assistant
+/// drafted this" and "this shipped with the app" are read very differently when an
+/// answer turns out to be wrong.
 enum AnswerOrigin {
-  SEED
-  STAFF
+  SEED /// shipped with the app as fixed content
+  ASSISTANT /// drafted by the assistant; a person must approve it before anyone sees it
+  STAFF /// written or corrected by a person
 }
 
 /// One answer, in one language.
