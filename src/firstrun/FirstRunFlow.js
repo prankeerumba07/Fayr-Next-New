@@ -19,6 +19,7 @@ import OtpScreen from './OtpScreen';
 import PolicyScreen from '../PolicyScreen';
 import { hasSeenOnboarding, markOnboardingSeen } from './firstRunStore';
 import { STEPS } from './steps';
+import { ANIMATIONS_STEP, willSeeTheAnimations } from './opening';
 
 export { STEPS };
 
@@ -40,7 +41,10 @@ export default function FirstRunFlow({ sessionRestoring }) {
   // a flash of the sign-in screen before being let in.
   const leaveSplash = () => {
     if (seen === null || sessionRestoring) return;
-    setStep(seen ? 'landing' : 'onboarding');
+    // Asked of opening.js, which is where the whole sequence is described and
+    // where the test for it lives. Deciding it again here with its own `? :`
+    // would be the second copy that drifts.
+    setStep(willSeeTheAnimations(seen) ? ANIMATIONS_STEP : 'landing');
   };
 
   useEffect(() => {
