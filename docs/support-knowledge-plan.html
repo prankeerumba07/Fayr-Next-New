@@ -1,0 +1,391 @@
+<title>The Answer Book</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Alexandria:wght@600;700;800&family=Poppins:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {
+    --ground: #FBFBEF;
+    --surface: #FFFFFF;
+    --surface-2: #F6F7E6;
+    --line: #E3E5CF;
+    --line-soft: #EEEFDF;
+    --ink: #191919;
+    --ink-2: #3A3A34;
+    --sub: #5C5C5C;
+    --gold: #F5C400;
+    --gold-ink: #7A5E00;
+    --gold-bg: #FDF6D2;
+    --money-ink: #256F09;
+    --money-bg: #E9F5CE;
+    --stop: #B02617;
+    --stop-ink: #B02617;
+    --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+    --display: "Alexandria", "Trebuchet MS", sans-serif;
+    --head: "Poppins", "Helvetica Neue", Arial, sans-serif;
+    --body: "Inter", "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #15160F; --surface: #1D1E15; --surface-2: #24261A;
+      --line: #343626; --line-soft: #2A2C1F;
+      --ink: #F3F4E2; --ink-2: #DEDFCB; --sub: #A3A591;
+      --gold: #E4BE1E; --gold-ink: #EBCE5E; --gold-bg: #2C2810;
+      --money-ink: #96D46B; --money-bg: #1E2A13;
+      --stop: #F2907F; --stop-ink: #F2907F; --stop-bg: #33191A;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #15160F; --surface: #1D1E15; --surface-2: #24261A;
+    --line: #343626; --line-soft: #2A2C1F;
+    --ink: #F3F4E2; --ink-2: #DEDFCB; --sub: #A3A591;
+    --gold: #E4BE1E; --gold-ink: #EBCE5E; --gold-bg: #2C2810;
+    --money-ink: #96D46B; --money-bg: #1E2A13;
+    --stop: #F2907F; --stop-ink: #F2907F; --stop-bg: #33191A;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 26px -18px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --ground: #FBFBEF; --surface: #FFFFFF; --surface-2: #F6F7E6;
+    --line: #E3E5CF; --line-soft: #EEEFDF;
+    --ink: #191919; --ink-2: #3A3A34; --sub: #5C5C5C;
+    --gold: #F5C400; --gold-ink: #7A5E00; --gold-bg: #FDF6D2;
+    --money-ink: #256F09; --money-bg: #E9F5CE;
+    --stop: #B02617; --stop-ink: #B02617; --stop-bg: #FCE3E0;
+    --shadow: 0 1px 2px rgba(25,25,25,.05), 0 10px 26px -18px rgba(25,25,25,.22);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 24px 96px; }
+
+  .wordmark {
+    font-family: var(--display); font-weight: 800; font-size: 20px;
+    letter-spacing: -.02em; color: var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--head); font-weight: 700; font-size: 11.5px;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--gold-ink);
+    margin: 34px 0 10px;
+  }
+  h1 {
+    font-family: var(--display); font-weight: 700; font-size: 40px;
+    line-height: 1.1; letter-spacing: -.025em; margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--head); font-weight: 700; font-size: 21px;
+    letter-spacing: -.01em; margin: 52px 0 6px; text-wrap: balance;
+  }
+  p { margin: 0 0 16px; max-width: 66ch; }
+  .lede { font-size: 18.5px; color: var(--ink-2); }
+  .stamp {
+    font-family: var(--body); font-size: 13px; color: var(--sub);
+    border-top: 1px solid var(--line); padding-top: 12px; margin-top: 22px;
+  }
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+
+  .count {
+    display: flex; gap: 14px; flex-wrap: wrap; margin: 26px 0 6px;
+  }
+  .stat {
+    flex: 1 1 150px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 15px 16px; box-shadow: var(--shadow);
+  }
+  .stat .n {
+    font-family: var(--display); font-weight: 700; font-size: 30px;
+    line-height: 1; letter-spacing: -.03em;
+  }
+  .stat .k {
+    font-family: var(--head); font-weight: 600; font-size: 12px;
+    color: var(--sub); margin-top: 7px; line-height: 1.35;
+  }
+  .stat.good .n { color: var(--money-ink); }
+  .stat.warn .n { color: var(--stop-ink); }
+
+  .find {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 16px; padding: 18px 20px; margin: 14px 0;
+    box-shadow: var(--shadow);
+    display: grid; grid-template-columns: 34px 1fr; gap: 0 15px;
+  }
+  .find .idx {
+    font-family: var(--display); font-weight: 700; font-size: 15px;
+    color: var(--gold-ink); background: var(--gold-bg);
+    border-radius: 8px; height: 28px; display: flex;
+    align-items: center; justify-content: center; margin-top: 3px;
+  }
+  .find h3 {
+    font-family: var(--head); font-weight: 700; font-size: 16.5px;
+    margin: 0 0 7px; line-height: 1.38; text-wrap: balance;
+  }
+  .find p { margin: 0 0 9px; font-size: 15.5px; color: var(--ink-2); max-width: none; }
+  .find p:last-child { margin-bottom: 0; }
+  .find .cost {
+    font-size: 14.5px; color: var(--stop-ink); background: var(--stop-bg);
+    border-radius: 8px; padding: 8px 11px; margin: 10px 0 0;
+  }
+  .find .cost b { font-family: var(--head); font-weight: 700; }
+  .find .grid-span { grid-column: 2; }
+
+  blockquote {
+    margin: 14px 0 0; padding: 13px 16px;
+    background: var(--money-bg); border-radius: 10px;
+    font-size: 15.5px; color: var(--ink);
+  }
+  blockquote p { max-width: none; margin: 0; }
+  blockquote .who {
+    display: block; font-family: var(--head); font-weight: 700;
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--money-ink); margin-bottom: 5px;
+  }
+
+  .callout {
+    background: var(--surface-2); border: 1px solid var(--line-soft);
+    border-left: 3px solid var(--gold); border-radius: 12px;
+    padding: 17px 19px; margin: 26px 0;
+  }
+  .callout .title {
+    display: block; font-family: var(--head); font-weight: 700;
+    font-size: 15px; margin-bottom: 7px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.honest { border-left-color: var(--stop); }
+
+  ul { margin: 0 0 16px; padding-left: 22px; max-width: 66ch; }
+  li { margin-bottom: 9px; }
+
+  footer {
+    margin-top: 60px; border-top: 1px solid var(--line);
+    padding-top: 18px; font-size: 14px; color: var(--sub); max-width: 66ch;
+  }
+
+  /* This paper's own two additions. Everything else is the shared sheet. */
+  .stage {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 16px; padding: 18px 20px; margin: 14px 0;
+    box-shadow: var(--shadow);
+  }
+  .stage .n {
+    font-family: var(--head); font-weight: 700; font-size: 11.5px;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--gold-ink);
+  }
+  .stage h3 {
+    font-family: var(--head); font-weight: 700; font-size: 17px;
+    margin: 5px 0 8px; line-height: 1.35; text-wrap: balance;
+  }
+  .stage p { margin: 0 0 9px; font-size: 15.5px; color: var(--ink-2); max-width: none; }
+  .stage p:last-child { margin-bottom: 0; }
+  .stage .gate {
+    font-size: 14.5px; background: var(--gold-bg); color: var(--gold-ink);
+    border-radius: 8px; padding: 8px 11px; margin-top: 10px;
+  }
+  ul.have, ul.build { list-style: none; padding: 0; margin: 6px 0 0; }
+  ul.have li, ul.build li {
+    border-top: 1px solid var(--line-soft); padding: 11px 0 11px 30px;
+    position: relative; font-size: 15.5px; color: var(--ink-2);
+  }
+  ul.have li:last-child, ul.build li:last-child { border-bottom: 1px solid var(--line-soft); }
+  ul.have li::before {
+    content: "✓"; position: absolute; left: 4px; top: 11px;
+    color: var(--money-ink); font-weight: 700;
+  }
+  ul.build li::before {
+    content: "+"; position: absolute; left: 4px; top: 10px;
+    color: var(--gold-ink); font-weight: 700; font-size: 18px;
+  }
+  ul.have li b, ul.build li b { font-family: var(--head); font-weight: 700; color: var(--ink); }
+</style>
+<main>
+  <div class="wordmark">fayr<span style="color:var(--gold)">.</span></div>
+
+  <div class="eyebrow">A plan, not a build</div>
+  <h1>The answer book</h1>
+  <p class="lede">A helper that learns what Fayr already knows how to say, keeps it
+    written down in plain English where anyone can check it, and eventually offers
+    it back — first to the person answering a user, later to the user directly.
+    No code yet. This is the shape of the thing and an honest account of what we
+    have to start from.</p>
+
+  <h2>Why it is worth building</h2>
+  <p>People write to Fayr about a small number of things. The app's own help
+    screen already offers four subjects to pick from, and they are the four:
+    <em>my refund has not arrived</em>, <em>my order was not found</em>, <em>my
+    review is not being detected</em>, <em>a problem with my withdrawal</em>.</p>
+  <p>The good answers to those exist. Some are already written into the app — the
+    refund policy, the three questions on every offer page. The rest live in
+    whoever answered the last one, and in threads that get closed and never read
+    again. That is the whole opportunity: not new knowledge, but knowledge that
+    is already being produced and then dropped.</p>
+
+  <h2>Four stages, in this order</h2>
+  <p>The order matters more than the pieces. Each stage is useful on its own, and
+    each one earns the right to the next by being checked by a person first.</p>
+
+  <div class="stage">
+    <div class="n">Stage one</div>
+    <h3>Write the answers down, in one place, in plain words</h3>
+    <p>A collection of short entries: a question as a person would ask it, and the
+      answer as Fayr would give it. Nothing clever — a list somebody can read end
+      to end in ten minutes and say "that one is wrong".</p>
+    <p>It starts seeded from what is already written: the refund policy, the
+      per-offer questions, the four subjects, the terms on each campaign. No model
+      is involved at this stage at all.</p>
+    <div class="gate">Useful immediately, even if the project stopped here: new
+      support staff have something to read, and the answers stop depending on who
+      is on shift.</div>
+  </div>
+
+  <div class="stage">
+    <div class="n">Stage two</div>
+    <h3>Learn from yesterday, once a night</h3>
+    <p>A job that runs each night, reads the threads answered that day, and
+      proposes changes to the book: a new entry for a question nobody had written
+      down, or a better wording for one that already existed.</p>
+    <p>It proposes. It does not write. Every suggestion waits for a support person
+      to accept, edit or throw away, and the book records who accepted what and
+      when — so a wrong answer can always be traced to a decision rather than to
+      a machine.</p>
+    <div class="gate">The book grows by itself, and stays something a person
+      signed off. This is the same arrangement the screenshot checks already
+      use.</div>
+  </div>
+
+  <div class="stage">
+    <div class="n">Stage three</div>
+    <h3>Offer the answer to staff, while they are typing</h3>
+    <p>A support person opens a question. Beside the reply box, the two or three
+      entries from the book that look relevant, and a draft reply built from them.
+      They read it, change what they want, and send it — or ignore it entirely.</p>
+    <p>The draft is never sent on its own. Whether staff used it is recorded,
+      because that is the only honest measure of whether any of this is working:
+      if they keep ignoring it, the book is wrong, not the staff.</p>
+    <div class="gate">Answers get faster and more consistent, and nothing reaches
+      a user that a person did not send.</div>
+  </div>
+
+  <div class="stage">
+    <div class="n">Stage four</div>
+    <h3>Answer the user in the app — within hard limits</h3>
+    <p>Before someone writes to Fayr at all, show them what the book says about
+      the thing they are asking. Most of the four common questions have a true,
+      general answer that needs no human.</p>
+    <p>But two lines cannot be crossed. It must never answer a question about
+      <strong>this person's own money</strong> — where their refund is, why their
+      amount is what it is, when their withdrawal will land. And it must never
+      state a rule that is not in the book, because the book is the part a person
+      has checked. Anything outside those, it hands to a human, in one tap,
+      without making the user ask twice.</p>
+    <div class="gate">Fewer questions reach the queue, and the ones that do are
+      the ones that genuinely need a person.</div>
+  </div>
+
+  <h2>What already exists to build on</h2>
+  <p>All of this is in the product today. None of it needs designing again.</p>
+  <ul class="have">
+    <li><b>Real questions and real answers, already accumulating.</b> Every
+      question and every staff reply is stored, timestamped, and linked to the
+      staff member who wrote it. That is the raw material, and it is already
+      being collected.</li>
+    <li><b>A queue where staff already answer.</b> The Questions tab in the staff
+      console, with the reply box that stage three would sit beside. No new place
+      for anyone to go.</li>
+    <li><b>Four categories of problem, drawn from real use.</b> The subjects on
+      the app's help screen are a working taxonomy of what people write about.</li>
+    <li><b>Answers already written in plain English.</b> The refund policy's nine
+      sections, the three questions on every offer page, and the terms on each
+      campaign. Stage one is largely a matter of collecting these.</li>
+    <li><b>A model connection, already wired and already used this way.</b> The
+      Anthropic library is a dependency, the client is built only when a key is
+      present, and the screenshot checks already call a model to read something
+      and then hand the result to a person. The pattern is proven here, not
+      borrowed.</li>
+    <li><b>The propose-then-approve arrangement itself.</b> The screenshot
+      verification flow is exactly this shape: a model extracts, a support person
+      approves, nothing moves on its own, every step audited. Stages two and
+      three are the same arrangement applied to words.</li>
+    <li><b>A nightly job with somewhere to live.</b> Two scheduled jobs already
+      run, one at a time across instances, with a lock that stops two servers
+      doing the same work.</li>
+    <li><b>A trail of who did what.</b> Staff actions are already audited, so
+      "who approved this answer" is a question the system is already built to
+      answer.</li>
+    <li><b>Care with personal detail, already established.</b> Verification
+      screenshots are private data, stored outside the public space and reachable
+      only through a permission-checked endpoint. The same standard applies to
+      support threads, and the precedent exists.</li>
+  </ul>
+
+  <h2>What has to be built from nothing</h2>
+  <ul class="build">
+    <li><b>The book itself.</b> There is no store of answers today, in any form.
+      An entry needs a question, an answer, a category, and a state — draft,
+      live, retired.</li>
+    <li><b>Review and history for the book.</b> Who approved an entry, when, and
+      what it replaced. Without this, "a person checked it" is a claim rather
+      than a record.</li>
+    <li><b>The nightly reading job.</b> Reads yesterday's answered threads and
+      proposes entries. The scheduling exists; the job does not.</li>
+    <li><b>Stripping personal detail.</b> Threads are full of names, order
+      numbers and amounts. The book must carry none of it, and that has to be
+      enforced rather than trusted — an answer that quotes one user's order
+      number to another is the worst thing this project could do.</li>
+    <li><b>Finding the right entry for a live question.</b> Matching what
+      somebody just wrote to the two or three entries that actually help.</li>
+    <li><b>The suggestion panel beside the reply box</b>, and the record of
+      whether staff used what it offered.</li>
+    <li><b>The in-app answer surface</b>, and the enforced limits on it — no
+      answering about a person's own money, nothing outside the book.</li>
+    <li><b>A way to tell whether it is any good.</b> How often staff accept the
+      draft, how often users still write in after reading an answer, how many
+      entries were corrected. Without these the project cannot be judged, only
+      believed.</li>
+  </ul>
+
+  <h2>Three things that are true and awkward</h2>
+  <div class="callout">
+    <div class="title">There is almost nothing to learn from yet</div>
+    <p>The database holds two questions and one staff reply. A helper that learns
+      from real support traffic has, today, essentially no traffic to learn from.
+      That is why stage one seeds from what is already written rather than waiting
+      for volume — and it is why stage two's value arrives slowly, one real
+      thread at a time.</p>
+  </div>
+  <div class="callout">
+    <div class="title">Every thread contains personal detail</div>
+    <p>People writing about a stuck refund name their order, their amount, and
+      often themselves. Stripping that out is not a tidy-up step at the end; it
+      decides whether stage two can run at all.</p>
+  </div>
+  <div class="callout">
+    <div class="title">The most-asked question is the one it must not answer</div>
+    <p>"Where is my refund?" is both the commonest question and the one that
+      depends entirely on one person's own task, amount and hold. The book can
+      explain how refunds work. It cannot tell somebody where theirs is, and
+      pretending otherwise would turn the best answer in the book into the most
+      damaging one.</p>
+  </div>
+
+  <h2>What I would do first</h2>
+  <p>Stage one, by hand, with no model anywhere near it: collect the answers that
+    already exist in the app into one reviewable list, and let support correct
+    it. That alone is worth having, it costs almost nothing, and it is the thing
+    every later stage stands on. If the list turns out to be wrong or nobody
+    reads it, we have learned that for the price of an afternoon rather than a
+    quarter.</p>
+
+  <div class="stamp">Written 27 August 2026. Everything in "what already exists"
+    was checked against the code, not remembered: the support tables and their
+    fields, the four help subjects, the policy sections, the Anthropic dependency
+    and its key-gated client, the screenshot approve flow, the two scheduled jobs,
+    and the audit trail. The two-questions-and-one-reply figure is a count from
+    the development database on the day of writing.</div>
+</main>

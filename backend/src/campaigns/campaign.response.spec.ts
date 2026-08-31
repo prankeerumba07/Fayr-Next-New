@@ -23,6 +23,8 @@ const baseCampaign: Campaign = {
   productName: 'boAt Rockerz 255 Pro+',
   category: 'electronics',
   terms: null,
+  liveState: null,
+  liveCheckedAt: null,
   productPricePaise: 129900n,
   payoutPercent: 100,
   payoutCapPaise: null,

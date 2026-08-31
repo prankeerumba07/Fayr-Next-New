@@ -10,6 +10,7 @@ import { getWallet } from './backend/meApi';
 import { hasTask } from './taskStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW, rupeesFromPaise, estMaxRefundRupees } from './ui/theme';
 import { seatsLine, joinedLine, isFullCampaign } from './ui/seats';
+import { cardState } from './livecheck.js';
 import {
   Wordmark, SectionTitle, Card, RefundBadge, MarketplaceTag, ProductImage, TicketPill,
 } from './ui/primitives';
@@ -30,9 +31,20 @@ function CampaignRow({ c, claimed, onOpen }) {
   const seats = seatsLine(c);
   const joined = joinedLine(c);
   const full = isFullCampaign(c);
+  // Whether the shop's own page still works, and whether the places are gone.
+  // Both decided server-side; this only draws the answer. An offer that cannot be
+  // used is GREYED OUT AND STILL THERE — somebody who saw it yesterday has to be
+  // able to find it, with a reason, or they conclude the app lost it.
+  const live = cardState(c);
+  const off = live.greyedOut;
   return (
-    <Card onPress={onOpen} style={styles.campaignCard}>
-      <View style={styles.campaignBody}>
+    <Card onPress={onOpen} style={[styles.campaignCard, off && styles.campaignCardOff]}>
+      {live.label ? (
+        <View style={styles.offBanner}>
+          <Text style={styles.offBannerText}>{live.label}</Text>
+        </View>
+      ) : null}
+      <View style={[styles.campaignBody, off && styles.dimmed]}>
         <ProductImage imageUrl={c.imageUrl} seed={c.id} radius={RADIUS.md} style={styles.thumb} />
         <View style={styles.campaignInfo}>
           <RefundBadge percent={c.percent} maxRupees={estMaxRefundRupees(c)} />
@@ -47,8 +59,8 @@ function CampaignRow({ c, claimed, onOpen }) {
               Never both: the footer is one line and the scarcer fact wins. */}
           {seats || (claimed ? 'In progress' : `Claim · ${c.ticketCost} tickets`)}
         </Text>
-        <Text style={[styles.footerCta, full && styles.footerCtaOff]}>
-          {full ? 'Full' : claimed ? 'Continue ›' : 'Claim →'}
+        <Text style={[styles.footerCta, (full || off) && styles.footerCtaOff]}>
+          {off ? live.cta : full ? 'Full' : claimed ? 'Continue ›' : 'Claim →'}
         </Text>
       </View>
     </Card>
@@ -149,8 +161,11 @@ export default function HomeScreen({ navigation }) {
               key={c.id}
               c={c}
               claimed={hasTask(c.id)}
+              // A claimed offer opens its JOURNEY, at whatever page it is on.
+              // That is the resume: the page comes from the server's record, so
+              // tapping the card can never land somebody back at the beginning.
               onOpen={() => navigation.navigate(
-                hasTask(c.id) ? 'Task' : 'Detail',
+                hasTask(c.id) ? 'Journey' : 'Detail',
                 { campaignId: c.id },
               )}
             />
@@ -213,6 +228,18 @@ const styles = StyleSheet.create({
   empty: { fontFamily: FONT.body, fontSize: 14, color: COLOR.sub, lineHeight: 20 },
 
   campaignCard: { marginBottom: 14, overflow: 'hidden' },
+  // Greyed out, not hidden. The card stays on the feed and stays tappable, so the
+  // detail screen can explain; it just stops looking like something to buy.
+  campaignCardOff: { opacity: 0.72 },
+  dimmed: { opacity: 0.55 },
+  offBanner: {
+    backgroundColor: COLOR.amberBg,
+    borderBottomWidth: 1,
+    borderBottomColor: COLOR.amberLine,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  offBannerText: { fontFamily: FONT.bodySemi, fontSize: 12, color: '#8A5A00' },
   campaignBody: { flexDirection: 'row', gap: 12, padding: 14 },
   thumb: { width: 96, height: 108 },
   campaignInfo: { flex: 1, minWidth: 0, paddingTop: 2 },

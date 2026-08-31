@@ -2,6 +2,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import type { Params } from 'nestjs-pino';
+import { stdSerializers } from 'pino-http';
 import type { Env } from '../config/env.validation';
 
 /**
@@ -50,8 +51,47 @@ export function buildLoggerOptions(config: ConfigService<Env, true>): Params {
         requestId: (req as IncomingMessage & { id?: string }).id,
       }),
 
+      /**
+       * NOTHING FROM A WEB ADDRESS'S QUERY STRING REACHES THE LOG.
+       *
+       * Found by reading the real log rather than the code, and it took two goes.
+       * Redacting `req.query` removed the parsed copy, and the number was still
+       * there — because the logged `url` carries the query string too. So the
+       * address is cut at the question mark, which keeps the useful half (which
+       * endpoint) and drops the half that can carry somebody's mobile number.
+       *
+       * Wrapping pino-http's own serializer rather than replacing it, so every
+       * other field a log is read for stays exactly as it was.
+       */
+      serializers: {
+        req(request: unknown) {
+          const serialized = stdSerializers.req(
+            request as Parameters<typeof stdSerializers.req>[0],
+          );
+          const url = serialized.url;
+          return {
+            ...serialized,
+            url: typeof url === 'string' ? url.split('?')[0] : url,
+          };
+        },
+      },
+
       redact: {
-        paths: ['req.headers.authorization', 'req.headers.cookie'],
+        paths: [
+          'req.headers.authorization',
+          'req.headers.cookie',
+          // THE QUERY STRING, ENTIRELY. Found by reading the real log rather than
+          // the code: pino logs the parsed query on every request, so a staff
+          // search for a person by mobile number wrote that number into the
+          // application log, where it stays for as long as logs are kept. Redacted
+          // wholesale rather than field by field, because the next endpoint to take
+          // something personal in a query string will not come back here first.
+          //
+          // The url itself is still logged, which is what makes a log useful. The
+          // rule that keeps that safe is separate and stated in the security
+          // report: nothing personal may travel in a web address.
+          'req.query',
+        ],
         remove: true,
       },
 

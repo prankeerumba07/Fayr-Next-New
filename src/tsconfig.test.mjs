@@ -129,4 +129,37 @@ t('is honest about what it can and cannot catch', () => {
   assert.equal(config.compilerOptions?.checkJs, undefined);
 });
 
+t('the config is IN THE REPOSITORY, not just on one laptop', () => {
+  // FOUND BY CLONING. The root tsconfig.json was gitignored — a leftover rule
+  // from a template that treats it as generated — so a fresh checkout had no
+  // root config at all, and both `npm run typecheck` and this very test file
+  // failed on a repository that was otherwise complete.
+  //
+  // It is not generated. It is hand-written, documented, and load-bearing: the
+  // typecheck gate reads it, and so does everything below. A file the gate
+  // depends on cannot live in one working directory.
+  const ignored = (() => {
+    try {
+      execFileSync('git', ['check-ignore', '-q', 'tsconfig.json'], { cwd: ROOT });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  assert.equal(ignored, false, 'tsconfig.json is gitignored, so a clone has no root config');
+
+  const tracked = (() => {
+    try {
+      execFileSync('git', ['ls-files', '--error-unmatch', 'tsconfig.json'], {
+        cwd: ROOT,
+        stdio: 'ignore',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  assert.equal(tracked, true, 'tsconfig.json is not tracked by git');
+});
+
 console.log(`\n${passed} passed, ${process.exitCode ? 'some' : '0'} failed`);

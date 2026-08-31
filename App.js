@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppState, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
@@ -14,6 +14,9 @@ import TaskScreen from './src/TaskScreen';
 import DetailScreen from './src/DetailScreen';
 import WalletScreen from './src/WalletScreen';
 import SupportScreen from './src/SupportScreen';
+import ChatScreen from './src/ChatScreen';
+import JourneyScreen from './src/journey/JourneyScreen';
+import LiveCheckScreen from './src/LiveCheckScreen';
 import PolicyScreen from './src/PolicyScreen';
 import FirstRunFlow from './src/firstrun/FirstRunFlow';
 import SetupFlow from './src/setup/SetupFlow';
@@ -39,6 +42,8 @@ import * as evidenceSync from './src/backend/evidenceSync';
 import { getProfile } from './src/backend/meApi';
 import { isSetupNeeded } from './src/ui/setup';
 import { postEvidence } from './src/backend/tasksApi';
+import { renewNow } from './src/backend/http';
+import { startKeeper } from './src/backend/sessionKeeper';
 
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
@@ -146,6 +151,35 @@ function AppInner() {
     return unsub;
   }, []);
 
+  // KEEP THE SIGN-IN ALIVE, QUIETLY.
+  //
+  // The tokens already survive the app being closed — they are in the device
+  // keychain and are read back above. What this adds is renewing BEFORE anything
+  // is refused. Without it, somebody who left the app open over lunch came back,
+  // tapped something, and waited through one failed request before it worked.
+  //
+  // Also on the way back to the foreground: a phone asleep in a pocket does not
+  // run timers, so the scheduled renewal may be hours overdue by the time the
+  // screen comes on.
+  //
+  // Only pressing log out ends a session. Nothing here can end one: a renewal
+  // that genuinely cannot be done clears the session inside the transport, and
+  // the gate above is watching for exactly that.
+  React.useEffect(() => {
+    if (authState !== 'in') return;
+    const keeper = startKeeper({
+      getToken: () => authSession.getAccessToken(),
+      renew: renewNow,
+    });
+    const watcher = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void keeper.checkNow();
+    });
+    return () => {
+      watcher.remove();
+      keeper.stop();
+    };
+  }, [authState]);
+
   // Once signed in: wire the evidence transport BEFORE anything can dispatch,
   // load the backend campaigns, and restore/refresh tasks from the source of
   // truth so a relaunch resumes mid-flow instead of flashing a fresh task.
@@ -248,6 +282,14 @@ function AppInner() {
           <Stack.Screen name="JoinFailed" component={JoinFailedScreen} options={{ headerShown: false }} />
           {/* Help and the policy documents own their headers as well. */}
           <Stack.Screen name="Support" component={SupportScreen} options={{ headerShown: false }} />
+          {/* The claim journey: one page per step, from joining to the refund.
+              Owns its own header, because every page in it does. */}
+          <Stack.Screen name="Journey" component={JourneyScreen} options={{ headerShown: false }} />
+
+          {/* "Chat with us" — the fast answer. Owns its header too. */}
+          <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
+          {/* The morning job. Staff only, and it asks for a staff sign-in itself. */}
+          <Stack.Screen name="LiveCheck" component={LiveCheckScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Policy" component={PolicyScreen} options={{ headerShown: false }} />
           {/* Screenshot proof — the tier-3 fallback when the scraper can't read. */}
           <Stack.Screen name="ProofUpload" component={ProofUploadScreen} options={{ headerShown: false }} />

@@ -72,10 +72,19 @@ describe('Staff roles / RBAC (e2e)', () => {
     path: string;
     allow: StaffRole[];
     ok: number;
+    /**
+     * How the request is made. GET unless stated. The user search is a POST now,
+     * because a mobile number must not travel in a web address — so the matrix has
+     * to be able to say so rather than assuming every read is a GET.
+     */
+    method?: 'get' | 'post';
+    body?: object;
   }[] = [
     {
       name: 'user view',
-      path: '/admin/users/search?mobile=%2B919000000001',
+      path: '/admin/users/search',
+      method: 'post',
+      body: { mobile: '+919000000001' },
       allow: ['SUPPORT', 'FINANCE', 'ADMIN'],
       ok: 404, // guard passed → "unknown mobile", not 403
     },
@@ -98,6 +107,12 @@ describe('Staff roles / RBAC (e2e)', () => {
       allow: ['ADMIN'],
       ok: 200,
     },
+    {
+      name: 'chat conversations',
+      path: '/admin/chats',
+      allow: ['SUPPORT', 'ADMIN'],
+      ok: 200,
+    },
   ];
 
   const ALL_ROLES: StaffRole[] = ['SUPPORT', 'FINANCE', 'OPERATIONS', 'ADMIN'];
@@ -108,10 +123,10 @@ describe('Staff roles / RBAC (e2e)', () => {
         for (const role of ALL_ROLES) {
           const { token } = await tokenFor(role);
           const expected = cell.allow.includes(role) ? cell.ok : 403;
-          await request(server())
-            .get(cell.path)
-            .set('authorization', `Bearer ${token}`)
-            .expect(expected);
+          const call = request(server())
+            [cell.method ?? 'get'](cell.path)
+            .set('authorization', `Bearer ${token}`);
+          await (cell.body ? call.send(cell.body) : call).expect(expected);
         }
       });
     }
@@ -136,7 +151,9 @@ describe('Staff roles / RBAC (e2e)', () => {
     it('duplicate-order override requires a reason', async () => {
       const { token } = await tokenFor('SUPPORT');
       await request(server())
-        .post('/admin/tasks/00000000-0000-0000-0000-0000000000ff/allow-duplicate-order')
+        .post(
+          '/admin/tasks/00000000-0000-0000-0000-0000000000ff/allow-duplicate-order',
+        )
         .set('authorization', `Bearer ${token}`)
         .send({})
         .expect(400); // the audit row is worthless without the reasoning

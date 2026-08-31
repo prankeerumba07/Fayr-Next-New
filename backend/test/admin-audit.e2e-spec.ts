@@ -75,8 +75,8 @@ describe('Admin audit listing (e2e)', () => {
   async function generateAudits(adminTok: string): Promise<string> {
     const user = await prisma.user.create({ data: { mobile: newMobile() } });
     await request(server())
-      .get('/admin/users/search')
-      .query({ mobile: user.mobile })
+      .post('/admin/users/search')
+      .send({ mobile: user.mobile })
       .set(bearer(adminTok))
       .expect(200); // → USER_SEARCH
     await request(server())

@@ -9,6 +9,7 @@ import { WalletService } from '../src/wallet/wallet.service';
 import { WithdrawalService } from '../src/withdrawals/withdrawal.service';
 import { SupportQuestionService } from '../src/support/support-question.service';
 import { ScreenshotVerificationService } from '../src/ocr/screenshot.service';
+import { AssistantSeedService } from '../src/assistant/assistant-seed.service';
 import type { Env } from '../src/config/env.validation';
 import { TICKETS } from '../src/tickets/ticket.constants';
 import { DEMO_CAMPAIGNS, type SeededCampaign } from './demo-catalogue';
@@ -225,6 +226,8 @@ export interface DemoSeedReport {
   campaigns: number;
   staff: number;
   users: number;
+  /** Drafted assistant answers made readable in "Chat with us". */
+  answersPublished: number;
   journeys: string[];
   skipped: string[];
 }
@@ -265,6 +268,7 @@ export async function seedDemo(
   const withdrawals = app.get(WithdrawalService);
   const questions = app.get(SupportQuestionService);
   const screenshots = app.get(ScreenshotVerificationService);
+  const answerBook = app.get(AssistantSeedService);
 
   const say = (m: string): void => {
     if (!opts.quiet) console.log(m);
@@ -278,6 +282,7 @@ export async function seedDemo(
     campaigns: 0,
     staff: 0,
     users: 0,
+    answersPublished: 0,
     journeys: [],
     skipped: [],
   };
@@ -310,6 +315,29 @@ export async function seedDemo(
     report.staff += 1;
   }
   say(`  staff      ${report.staff} (one per role)`);
+
+  // ── 2b. the answer book, readable ───────────────────────────────
+  //
+  // The drafted answers land in the book as drafts, which is right for a real
+  // deployment and useless here: it means "Chat with us" opens on a practice
+  // database and cannot answer a single question. So on a practice database we
+  // approve them, as the demo admin, and the chat works straight away.
+  //
+  // publishDraftsForPractice refuses on any database that is not a *_dev or
+  // *_test one, so this line cannot leak unchecked answers to real people.
+  await answerBook.seedDrafts();
+  const admin = await prisma.staffUser.findUniqueOrThrow({
+    where: { email: 'admin@fayr.local' },
+    select: { id: true },
+  });
+  const published = await answerBook.publishDraftsForPractice(admin.id);
+  report.answersPublished = published.published;
+  say(
+    `  answers    ${published.published} published for the chat`
+      + (published.leftAlone > 0
+        ? `, ${published.leftAlone} left as a person left them`
+        : ''),
+  );
 
   // ── 3. users ──────────────────────────────────────────────────────────────
   const demoMobile = opts.demoMobile ?? process.env.DEMO_MOBILE ?? DEMO_MOBILE_DEFAULT;

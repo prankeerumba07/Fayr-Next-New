@@ -5,17 +5,21 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AdminModule } from './admin/admin.module';
+import { AssistantModule } from './assistant/assistant.module';
+import { ChatModule } from './chat/chat.module';
 import { AuthModule } from './auth/auth.module';
 import { CampaignModule } from './campaigns/campaign.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { LiveCheckModule } from './live-check/live-check.module';
 import { buildLoggerOptions } from './logging/pino-logger.config';
 import { MeModule } from './me/me.module';
 import { OcrModule } from './ocr/ocr.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReportModule } from './reports/report.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { CampaignHealthModule } from './campaign-health/campaign-health.module';
 import { SupportModule } from './support/support.module';
 import { TaskModule } from './tasks/task.module';
 import { TicketModule } from './tickets/ticket.module';
@@ -64,6 +68,10 @@ import { WithdrawalModule } from './withdrawals/withdrawal.module';
     CampaignModule,
     TaskModule,
     SchedulerModule,
+    CampaignHealthModule,
+    LiveCheckModule,
+    AssistantModule,
+    ChatModule,
     AdminModule,
     SupportModule,
     MeModule,

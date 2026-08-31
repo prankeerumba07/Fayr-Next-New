@@ -39,6 +39,20 @@ export function normalizeCampaign(c) {
     styleId: null,
     imageUrl: c.imageUrl || null,
     terms: c.terms || null,
+    // Whether the offer feed shows this greyed out, and what to say on it. The
+    // SERVER decides: it is the only place that can see the places left and the
+    // last look at the shop page together. Passed through untouched, with no
+    // fallback, so an offer is never greyed out on a guess made here.
+    availability:
+      c.availability && typeof c.availability === 'object'
+        ? {
+            greyedOut: c.availability.greyedOut === true,
+            label:
+              typeof c.availability.label === 'string' ? c.availability.label : null,
+            reason:
+              typeof c.availability.reason === 'string' ? c.availability.reason : null,
+          }
+        : null,
   };
 }
 

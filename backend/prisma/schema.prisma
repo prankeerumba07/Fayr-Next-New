@@ -27,17 +27,17 @@ datasource db {
 /// A Fayr user. Authentication is mobile-number-only (E.164). Profile and
 /// fraud-anchor fields (name, PAN, UPI/bank for dedup) are added in later phases.
 model User {
-  id        String     @id @default(uuid()) @db.Uuid
-  mobile    String     @unique // E.164, e.g. +919876543210
+  id          String     @id @default(uuid()) @db.Uuid
+  mobile      String     @unique // E.164, e.g. +919876543210
   // Human-friendly public identifier shown in the app (e.g. FAYR-100001). It is
   // DISPLAY-ONLY: the DB fills it from a sequence, and NO endpoint ever accepts
   // it as a lookup input — id (UUID) and mobile stay the only lookup keys. The
   // sequence starts at an offset so the value never reveals signup order/count.
-  displayId String     @unique @default(dbgenerated("('FAYR-'::text || lpad((nextval('user_display_seq'::regclass))::text, 6, '0'::text))"))
-  status    UserStatus @default(ACTIVE)
+  displayId   String     @unique @default(dbgenerated("('FAYR-'::text || lpad((nextval('user_display_seq'::regclass))::text, 6, '0'::text))"))
+  status      UserStatus @default(ACTIVE)
   // PAN anchor (fraud loophole 1): at most one account per PAN. Nullable until the
   // user first cashes out; @unique makes the one-user-per-PAN rule a DB invariant.
-  pan       String?    @unique
+  pan         String?    @unique
   // ── Profile, collected by the first-run setup sequence ───────────────────
   // All optional: an account is fully usable before setup runs, and a user who
   // skips or abandons setup must never be locked out of the app. `setupDoneAt`
@@ -47,8 +47,8 @@ model User {
   name        String?
   ageBand     String? // one of AGE_BANDS; a band, never a date of birth
   gender      String? // one of GENDERS, includes "Prefer not to say"
-  categories  String[] @default([]) // shopping interests, drives the feed later
-  platforms   String[] @default([]) // marketplaces they already shop on
+  categories  String[]   @default([]) // shopping interests, drives the feed later
+  platforms   String[]   @default([]) // marketplaces they already shop on
   setupDoneAt DateTime?
 
   // CONSENT AS A RECORD, NOT A SCREEN.
@@ -58,18 +58,20 @@ model User {
   // timestamp would prove nothing. Nullable because a user exists before consenting.
   termsVersion    String?
   termsAcceptedAt DateTime?
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  otpChallenges     OtpChallenge[]
-  refreshTokens     RefreshToken[]
-  tasks             Task[]
-  ticketEntries     TicketEntry[]
-  walletAccounts    WalletAccount[]
-  supportQuestions  SupportQuestion[]
-  payoutMethods     PayoutMethod[]
-  withdrawals       Withdrawal[]
-  screenshotUploads ScreenshotUpload[]
+  otpChallenges      OtpChallenge[]
+  refreshTokens      RefreshToken[]
+  tasks              Task[]
+  ticketEntries      TicketEntry[]
+  walletAccounts     WalletAccount[]
+  supportQuestions   SupportQuestion[]
+  payoutMethods      PayoutMethod[]
+  withdrawals        Withdrawal[]
+  screenshotUploads  ScreenshotUpload[]
+  assistantQuestions AssistantQuestion[]
+  chats              Chat[]
 
   @@map("users")
 }
@@ -238,6 +240,16 @@ model Campaign {
   productUrl String?
   imageUrl   String?
 
+  /// WHAT THE SHOP'S OWN PAGE LOOKED LIKE the last time a person opened it, and
+  /// when. One of LIVE_STATES in live-check/live-page.rules.ts.
+  ///
+  /// A PROJECTION of the most recent live check, never the source of truth — the
+  /// runs themselves are in live_page_check_runs. It lives here because the app's
+  /// feed reads it on every load and must not join to a history table to draw a
+  /// card. Written only by the live check.
+  liveState     String?
+  liveCheckedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -274,7 +286,7 @@ model Task {
   /// The marketplace order number. Promoted out of `evidence` so ONE real
   /// purchase cannot be paid out on several campaigns unseen: the refund gate
   /// looks for a sibling task on the same (platform, orderId).
-  orderId         String?
+  orderId                String?
   /// WHICH LINE of that order — the ASIN, Flipkart pid, Meesho sub-order id or
   /// Instamart variant id, whichever the marketplace itself stated. Promoted for
   /// the same reason as orderId: the gate reads an index, not JSONB.
@@ -283,17 +295,17 @@ model Task {
   /// number may both pay only when BOTH name a line and the lines differ;
   /// anything else goes to a human. Zepto and Blinkit are permanently null here
   /// because their only candidate identifier is a row number.
-  itemId          String?
+  itemId                 String?
   /// Staff answer to a held (platform, orderId) collision: this really is a
   /// separate item in one basket, pay it. Set only by a SUPPORT/ADMIN override,
   /// audited, and read only by the refund gate.
-  duplicateOrderApproved Boolean @default(false)
-  returned        Boolean? // TRI-STATE: null = unknown, which the refund gate treats differently from false
-  itemPaise       BigInt? // the VERIFIED refundable item price (never the order total)
-  deliveredAt     DateTime?
-  reviewPublished Boolean?
-  windowEndsAt    DateTime? // delivery + return window; anchors the hold AND the 1.6 scheduler
-  claimExpiresAt  DateTime? // deadline to purchase; past it with no purchase -> tickets returned
+  duplicateOrderApproved Boolean   @default(false)
+  returned               Boolean? // TRI-STATE: null = unknown, which the refund gate treats differently from false
+  itemPaise              BigInt? // the VERIFIED refundable item price (never the order total)
+  deliveredAt            DateTime?
+  reviewPublished        Boolean?
+  windowEndsAt           DateTime? // delivery + return window; anchors the hold AND the 1.6 scheduler
+  claimExpiresAt         DateTime? // deadline to purchase; past it with no purchase -> tickets returned
 
   blocker       String? // why the task can't advance (BLOCKERS in taskflow)
   blockerReason String?
@@ -537,6 +549,8 @@ model StaffUser {
 
   auditLogs      AdminAuditLog[]
   supportReplies SupportReply[]
+  chatsTaken     Chat[]
+  chatMessages   ChatMessage[]
 
   @@map("staff_users")
 }
@@ -703,4 +717,375 @@ model EvidenceSubmission {
 
   @@index([status, createdAt]) // the review queue
   @@map("evidence_submissions")
+}
+
+/// One run of the daily check over every live offer.
+///
+/// The findings themselves are a JSON snapshot rather than rows of their own, and
+/// that is deliberate: a finding is only ever read as part of the run that
+/// produced it, nothing joins to one, and the live report is recomputed on every
+/// view anyway. What this table is for is the two things a live query cannot
+/// answer — did the check actually run last night, and what is new since it did.
+model CampaignCheckRun {
+  id        String   @id @default(uuid()) @db.Uuid
+  ranAt     DateTime @default(now())
+  /// SCHEDULED (the nightly job) or MANUAL (someone pressed the button).
+  trigger   String
+  /// How many live offers were looked at.
+  checked   Int
+  blocking  Int
+  attention Int
+  unchecked Int
+  /// [{ campaignId, title, code, severity }] — a snapshot, never joined to.
+  findings  Json
+
+  @@index([ranAt])
+  @@map("campaign_check_runs")
+}
+
+// ===========================================================================
+// PHASE 6 — THE ANSWER BOOK, AND THE RECORD OF EVERY REAL QUESTION
+// ===========================================================================
+//
+// Three tables, and the split between them is the whole design:
+//
+//   answer_entries       one answer, in one language. The thing a person reads.
+//   answer_phrases       the many ways somebody might ask for that answer.
+//   assistant_questions  what a real person actually typed, and what we said back.
+//
+// Questions are kept apart from answers because a hundred differently-worded
+// questions ("kab aayega", "refund not received", "मेरा पैसा कब आएगा") deserve ONE
+// good answer, and fixing that answer must fix all hundred at once. If the text a
+// user reads lived on the question, correcting it would mean correcting a hundred
+// rows and hoping none was missed.
+//
+// SEARCHING AT SCALE. There will be a handful of answers this week and thousands
+// in a year, and the matching may never read them all to find one. The migration
+// that creates these tables also creates two kinds of index that make that
+// possible without new infrastructure:
+//
+//   - a full-text index (GIN over to_tsvector) for matching by word, and
+//   - a trigram index (GIN over pg_trgm) for matching despite a typo.
+//
+// Both live in Postgres, which is already here. The alternative — embeddings in a
+// vector database — needs a paid model call on every question and a second service
+// to run, and can be added later behind the same method without moving this data.
+
+/// Is this answer live? RETIRED rather than deleted, because a question asked last
+/// month recorded which answer it was shown, and that has to stay readable.
+enum AnswerStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+/// Where an answer came from. Kept because "a person wrote this", "the assistant
+/// drafted this" and "this shipped with the app" are read very differently when an
+/// answer turns out to be wrong.
+enum AnswerOrigin {
+  SEED /// shipped with the app as fixed content
+  ASSISTANT /// drafted by the assistant; a person must approve it before anyone sees it
+  STAFF /// written or corrected by a person
+}
+
+/// One answer, in one language.
+///
+/// `key` is the identity of the ANSWER; `language` is which wording of it. The
+/// same key carries every language, so a new language is new ROWS — never a
+/// migration, and never a change to the code that reads them.
+model AnswerEntry {
+  id       String @id @default(uuid()) @db.Uuid
+  key      String
+  /// Short tag: en, hi, hi-en. A String and not an enum on purpose — see above.
+  language String
+  /// What this answer is called in a list. Plain words.
+  title    String
+  /// The answer itself, exactly as a user will read it. Plain words, no jargon —
+  /// a rule the engine enforces in code before anything is ever returned.
+  body     String
+  /// Which part of the app this is about: refund, review, order, tickets, account.
+  topic    String
+
+  status AnswerStatus @default(DRAFT)
+  origin AnswerOrigin @default(SEED)
+
+  /// Bumped every time the words change, so a question can say which wording it
+  /// showed even after a person has improved it.
+  revision Int @default(1)
+
+  /// Who last wrote it, when a person did. Bare uuid, not a foreign key: this
+  /// record must outlive a staff account being removed.
+  updatedByStaffId String? @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  phrases   AnswerPhrase[]
+  questions AssistantQuestion[]
+
+  @@unique([key, language])
+  @@index([status, language])
+  @@index([topic])
+  @@map("answer_entries")
+}
+
+/// One way a real person might ask for one answer. This is the table the matching
+/// actually searches, which is why it is separate: an answer with forty known
+/// wordings is forty rows here and still one answer to correct.
+model AnswerPhrase {
+  id            String      @id @default(uuid()) @db.Uuid
+  answerEntryId String      @db.Uuid
+  answer        AnswerEntry @relation(fields: [answerEntryId], references: [id], onDelete: Cascade)
+
+  text     String
+  language String
+
+  createdAt DateTime @default(now())
+
+  @@index([answerEntryId])
+  @@index([language])
+  /// The near-miss index, declared here as well as in the migration that creates
+  /// it. Without this line Prisma does not know it exists and the next
+  /// `migrate dev` silently drops it — which would not fail a single test, and
+  /// would quietly turn every typo search into a full read of the table.
+  @@index([text(ops: raw("gin_trgm_ops"))], type: Gin, map: "answer_phrases_near_misses_idx")
+  @@map("answer_phrases")
+}
+
+/// Where the reply a user saw came from.
+enum AssistantAnswerOrigin {
+  ANSWER_BOOK /// matched a stored answer
+  MODEL /// written by a language model (not switched on yet)
+  STAFF /// a person answered it
+  NONE /// nothing matched, and we said so rather than inventing one
+}
+
+/// Who is waiting.
+enum AssistantQuestionStatus {
+  ANSWERED /// a reply was given; nobody is blocked
+  UNRESOLVED /// nothing matched, or the person said the reply did not help
+  RESOLVED /// closed, either by the person saying it helped or by staff
+}
+
+/// Every question a real person asked the assistant, and what happened next.
+///
+/// This is the record the whole thing learns from, so it keeps the EVIDENCE and
+/// not a tidied version of it: the raw text is stored exactly as typed, and the
+/// reply is snapshotted as shown rather than looked up later through a link that
+/// may since have been edited.
+model AssistantQuestion {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// EXACTLY what was typed. Never trimmed, corrected, or normalized: tomorrow's
+  /// answer gets written from these words, and a cleaned-up copy would hide the
+  /// spelling and the phrasing that are the most useful part.
+  rawText String
+
+  /// What language it LOOKS like, and how sure that guess was (0 to 100). Stored
+  /// as a guess, because that is what it is.
+  detectedLanguage   String
+  languageConfidence Int
+
+  askedAt DateTime @default(now())
+
+  /// Which stored answer was used, if one was.
+  answerEntryId  String?               @db.Uuid
+  answerEntry    AnswerEntry?          @relation(fields: [answerEntryId], references: [id], onDelete: SetNull)
+  /// The reply AS SHOWN to this person. Snapshotted: the entry above may be
+  /// corrected next week, and "what did this person actually read" has to stay
+  /// answerable after it is.
+  answerText     String?
+  answerOrigin   AssistantAnswerOrigin @default(NONE)
+  /// How well it matched, 0 to 100. Null when nothing was returned.
+  matchScore     Int?
+  /// Which wording of the answer was shown, in case it has since changed.
+  answerRevision Int?
+
+  status AssistantQuestionStatus @default(UNRESOLVED)
+
+  /// WHAT KIND OF QUESTION THIS WAS. Taken from the answer that served it, or set
+  /// by the member of staff who answered it by hand. Null means nobody has said,
+  /// which is itself the useful fact: an unsorted pile of questions nobody could
+  /// answer is exactly what the answer book needs to be told about.
+  topic String?
+
+  /// Did it help? Null until asked, and null forever if they never say.
+  helpful   Boolean?
+  helpfulAt DateTime?
+
+  /// When it stopped being anyone's problem. How long it took is this minus
+  /// askedAt — computed on read, never stored twice.
+  resolvedAt        DateTime?
+  resolvedByStaffId String?   @db.Uuid
+
+  /// What this person was doing in the app when they asked — a SNAPSHOT taken at
+  /// that moment, assembled from records the app already keeps. A snapshot and not
+  /// a live lookup, because reading their tasks next week tells you what is true
+  /// next week, not what was true when they wrote in. The same reasoning as the
+  /// offer check's findings, one table up.
+  journey Json?
+
+  /// Which conversation it was asked in. Optional because every question written
+  /// down before conversations existed has none, and because the record of what
+  /// somebody asked must never depend on the conversation still being there.
+  chatId String? @db.Uuid
+  chat   Chat?   @relation(fields: [chatId], references: [id], onDelete: SetNull)
+
+  messages ChatMessage[]
+
+  @@index([status, askedAt])
+  @@index([userId, askedAt])
+  @@index([answerEntryId])
+  @@index([askedAt])
+  @@index([chatId, askedAt])
+  /// Reading the pile of questions nobody could answer, newest first. The one
+  /// read the "what should we write next" screen does.
+  @@index([answerOrigin, askedAt])
+  @@map("assistant_questions")
+}
+
+/// One morning's look at every live offer's real shop page.
+///
+/// Separate from the nightly offer check, which only reads Fayr's OWN records.
+/// This one is about whether a page opens the way a shopper would see it, so it
+/// can only be done from a real phone with a real signed-in shop session — which
+/// is why it is started by hand and why the run records who started it.
+///
+/// The findings are a JSON snapshot for the same reason the offer check's are:
+/// nothing joins to one, and the only questions a live query cannot answer are
+/// "did somebody do this today" and "what changed since".
+model LivePageCheckRun {
+  id    String   @id @default(uuid()) @db.Uuid
+  ranAt DateTime @default(now())
+
+  /// Which staff member ran it. A bare uuid, not a foreign key: the record must
+  /// outlive a staff account being removed.
+  startedByStaffId String @db.Uuid
+
+  /// How many live offers were looked at.
+  checked      Int
+  /// One count per state, so a screen never has to add up a JSON blob.
+  opened       Int
+  expired      Int
+  soldOut      Int
+  unavailable  Int
+  couldNotOpen Int
+  noLink       Int
+
+  /// [{ campaignId, title, platform, state, httpStatus, evidence }] — a snapshot.
+  findings Json
+
+  @@index([ranAt])
+  @@map("live_page_check_runs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHATS
+//
+// A question and its reply were never a conversation. Somebody asks, the
+// assistant answers or admits it cannot, and then there was nowhere for anyone
+// to say anything else — no way for a person from Fayr to reply, and no way for
+// the shopper to say "no, that is not what I meant".
+//
+// So the conversation is its own record, with the messages under it, and the
+// question rows keep being the thing the answer book learns from. Both, not one
+// instead of the other: a question is evidence, a chat is a conversation, and
+// they answer different questions later.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Who has a conversation right now.
+enum ChatState {
+  ASSISTANT /// the assistant is handling it and nobody needs to look
+  WAITING_FOR_PERSON /// handed over; in the queue; nobody has taken it yet
+  TAKEN /// a named member of staff has it and is the only one who may reply
+  CLOSED /// finished
+}
+
+/// Who wrote one message.
+enum ChatMessageAuthor {
+  PERSON /// the shopper
+  ASSISTANT /// the answer book
+  AGENT /// a member of Fayr staff, by hand
+  SYSTEM /// Fayr itself, saying something about the conversation
+}
+
+/// One conversation between one shopper and Fayr.
+model Chat {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  state ChatState @default(ASSISTANT)
+
+  /// Who has it, when someone does. A bare name is not enough: the rule is that
+  /// only this person or an administrator may reply, and a name is not something
+  /// you can check a rule against.
+  takenByStaffId String?    @db.Uuid
+  takenBy        StaffUser? @relation(fields: [takenByStaffId], references: [id], onDelete: SetNull)
+  takenAt        DateTime?
+
+  /// When it went into the queue, so how long people wait can be measured.
+  handedOverAt DateTime?
+
+  /// Which language this conversation is being held in, once the person has
+  /// chosen one. Null means nobody has chosen, and the assistant answers in
+  /// English — a decision, not a fallback: an answer in a language somebody did
+  /// not ask for reads as a machine guessing at them.
+  chosenLanguage String?
+
+  /// When the offer to switch language was made. Made ONCE. Asking twice is how a
+  /// helpful question turns into nagging.
+  languageOfferedAt DateTime?
+
+  /// When the "this is taking longer than usual" note was sent. Sent ONCE, for
+  /// the same reason: a queue that keeps apologising is worse than a quiet one.
+  waitingNoteSentAt DateTime?
+
+  closedAt DateTime?
+
+  startedAt     DateTime @default(now())
+  /// Moved on every message, so the queue can be ordered by who has waited
+  /// longest without counting rows.
+  lastMessageAt DateTime @default(now())
+
+  messages  ChatMessage[]
+  questions AssistantQuestion[]
+
+  /// The queue, oldest first. The one read the staff screen does constantly.
+  @@index([state, handedOverAt])
+  @@index([userId, lastMessageAt])
+  @@index([takenByStaffId, lastMessageAt])
+  @@map("chats")
+}
+
+/// One message in one conversation, in either direction.
+model ChatMessage {
+  id     String @id @default(uuid()) @db.Uuid
+  chatId String @db.Uuid
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  author ChatMessageAuthor
+
+  /// Set only when a member of staff wrote it. Kept even after they leave, so a
+  /// conversation can still be read back with the right name against the words.
+  staffUserId String?    @db.Uuid
+  staffUser   StaffUser? @relation(fields: [staffUserId], references: [id], onDelete: SetNull)
+
+  body     String
+  language String
+
+  /// The question record this message belongs to, when there is one. A shopper's
+  /// message creates a question; the reply to it points at the same one. That
+  /// link is what lets the answer book learn from what people actually replied.
+  assistantQuestionId String?            @db.Uuid
+  assistantQuestion   AssistantQuestion? @relation(fields: [assistantQuestionId], references: [id], onDelete: SetNull)
+
+  sentAt DateTime @default(now())
+
+  /// Reading one conversation in order, which is every read this table gets.
+  @@index([chatId, sentAt])
+  @@index([assistantQuestionId])
+  @@map("chat_messages")
 }

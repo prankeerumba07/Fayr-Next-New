@@ -85,7 +85,7 @@ export default function ProfileScreen({ navigation }) {
   const reviewed = tasks.filter((t) => REVIEWED_STATES.includes(t.state)).length;
 
   const doLogout = () => {
-    Alert.alert('Log out?', 'You will need your mobile number and an OTP to sign back in.', [
+    Alert.alert('Log out?', 'You will need your mobile number and a code we send you to sign back in.', [
       { text: 'Stay', style: 'cancel' },
       {
         text: 'Log out',
@@ -162,12 +162,23 @@ export default function ProfileScreen({ navigation }) {
         </View>
 
         <View style={styles.group}>
+          {/* "Chat with us" first: it answers in seconds, and Help is where a
+              question goes when it needs a person. Putting the slower door first
+              would send everybody down it. */}
+          <Row icon="💬" title="Chat with us" sub="Ask a question and get an answer straight away"
+            onPress={() => navigation.navigate('Chat')} />
           <Row icon="🆘" title="Help & support" sub="Ask a question about a claim or a payment"
             onPress={() => navigation.navigate('Support')} />
           <Row icon="📄" title="Terms & Conditions" sub={`Last updated ${POLICY_VERSION}`}
             onPress={() => navigation.navigate('Policy', { doc: 'terms' })} />
           <Row icon="🔒" title="Privacy Policy" sub="What we read, store and share"
-            onPress={() => navigation.navigate('Policy', { doc: 'privacy' })} last />
+            onPress={() => navigation.navigate('Policy', { doc: 'privacy' })} />
+          {/* Shown to everybody, and useless to everybody but staff: the screen
+              itself asks for a staff sign-in, and the server refuses an app login.
+              Hiding it would mean guessing who is staff from the app side, which
+              the app has no way to know. */}
+          <Row icon="🔍" title="Check offer pages" sub="For Fayr staff. Opens every offer page to see if it still works"
+            onPress={() => navigation.navigate('LiveCheck')} last />
         </View>
 
         <TouchableOpacity

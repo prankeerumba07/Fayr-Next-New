@@ -51,8 +51,16 @@ export class AuthController {
     return this.auth.verifyOtp(dto.mobile, dto.code, this.meta(req));
   }
 
-  /** Rotate a refresh token for a fresh access + refresh pair. */
+  /**
+   * Rotate a refresh token for a fresh access + refresh pair.
+   *
+   * Limited in its own right, not just by the app-wide ceiling. A refresh token is
+   * long and random so guessing one is not the worry; what a limit stops is
+   * somebody with one stolen token spinning it to keep a session alive for ever
+   * without ever touching a rate-limited door.
+   */
   @Post('refresh')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   refresh(
     @Body() dto: RefreshDto,
@@ -61,8 +69,9 @@ export class AuthController {
     return this.tokens.rotateRefreshToken(dto.refreshToken, this.meta(req));
   }
 
-  /** Revoke a refresh token (logout). Idempotent. */
+  /** Revoke a refresh token (logout). Idempotent, and limited like the rest. */
   @Post('logout')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   async logout(@Body() dto: RefreshDto): Promise<{ ok: true }> {
     await this.tokens.revokeRefreshToken(dto.refreshToken);

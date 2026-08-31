@@ -73,15 +73,27 @@ async function bootstrap(): Promise<void> {
     );
 }
 
-// Any failure to boot must exit non-zero and loud, never a silent half-start
-// that a health check would then report as "down" with no reason in the logs.
-// This runs before/around the pino logger is available, so use the plain Nest
-// logger here as a last-resort channel.
+// Any failure to boot must exit non-zero AND LOUD, never a silent half-start that
+// a health check would then report as "down" with no reason anywhere.
+//
+// That promise was broken, and this is how: the app boots with `bufferLogs`, then
+// swaps in pino, which writes through an ASYNCHRONOUS transport. `process.exit(1)`
+// kills the process before that transport flushes, so the message below was
+// composed, logged, and lost — a bare exit code and not one line to say why.
+//
+// Found the hard way, with the database down: ten minutes went on a silent exit 1
+// that "Can't reach database server at localhost:5432" would have answered in one.
+// On the morning of a demo that is the whole difference.
+//
+// So the reason goes to stderr FIRST, synchronously, where nothing can buffer or
+// drop it — and then through the logger as well, for whatever is collecting
+// structured logs when there is time to flush them.
 bootstrap().catch((err) => {
-  NestLogger.error(
-    `Fatal error during bootstrap: ${err instanceof Error ? err.message : String(err)}`,
-    err instanceof Error ? err.stack : undefined,
-    'Bootstrap',
+  const reason = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  process.stderr.write(
+    `\nFayr backend failed to start: ${reason}\n${stack ?? ''}\n`,
   );
+  NestLogger.error(`Fatal error during bootstrap: ${reason}`, stack, 'Bootstrap');
   process.exit(1);
 });

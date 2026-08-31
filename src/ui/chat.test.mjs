@@ -1,0 +1,238 @@
+// "Chat with us" — every decision the screen makes, checked without React.
+//
+// The screen is a conversation now, not a list of question-and-answer pairs. The
+// thing that changed and the thing most worth checking is the same: a reply
+// written by a real person at Fayr has to be tellable from one the answer book
+// produced, by somebody glancing at their phone.
+import assert from 'node:assert/strict';
+import {
+  FEEDBACK_NO,
+  FEEDBACK_PROMPT,
+  FEEDBACK_YES,
+  INTRO,
+  QUESTION_MAX,
+  SCREEN_TITLE,
+  chatView,
+  messagesFrom,
+  statusLine,
+  validateQuestion,
+} from './chat.js';
+
+let pass = 0;
+let fail = 0;
+function ok(cond, label) {
+  if (cond) { pass += 1; console.log(`  PASS ${label}`); }
+  else { fail += 1; console.log(`  FAIL ${label}`); }
+}
+
+const msg = (over) => ({
+  id: 'm1', author: 'PERSON', from: 'Them', body: 'where is my refund',
+  language: 'en', sentAt: '2026-08-31T05:00:00.000Z', fromAPerson: false,
+  questionId: 'q1', helpful: null, ...over,
+});
+
+const conversation = (over) => ({
+  chatId: 'c1', state: 'ASSISTANT', stateInWords: 'The assistant is handling this',
+  takenBy: null, startedAt: '2026-08-31T05:00:00.000Z',
+  lastMessageAt: '2026-08-31T05:01:00.000Z',
+  withTheAssistant: true, waitingForAPerson: false, closed: false,
+  messages: [
+    msg({ id: 'm1', author: 'PERSON' }),
+    msg({ id: 'm2', author: 'ASSISTANT', from: 'Fayr assistant',
+          body: 'Your money comes back once your review is live.' }),
+  ],
+  ...over,
+});
+
+console.log('=== 1. what can be sent ===');
+{
+  ok(validateQuestion('what are tickets').ok, 'ordinary words go');
+  ok(validateQuestion('  hi  ').question === 'hi', 'it trims');
+  ok(!validateQuestion('').ok, 'an empty box is refused');
+  ok(!validateQuestion('   ').ok, 'and so are only spaces');
+  ok(!validateQuestion(null).ok, 'and so is nothing at all');
+  const long = validateQuestion('a'.repeat(QUESTION_MAX + 1));
+  ok(!long.ok, 'too long is refused');
+  ok(long.reason.includes(String(QUESTION_MAX)), 'and it says how long is too long');
+  ok(validateQuestion('a'.repeat(QUESTION_MAX)).ok, 'exactly the limit is fine');
+}
+
+console.log('\n=== 2. the messages ===');
+{
+  const out = messagesFrom(conversation({}));
+  ok(out.length === 2, 'both messages come through');
+  ok(out[0].who === 'you', 'their own words are theirs');
+  ok(out[1].who === 'fayr', 'the reply is ours');
+  ok(out[1].tone === 'answer', 'an answer reads as an answer');
+  ok(out[1].label === null, 'and carries no label');
+
+  const ids = out.map((m) => m.id);
+  ok(new Set(ids).size === ids.length, 'every message has its own name');
+}
+
+console.log('\n=== 3. a reply from a real person ===');
+{
+  // The whole reason this screen changed.
+  const out = messagesFrom(conversation({
+    state: 'TAKEN', takenBy: { id: 's1', name: 'Asha' }, withTheAssistant: false,
+    messages: [
+      msg({ id: 'm1', author: 'PERSON', body: 'do you deliver to Kathmandu' }),
+      msg({ id: 'm2', author: 'ASSISTANT', from: 'Fayr assistant',
+            body: 'I could not answer this one yet.' }),
+      msg({ id: 'm3', author: 'AGENT', from: 'Asha', fromAPerson: true,
+            body: 'We only send things inside India for now.' }),
+    ],
+  }));
+  ok(out[2].tone === 'person', 'a reply from a person reads differently');
+  ok(out[2].label === 'Asha', 'and it carries their name');
+  ok(out[1].tone !== out[2].tone,
+    'the assistant and a person never look the same');
+  ok(out[2].who === 'fayr', 'it is still on Fayr’s side of the screen');
+}
+
+console.log('\n=== 4. waiting for a person ===');
+{
+  const waiting = conversation({
+    state: 'WAITING_FOR_PERSON', waitingForAPerson: true, withTheAssistant: false,
+    messages: [
+      msg({ id: 'm1', author: 'PERSON', body: 'do you deliver to Kathmandu' }),
+      msg({ id: 'm2', author: 'ASSISTANT', from: 'Fayr assistant',
+            body: 'I could not answer this one yet.' }),
+    ],
+  });
+  const out = messagesFrom(waiting);
+  ok(out[1].tone === 'waiting', 'the reply says it is waiting');
+  ok(out[1].label === 'Waiting for a person', 'with a label saying so');
+
+  // Only the LAST one. An older answer was a real answer at the time and must
+  // not be repainted as a failure because a later question could not be answered.
+  const mixed = messagesFrom(conversation({
+    waitingForAPerson: true, withTheAssistant: false,
+    messages: [
+      msg({ id: 'm1', author: 'PERSON' }),
+      msg({ id: 'm2', author: 'ASSISTANT', from: 'Fayr assistant', body: 'A real answer.' }),
+      msg({ id: 'm3', author: 'PERSON', body: 'do you deliver to Kathmandu' }),
+      msg({ id: 'm4', author: 'ASSISTANT', from: 'Fayr assistant', body: 'I could not answer that.' }),
+    ],
+  }));
+  ok(mixed[1].tone === 'answer', 'the earlier answer stays an answer');
+  ok(mixed[3].tone === 'waiting', 'only the newest one is waiting');
+}
+
+console.log('\n=== 5. who has it, in words ===');
+{
+  ok(statusLine(conversation({})) === null,
+    'nothing is said while the assistant is handling it');
+  ok(statusLine(conversation({ waitingForAPerson: true, withTheAssistant: false }))
+      === 'A person from Fayr will reply here.',
+    'somebody waiting is told a person is coming');
+  ok(statusLine(conversation({
+        state: 'TAKEN', withTheAssistant: false, takenBy: { id: 's1', name: 'Asha' },
+      })) === 'Asha from Fayr is helping you.',
+    'and once somebody has it, they are named');
+  ok(statusLine(conversation({ closed: true })) === 'This conversation is closed.',
+    'a closed one says so');
+  ok(statusLine(null) === null, 'and nothing at all is not a crash');
+}
+
+console.log('\n=== 6. did that help ===');
+{
+  const asked = chatView({ chat: conversation({}), draft: '', busy: false, loading: false });
+  ok(asked.feedback !== null, 'it asks after a reply');
+  ok(asked.feedback.questionId === 'q1', 'against the right question');
+  ok(asked.feedback.prompt === FEEDBACK_PROMPT, 'with the one prompt');
+  ok(asked.feedback.yes === FEEDBACK_YES && asked.feedback.no === FEEDBACK_NO,
+    'and two plain answers');
+
+  const already = chatView({ chat: conversation({
+    messages: [msg({ id: 'm1' }), msg({ id: 'm2', author: 'ASSISTANT', helpful: true })],
+  }) });
+  ok(already.feedback === null, 'and stops asking once they have said');
+
+  const saidNo = chatView({ chat: conversation({
+    messages: [msg({ id: 'm1' }), msg({ id: 'm2', author: 'ASSISTANT', helpful: false })],
+  }) });
+  ok(saidNo.feedback === null, 'including when they said no');
+
+  // A reply from a person is worth asking about too: that is how we find out
+  // whether what an agent wrote was any good.
+  const fromAPerson = chatView({ chat: conversation({
+    state: 'TAKEN', withTheAssistant: false, takenBy: { id: 's1', name: 'Asha' },
+    messages: [
+      msg({ id: 'm1', author: 'PERSON' }),
+      msg({ id: 'm2', author: 'AGENT', from: 'Asha', fromAPerson: true,
+            body: 'We only send things inside India for now.' }),
+    ],
+  }) });
+  ok(fromAPerson.feedback !== null, 'a person’s reply is asked about as well');
+
+  const theirOwnWords = chatView({ chat: conversation({
+    messages: [msg({ id: 'm1', author: 'PERSON' })],
+  }) });
+  ok(theirOwnWords.feedback === null,
+    'and it never asks whether their own question helped');
+}
+
+console.log('\n=== 7. the whole screen ===');
+{
+  const view = chatView({ chat: conversation({}), draft: '', busy: false, loading: false });
+  ok(view.title === SCREEN_TITLE, 'the title comes from one place');
+  ok(view.intro === INTRO, 'and so does what an empty screen says');
+  ok(view.empty === false, 'a conversation with messages is not empty');
+  ok(view.input.canSend === false, 'an empty box cannot be sent');
+  ok(view.input.hint === null, 'and an empty box is not nagged at');
+
+  const typed = chatView({ chat: conversation({}), draft: 'why', busy: false, loading: false });
+  ok(typed.input.canSend === true, 'something typed can be sent');
+
+  const sending = chatView({ chat: conversation({}), draft: 'why', busy: true });
+  ok(sending.input.canSend === false, 'not while one is already going');
+
+  const loading = chatView({ chat: null, loading: true });
+  ok(loading.empty === false, 'a screen still loading is not "you have nothing"');
+  ok(loading.messages.length === 0, 'and it draws no messages yet');
+
+  const first = chatView({ chat: conversation({ messages: [] }), loading: false });
+  ok(first.empty === true, 'a conversation with nothing in it is empty');
+
+  const closed = chatView({ chat: conversation({ closed: true }), draft: 'hello' });
+  ok(closed.input.canSend === false, 'a closed conversation takes nothing more');
+  ok(closed.input.hint === 'This conversation is closed.',
+    'and it says so rather than throwing the words away');
+
+  const broken = chatView({ chat: conversation({}), error: 'Could not reach Fayr.' });
+  ok(broken.error === 'Could not reach Fayr.', 'an error is carried through');
+}
+
+console.log('\n=== 8. nothing missing reaches the screen ===');
+{
+  // Every shape the backend could hand over, including the ones it should not.
+  const states = [
+    ['nothing at all', {}],
+    ['no conversation', { chat: null }],
+    ['a conversation with no messages field', { chat: { chatId: 'c1' } }],
+    ['messages that are not a list', { chat: { messages: 'nope' } }],
+    ['a message with no body', { chat: { messages: [{ id: 'm1', author: 'PERSON' }] } }],
+    ['a message with no name', { chat: { messages: [{ author: 'AGENT' }] } }],
+    ['an author we do not know', { chat: { messages: [msg({ author: 'ROBOT' })] } }],
+    ['a takenBy with no name', { chat: conversation({ takenBy: { id: 's1' }, withTheAssistant: false }) }],
+    ['everything present', { chat: conversation({}), draft: 'hi', busy: false, loading: false }],
+  ];
+  for (const [label, state] of states) {
+    let threw = null;
+    let view = null;
+    try { view = chatView(state); } catch (e) { threw = e.message; }
+    ok(!threw, `survives ${label}` + (threw ? ` — threw: ${threw}` : ''));
+    if (threw) continue;
+    const flat = JSON.stringify(view);
+    ok(!flat.includes('undefined'), `${label}: nothing "undefined" reaches the screen`);
+    ok(!flat.includes('[object Object]'), `${label}: no raw object reaches the screen`);
+    for (const m of view.messages) {
+      ok(typeof m.text === 'string', `${label}: every message has text`);
+      ok(m.who === 'you' || m.who === 'fayr', `${label}: every message has a side`);
+    }
+  }
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);
