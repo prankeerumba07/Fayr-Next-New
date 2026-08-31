@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { AppState, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
@@ -41,6 +41,8 @@ import * as evidenceSync from './src/backend/evidenceSync';
 import { getProfile } from './src/backend/meApi';
 import { isSetupNeeded } from './src/ui/setup';
 import { postEvidence } from './src/backend/tasksApi';
+import { renewNow } from './src/backend/http';
+import { startKeeper } from './src/backend/sessionKeeper';
 
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
@@ -147,6 +149,35 @@ function AppInner() {
     authSession.hydrate();
     return unsub;
   }, []);
+
+  // KEEP THE SIGN-IN ALIVE, QUIETLY.
+  //
+  // The tokens already survive the app being closed — they are in the device
+  // keychain and are read back above. What this adds is renewing BEFORE anything
+  // is refused. Without it, somebody who left the app open over lunch came back,
+  // tapped something, and waited through one failed request before it worked.
+  //
+  // Also on the way back to the foreground: a phone asleep in a pocket does not
+  // run timers, so the scheduled renewal may be hours overdue by the time the
+  // screen comes on.
+  //
+  // Only pressing log out ends a session. Nothing here can end one: a renewal
+  // that genuinely cannot be done clears the session inside the transport, and
+  // the gate above is watching for exactly that.
+  React.useEffect(() => {
+    if (authState !== 'in') return;
+    const keeper = startKeeper({
+      getToken: () => authSession.getAccessToken(),
+      renew: renewNow,
+    });
+    const watcher = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void keeper.checkNow();
+    });
+    return () => {
+      watcher.remove();
+      keeper.stop();
+    };
+  }, [authState]);
 
   // Once signed in: wire the evidence transport BEFORE anything can dispatch,
   // load the backend campaigns, and restore/refresh tasks from the source of

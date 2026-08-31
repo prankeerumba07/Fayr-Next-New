@@ -85,7 +85,7 @@ export default function ProfileScreen({ navigation }) {
   const reviewed = tasks.filter((t) => REVIEWED_STATES.includes(t.state)).length;
 
   const doLogout = () => {
-    Alert.alert('Log out?', 'You will need your mobile number and an OTP to sign back in.', [
+    Alert.alert('Log out?', 'You will need your mobile number and a code we send you to sign back in.', [
       { text: 'Stay', style: 'cancel' },
       {
         text: 'Log out',

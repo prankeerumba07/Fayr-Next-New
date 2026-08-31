@@ -20,9 +20,15 @@ import { resetDatabase } from './reset-db';
 
 class CapturingSmsSender implements SmsSender {
   readonly codes = new Map<string, string>();
+  /** How many were sent to each number, so "no new code" can be proved. */
+  readonly sent = new Map<string, number>();
   sendOtp(mobile: string, code: string): Promise<void> {
     this.codes.set(mobile, code);
+    this.sent.set(mobile, (this.sent.get(mobile) ?? 0) + 1);
     return Promise.resolve();
+  }
+  count(mobile: string): number {
+    return this.sent.get(mobile) ?? 0;
   }
   last(mobile: string): string | undefined {
     return this.codes.get(mobile);
@@ -269,6 +275,133 @@ describe('Auth + health (e2e)', () => {
         .post('/auth/refresh')
         .send({ refreshToken })
         .expect(401);
+    });
+  });
+
+  // ── the app remembers me until I log out ─────────────────────────────────
+  describe('staying signed in until log out', () => {
+    async function login(mobile: string) {
+      await request(server())
+        .post('/auth/otp/request')
+        .send({ mobile })
+        .expect(200);
+      const code = sms.last(mobile)!;
+      const res = await request(server())
+        .post('/auth/otp/verify')
+        .send({ mobile, code })
+        .expect(200);
+      return res.body as { accessToken: string; refreshToken: string };
+    }
+
+    it('a stored refresh token alone is enough to get back in', async () => {
+      // Closing the app and opening it again. The access token in memory is
+      // gone; what came back off the keychain is the refresh token, and that on
+      // its own has to be enough or the person is asked for a code again.
+      const { refreshToken } = await login(newMobile());
+
+      const reopened = await request(server())
+        .post('/auth/refresh')
+        .send({ refreshToken })
+        .expect(200);
+
+      expect(reopened.body.accessToken).toBeDefined();
+      await request(server())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${reopened.body.accessToken}`)
+        .expect(200);
+    });
+
+    it('and again, and again, so a long spell away does not sign anybody out', async () => {
+      // Every renewal rotates, and each rotation has to leave a token that works
+      // for the next one. A chain that breaks on the second link would sign
+      // somebody out the second time they came back.
+      let { refreshToken } = await login(newMobile());
+      for (let time = 0; time < 5; time += 1) {
+        const again = await request(server())
+          .post('/auth/refresh')
+          .send({ refreshToken })
+          .expect(200);
+        refreshToken = again.body.refreshToken as string;
+        await request(server())
+          .get('/auth/me')
+          .set('Authorization', `Bearer ${again.body.accessToken}`)
+          .expect(200);
+      }
+    });
+
+    it('renewing quietly never asks for a code again', async () => {
+      const mobile = newMobile();
+      const { refreshToken } = await login(mobile);
+      await request(server())
+        .post('/auth/refresh')
+        .send({ refreshToken })
+        .expect(200);
+
+      // Nothing about a renewal issues a code. If it did, the person would get a
+      // text message every fifteen minutes for as long as the app was open.
+      expect(sms.count(mobile)).toBe(1);
+    });
+
+    it('LOG OUT ends it: the way back in is dead', async () => {
+      const { refreshToken } = await login(newMobile());
+      await request(server())
+        .post('/auth/logout')
+        .send({ refreshToken })
+        .expect(200);
+
+      // No renewal, so nothing can keep the session alive.
+      await request(server())
+        .post('/auth/refresh')
+        .send({ refreshToken })
+        .expect(401);
+    });
+
+    it('but the access token it was already holding lasts out its fifteen minutes', async () => {
+      // WRITTEN DOWN BECAUSE IT IS TRUE, not because it is wanted. An access
+      // token is checked by its signature and nothing else, so the server cannot
+      // take one back without looking something up on every single request.
+      //
+      // It does not affect the person who pressed log out: the app deletes both
+      // tokens from the keychain, so the app itself has nothing left to send.
+      // What it means is that a copy of an access token taken off a device stays
+      // good for the rest of its fifteen minutes. Making that not so is a real
+      // change with a cost on every request, and it is Prakash's to decide.
+      const { accessToken, refreshToken } = await login(newMobile());
+      await request(server())
+        .post('/auth/logout')
+        .send({ refreshToken })
+        .expect(200);
+
+      await request(server())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+    });
+
+    it('log out ends every renewal, not only the one it was given', async () => {
+      // Somebody who renewed five times and then logged out must not have four
+      // dead links and one live one.
+      let { refreshToken } = await login(newMobile());
+      const seen: string[] = [refreshToken];
+      for (let time = 0; time < 3; time += 1) {
+        const again = await request(server())
+          .post('/auth/refresh')
+          .send({ refreshToken })
+          .expect(200);
+        refreshToken = again.body.refreshToken as string;
+        seen.push(refreshToken);
+      }
+      await request(server())
+        .post('/auth/logout')
+        .send({ refreshToken })
+        .expect(200);
+
+      for (const dead of seen) {
+        await request(server())
+          .post('/auth/refresh')
+          .send({ refreshToken: dead })
+          .expect(401);
+      }
     });
   });
 

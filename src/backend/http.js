@@ -34,6 +34,17 @@ function refreshOnce() {
   return refreshing;
 }
 
+// Renew now, quietly, sharing whatever refresh is already in flight.
+//
+// The same single-flight refresh the 401 path uses, on purpose: a scheduled
+// renewal and a request that has just been refused must not both ask, or the
+// second one arrives with a refresh token the first has already rotated away and
+// logs the person out for being too quick.
+export function renewNow() {
+  if (!session.getRefreshToken()) return Promise.resolve(false);
+  return refreshOnce();
+}
+
 // Authenticated fetch → { ok, status, body } (same shape as authApi). Retries
 // once after a successful silent refresh; otherwise returns the 401 as-is
 // (session already cleared).
