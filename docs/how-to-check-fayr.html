@@ -284,10 +284,14 @@
   </div>
   <p><strong>One thing to know before you worry.</strong> There is a known flaw in
     the area called the backend end to end. It fails roughly one run in four for
-    reasons that have nothing to do with the code. It is the connection between the
-    test and the server dropping, and it lands on a different check every time. The
-    way to tell is one of three phrases in the detail: socket hang up, or Parse
-    Error: Expected HTTP, or ECONNRESET. If that is what it says, run
+    reasons that have nothing to do with the code, and it lands on a different check
+    every time. It has three faces. The connection between the test and the server
+    dropping, which says socket hang up, or Parse Error: Expected HTTP, or
+    ECONNRESET. Something running out of patience because the laptop is busy, which
+    says Exceeded timeout of, and is worth closing a few browser tabs over. Or a
+    check not finding something it made a moment earlier, which says got 404 Not
+    Found; that one is still being looked into, and has only ever happened when the
+    whole area runs in a shuffled order. If it is any of those three, run
     <span class="where">./check</span> again, and if it passes then that was all it
     was. Anything else is real.</p>
 

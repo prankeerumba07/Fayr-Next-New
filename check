@@ -89,16 +89,28 @@ done
 
 printf '
 \033[1mOne thing to know before you worry:\033[0m
-  There is a known flaw in the "backend end to end" area that fails about one
-  run in four for reasons that have nothing to do with the code. It is the
-  connection between the test and the server dropping, not the code being wrong,
-  and it lands on a different check every time.
+  There is a known flaw in the "backend end to end" area that fails about one run
+  in four for reasons that have nothing to do with the code, and it lands on a
+  different check every time. It has three faces, and all three are worth
+  recognising because none of them mean your change is broken.
 
-  The way to tell is one of these phrases in the log:
+  ONE, the connection between the test and the server drops. The log says one of:
     socket hang up
     Parse Error: Expected HTTP
     ECONNRESET
-  If that is what it says, run ./check again. If it passes, that was it.
+
+  TWO, something runs out of patience because the machine is busy. The log says:
+    Exceeded timeout of
+  Close whatever else is running, especially a browser with many tabs, and try
+  again. A busy laptop is the usual cause.
+
+  THREE, a check cannot find something it made a moment earlier, and says:
+    expected 201 "Created", got 404 "Not Found"
+    expected 200 "OK", got 404 "Not Found"
+  This one is being looked into. It has only ever happened when the whole area is
+  run in a shuffled order, never on its own, and never twice in the same place.
+
+  If it is any of those three, run ./check again. If it passes, that was it.
 
   Anything else is real. Do not ship it.
 
