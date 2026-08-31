@@ -34,7 +34,7 @@ export const RECENT_STEP_LIMIT = 25;
  * right here — and unlike asking the runtime for a locale it gives the same answer
  * on every machine. Every user and every staff member reading this is in India.
  */
-const IST_OFFSET_MINUTES = 330;
+export const IST_OFFSET_MINUTES = 330;
 
 // prettier-ignore
 const MONTHS = [

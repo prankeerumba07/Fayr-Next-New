@@ -17,6 +17,18 @@ import {
   mayTake,
   type StaffFacts,
 } from './chat.rules';
+import {
+  LANGUAGE_CHOSEN,
+  LANGUAGE_OFFER,
+  STILL_WAITING,
+  SUPPORT_EMAIL_PLACEHOLDER,
+  WAITING_NOTE_AFTER_MS,
+  greetingFor,
+  handOverWords,
+  isOnlyAGreeting,
+  languageChoiceFrom,
+  saysTheyDoNotUnderstand,
+} from './chat-words';
 
 /** What happened when somebody said something. */
 export interface SaidResult {
@@ -76,7 +88,13 @@ export class ChatService {
     if (!checked.ok) throw new ChatError(checked.reason as string);
 
     const chat = await this.store.openChatFor(userId);
-    const language = detectLanguage(checked.body).language;
+    const theirLanguage = detectLanguage(checked.body).language;
+
+    // WHICH LANGUAGE WE ANSWER IN. English until this person says otherwise, and
+    // then whatever they said, for the rest of the conversation. A decision, not
+    // a fallback: replying in a language somebody did not ask for reads as a
+    // machine guessing at them, and guessing wrong is worse than asking.
+    const replyIn = chat.chosenLanguage ?? 'en';
 
     if (chat.state !== 'ASSISTANT') {
       // A person has it, or is about to. Write it down and leave it for them.
@@ -84,54 +102,175 @@ export class ChatService {
         chatId: chat.id,
         author: 'PERSON',
         body: checked.body,
-        language,
+        language: theirLanguage,
       });
-      return {
-        chat: await this.store.getChat(chat.id),
-        theirs,
-        reply: null,
-      };
+      return { chat: await this.after(chat.id), theirs, reply: null };
     }
 
-    // The assistant has it. Ask, and record the question the way it has always
-    // been recorded — the answer book learns from these rows and nothing about
-    // that changes because there is a conversation around them now.
-    const asked = await this.engine.ask(userId, checked.body);
+    const theirs = await this.store.addMessage({
+      chatId: chat.id,
+      author: 'PERSON',
+      body: checked.body,
+      language: theirLanguage,
+    });
 
-    // The question row belongs to this conversation. Written after the ask so a
-    // failure to link can never lose the question itself.
+    // ── they are picking a language we offered ──────────────────────────────
+    const offered = chat.languageOfferedAt !== null && chat.chosenLanguage === null;
+    if (offered) {
+      const picked = languageChoiceFrom(checked.body);
+      if (picked) {
+        await this.store.rememberLanguage(chat.id, picked);
+        const reply = await this.store.addMessage({
+          chatId: chat.id,
+          author: 'ASSISTANT',
+          body: LANGUAGE_CHOSEN[picked],
+          language: picked,
+        });
+        return { chat: await this.after(chat.id), theirs, reply };
+      }
+    }
+
+    // ── it is only a greeting ───────────────────────────────────────────────
+    //
+    // Not written down as a question. "hi" in the queue of things nobody could
+    // answer would bury the questions that really do need writing an answer for.
+    if (isOnlyAGreeting(checked.body)) {
+      const reply = await this.store.addMessage({
+        chatId: chat.id,
+        author: 'ASSISTANT',
+        body: greetingFor(replyIn, this.now()),
+        language: replyIn,
+      });
+      return { chat: await this.after(chat.id), theirs, reply };
+    }
+
+    // ── they cannot follow us, so offer to change language. ONCE ────────────
+    if (chat.languageOfferedAt === null && chat.chosenLanguage === null) {
+      const lost = saysTheyDoNotUnderstand(checked.body);
+      const twiceInAnother =
+        theirLanguage !== replyIn &&
+        (await this.wroteInTheSameOtherLanguageBefore(chat.id, theirLanguage));
+      if (lost || twiceInAnother) {
+        await this.store.markLanguageOffered(chat.id);
+        const reply = await this.store.addMessage({
+          chatId: chat.id,
+          author: 'ASSISTANT',
+          // Offered in BOTH: the language we have been using, so it follows on
+          // from what they were reading, and theirs, so it is readable by
+          // somebody who could not follow the last thing we said. Offering it
+          // only in the language they already told us they cannot read would be
+          // the joke this whole rule exists to avoid.
+          body:
+            replyIn === theirLanguage
+              ? LANGUAGE_OFFER[replyIn]
+              : `${LANGUAGE_OFFER[replyIn]}\n\n${LANGUAGE_OFFER[theirLanguage] ?? ''}`.trim(),
+          language: replyIn,
+        });
+        return { chat: await this.after(chat.id), theirs, reply };
+      }
+    }
+
+    // ── an ordinary question ────────────────────────────────────────────────
+    const asked = await this.engine.ask(userId, checked.body, { replyIn });
+
     await this.prisma.assistantQuestion
       .update({ where: { id: asked.questionId }, data: { chatId: chat.id } })
       .catch((err: unknown) => {
         const why = err instanceof Error ? err.message : String(err);
         this.log.warn(`could not attach question ${asked.questionId}: ${why}`);
       });
-
-    const theirs = await this.store.addMessage({
-      chatId: chat.id,
-      author: 'PERSON',
-      body: checked.body,
-      language,
-      assistantQuestionId: asked.questionId,
+    await this.prisma.chatMessage.update({
+      where: { id: theirs.id },
+      data: { assistantQuestionId: asked.questionId },
     });
+
+    if (asked.answered) {
+      const reply = await this.store.addMessage({
+        chatId: chat.id,
+        author: 'ASSISTANT',
+        body: asked.answer,
+        language: asked.language,
+        assistantQuestionId: asked.questionId,
+      });
+      return { chat: await this.after(chat.id), theirs, reply };
+    }
+
+    // We do not know. Say what happens next, in words that say how long and what
+    // else they can do, then put it where people look.
     const reply = await this.store.addMessage({
       chatId: chat.id,
       author: 'ASSISTANT',
-      body: asked.answer,
-      language: asked.language,
+      body: handOverWords(replyIn, SUPPORT_EMAIL_PLACEHOLDER),
+      language: replyIn,
       assistantQuestionId: asked.questionId,
     });
+    await this.store.handOver(chat.id);
+    return { chat: await this.after(chat.id), theirs, reply };
+  }
 
-    // Nothing matched. It is a person's now, and the queue is where people look.
-    if (!asked.answered) await this.store.handOver(chat.id);
+  /**
+   * Did they already write to us in this language, and get answered in another?
+   *
+   * TWICE IN A ROW, which is what makes it a signal rather than a slip. One
+   * message in Hindi is somebody typing the way they think; two in a row after
+   * being answered in English is somebody who cannot read what we sent back.
+   */
+  private async wroteInTheSameOtherLanguageBefore(
+    chatId: string,
+    language: string,
+  ): Promise<boolean> {
+    const theirs = await this.prisma.chatMessage.findMany({
+      where: { chatId, author: 'PERSON' },
+      orderBy: { sentAt: 'desc' },
+      take: 2,
+      select: { language: true },
+    });
+    return theirs.length === 2 && theirs.every((m) => m.language === language);
+  }
 
-    return { chat: await this.store.getChat(chat.id), theirs, reply };
+  /**
+   * The conversation as it now stands, with the one apology for a slow queue
+   * added if it has come due.
+   *
+   * Checked on every read as well as every message, because somebody waiting is
+   * not typing — the note has to arrive while they are sitting there looking at
+   * the screen, and that is a read.
+   */
+  private async after(chatId: string): Promise<ChatWithMessages> {
+    await this.sayItIsTakingLongerIfDue(chatId);
+    return this.store.getChat(chatId);
+  }
+
+  /**
+   * Send the one "this is taking longer than usual" note, if it is due.
+   *
+   * ONCE. The claim is a single conditional write, so two requests arriving
+   * together cannot both decide it is unsent — see ChatStore.claimWaitingNote.
+   * A queue that keeps apologising is worse than a quiet one.
+   */
+  private async sayItIsTakingLongerIfDue(chatId: string): Promise<void> {
+    const notBefore = new Date(this.now().getTime() - WAITING_NOTE_AFTER_MS);
+    const mine = await this.store.claimWaitingNote(chatId, notBefore);
+    if (!mine) return;
+    const chat = await this.store.getChat(chatId);
+    const language = chat.chosenLanguage ?? 'en';
+    await this.store.addMessage({
+      chatId,
+      author: 'SYSTEM',
+      body: STILL_WAITING[language] ?? STILL_WAITING.en,
+      language,
+    });
+  }
+
+  /** The clock, in one place, so a test can hold it still. */
+  protected now(): Date {
+    return new Date();
   }
 
   /** The conversation this person is having, opening an empty one if they have none. */
   async conversationForOwner(userId: string): Promise<ChatWithMessages> {
     const chat = await this.store.openChatFor(userId);
-    return this.store.getChat(chat.id);
+    return this.after(chat.id);
   }
 
   /**

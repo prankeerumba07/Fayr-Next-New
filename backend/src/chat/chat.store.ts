@@ -182,6 +182,44 @@ export class ChatStore {
     return { total, limit: filter.limit, offset: filter.offset, chats };
   }
 
+  /** Remember which language this conversation is being held in. */
+  async rememberLanguage(chatId: string, language: string): Promise<Chat> {
+    return this.prisma.chat.update({
+      where: { id: chatId },
+      data: { chosenLanguage: language },
+    });
+  }
+
+  /** Note that the offer to change language has been made. Made once. */
+  async markLanguageOffered(chatId: string): Promise<Chat> {
+    return this.prisma.chat.update({
+      where: { id: chatId },
+      data: { languageOfferedAt: new Date() },
+    });
+  }
+
+  /**
+   * Send the one "this is taking longer than usual" note, if it is due.
+   *
+   * ONE WRITE, AND IT IS THE ONE THAT DECIDES. The condition is in the WHERE, so
+   * two requests arriving together cannot both find it unsent and both send it —
+   * the second updates nothing and the note goes out once, which is the whole
+   * requirement. Doing this by reading first and then writing would be a race
+   * that shows up as a shopper being apologised to twice.
+   */
+  async claimWaitingNote(chatId: string, notBefore: Date): Promise<boolean> {
+    const done = await this.prisma.chat.updateMany({
+      where: {
+        id: chatId,
+        state: 'WAITING_FOR_PERSON',
+        waitingNoteSentAt: null,
+        handedOverAt: { lte: notBefore },
+      },
+      data: { waitingNoteSentAt: new Date() },
+    });
+    return done.count === 1;
+  }
+
   /** Hand a conversation to the queue. */
   async handOver(chatId: string): Promise<Chat> {
     return this.prisma.chat.update({

@@ -29,6 +29,15 @@ export interface AnswerRequest {
   question: string;
   /** The language the question looks like, already worked out. */
   language: string;
+  /**
+   * Which language to ANSWER in, when that is not the language it was asked in.
+   *
+   * Two separate things on purpose. The language a question looks like is how the
+   * match is found — it is the only way a Hindi question is recognised at all.
+   * Which language we reply in is somebody's decision, and inside a conversation
+   * it is the shopper's: English until they say otherwise.
+   */
+  replyIn?: string;
   /** What this person was doing when they asked. May be absent. */
   journey?: unknown;
 }
@@ -61,7 +70,7 @@ export class AnswerBookSource implements AnswerSource {
       limit: 5,
     });
 
-    const candidates: Candidate[] = hits.map((hit) => ({
+    let candidates: Candidate[] = hits.map((hit) => ({
       answerEntryId: hit.answer.id,
       key: hit.answer.key,
       language: hit.answer.language,
@@ -74,13 +83,51 @@ export class AnswerBookSource implements AnswerSource {
       how: hit.how,
     }));
 
+    const replyIn = request.replyIn ?? request.language;
+    if (replyIn !== request.language) {
+      candidates = await this.inLanguage(candidates, replyIn);
+    }
+
     // Returned whether or not it is confident. An unconfident reply is where the
     // honest reason lives.
-    return chooseReply(
-      request.language,
-      candidates,
-      journeyTopics(request.journey),
+    return chooseReply(replyIn, candidates, journeyTopics(request.journey));
+  }
+
+  /**
+   * Swap each candidate for the same answer written in the reply language.
+   *
+   * THE SCORE IS KEPT. It was earned by the words somebody typed matching a
+   * wording in their own language, and that match is just as true whichever
+   * language we read the answer out in. Re-scoring against the translation would
+   * throw away the only evidence we have.
+   *
+   * A candidate with no wording in the reply language is DROPPED, not translated
+   * and not sent in the wrong language. Dropping it means we say we do not know
+   * and a person looks, which is the honest outcome — sending Hindi to somebody
+   * who asked us for English is not.
+   */
+  private async inLanguage(
+    candidates: Candidate[],
+    language: string,
+  ): Promise<Candidate[]> {
+    const wordings = await this.store.wordingsFor(
+      candidates.map((c) => c.key),
+      language,
     );
+    return candidates
+      .map((c) => {
+        const other = wordings.get(c.key);
+        if (!other) return null;
+        return {
+          ...c,
+          answerEntryId: other.id,
+          language: other.language,
+          title: other.title,
+          body: other.body,
+          revision: other.revision,
+        };
+      })
+      .filter((c): c is Candidate => c !== null);
   }
 }
 

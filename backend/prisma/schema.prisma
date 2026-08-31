@@ -1020,6 +1020,20 @@ model Chat {
   /// When it went into the queue, so how long people wait can be measured.
   handedOverAt DateTime?
 
+  /// Which language this conversation is being held in, once the person has
+  /// chosen one. Null means nobody has chosen, and the assistant answers in
+  /// English — a decision, not a fallback: an answer in a language somebody did
+  /// not ask for reads as a machine guessing at them.
+  chosenLanguage String?
+
+  /// When the offer to switch language was made. Made ONCE. Asking twice is how a
+  /// helpful question turns into nagging.
+  languageOfferedAt DateTime?
+
+  /// When the "this is taking longer than usual" note was sent. Sent ONCE, for
+  /// the same reason: a queue that keeps apologising is worse than a quiet one.
+  waitingNoteSentAt DateTime?
+
   closedAt DateTime?
 
   startedAt     DateTime @default(now())

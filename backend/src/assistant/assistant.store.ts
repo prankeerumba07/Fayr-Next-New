@@ -554,6 +554,29 @@ export class AssistantStore {
   }
 
   /**
+   * The SAME answers, written in a different language.
+   *
+   * The search finds a match using the words somebody actually typed, which is
+   * the only way a Hindi question can be recognised at all. Which language we
+   * REPLY in is a separate decision, so this looks up the same answer keys in the
+   * language we are going to answer in.
+   *
+   * Only published ones. An answer nobody has approved must not reach a person by
+   * the side door of being the translation of one that was approved.
+   */
+  async wordingsFor(
+    keys: string[],
+    language: string,
+  ): Promise<Map<string, AnswerEntry>> {
+    const wanted = [...new Set(keys.filter((k) => typeof k === 'string' && k !== ''))];
+    if (wanted.length === 0) return new Map();
+    const rows = await this.prisma.answerEntry.findMany({
+      where: { key: { in: wanted }, language, status: 'PUBLISHED' },
+    });
+    return new Map(rows.map((r) => [r.key, r]));
+  }
+
+  /**
    * The database's own account of how it would run the search.
    *
    * A diagnostic, and the thing a test asserts on: it builds the query with the

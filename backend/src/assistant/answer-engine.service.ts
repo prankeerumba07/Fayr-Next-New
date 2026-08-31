@@ -70,7 +70,11 @@ export class AnswerEngine {
       : [this.answerBook];
   }
 
-  async ask(userId: string, question: string): Promise<AskResult> {
+  async ask(
+    userId: string,
+    question: string,
+    opts: { replyIn?: string } = {},
+  ): Promise<AskResult> {
     // What they were doing, captured now. Taken here so the same snapshot is
     // stored on the question AND used to choose the answer — two reads could
     // disagree, and then the reason shown to staff would not match the record.
@@ -84,6 +88,10 @@ export class AnswerEngine {
     });
 
     const language = detectLanguage(question).language;
+    // Which language to ANSWER in. Not the same question as which language it was
+    // asked in: inside a conversation the shopper decides, and until they say
+    // anything the answer is English.
+    const replyIn = opts.replyIn ?? language;
     let reply: Reply | null = null;
     let from = 'nobody';
 
@@ -94,7 +102,7 @@ export class AnswerEngine {
 
     for (const source of this.sources()) {
       try {
-        const offered = await source.answer({ question, language, journey });
+        const offered = await source.answer({ question, language, replyIn, journey });
         if (offered.confident) {
           reply = offered;
           from = source.name;
@@ -113,7 +121,7 @@ export class AnswerEngine {
       // The honest reply, written in exactly one place. Either the reason a source
       // gave, or — if every source threw — the same pure code with no candidates,
       // so the wording can never drift.
-      reply = heldBack ?? chooseReply(language, [], journeyTopics(journey));
+      reply = heldBack ?? chooseReply(replyIn, [], journeyTopics(journey));
       from = 'nobody';
     }
 
