@@ -247,6 +247,14 @@ printf '
    * iPhone: open the Camera app and point it at the pattern.
    * Android: open the Expo Go app and use "Scan QR code".
   The app opens on your phone and talks to THIS copy of Fayr, on port %s.
+  Sign in with the number in DEMO_MOBILE and you land on the practice
+  account, which already has products, earnings and a payout history.
+
+  TO SEE EVERY SCREEN IN THE DESIGN
+  In the app: My Profile, then "Walk through every screen". Every screen the
+  design has, including the ones you cannot reach by using the app, with
+  arrows to step from the first to the last. It reads and never writes, so
+  nothing you press in it spends a claim or moves money.
 
   TO STOP EVERYTHING
   Press Control and C together, in this window.
