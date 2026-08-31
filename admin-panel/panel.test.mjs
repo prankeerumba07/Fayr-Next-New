@@ -473,6 +473,36 @@ console.log('\n=== 7f. the suggested email ===');
     'a wording warning on an email is a warning, not a refusal');
 }
 
+console.log('\n=== 7g. it learns from what the agents do ===');
+{
+  ok(script.includes('/admin/chats/what-to-write-next'),
+    'the answer book asks the server what to write next');
+  ok(script.includes('save-as-answer'),
+    'and a reply can be turned into an answer');
+
+  const from = script.indexOf('function WhatToWriteNext');
+  const to = script.indexOf('function AnswerCard');
+  const block = script.slice(from, to);
+
+  // A COUNT ON A SCREEN IS BELIEVED. Two things have to be said out loud: how
+  // many questions were looked at, and how two of them end up counted as one.
+  ok(/out of the last/.test(block),
+    'it says how many questions the count is out of');
+  ok(block.includes('same meaningful words'),
+    'and how two questions come to be counted as one');
+  ok(/g\.examples/.test(block),
+    'and it shows the real sentences, so anybody can see what was grouped');
+
+  // The new answer must arrive needing approval, and the screen must say so.
+  ok(script.includes('has to approve it in the Answer book'),
+    'saving a reply as an answer says a person still has to approve it');
+  ok(script.includes('An answer filed under the wrong kind is never found again'),
+    'and it insists on a kind, with the reason');
+
+  ok(!/statusPill|sevPill/.test(block),
+    'this block uses statePill, not the class-name helper');
+}
+
 console.log('\n=== 7d. no personal detail travels in a web address ===');
 {
   // A mobile number in an address lands in this laptop's browser history and in
@@ -573,6 +603,7 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     function setChatsFilter() {} function openConversation() {} function backToConversations() {}
     function takeConversation() {} function sendChatReply() {} function checkChatReply() {}
     function closeConversation() {} function loadEmailDraft() {} function copyEmailDraft() {}
+    function saveReplyAsAnswer() {} function loadWhatToWriteNext() {}
     var state = STATE;
     ${src}
     return { chat: ChatQuestionsScreen(), book: AnswerBookScreen(), live: LivePagesScreen(),
@@ -643,7 +674,8 @@ console.log('\n=== 7b. the assistant screens actually render ===');
   const chatsBranch = (over) => ({
     loading: false, error: null, items: CONVOS, total: 3,
     filter: 'WAITING_FOR_PERSON', busy: null, notice: null, actionError: null,
-    open: null, draft: '', warnings: [], email: null, emailNote: null, ...over,
+    open: null, draft: '', warnings: [], email: null, emailNote: null,
+    saveTopic: '', savingFrom: null, ...over,
   });
 
   const chatState = (over) => ({
@@ -655,13 +687,25 @@ console.log('\n=== 7b. the assistant screens actually render ===');
                busy: null, notice: null, actionError: null },
     livepages: liveBranch(),
   });
+  const TO_WRITE = {
+    readFrom: 137,
+    groups: [
+      { signature: 'deliver kathmandu', asked: 6, languages: ['en'], topics: [],
+        examples: ['do you deliver to Kathmandu', 'deliver Kathmandu?'],
+        lastAskedAt: '2026-08-31T05:00:00.000Z' },
+      { signature: 'bhubaneswar fayr shop', asked: 1, languages: ['en', 'hi-en'],
+        topics: ['about'], examples: ['is there a Fayr shop in Bhubaneswar'],
+        lastAskedAt: '2026-08-30T05:00:00.000Z' },
+    ],
+  };
+
   const bookState = (over) => ({
     chats: chatsBranch(),
     chat: { loading: false, error: null, items: QUESTIONS, total: 2, stats: STATS,
             filter: 'UNRESOLVED', busy: null, notice: null, actionError: null },
     answers: { loading: false, error: null, items: ANSWERS, total: 4,
                filter: { language: '', status: '' }, draft: null, warnings: [],
-               busy: null, notice: null, actionError: null, ...over },
+               busy: null, notice: null, actionError: null, toWrite: TO_WRITE, ...over },
     livepages: liveBranch(),
   });
   const liveState = (over) => ({ ...chatState({}), livepages: liveBranch(over) });
@@ -683,6 +727,20 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     ['writing a new answer', bookState({ draft: { id: null, key: '', language: 'en', title: '', body: '', topic: 'refund', phrases: '' } })],
     ['correcting one, with warnings', bookState({ draft: { id: 'a1', key: 'tickets', language: 'en', title: 'What tickets are', body: 'The API endpoint failed.', topic: 'tickets', phrases: 'what are tickets' }, warnings: ['"api" is not a word a person here would use. Instead, say "the app".'] })],
     ['approving one', bookState({ busy: 'a1' })],
+    ['what to write next, with a pile', bookState({})],
+    ['what to write next, with nothing waiting', bookState({
+      toWrite: { readFrom: 137, groups: [] } })],
+    ['what to write next, not loaded', bookState({ toWrite: null })],
+    ['saving a reply as an answer', convoState({
+      open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
+                       takenBy: { id: 's-asha', name: 'Asha' },
+                       messages: [
+                         { id: 'm1', author: 'PERSON', from: 'Them', body: 'do you deliver to Kathmandu',
+                           language: 'en', sentAt: '2026-08-31T05:00:00.000Z', fromAPerson: false },
+                         { id: 'm2', author: 'AGENT', from: 'Asha', body: 'We only send things inside India.',
+                           language: 'en', sentAt: '2026-08-31T05:02:00.000Z', fromAPerson: true },
+                       ] }),
+      saveTopic: 'about', savingFrom: 'm2' })],
     ['the live pages screen', liveState({})],
     ['live pages, loading', liveState({ loading: true, data: null })],
     ['live pages, failed', liveState({ data: null, error: 'Could not reach the Fayr server.' })],

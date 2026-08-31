@@ -6,6 +6,7 @@ import { detectLanguage } from '../assistant/language';
 import { plainLanguageProblems } from '../assistant/plain-language';
 import {
   ChatError,
+  ChatNotFoundError,
   ChatStore,
   type ChatWithMessages,
   type QueueFilter,
@@ -17,7 +18,13 @@ import {
   mayTake,
   type StaffFacts,
 } from './chat.rules';
+import { AssistantStore } from '../assistant/assistant.store';
 import { draftEmail, type Draft } from './email-draft';
+import {
+  keyFromQuestion,
+  whatToWriteNext,
+  type ToWrite,
+} from './what-to-write-next';
 import {
   LANGUAGE_CHOSEN,
   LANGUAGE_OFFER,
@@ -73,6 +80,7 @@ export class ChatService {
     private readonly store: ChatStore,
     private readonly engine: AnswerEngine,
     private readonly prisma: PrismaService,
+    private readonly book: AssistantStore,
   ) {}
 
   /**
@@ -413,6 +421,109 @@ export class ChatService {
       accountName: account?.name ?? null,
       language: chat.chosenLanguage ?? 'en',
     });
+  }
+
+  /**
+   * WHAT THE TEAM SHOULD WRITE AN ANSWER FOR NEXT.
+   *
+   * The questions nobody could answer, grouped and counted, most asked first.
+   * The count is out of a real, reported number of questions rather than out of
+   * everything ever asked, because a screen that implies it has read everything
+   * is a screen that will one day be lying.
+   */
+  async whatToWrite(limit: number): Promise<{
+    readFrom: number;
+    groups: ToWrite[];
+  }> {
+    const { read, questions } = await this.book.unanswered(2000);
+    return { readFrom: read, groups: whatToWriteNext(questions, limit) };
+  }
+
+  /**
+   * TURN A REPLY AN AGENT WROTE INTO A NEW ANSWER.
+   *
+   * One button, and what comes out is a DRAFT like every other new answer: it
+   * needs a person to approve it before anybody else is ever shown it. The person
+   * who wrote the words is not automatically the person who decides they are
+   * Fayr's official answer, and one button that did both would make them the
+   * same person by accident.
+   *
+   * The question that caused the reply becomes a way of asking it, so the next
+   * person who types those words finds it.
+   */
+  async saveReplyAsAnswer(
+    chatId: string,
+    messageId: string,
+    staff: StaffFacts,
+    topic: string,
+  ): Promise<{
+    key: string;
+    language: string;
+    plainLanguage: { ok: boolean; problems: string[] };
+  }> {
+    const chat = await this.store.getChat(chatId);
+    const said = mayReply(chat, staff);
+    if (!said.allowed) throw new ChatError(said.reason as string);
+
+    const message = chat.messages.find((m) => m.id === messageId);
+    if (!message) throw new ChatNotFoundError('no such message');
+    if (message.author !== 'AGENT') {
+      throw new ChatError(
+        'only a reply a person at Fayr wrote can become an answer',
+      );
+    }
+
+    // What was asked, so the answer can be found again by somebody asking the
+    // same thing. The newest question before the reply, which is what it answered.
+    const question = [...chat.messages]
+      .filter((m) => m.author === 'PERSON' && m.sentAt <= message.sentAt)
+      .pop();
+    const asked = question ? question.body : '';
+
+    const key = await this.freeKey(keyFromQuestion(asked));
+    const title = asked !== '' ? asked.slice(0, 120) : message.body.slice(0, 120);
+
+    await this.book.saveAnswer({
+      key,
+      language: message.language,
+      title,
+      body: message.body,
+      topic,
+      // DRAFT, always. A person approves before anybody is shown it.
+      status: 'DRAFT',
+      origin: 'STAFF',
+      phrases: asked !== '' ? [asked] : [],
+    });
+
+    const problems = plainLanguageProblems(message.body, message.language);
+    return {
+      key,
+      language: message.language,
+      plainLanguage: { ok: problems.length === 0, problems },
+    };
+  }
+
+  /**
+   * A name nothing else is using, in this language.
+   *
+   * An answer's name plus its language is unique, so saving under a name already
+   * taken would overwrite somebody else's answer instead of adding one. Numbered
+   * rather than refused: the agent pressed one button and should not have to
+   * think about names at all.
+   */
+  private async freeKey(wanted: string): Promise<string> {
+    for (let n = 0; n < 50; n += 1) {
+      const key = n === 0 ? wanted : `${wanted}-${n + 1}`.slice(0, 80);
+      const taken = await this.prisma.answerEntry.findFirst({
+        where: { key },
+        select: { id: true },
+      });
+      if (!taken) return key;
+    }
+    throw new ChatError(
+      'could not find a free name for this answer. Write it in the answer book '
+      + 'instead and give it a name yourself.',
+    );
   }
 
   /** What is wrong with the way something is written, without sending it. */

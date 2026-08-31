@@ -9,6 +9,7 @@ import {
   DEFAULT_STATS_WINDOW_DAYS,
   MAX_PHRASES_PER_ANSWER,
   MAX_SEARCH_LIMIT,
+  MAX_UNANSWERED_READ,
   MAX_PAGE_SIZE,
   MAX_STATS_WINDOW_DAYS,
   NEAR_MISS_THRESHOLD,
@@ -34,6 +35,7 @@ import {
   type QuestionFilter,
   type QuestionPage,
   type QuestionWithAnswer,
+  type UnansweredRow,
   type RecordQuestionInput,
   type ResolutionStats,
 } from './assistant.types';
@@ -213,6 +215,11 @@ export class AssistantStore {
         answerOrigin: given.origin,
         matchScore: score,
         answerRevision: given.answerRevision ?? null,
+        // WHAT KIND OF QUESTION THIS WAS, taken from the answer that served it.
+        // Filed here rather than worked out later, because later the answer may
+        // have been corrected into a different kind and the question would then
+        // be filed under something it was never answered with.
+        topic: given.topic ?? undefined,
         // Nothing matched means nobody has answered it. It stays in the queue.
         status: answered ? 'ANSWERED' : 'UNRESOLVED',
       },
@@ -551,6 +558,48 @@ export class AssistantStore {
           : null;
       })
       .filter((hit): hit is AnswerSearchHit => hit !== null);
+  }
+
+  /**
+   * WHAT NOBODY COULD ANSWER, so the team can be told what to write next.
+   *
+   * The pile of questions where nothing matched. Read newest first and BOUNDED:
+   * the grouping happens in ordinary code, reusing the same word list the search
+   * uses, because a second copy of that list written in the database's language
+   * would drift from the first one the day either changed.
+   *
+   * The bound is real and is reported, so a screen can say "out of the last two
+   * thousand" rather than implying it has looked at everything ever asked.
+   */
+  async unanswered(
+    limit: number,
+  ): Promise<{ read: number; questions: UnansweredRow[] }> {
+    const take = Math.min(Math.max(1, limit), MAX_UNANSWERED_READ);
+    const questions = await this.prisma.assistantQuestion.findMany({
+      where: { answerOrigin: 'NONE' },
+      orderBy: { askedAt: 'desc' },
+      take,
+      select: {
+        id: true,
+        rawText: true,
+        detectedLanguage: true,
+        askedAt: true,
+        topic: true,
+      },
+    });
+    return { read: questions.length, questions };
+  }
+
+  /** File a question under a kind, when a person says which. */
+  async setQuestionTopic(
+    questionId: string,
+    topic: string,
+  ): Promise<AssistantQuestion> {
+    await this.mustExist(questionId);
+    return this.prisma.assistantQuestion.update({
+      where: { id: questionId },
+      data: { topic: this.requireText(topic, 'topic', TOPIC_MAX_LENGTH) },
+    });
   }
 
   /**

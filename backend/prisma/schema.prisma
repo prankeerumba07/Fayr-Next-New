@@ -905,6 +905,12 @@ model AssistantQuestion {
 
   status AssistantQuestionStatus @default(UNRESOLVED)
 
+  /// WHAT KIND OF QUESTION THIS WAS. Taken from the answer that served it, or set
+  /// by the member of staff who answered it by hand. Null means nobody has said,
+  /// which is itself the useful fact: an unsorted pile of questions nobody could
+  /// answer is exactly what the answer book needs to be told about.
+  topic String?
+
   /// Did it help? Null until asked, and null forever if they never say.
   helpful   Boolean?
   helpfulAt DateTime?
@@ -934,6 +940,9 @@ model AssistantQuestion {
   @@index([answerEntryId])
   @@index([askedAt])
   @@index([chatId, askedAt])
+  /// Reading the pile of questions nobody could answer, newest first. The one
+  /// read the "what should we write next" screen does.
+  @@index([answerOrigin, askedAt])
   @@map("assistant_questions")
 }
 

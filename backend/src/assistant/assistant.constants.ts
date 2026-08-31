@@ -49,6 +49,15 @@ export const NEAR_MISS_THRESHOLD = 0.35;
 export const DEFAULT_SEARCH_LIMIT = 5;
 export const MAX_SEARCH_LIMIT = 25;
 
+/**
+ * How many unanswered questions the "what should we write next" screen reads.
+ *
+ * A real bound, reported on the screen, so nobody reads a count as "everything
+ * ever asked". Two thousand is far more than the pile should ever be: if it is
+ * genuinely full, the answer is to write some answers, not to read further back.
+ */
+export const MAX_UNANSWERED_READ = 2000;
+
 /** Default window for the "how long is this taking" figures. */
 export const DEFAULT_STATS_WINDOW_DAYS = 30;
 export const MAX_STATS_WINDOW_DAYS = 730;

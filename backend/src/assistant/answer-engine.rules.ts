@@ -85,6 +85,8 @@ export interface Reply {
   answerRevision: number | null;
   score: number | null;
   confident: boolean;
+  /** What kind of question this turned out to be. Null when nothing matched. */
+  topic: string | null;
   /** Why we replied the way we did, in plain words. Shown to staff. */
   because: string;
 }
@@ -102,6 +104,7 @@ function cannotAnswer(language: string, because: string): Reply {
     answerRevision: null,
     score: null,
     confident: false,
+    topic: null,
     because,
   };
 }
@@ -186,6 +189,7 @@ export function chooseReply(
       answerRevision: candidate.revision,
       score: candidate.score,
       confident: true,
+      topic: candidate.topic,
       because: nudgedBy
         ? `This is the closest stored answer, and it is about the thing this person is in the middle of.`
         : `This is the closest stored answer to the way the question was asked.`,

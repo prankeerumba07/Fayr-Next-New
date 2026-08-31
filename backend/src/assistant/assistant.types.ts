@@ -41,6 +41,17 @@ export interface AnswerGiven {
   matchScore?: number | null;
   /** Which wording of the answer was shown. */
   answerRevision?: number | null;
+  /** What kind of question this turned out to be, from the answer that served it. */
+  topic?: string | null;
+}
+
+/** One question nobody could answer, as much of it as the grouping needs. */
+export interface UnansweredRow {
+  id: string;
+  rawText: string;
+  detectedLanguage: string;
+  askedAt: Date;
+  topic: string | null;
 }
 
 /** An answer to store, or a correction to one already stored. */

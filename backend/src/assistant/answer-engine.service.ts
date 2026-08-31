@@ -131,6 +131,7 @@ export class AnswerEngine {
       answerText: reply.text,
       matchScore: reply.score,
       answerRevision: reply.answerRevision,
+      topic: reply.topic,
     });
 
     return {

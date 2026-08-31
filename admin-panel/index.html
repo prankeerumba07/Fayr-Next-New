@@ -326,7 +326,8 @@
         loading: false, error: null, items: null, total: 0,
         filter: "WAITING_FOR_PERSON", busy: null, notice: null, actionError: null,
         open: null, draft: "", warnings: [],
-        email: null, emailNote: null
+        email: null, emailNote: null,
+        saveTopic: "", savingFrom: null
       },
       // This morning's look at every offer's real shop page. Read-only here: the
       // looking itself can only happen on a phone with a signed-in shop session.
@@ -336,7 +337,8 @@
       answers: {
         loading: false, error: null, items: null, total: 0,
         filter: { language: "", status: "" },
-        draft: null, warnings: [], busy: null, notice: null, actionError: null
+        draft: null, warnings: [], busy: null, notice: null, actionError: null,
+        toWrite: null
       },
       search: { mobile: "", loading: false, error: null, notFound: false, result: null },
       staffMgmt: { loading: false, error: null, items: null },
@@ -415,7 +417,7 @@
       else if (id === "reviews" && state.reviews.items === null && !state.reviews.loading) loadReviewChecks();
       else if (id === "chats" && state.chats.items === null && !state.chats.loading) loadChats();
       else if (id === "chat" && state.chat.items === null && !state.chat.loading) loadChatQuestions();
-      else if (id === "answers" && state.answers.items === null && !state.answers.loading) loadAnswerBook();
+      else if (id === "answers" && state.answers.items === null && !state.answers.loading) { loadAnswerBook(); loadWhatToWriteNext(); }
       else if (id === "livepages" && state.livepages.data === null && !state.livepages.loading) loadLivePages();
     }
     function saveSession() {
@@ -1140,6 +1142,12 @@
         ? [h("div", { class: "empty" }, "Nothing said yet.")]
         : chat.messages.map(function (m) {
             var theirs = m.author === "PERSON";
+            // ONE BUTTON to turn a reply a person wrote into a new answer, so the
+            // next person who asks the same thing is answered straight away. It
+            // arrives as a draft: whoever wrote the words does not automatically
+            // decide they are Fayr's official answer.
+            var canSave = m.author === "AGENT" && canReply;
+            var saving = st.savingFrom === m.id;
             return h("div", {
               class: "card",
               style: "margin-bottom:8px;max-width:80%;"
@@ -1147,7 +1155,21 @@
             },
               h("div", { class: "muted", style: "font-size:12px;margin-bottom:4px" },
                 m.from, "  ·  ", fmtDate(m.sentAt)),
-              h("div", null, m.body));
+              h("div", null, m.body),
+              canSave
+                ? h("div", { class: "row", style: "gap:6px;margin-top:8px;align-items:center" },
+                    h("input", {
+                      class: "input", style: "max-width:150px",
+                      placeholder: "What kind? e.g. refund",
+                      value: st.saveTopic,
+                      oninput: function (e) { state.chats.saveTopic = e.target.value; }
+                    }),
+                    h("button", {
+                      class: "btn btn-sm",
+                      disabled: saving,
+                      onclick: function () { saveReplyAsAnswer(chat.chatId, m.id); }
+                    }, saving ? "Saving…" : "Make this an answer"))
+                : null);
           });
 
       // The plain-language rule applies to what an agent types too. It WARNS and
@@ -1370,10 +1392,52 @@
       return h("div", null,
         st.notice ? h("div", { class: "flash flash-info" }, st.notice) : null,
         st.actionError ? h("div", { class: "flash flash-err" }, st.actionError) : null,
+        WhatToWriteNext(st.toWrite),
         filters,
         h("div", { class: "muted", style: "margin-bottom:10px" },
           st.items ? st.total + " in all" : ""),
         body);
+    }
+
+    // WHAT TO WRITE NEXT.
+    //
+    // The questions people keep asking that nobody could answer, most asked
+    // first. It is the honest way to decide what goes in the book next, instead
+    // of guessing at what people want to know.
+    //
+    // TWO THINGS ARE SAID OUT LOUD, because a count on a screen is believed:
+    // how many questions were looked at, and how two questions end up counted as
+    // one. Every group also carries the real sentences somebody typed, so
+    // anybody can see what was put together.
+    function WhatToWriteNext(data) {
+      if (!data) return null;
+      if (!data.groups || data.groups.length === 0) {
+        return h("div", { class: "card", style: "margin-bottom:14px" },
+          h("div", { style: "font-weight:700" }, "Nothing waiting to be written"),
+          h("div", { class: "muted", style: "font-size:12px;margin-top:4px" },
+            "Out of the last " + String(data.readFrom)
+            + " questions, every one was answered."));
+      }
+      return h("div", { class: "card", style: "margin-bottom:14px" },
+        h("div", { style: "font-weight:700" }, "Write these next"),
+        h("div", { class: "muted", style: "font-size:12px;margin-top:4px" },
+          "Asked most often, out of the last " + String(data.readFrom)
+          + " questions nobody could answer. Two questions count as one when they "
+          + "use the same meaningful words, whatever order they are in."),
+        h("div", { style: "margin-top:12px" }, data.groups.map(function (g) {
+          return h("div", { class: "card", style: "margin-bottom:8px" },
+            h("div", { class: "row", style: "justify-content:space-between;gap:10px" },
+              h("div", { style: "font-weight:700;min-width:0" }, g.examples[0] || g.signature),
+              statePill("asked " + String(g.asked), g.asked > 2 ? "bad" : "warn")),
+            g.examples.length > 1
+              ? h("div", { class: "muted", style: "font-size:12px;margin-top:6px" },
+                  "also asked as: " + g.examples.slice(1).join("  ·  "))
+              : null,
+            h("div", { class: "muted mono", style: "font-size:11px;margin-top:6px" },
+              g.languages.join(", "),
+              g.topics.length ? "  ·  " + g.topics.join(", ") : "",
+              "  ·  last asked " + fmtDate(g.lastAskedAt)));
+        })));
     }
 
     function AnswerCard(a) {
@@ -2747,6 +2811,44 @@
         state.chats.notice = res.ok ? "That reads the way Fayr writes." : null;
       } catch (e) { state.chats.actionError = e.message; }
       state.chats.busy = null; render();
+    }
+
+    async function saveReplyAsAnswer(chatId, messageId) {
+      var topic = (state.chats.saveTopic || "").trim();
+      if (!topic) {
+        state.chats.actionError = "Say what kind of question this answers first. "
+          + "An answer filed under the wrong kind is never found again.";
+        render();
+        return;
+      }
+      state.chats.savingFrom = messageId; state.chats.actionError = null; render();
+      try {
+        var res = await api(
+          "POST",
+          "/admin/chats/" + chatId + "/messages/" + messageId + "/save-as-answer",
+          { topic: topic },
+        );
+        state.chats.saveTopic = "";
+        state.chats.notice = "Saved as a draft answer called \u201C" + res.key
+          + "\u201D. Somebody has to approve it in the Answer book before anybody "
+          + "else is shown it."
+          + (res.plainLanguage && !res.plainLanguage.ok
+            ? " It will not be approvable until the wording is fixed."
+            : "");
+        // The suggestions list has changed shape now.
+        state.answers.toWrite = null;
+      } catch (e) { state.chats.actionError = e.message; }
+      state.chats.savingFrom = null; render();
+    }
+
+    async function loadWhatToWriteNext() {
+      try {
+        state.answers.toWrite = await api("GET", "/admin/chats/what-to-write-next");
+      } catch (e) {
+        // A list of suggestions failing must not take the answer book with it.
+        state.answers.toWrite = null;
+      }
+      render();
     }
 
     async function loadEmailDraft(id) {

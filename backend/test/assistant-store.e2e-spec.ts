@@ -657,7 +657,13 @@ describe('Assistant store (e2e)', () => {
       `);
       await prisma.$executeRawUnsafe('ANALYZE "answer_phrases"');
       await prisma.$executeRawUnsafe('ANALYZE "answer_entries"');
-    });
+      // An explicit budget, because the default one was never a decision about
+      // this. Building four thousand answers and a hundred thousand wordings takes
+      // a few seconds on a quiet machine and longer on a busy one, and it had been
+      // passing under the five-second default by a margin that eventually ran out
+      // mid-run. Nothing about what is asserted changes: only how long the setup
+      // is allowed to take before it is called a failure.
+    }, 60_000);
 
     it('really does hold that many', async () => {
       expect(await prisma.answerEntry.count()).toBe(BULK_ANSWERS + 1);

@@ -29,6 +29,8 @@ import {
 } from './chat.response';
 import type { Draft } from './email-draft';
 import { CheckReplyDto, ReplyDto } from './dto/say.dto';
+import { SaveReplyAsAnswerDto } from './dto/save-as-answer.dto';
+import type { ToWrite } from './what-to-write-next';
 import { ListChatsQueryDto } from './dto/list-chats.query';
 
 interface QueuePageResponse {
@@ -92,6 +94,18 @@ export class AdminChatController {
       offset: page.offset,
       chats: page.chats.map(toQueueRow),
     };
+  }
+
+  /**
+   * WHAT THE TEAM SHOULD WRITE AN ANSWER FOR NEXT.
+   *
+   * The questions nobody could answer, grouped and counted, most asked first.
+   * Not audited: it is a list of what people typed with nobody's name on it, and
+   * it is a tab loading many times a day.
+   */
+  @Get('what-to-write-next')
+  async whatToWriteNext(): Promise<{ readFrom: number; groups: ToWrite[] }> {
+    return this.translate(() => this.chat.whatToWrite(20));
   }
 
   /** One conversation, every message in it. Audited. */
@@ -183,6 +197,47 @@ export class AdminChatController {
     return this.translate(() =>
       this.chat.emailDraftFor(id, { id: staff.id, role: staff.role }),
     );
+  }
+
+  /**
+   * Turn a reply this agent wrote into a new answer.
+   *
+   * It arrives as a DRAFT and needs approving like every other new answer. The
+   * person who wrote the words does not automatically decide they are Fayr's
+   * official answer, and one button that did both would make them the same
+   * person by accident.
+   */
+  @Post(':id/messages/:messageId/save-as-answer')
+  @HttpCode(HttpStatus.OK)
+  async saveAsAnswer(
+    @CurrentStaff() staff: AuthenticatedStaff,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @Body() dto: SaveReplyAsAnswerDto,
+  ): Promise<{
+    key: string;
+    language: string;
+    plainLanguage: { ok: boolean; problems: string[] };
+  }> {
+    const saved = await this.translate(() =>
+      this.chat.saveReplyAsAnswer(
+        id,
+        messageId,
+        { id: staff.id, role: staff.role },
+        dto.topic,
+      ),
+    );
+    await this.audit.record({
+      staffUserId: staff.id,
+      action: AUDIT_ACTIONS.ASSISTANT_ANSWER_SAVE,
+      metadata: {
+        key: saved.key,
+        language: saved.language,
+        fromChatId: id,
+        fromMessageId: messageId,
+      },
+    });
+    return saved;
   }
 
   /** What is wrong with these words, without sending them. */
