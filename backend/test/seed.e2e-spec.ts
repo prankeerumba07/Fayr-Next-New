@@ -591,6 +591,35 @@ describe('Demo seed (e2e)', () => {
       expect(await tickets.getBalance(user.id)).toBe(TICKETS.DEFAULT_CLAIM_COST);
     });
 
+    it('IGNORES DEMO_MOBILE during a test run, so the suite cannot depend on a .env', async () => {
+      // THE FOURTH TRAP THE REAL NUMBER FOUND, and it was this file that fell in.
+      // Pointing DEMO_MOBILE at a real handset in backend/.env made the seed build
+      // on that account, and thirteen tests here went looking for the made-up
+      // default and found nothing. On any machine without the setting they would
+      // have been green again, so the suite's result depended on the contents of a
+      // file git has never seen.
+      //
+      // A test that wants a particular account passes demoMobile, which is written
+      // down in the test. The setting is for a person presenting the app, and a
+      // test database has no business being seeded against a real phone.
+      const before = process.env.DEMO_MOBILE;
+      process.env.DEMO_MOBILE = '+919000000009';
+      try {
+        await seedDemo(app, { quiet: true });
+        const onTheDefault = await prisma.user.findUnique({
+          where: { mobile: DEMO_MOBILE_DEFAULT },
+        });
+        expect(onTheDefault).not.toBeNull();
+        const onTheSetting = await prisma.user.findUnique({
+          where: { mobile: '+919000000009' },
+        });
+        expect(onTheSetting).toBeNull();
+      } finally {
+        if (before == null) delete process.env.DEMO_MOBILE;
+        else process.env.DEMO_MOBILE = before;
+      }
+    });
+
     it('can seed a SECOND demo account on a database that already has one', async () => {
       // THE THIRD TRAP THE REAL NUMBER FOUND, and this one was a fraud control
       // doing its job. Every journey carried a hard-coded marketplace order id, so

@@ -17,6 +17,12 @@ import { SMS_SENDER, type SmsSender } from './sms-sender';
  * missing or malformed credentials THROWS, which stops the boot, and the terminal
  * shows the reason with the exact variable to fix.
  *
+ * That leaves one hole, and SMS_MUST_BE_REAL closes it: 'dev' is the DEFAULT
+ * value of SMS_PROVIDER, so a deleted line, a typo, or the wrong .env being
+ * loaded lands on the console sender with nothing wrong to report. On a copy that
+ * is being used to text a real handset, set SMS_MUST_BE_REAL=true and that
+ * landing becomes a refusal instead of a boot.
+ *
  * The env schema (src/config/env.validation.ts) already enforces the same rules,
  * so this is the second of two independent gates. Deliberate duplication: the
  * schema catches a bad .env at boot, and this catches a sender constructed by any
@@ -34,6 +40,8 @@ export const BOOT_LINE = {
 } as const;
 
 const KNOWN = Object.keys(BOOT_LINE).join(', ');
+/** The same list without 'dev', for the message that refuses 'dev'. */
+const KNOWN_REAL = Object.keys(BOOT_LINE).filter((k) => k !== 'dev').join(', ');
 
 /** Credentials whose presence means someone intended to send real messages. */
 const REAL_PROVIDER_KEYS = [
@@ -57,6 +65,22 @@ export function createSmsSender(config: ConfigService<Env, true>): SmsSender {
   const logger = new Logger('SmsSender');
 
   if (provider === 'dev') {
+    // THE PER-COPY LATCH, checked before anything else about dev.
+    //
+    // The env schema refuses this combination too. This is the second gate, and it
+    // is the one that catches a sender built by any other route: a script, a test
+    // harness, a future module that builds its own ConfigService. Both exist
+    // because the thing being prevented is not a crash, it is a terminal quietly
+    // printing live codes while somebody believes a handset is being texted.
+    if (config.get('SMS_MUST_BE_REAL', { infer: true }) === true) {
+      throw new Error(
+        'SMS_MUST_BE_REAL=true on this copy, so the console sender is refused: it '
+        + 'prints live login codes into this terminal and sends no text message at '
+        + 'all. SMS_PROVIDER is either set to dev or absent, and absent means dev. '
+        + `Set SMS_PROVIDER to one of: ${KNOWN_REAL}. `
+        + 'If you meant to work offline, remove SMS_MUST_BE_REAL from backend/.env.',
+      );
+    }
     // Second of the two gates (the env schema is the first). The console sender
     // logs live codes, so production is refused outright rather than warned about.
     if (String(config.get('NODE_ENV', { infer: true })) === 'production') {

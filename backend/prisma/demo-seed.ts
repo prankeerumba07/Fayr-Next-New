@@ -13,6 +13,7 @@ import { AssistantSeedService } from '../src/assistant/assistant-seed.service';
 import type { Env } from '../src/config/env.validation';
 import { TICKETS } from '../src/tickets/ticket.constants';
 import { DEMO_CAMPAIGNS, type SeededCampaign } from './demo-catalogue';
+import { maskMobile } from '../src/auth/sms/mask';
 
 /**
  * THE DEMO DATABASE, BUILT BY THE PRODUCT ITSELF.
@@ -232,6 +233,27 @@ export interface DemoSeedReport {
   skipped: string[];
 }
 
+/**
+ * DEMO_MOBILE, EXCEPT NEVER DURING A TEST RUN.
+ *
+ * The setting exists so a presenter can sign in with a real code and land on an
+ * account that already has a history. That is worth having, and it made the whole
+ * test suite depend on the contents of an ignored settings file: with a real
+ * number set, thirteen tests in seed.e2e-spec.ts went looking for the made-up
+ * default and found nothing. They would have gone green again on any machine
+ * without the setting, which is the worst kind of failure to own.
+ *
+ * So under NODE_ENV=test the setting is ignored outright. A test that wants a
+ * particular account passes demoMobile explicitly, which is visible in the test
+ * and cannot vary by machine. Seeding a test database against somebody's real
+ * handset was never a thing we wanted either.
+ */
+function envDemoMobile(config: ConfigService<Env, true>): string | undefined {
+  if (String(config.get('NODE_ENV', { infer: true })) === 'test') return undefined;
+  const set = process.env.DEMO_MOBILE?.trim();
+  return set != null && set.length > 0 ? set : undefined;
+}
+
 /** A local dev password. Real ones never live in a file — see .env.example. */
 const STAFF_DEV_PASSWORD = process.env.DEMO_STAFF_PASSWORD ?? 'fayr-demo-only';
 
@@ -340,12 +362,15 @@ export async function seedDemo(
   );
 
   // ── 3. users ──────────────────────────────────────────────────────────────
-  const demoMobile = opts.demoMobile ?? process.env.DEMO_MOBILE ?? DEMO_MOBILE_DEFAULT;
+  const demoMobile = opts.demoMobile ?? envDemoMobile(config) ?? DEMO_MOBILE_DEFAULT;
   const demo = await upsertUser(demoMobile);
   const reviewCheckUser = await upsertUser(REVIEW_CHECK_MOBILE);
   const unitCountUser = await upsertUser(UNIT_COUNT_MOBILE);
   report.users = 3;
-  say(`  users      3 (demo account: ${demoMobile})`);
+  // MASKED. DEMO_MOBILE now points at a real personal handset, and this line
+  // gets pasted into chats and tickets when somebody reports that the seed did
+  // something odd. The last two digits are enough to tell which account it is.
+  say(`  users      3 (demo account: ${maskMobile(demoMobile)})`);
 
   async function upsertUser(mobile: string): Promise<{ id: string }> {
     const user = await prisma.user.upsert({
@@ -488,7 +513,7 @@ export async function seedDemo(
       // Say what to do about it. A bare 409 here reads as a broken seed when it
       // is actually a real account already carrying a different PAN.
       throw new Error(
-        `Demo seed: could not add a payout method for ${mobile} — `
+        `Demo seed: could not add a payout method for ${maskMobile(mobile)} — `
           + `${(err as Error).message}. That account is already anchored to a `
           + 'different PAN, which cannot be changed. Point DEMO_MOBILE at another '
           + 'number, or clear that account.',

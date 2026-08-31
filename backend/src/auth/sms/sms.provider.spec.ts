@@ -186,6 +186,85 @@ describe('createSmsSender — refuse to boot on incomplete credentials', () => {
   });
 });
 
+describe('createSmsSender — SMS_MUST_BE_REAL, the per-copy latch', () => {
+  // The hole every other guard leaves open: 'dev' is the DEFAULT value of
+  // SMS_PROVIDER, and a laptop being used to text a real handset is not
+  // production, so nothing above refuses it. On a copy with the latch on, the
+  // console sender must stop the boot rather than quietly print live codes.
+
+  it('refuses the console sender even outside production', () => {
+    const err = caught(() =>
+      createSmsSender(cfg({ SMS_MUST_BE_REAL: true, SMS_PROVIDER: 'dev' })),
+    );
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('SMS_MUST_BE_REAL');
+  });
+
+  it('refuses an ABSENT provider too, because absent means dev', () => {
+    // This is the whole point of the latch. Deleting the line is the mistake.
+    const err = caught(() =>
+      createSmsSender(cfg({ SMS_MUST_BE_REAL: true, SMS_PROVIDER: undefined })),
+    );
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('absent means dev');
+  });
+
+  it('names the real providers to use instead, and does not offer dev', () => {
+    const err = caught(() =>
+      createSmsSender(cfg({ SMS_MUST_BE_REAL: true, SMS_PROVIDER: 'dev' })),
+    );
+    expect(err!.message).toContain('twilio');
+    // "one of: messagecentral, 2factor, twilio, fast2sms" — dev must not be in
+    // the list a person is told to choose from.
+    const list = err!.message.split('one of: ')[1] ?? '';
+    expect(list).not.toContain('dev');
+  });
+
+  it('says where to turn it off, so nobody has to guess', () => {
+    const err = caught(() =>
+      createSmsSender(cfg({ SMS_MUST_BE_REAL: true, SMS_PROVIDER: 'dev' })),
+    );
+    expect(err!.message).toContain('backend/.env');
+  });
+
+  it('logs nothing when it refuses — no line claiming a sender is active', () => {
+    const lines = captureLogs();
+    expect(() =>
+      createSmsSender(cfg({ SMS_MUST_BE_REAL: true, SMS_PROVIDER: 'dev' })),
+    ).toThrow();
+    expect(lines).toHaveLength(0);
+  });
+
+  it('lets a real provider through, and still announces it in one line', () => {
+    const lines = captureLogs();
+    const sender = createSmsSender(cfg({
+      SMS_MUST_BE_REAL: true,
+      SMS_PROVIDER: 'twilio',
+      TWILIO_ACCOUNT_SID: 'ACxx',
+      TWILIO_AUTH_TOKEN: 'tok',
+      TWILIO_FROM_NUMBER: '+15550001111',
+    }));
+    expect(sender).toBeInstanceOf(TwilioSmsSender);
+    expect(lines).toEqual([BOOT_LINE.twilio]);
+  });
+
+  it('changes nothing at all when it is off', () => {
+    // Off is the default, and a fresh clone with no vendor account must still run.
+    for (const off of [false, undefined]) {
+      expect(createSmsSender(cfg({ SMS_MUST_BE_REAL: off, SMS_PROVIDER: 'dev' })))
+        .toBeInstanceOf(DevSmsSender);
+    }
+  });
+
+  it('is only ever true, never a string that looks true', () => {
+    // The setting arrives already turned into a real boolean by the env schema.
+    // A raw string reaching here would mean the schema was bypassed, and 'false'
+    // as a string is truthy, which is exactly the wrong way for this to fail.
+    expect(createSmsSender(cfg({ SMS_MUST_BE_REAL: 'false', SMS_PROVIDER: 'dev' })))
+      .toBeInstanceOf(DevSmsSender);
+  });
+});
+
 describe('createSmsSender — the console sender is refused in production', () => {
   it('throws for dev under NODE_ENV=production', () => {
     expect(() => createSmsSender(cfg({ NODE_ENV: 'production', SMS_PROVIDER: 'dev' })))

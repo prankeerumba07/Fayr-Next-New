@@ -31,6 +31,72 @@ const caught = (fn: () => unknown): Error | undefined => {
   }
 };
 
+describe('validateEnv — SMS_MUST_BE_REAL, the per-copy latch', () => {
+  const TWILIO = {
+    SMS_PROVIDER: 'twilio',
+    TWILIO_ACCOUNT_SID: 'ACxxxxxxxxxxxxxxxx',
+    TWILIO_AUTH_TOKEN: 'a-token-value',
+    TWILIO_FROM_NUMBER: '+15550001111',
+  };
+
+  it('is off unless the settings file turns it on', () => {
+    expect(validateEnv({ ...BASE }).SMS_MUST_BE_REAL).toBe(false);
+  });
+
+  it("reads 'true' as on and 'false' as off, and nothing else", () => {
+    expect(validateEnv({ ...BASE, SMS_MUST_BE_REAL: 'false' }).SMS_MUST_BE_REAL).toBe(false);
+    expect(
+      validateEnv({ ...BASE, ...TWILIO, SMS_MUST_BE_REAL: 'true' }).SMS_MUST_BE_REAL,
+    ).toBe(true);
+    // Anything else stops the boot rather than being guessed at. 'yes' quietly
+    // read as off is the failure this whole setting exists to prevent.
+    for (const wrong of ['yes', 'TRUE', '1', '']) {
+      expect(() => validateEnv({ ...BASE, SMS_MUST_BE_REAL: wrong })).toThrow();
+    }
+  });
+
+  it('refuses the console sender when it is on, outside production', () => {
+    const err = caught(() =>
+      validateEnv({ ...BASE, SMS_MUST_BE_REAL: 'true', SMS_PROVIDER: 'dev' }),
+    );
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('SMS_MUST_BE_REAL');
+  });
+
+  it('refuses an ABSENT provider when it is on, because absent means dev', () => {
+    const err = caught(() => validateEnv({ ...BASE, SMS_MUST_BE_REAL: 'true' }));
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('ABSENT SMS_PROVIDER');
+  });
+
+  it('says where to turn it off', () => {
+    const err = caught(() =>
+      validateEnv({ ...BASE, SMS_MUST_BE_REAL: 'true', SMS_PROVIDER: 'dev' }),
+    );
+    expect(err!.message).toContain('backend/.env');
+  });
+
+  it('accepts a real provider when it is on', () => {
+    const env = validateEnv({ ...BASE, ...TWILIO, SMS_MUST_BE_REAL: 'true' });
+    expect(env.SMS_PROVIDER).toBe('twilio');
+    expect(env.SMS_MUST_BE_REAL).toBe(true);
+  });
+
+  it('still names the missing credential when a real provider is half filled', () => {
+    // The latch returns early, so this proves it only short-circuits for dev and
+    // does not swallow the per-provider rules underneath it.
+    const err = caught(() =>
+      validateEnv({ ...BASE, SMS_MUST_BE_REAL: 'true', SMS_PROVIDER: 'twilio' }),
+    );
+    expect(err!.message).toContain('TWILIO_ACCOUNT_SID');
+  });
+
+  it('leaves a fresh clone alone when it is off', () => {
+    expect(() => validateEnv({ ...BASE, SMS_PROVIDER: 'dev' })).not.toThrow();
+    expect(() => validateEnv({ ...BASE })).not.toThrow();
+  });
+});
+
 describe('validateEnv — SMS provider', () => {
   it('defaults to the dev sender when SMS_PROVIDER is absent', () => {
     expect(validateEnv({ ...BASE }).SMS_PROVIDER).toBe('dev');

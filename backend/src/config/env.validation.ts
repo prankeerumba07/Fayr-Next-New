@@ -171,6 +171,25 @@ export const envSchema = z.object({
     .enum(['dev', 'messagecentral', '2factor', 'twilio', 'fast2sms'])
     .default('dev'),
 
+  // THE PER-COPY LATCH: THIS MACHINE SENDS REAL TEXTS OR IT DOES NOT BOOT.
+  //
+  // 'dev' is the default above, and it has to stay the default: a fresh clone must
+  // run offline with no vendor account. But that default is itself the quiet
+  // fallback — delete the SMS_PROVIDER line, mistype it, or load the wrong .env,
+  // and the process boots healthy, sends nothing, and prints live codes into a
+  // terminal. Every existing guard is about NODE_ENV=production, and a laptop
+  // being used to test a real handset is not production.
+  //
+  // So this is turned on in the settings file of the copy that is testing real
+  // texts, and nowhere else. With it on, 'dev' and an absent SMS_PROVIDER both
+  // stop the boot and say why. The frozen demo copy does not set it and is
+  // unaffected. Off by default so a fresh clone is not asked for credentials it
+  // has no reason to have.
+  SMS_MUST_BE_REAL: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+
   // Message Central (MessageNow). Optional at the schema level because 'dev'
   // must need no credentials at all — a fresh clone has to run offline. The
   // conditional requirement is enforced in the superRefine below, which names the
@@ -314,6 +333,23 @@ const withCrossFieldRules = envSchema.superRefine((env, ctx) => {
         'SMS_PROVIDER=dev is refused when NODE_ENV=production: the console sender ' +
         'writes live login codes into the log and sends no SMS. Name a real provider.',
     });
+  }
+
+  // THE LATCH. Deliberately BEFORE the per-provider rules: if this copy is meant
+  // to be texting a real handset, "which credentials are missing" is the wrong
+  // question and the answer to print is "you are not sending texts at all".
+  if (env.SMS_MUST_BE_REAL && env.SMS_PROVIDER === 'dev') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['SMS_PROVIDER'],
+      message:
+        'SMS_MUST_BE_REAL=true on this copy, so SMS_PROVIDER=dev is refused: the ' +
+        'console sender prints live login codes into this terminal and sends no ' +
+        'text message at all. An ABSENT SMS_PROVIDER lands here too, because dev ' +
+        'is its default value. Name a real provider, or remove SMS_MUST_BE_REAL ' +
+        'from backend/.env if you meant to work offline.',
+    });
+    return;
   }
 
   if (env.SMS_PROVIDER === 'fast2sms') {
