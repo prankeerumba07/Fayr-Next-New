@@ -6,6 +6,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AdminModule } from './admin/admin.module';
 import { AssistantModule } from './assistant/assistant.module';
+import { ChatModule } from './chat/chat.module';
 import { AuthModule } from './auth/auth.module';
 import { CampaignModule } from './campaigns/campaign.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
@@ -70,6 +71,7 @@ import { WithdrawalModule } from './withdrawals/withdrawal.module';
     CampaignHealthModule,
     LiveCheckModule,
     AssistantModule,
+    ChatModule,
     AdminModule,
     SupportModule,
     MeModule,

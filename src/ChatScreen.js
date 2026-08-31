@@ -18,20 +18,31 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { goBackOrHome } from './ui/nav';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from './ui/theme';
-import { ask, listMyQuestions, sayItHelped } from './backend/assistantApi';
+import { readChat, sayItHelped, sendChatMessage } from './backend/assistantApi';
 import {
   QUESTION_MAX,
   SCREEN_TITLE,
   chatView,
-  turnFromAsk,
-  turnFromStored,
   validateQuestion,
 } from './ui/chat.js';
+
+/**
+ * How often the screen looks for a reply written by a person, in milliseconds.
+ *
+ * Every four seconds while the screen is open, and never when it is not. A
+ * connection held open would save a couple of seconds and would break on a
+ * train; this reconnects by itself every time because it never connected.
+ */
+const LOOK_FOR_A_REPLY_EVERY = 4000;
 
 /** One line of the conversation. */
 function Message({ message }) {
   const mine = message.who === 'you';
   const waiting = message.tone === 'waiting';
+  // A reply written by an actual person is drawn differently from one the answer
+  // book produced. Somebody told "a person will get back to you" has to be able
+  // to tell, at a glance, that the next thing they are reading IS that person.
+  const fromAPerson = message.tone === 'person';
   return (
     <View style={[styles.row, mine ? styles.rowMine : styles.rowTheirs]}>
       <View
@@ -39,6 +50,7 @@ function Message({ message }) {
           styles.bubble,
           mine && styles.bubbleMine,
           waiting && styles.bubbleWaiting,
+          fromAPerson && styles.bubblePerson,
         ]}
       >
         {message.label ? (
@@ -57,33 +69,50 @@ function Message({ message }) {
 
 export default function ChatScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const [turns, setTurns] = useState([]);
+  const [chat, setChat] = useState(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const scroller = useRef(null);
+  const sending = useRef(false);
 
-  const load = useCallback(async () => {
-    const res = await listMyQuestions();
-    // Newest first from the backend; the conversation reads oldest first.
-    if (res.ok) setTurns(res.turns.map(turnFromStored).reverse());
+  const load = useCallback(async (quietly) => {
+    // A look that fails while somebody is reading must not paint an error over
+    // a conversation that is on screen and perfectly readable. The first load
+    // says so; the ones after it stay silent and try again in four seconds.
+    const res = await readChat();
+    if (res.ok) setChat(res.chat);
+    else if (!quietly) setError(res.error);
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    void load();
+    void load(false);
   }, [load]);
 
-  const view = chatView({ turns, draft, busy, loading, error });
+  // Look for a reply written by a person, for as long as this screen is open.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      // Never on top of a message going out: the reply to that request is the
+      // newer truth, and a look that landed first would undo it on screen.
+      if (sending.current) return;
+      void load(true);
+    }, LOOK_FOR_A_REPLY_EVERY);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  const view = chatView({ chat, draft, busy, loading, error });
 
   const send = useCallback(async () => {
     const check = validateQuestion(draft);
     if (!check.ok || busy) return;
     setBusy(true);
+    sending.current = true;
     setError(null);
-    const res = await ask(check.question);
+    const res = await sendChatMessage(check.question);
     setBusy(false);
+    sending.current = false;
     if (!res.ok) {
       // The question stays in the box. Losing what somebody typed because the
       // network blinked is the one thing this screen must never do.
@@ -91,15 +120,22 @@ export default function ChatScreen({ navigation }) {
       return;
     }
     setDraft('');
-    setTurns((before) => before.concat([turnFromAsk(check.question, res.reply)]));
+    setChat(res.chat);
   }, [draft, busy]);
 
   const answerFeedback = useCallback(
     async (questionId, helpful) => {
-      // Recorded on screen straight away: the question disappears the moment it
-      // is answered, and waiting for the round trip makes the tap feel ignored.
-      setTurns((before) =>
-        before.map((t) => (t.questionId === questionId ? { ...t, helpful } : t)),
+      // Recorded on screen straight away: waiting for the round trip makes the
+      // tap feel ignored. The next look brings back the stored truth anyway.
+      setChat((before) =>
+        before
+          ? {
+              ...before,
+              messages: before.messages.map((m) =>
+                m.questionId === questionId ? { ...m, helpful } : m,
+              ),
+            }
+          : before,
       );
       const res = await sayItHelped(questionId, helpful);
       if (!res.ok) setError(res.error);
@@ -140,6 +176,12 @@ export default function ChatScreen({ navigation }) {
           ) : null}
 
           {view.empty ? <Text style={styles.intro}>{view.intro}</Text> : null}
+
+          {view.status ? (
+            <View style={styles.statusChip}>
+              <Text style={styles.statusText}>{view.status}</Text>
+            </View>
+          ) : null}
 
           {view.messages.map((m) => (
             <Message key={m.id} message={m} />
@@ -247,8 +289,25 @@ const styles = StyleSheet.create({
   },
   bubbleMine: { backgroundColor: COLOR.creamDeep, borderColor: COLOR.line },
   bubbleWaiting: { backgroundColor: COLOR.amberBg, borderColor: COLOR.amberLine },
+  // A reply written by an actual person. Green because green is what Fayr uses
+  // for the thing that actually happened, and this is the reply somebody was
+  // told to wait for.
+  bubblePerson: { backgroundColor: COLOR.greenBg, borderColor: COLOR.green },
   bubbleText: { fontFamily: FONT.body, fontSize: 15, lineHeight: 23, color: COLOR.ink },
   bubbleTextMine: { fontFamily: FONT.bodyMed },
+
+  // Who has this conversation, said once at the top rather than on every bubble.
+  statusChip: {
+    alignSelf: 'center',
+    backgroundColor: COLOR.greenBg,
+    borderWidth: 1,
+    borderColor: COLOR.green,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACE.md,
+    paddingVertical: SPACE.xs,
+    marginBottom: SPACE.md,
+  },
+  statusText: { fontFamily: FONT.bodyMed, fontSize: 13, color: COLOR.refundInk },
 
   labelChip: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACE.xs },
   labelDot: {

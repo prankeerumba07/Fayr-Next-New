@@ -62,7 +62,7 @@ console.log('\n=== 2b. the four teams, and nothing lost on the way to them ===')
   // moves, it moves here first.
   const OWNERSHIP = {
     finance: ['withdrawals', 'reports'],
-    support: ['queue', 'chat', 'answers', 'verifications', 'reviews'],
+    support: ['queue', 'chats', 'chat', 'answers', 'verifications', 'reviews'],
     operations: ['amounts', 'staff', 'search'],
     fops: ['offers', 'livepages', 'campaigns'],
   };
@@ -400,6 +400,50 @@ console.log('\n=== 7. the assistant screens ===');
   ok(!/class:\s*"sev /.test(script), 'no screen uses a "sev" class, which was never defined');
 }
 
+console.log('\n=== 7e. the conversations screen ===');
+{
+  ok(teamsFor('support').includes('chats'),
+    'Conversations is a Customer support section');
+  ok(/chats:\s*\["SUPPORT", "ADMIN"\]/.test(script),
+    'gated to support and admin, the team whose work it is');
+  ok(script.includes('"/admin/chats"'), 'it reads the real queue');
+  ok(script.includes('/take'), 'there is a take action');
+  ok(script.includes('/reply'), 'and a reply action');
+
+  const from = script.indexOf('function ConversationsScreen');
+  const to = script.indexOf('function ChatQuestionsScreen');
+  const convo = script.slice(from, to);
+
+  // TAKING IS SEPARATE FROM REPLYING. The reply box only appears once your name
+  // is on it. Hiding it is a courtesy — the server refuses anyway — but a screen
+  // that offers a box and then throws the words away is worse than no box.
+  ok(/canReply\s*=\s*!chat\.closed\s*&&\s*\(mine \|\| admin\)/.test(convo),
+    'the reply box is shown only to whoever took it, or an administrator');
+  ok(convo.includes('Take this conversation'),
+    'and somebody who has not taken it is told to take it');
+  ok(convo.includes('Only they, or an administrator, can reply'),
+    'a conversation somebody else has says so plainly');
+  ok(convo.includes('This conversation is closed'),
+    'and a closed one says nobody can add to it');
+
+  // The plain-language rule WARNS here, it does not block. A reply to one person
+  // who is waiting is not worth holding back over a word we do not like.
+  ok(convo.includes('You can still send it'),
+    'the wording warning says out loud that it is not a refusal');
+  ok(!/JARGON|MAX_WORDS_PER_SENTENCE/.test(convo),
+    'and the rule itself still lives on the server, not in a copy here');
+  ok(/\.flash-warn\s*\{/.test(html),
+    'the warning box is actually styled, not an unstyled stack');
+
+  // statePill returns an ELEMENT, sevPill returns a CLASS NAME. This screen was
+  // written after that mistake was found; this is the guard that keeps it out.
+  ok(!convo.includes('sevPill'), 'this screen uses statePill, not the class-name helper');
+  ok(convo.includes('statePill('), 'and it does use statePill');
+
+  // A shopper's phone number has no business on a screen that is open all day.
+  ok(!/mobile/.test(convo), 'no phone number is drawn on the conversation screens');
+}
+
 console.log('\n=== 7d. no personal detail travels in a web address ===');
 {
   // A mobile number in an address lands in this laptop's browser history and in
@@ -497,9 +541,13 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     function setChatFilter() {} function closeChatQuestion() {}
     function setAnswerFilter() {} function editAnswer() {} function cancelAnswerEdit() {}
     function checkAnswerWords() {} function saveAnswer() {} function setAnswerLive() {}
+    function setChatsFilter() {} function openConversation() {} function backToConversations() {}
+    function takeConversation() {} function sendChatReply() {} function checkChatReply() {}
+    function closeConversation() {}
     var state = STATE;
     ${src}
-    return { chat: ChatQuestionsScreen(), book: AnswerBookScreen(), live: LivePagesScreen(), seen: seen };
+    return { chat: ChatQuestionsScreen(), book: AnswerBookScreen(), live: LivePagesScreen(),
+             convos: ConversationsScreen(), seen: seen };
   `;
 
   const LIVE = {
@@ -521,7 +569,48 @@ console.log('\n=== 7b. the assistant screens actually render ===');
 
   const liveBranch = (over) => ({ loading: false, error: null, data: LIVE, ...over });
 
+  // Conversations. Deliberately mixed: one waiting, one taken by somebody else,
+  // one closed — the three the reply box has to behave differently for.
+  const CONVOS = [
+    { chatId: 'c1', state: 'WAITING_FOR_PERSON', stateInWords: 'Waiting for a person',
+      takenBy: null, user: { id: 'u1', displayId: 'FAYR-100001' },
+      startedAt: '2026-08-31T05:00:00.000Z', lastMessageAt: '2026-08-31T05:01:00.000Z',
+      handedOverAt: '2026-08-31T05:01:00.000Z', messageCount: 2,
+      latest: { body: 'do you deliver to Kathmandu', author: 'PERSON', sentAt: '2026-08-31T05:01:00.000Z' } },
+    { chatId: 'c2', state: 'TAKEN', stateInWords: 'Taken by Ravi',
+      takenBy: { id: 's-ravi', name: 'Ravi' }, user: { id: 'u2', displayId: 'FAYR-100002' },
+      startedAt: '2026-08-31T04:00:00.000Z', lastMessageAt: '2026-08-31T04:30:00.000Z',
+      handedOverAt: '2026-08-31T04:10:00.000Z', messageCount: 5,
+      latest: { body: 'thanks', author: 'PERSON', sentAt: '2026-08-31T04:30:00.000Z' } },
+    { chatId: 'c3', state: 'CLOSED', stateInWords: 'Closed', takenBy: { id: 's-asha', name: 'Asha' },
+      user: { id: 'u3', displayId: 'FAYR-100003' },
+      startedAt: '2026-08-30T04:00:00.000Z', lastMessageAt: '2026-08-30T04:30:00.000Z',
+      handedOverAt: '2026-08-30T04:05:00.000Z', messageCount: 4, latest: null },
+  ];
+
+  const oneConvo = (over) => ({
+    chatId: 'c1', state: 'WAITING_FOR_PERSON', stateInWords: 'Waiting for a person',
+    takenBy: null, startedAt: '2026-08-31T05:00:00.000Z',
+    lastMessageAt: '2026-08-31T05:01:00.000Z',
+    withTheAssistant: false, waitingForAPerson: true, closed: false,
+    messages: [
+      { id: 'm1', author: 'PERSON', from: 'Them', body: 'do you deliver to Kathmandu',
+        language: 'en', sentAt: '2026-08-31T05:00:00.000Z', fromAPerson: false },
+      { id: 'm2', author: 'ASSISTANT', from: 'Fayr assistant',
+        body: 'I could not answer this one yet. A person from Fayr will read it and get back to you.',
+        language: 'en', sentAt: '2026-08-31T05:01:00.000Z', fromAPerson: false },
+    ],
+    ...over,
+  });
+
+  const chatsBranch = (over) => ({
+    loading: false, error: null, items: CONVOS, total: 3,
+    filter: 'WAITING_FOR_PERSON', busy: null, notice: null, actionError: null,
+    open: null, draft: '', warnings: [], ...over,
+  });
+
   const chatState = (over) => ({
+    chats: chatsBranch(),
     chat: { loading: false, error: null, items: QUESTIONS, total: 2, stats: STATS,
             filter: 'UNRESOLVED', busy: null, notice: null, actionError: null, ...over },
     answers: { loading: false, error: null, items: ANSWERS, total: 4,
@@ -530,6 +619,7 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     livepages: liveBranch(),
   });
   const bookState = (over) => ({
+    chats: chatsBranch(),
     chat: { loading: false, error: null, items: QUESTIONS, total: 2, stats: STATS,
             filter: 'UNRESOLVED', busy: null, notice: null, actionError: null },
     answers: { loading: false, error: null, items: ANSWERS, total: 4,
@@ -538,6 +628,10 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     livepages: liveBranch(),
   });
   const liveState = (over) => ({ ...chatState({}), livepages: liveBranch(over) });
+  const convoState = (over, staff) => ({
+    ...chatState({}), chats: chatsBranch(over),
+    staff: staff || { id: 's-asha', name: 'Asha', role: 'SUPPORT' },
+  });
 
   const states = [
     ['everything present', chatState({})],
@@ -558,6 +652,33 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     ['live pages, nobody has run it yet', liveState({ data: { ...LIVE, lastRun: null, recent: [] } })],
     ['live pages, a clean run', liveState({ data: { ...LIVE, lastRun: { ...LIVE.lastRun, expired: 0, findings: [] } } })],
     ['live pages, no offer has a page at all', liveState({ data: { ...LIVE, toCheck: { total: 13, withAPage: 0, withNoPage: 13 } } })],
+    ['the conversation queue', convoState({})],
+    ['the queue, loading', convoState({ loading: true, items: null })],
+    ['the queue, failed', convoState({ items: null, error: 'Could not reach the Fayr server.' })],
+    ['the queue, empty', convoState({ items: [], total: 0 })],
+    ['a conversation nobody has taken', convoState({ open: oneConvo({}) })],
+    ['a conversation I have taken', convoState({
+      open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
+                       takenBy: { id: 's-asha', name: 'Asha' } }) })],
+    ['a conversation somebody ELSE has taken', convoState({
+      open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Ravi', waitingForAPerson: false,
+                       takenBy: { id: 's-ravi', name: 'Ravi' } }) })],
+    ['a closed conversation', convoState({
+      open: oneConvo({ state: 'CLOSED', stateInWords: 'Closed', closed: true,
+                       waitingForAPerson: false, takenBy: { id: 's-asha', name: 'Asha' } }) })],
+    ['a conversation with nothing said in it', convoState({ open: oneConvo({ messages: [] }) })],
+    ['a reply that does not read plainly', convoState({
+      open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
+                       takenBy: { id: 's-asha', name: 'Asha' } }),
+      draft: 'Please initiate the KYC workflow.',
+      warnings: ['"kyc" is not a word a person here would use.'] })],
+    ['sending a reply', convoState({
+      open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
+                       takenBy: { id: 's-asha', name: 'Asha' } }), busy: 'reply' })],
+    ['an administrator on somebody else\'s conversation', convoState(
+      { open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Ravi', waitingForAPerson: false,
+                         takenBy: { id: 's-ravi', name: 'Ravi' } }) },
+      { id: 's-boss', name: 'Boss', role: 'ADMIN' })],
   ];
 
   for (const [label, st] of states) {

@@ -49,3 +49,35 @@ export async function listMyQuestions() {
     turns: res.ok && Array.isArray(res.body) ? res.body : [],
   };
 }
+
+// ── the conversation ────────────────────────────────────────────────────────
+//
+//   GET  /chat            my conversation, oldest message first
+//   POST /chat/messages   say something in it
+//
+// Both scoped server-side to the person signed in; there is no way to ask for
+// somebody else's, so there is nothing for this file to check.
+//
+// READING IS CHEAP ON PURPOSE. The screen reads this every few seconds while it
+// is open, so a reply written by a person at Fayr appears without anybody having
+// to do anything. A kept-alive connection would save a few seconds and would
+// break on a train.
+
+/** GET /chat → { ok, chat } */
+export async function readChat() {
+  const res = await authedFetch('/chat', { method: 'GET' });
+  return res.ok
+    ? { ok: true, status: res.status, chat: res.body }
+    : { ok: false, status: res.status, error: errorText(res) };
+}
+
+/** POST /chat/messages → { ok, chat } — the whole conversation, reply included. */
+export async function sendChatMessage(message) {
+  const res = await authedFetch('/chat/messages', {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+  return res.ok
+    ? { ok: true, status: res.status, chat: res.body }
+    : { ok: false, status: res.status, error: errorText(res) };
+}

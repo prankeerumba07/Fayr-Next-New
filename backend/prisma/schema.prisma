@@ -71,6 +71,7 @@ model User {
   withdrawals        Withdrawal[]
   screenshotUploads  ScreenshotUpload[]
   assistantQuestions AssistantQuestion[]
+  chats              Chat[]
 
   @@map("users")
 }
@@ -548,6 +549,8 @@ model StaffUser {
 
   auditLogs      AdminAuditLog[]
   supportReplies SupportReply[]
+  chatsTaken     Chat[]
+  chatMessages   ChatMessage[]
 
   @@map("staff_users")
 }
@@ -918,10 +921,19 @@ model AssistantQuestion {
   /// offer check's findings, one table up.
   journey Json?
 
+  /// Which conversation it was asked in. Optional because every question written
+  /// down before conversations existed has none, and because the record of what
+  /// somebody asked must never depend on the conversation still being there.
+  chatId String? @db.Uuid
+  chat   Chat?   @relation(fields: [chatId], references: [id], onDelete: SetNull)
+
+  messages ChatMessage[]
+
   @@index([status, askedAt])
   @@index([userId, askedAt])
   @@index([answerEntryId])
   @@index([askedAt])
+  @@index([chatId, askedAt])
   @@map("assistant_questions")
 }
 
@@ -958,4 +970,99 @@ model LivePageCheckRun {
 
   @@index([ranAt])
   @@map("live_page_check_runs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHATS
+//
+// A question and its reply were never a conversation. Somebody asks, the
+// assistant answers or admits it cannot, and then there was nowhere for anyone
+// to say anything else — no way for a person from Fayr to reply, and no way for
+// the shopper to say "no, that is not what I meant".
+//
+// So the conversation is its own record, with the messages under it, and the
+// question rows keep being the thing the answer book learns from. Both, not one
+// instead of the other: a question is evidence, a chat is a conversation, and
+// they answer different questions later.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Who has a conversation right now.
+enum ChatState {
+  ASSISTANT /// the assistant is handling it and nobody needs to look
+  WAITING_FOR_PERSON /// handed over; in the queue; nobody has taken it yet
+  TAKEN /// a named member of staff has it and is the only one who may reply
+  CLOSED /// finished
+}
+
+/// Who wrote one message.
+enum ChatMessageAuthor {
+  PERSON /// the shopper
+  ASSISTANT /// the answer book
+  AGENT /// a member of Fayr staff, by hand
+  SYSTEM /// Fayr itself, saying something about the conversation
+}
+
+/// One conversation between one shopper and Fayr.
+model Chat {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  state ChatState @default(ASSISTANT)
+
+  /// Who has it, when someone does. A bare name is not enough: the rule is that
+  /// only this person or an administrator may reply, and a name is not something
+  /// you can check a rule against.
+  takenByStaffId String?    @db.Uuid
+  takenBy        StaffUser? @relation(fields: [takenByStaffId], references: [id], onDelete: SetNull)
+  takenAt        DateTime?
+
+  /// When it went into the queue, so how long people wait can be measured.
+  handedOverAt DateTime?
+
+  closedAt DateTime?
+
+  startedAt     DateTime @default(now())
+  /// Moved on every message, so the queue can be ordered by who has waited
+  /// longest without counting rows.
+  lastMessageAt DateTime @default(now())
+
+  messages  ChatMessage[]
+  questions AssistantQuestion[]
+
+  /// The queue, oldest first. The one read the staff screen does constantly.
+  @@index([state, handedOverAt])
+  @@index([userId, lastMessageAt])
+  @@index([takenByStaffId, lastMessageAt])
+  @@map("chats")
+}
+
+/// One message in one conversation, in either direction.
+model ChatMessage {
+  id     String @id @default(uuid()) @db.Uuid
+  chatId String @db.Uuid
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  author ChatMessageAuthor
+
+  /// Set only when a member of staff wrote it. Kept even after they leave, so a
+  /// conversation can still be read back with the right name against the words.
+  staffUserId String?    @db.Uuid
+  staffUser   StaffUser? @relation(fields: [staffUserId], references: [id], onDelete: SetNull)
+
+  body     String
+  language String
+
+  /// The question record this message belongs to, when there is one. A shopper's
+  /// message creates a question; the reply to it points at the same one. That
+  /// link is what lets the answer book learn from what people actually replied.
+  assistantQuestionId String?            @db.Uuid
+  assistantQuestion   AssistantQuestion? @relation(fields: [assistantQuestionId], references: [id], onDelete: SetNull)
+
+  sentAt DateTime @default(now())
+
+  /// Reading one conversation in order, which is every read this table gets.
+  @@index([chatId, sentAt])
+  @@index([assistantQuestionId])
+  @@map("chat_messages")
 }

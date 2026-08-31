@@ -107,6 +107,12 @@ describe('Staff roles / RBAC (e2e)', () => {
       allow: ['ADMIN'],
       ok: 200,
     },
+    {
+      name: 'chat conversations',
+      path: '/admin/chats',
+      allow: ['SUPPORT', 'ADMIN'],
+      ok: 200,
+    },
   ];
 
   const ALL_ROLES: StaffRole[] = ['SUPPORT', 'FINANCE', 'OPERATIONS', 'ADMIN'];

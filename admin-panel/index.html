@@ -266,6 +266,9 @@
     .flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 500; }
     .flash-err { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
     .flash-info { color: var(--info); background: color-mix(in srgb, var(--info) 12%, transparent); border: 1px solid color-mix(in srgb, var(--info) 28%, transparent); }
+    /* Used when something is worth saying but is not a refusal — the reply that
+       does not read the way Fayr writes still goes, and this says so. */
+    .flash-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
     .empty { color: var(--muted); font-style: italic; padding: 6px 0; }
 
     /* ── Login ────────────────────────────────────────────────────────────── */
@@ -315,6 +318,14 @@
       chat: {
         loading: false, error: null, items: null, total: 0, stats: null,
         filter: "UNRESOLVED", busy: null, notice: null, actionError: null
+      },
+      // Conversations. `open` is the one being read right now, whole, with every
+      // message in it; `draft` is what the agent is typing and `warnings` is what
+      // the plain-language check said about it.
+      chats: {
+        loading: false, error: null, items: null, total: 0,
+        filter: "WAITING_FOR_PERSON", busy: null, notice: null, actionError: null,
+        open: null, draft: "", warnings: []
       },
       // This morning's look at every offer's real shop page. Read-only here: the
       // looking itself can only happen on a phone with a signed-in shop session.
@@ -371,6 +382,7 @@
       amounts: ["SUPPORT", "ADMIN"],
       reviews: ["SUPPORT", "ADMIN"],
       chat: ["SUPPORT", "ADMIN"],
+      chats: ["SUPPORT", "ADMIN"],
       answers: ["SUPPORT", "ADMIN"],
       campaigns: ["OPERATIONS", "ADMIN"],
       offers: ["OPERATIONS", "ADMIN"],
@@ -385,7 +397,7 @@
     }
     // The tab a role lands on after login: the first one it's allowed to see.
     function defaultScreen() {
-      var order = ["withdrawals", "queue", "chat", "answers", "verifications", "amounts", "reviews", "offers", "livepages", "campaigns", "reports", "search", "staff"];
+      var order = ["withdrawals", "queue", "chats", "chat", "answers", "verifications", "amounts", "reviews", "offers", "livepages", "campaigns", "reports", "search", "staff"];
       for (var i = 0; i < order.length; i++) if (roleCanSee(order[i])) return order[i];
       return "search";
     }
@@ -400,6 +412,7 @@
       else if (id === "amounts" && state.amounts.items === null && !state.amounts.loading) loadAmounts();
       else if (id === "offers" && state.offers.data === null && !state.offers.loading) loadOffers(false);
       else if (id === "reviews" && state.reviews.items === null && !state.reviews.loading) loadReviewChecks();
+      else if (id === "chats" && state.chats.items === null && !state.chats.loading) loadChats();
       else if (id === "chat" && state.chat.items === null && !state.chat.loading) loadChatQuestions();
       else if (id === "answers" && state.answers.items === null && !state.answers.loading) loadAnswerBook();
       else if (id === "livepages" && state.livepages.data === null && !state.livepages.loading) loadLivePages();
@@ -743,7 +756,8 @@
       ]],
       ["support", "Customer support", "☎", [
         ["queue", "Questions", "✉"],
-        ["chat", "Chat questions", "💬"],
+        ["chats", "Conversations", "💬"],
+        ["chat", "Chat questions", "❓"],
         ["answers", "Answer book", "📖"],
         ["verifications", "Screenshots", "▣"],
         ["reviews", "Review checks", "★"],
@@ -881,6 +895,7 @@
       reports: ["Reports", "Counts and totals, downloadable as a spreadsheet."],
       search: ["Find a user", "Look someone up by mobile number."],
       livepages: ["Live pages", "Whether each offer's real shop page still opens for a shopper. Somebody runs this from a phone each morning."],
+      chats: ["Conversations", "Live chats with shoppers. Take one to put your name on it, then reply."],
       chat: ["Chat questions", "What people asked the assistant, and the ones it could not answer."],
       answers: ["Answer book", "Every answer the assistant can give. Nothing is live until somebody approves it."],
       staff: ["Staff accounts", "Who can sign in here, and what they can reach."],
@@ -1048,6 +1063,151 @@
         lines.push("Nobody who speaks this language has checked the wording.");
       }
       return lines.join(" ");
+    }
+
+    // ── CONVERSATIONS ────────────────────────────────────────────────────────
+    //
+    // The half that was missing. Somebody could ask, and nobody at Fayr could
+    // answer them.
+    //
+    // TAKING IS A SEPARATE ACT FROM REPLYING, on purpose. Two agents typing
+    // different answers into one conversation, minutes apart, is worse than one
+    // slow answer, and the shopper cannot tell which one is Fayr's. So the reply
+    // box only appears once your name is on it, and the server refuses a reply
+    // from anybody else even if this screen were wrong about that.
+
+    function ConversationsScreen() {
+      var st = state.chats;
+      if (st.open) return OneConversation(st.open);
+
+      var filters = h("div", { class: "row", style: "gap:8px;margin-bottom:14px" },
+        [["WAITING_FOR_PERSON", "Waiting for a person"], ["TAKEN", "Taken"],
+         ["ASSISTANT", "With the assistant"], ["CLOSED", "Closed"], ["", "All"]]
+          .map(function (f) {
+            return h("button", {
+              class: "btn btn-sm" + (st.filter === f[0] ? " btn-primary" : ""),
+              onclick: function () { setChatsFilter(f[0]); }
+            }, f[1]);
+          }));
+
+      var body;
+      if (st.loading && !st.items) body = h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading…");
+      else if (st.error) body = h("div", { class: "flash flash-err" }, st.error);
+      else if (!st.items || st.items.length === 0) body = h("div", { class: "empty" }, "No conversations here.");
+      else body = h("div", null, st.items.map(ConversationCard));
+
+      return h("div", null,
+        st.notice ? h("div", { class: "flash flash-info" }, st.notice) : null,
+        st.actionError ? h("div", { class: "flash flash-err" }, st.actionError) : null,
+        filters,
+        h("div", { class: "muted", style: "margin-bottom:10px" }, st.items ? st.total + " in all" : ""),
+        body);
+    }
+
+    function conversationTone(state) {
+      if (state === "WAITING_FOR_PERSON") return "bad";
+      if (state === "TAKEN") return "warn";
+      if (state === "CLOSED") return "neutral";
+      return "ok";
+    }
+
+    function ConversationCard(c) {
+      return h("div", { class: "card finding" },
+        h("div", { class: "row", style: "justify-content:space-between;gap:10px" },
+          h("div", { style: "min-width:0" },
+            h("div", { style: "font-weight:700;font-size:15px" },
+              c.latest ? c.latest.body : "Nothing said yet"),
+            h("div", { class: "muted mono", style: "margin-top:4px" },
+              c.user.displayId, "  ·  ", fmtDate(c.lastMessageAt),
+              "  ·  ", String(c.messageCount) + " messages")),
+          h("div", { class: "row", style: "gap:8px" },
+            statePill(c.stateInWords, conversationTone(c.state)),
+            h("button", {
+              class: "btn btn-sm btn-primary",
+              disabled: state.chats.busy === c.chatId,
+              onclick: function () { openConversation(c.chatId); }
+            }, state.chats.busy === c.chatId ? "Opening…" : "Open"))));
+    }
+
+    function OneConversation(chat) {
+      var st = state.chats;
+      var mine = state.staff && chat.takenBy && chat.takenBy.id === state.staff.id;
+      var admin = state.staff && state.staff.role === "ADMIN";
+      var canReply = !chat.closed && (mine || admin);
+
+      var bubbles = chat.messages.length === 0
+        ? [h("div", { class: "empty" }, "Nothing said yet.")]
+        : chat.messages.map(function (m) {
+            var theirs = m.author === "PERSON";
+            return h("div", {
+              class: "card",
+              style: "margin-bottom:8px;max-width:80%;"
+                + (theirs ? "" : "margin-left:auto;")
+            },
+              h("div", { class: "muted", style: "font-size:12px;margin-bottom:4px" },
+                m.from, "  ·  ", fmtDate(m.sentAt)),
+              h("div", null, m.body));
+          });
+
+      // The plain-language rule applies to what an agent types too. It WARNS and
+      // does not block: a reply to one person who is waiting is not worth holding
+      // back over a word we would rather they had not used.
+      var warnings = st.warnings && st.warnings.length
+        ? h("div", { class: "flash flash-warn" },
+            h("div", { style: "font-weight:700;margin-bottom:4px" },
+              "This does not read the way Fayr writes. You can still send it."),
+            h("ul", { style: "margin:0;padding-left:18px" },
+              st.warnings.map(function (w) { return h("li", null, w); })))
+        : null;
+
+      var box = canReply
+        ? h("div", { class: "card", style: "margin-top:14px" },
+            h("textarea", {
+              class: "input", rows: "4", placeholder: "Type your reply",
+              value: st.draft,
+              oninput: function (e) { state.chats.draft = e.target.value; }
+            }),
+            h("div", { class: "row", style: "gap:8px;margin-top:10px" },
+              h("button", {
+                class: "btn btn-primary",
+                disabled: st.busy === "reply",
+                onclick: function () { sendChatReply(chat.chatId); }
+              }, st.busy === "reply" ? "Sending…" : "Send"),
+              h("button", {
+                class: "btn btn-sm",
+                disabled: st.busy === "check",
+                onclick: function () { checkChatReply(); }
+              }, "Check my words"),
+              h("button", {
+                class: "btn btn-sm",
+                disabled: st.busy === "close",
+                onclick: function () { closeConversation(chat.chatId); }
+              }, st.busy === "close" ? "Closing…" : "Close this conversation")))
+        : h("div", { class: "card", style: "margin-top:14px" },
+            h("div", { class: "muted" },
+              chat.closed
+                ? "This conversation is closed. Nobody can add to it."
+                : chat.takenBy
+                  ? "Taken by " + chat.takenBy.name + ". Only they, or an administrator, can reply."
+                  : "Take this conversation to put your name on it and reply."),
+            chat.closed || chat.takenBy
+              ? null
+              : h("button", {
+                  class: "btn btn-primary", style: "margin-top:10px",
+                  disabled: st.busy === "take",
+                  onclick: function () { takeConversation(chat.chatId); }
+                }, st.busy === "take" ? "Taking…" : "Take this conversation"));
+
+      return h("div", null,
+        h("div", { class: "row", style: "gap:10px;margin-bottom:12px;align-items:center" },
+          h("button", { class: "btn btn-sm", onclick: function () { backToConversations(); } }, "‹ Back"),
+          statePill(chat.stateInWords, conversationTone(chat.state)),
+          h("span", { class: "muted mono" }, "started " + fmtDate(chat.startedAt))),
+        st.actionError ? h("div", { class: "flash flash-err" }, st.actionError) : null,
+        st.notice ? h("div", { class: "flash flash-info" }, st.notice) : null,
+        warnings,
+        h("div", null, bubbles),
+        box);
     }
 
     function ChatQuestionsScreen() {
@@ -2467,6 +2627,81 @@
     // The app has been telling those users "a Fayr reviewer confirms yours is
     // live" the whole time. This is the reviewer.
     // ── the assistant: loading and acting ────────────────────────────────────
+    async function loadChats() {
+      state.chats.loading = true; state.chats.error = null; render();
+      try {
+        var q = state.chats.filter ? "?state=" + state.chats.filter : "";
+        var page = await api("GET", "/admin/chats" + q);
+        state.chats.items = page.chats; state.chats.total = page.total;
+      } catch (e) { state.chats.error = e.message; }
+      state.chats.loading = false; render();
+    }
+
+    function setChatsFilter(st) {
+      state.chats.filter = st; state.chats.items = null; loadChats();
+    }
+
+    async function openConversation(id) {
+      state.chats.busy = id; state.chats.actionError = null; render();
+      try {
+        state.chats.open = await api("GET", "/admin/chats/" + id);
+        state.chats.draft = ""; state.chats.warnings = []; state.chats.notice = null;
+      } catch (e) { state.chats.actionError = e.message; }
+      state.chats.busy = null; render();
+    }
+
+    function backToConversations() {
+      state.chats.open = null; state.chats.draft = ""; state.chats.warnings = [];
+      state.chats.notice = null; state.chats.actionError = null;
+      state.chats.items = null; loadChats();
+    }
+
+    async function takeConversation(id) {
+      state.chats.busy = "take"; state.chats.actionError = null; render();
+      try {
+        state.chats.open = await api("POST", "/admin/chats/" + id + "/take");
+        state.chats.notice = "Your name is on it. You are the only one who can reply.";
+      } catch (e) { state.chats.actionError = e.message; }
+      state.chats.busy = null; render();
+    }
+
+    async function sendChatReply(id) {
+      var words = (state.chats.draft || "").trim();
+      if (!words) { state.chats.actionError = "There is nothing in that message."; render(); return; }
+      state.chats.busy = "reply"; state.chats.actionError = null; render();
+      try {
+        var res = await api("POST", "/admin/chats/" + id + "/reply", { message: words });
+        state.chats.open = res.chat;
+        state.chats.draft = "";
+        // Sent either way. The warning is about what was sent, not a refusal.
+        state.chats.warnings = res.plainLanguage.ok ? [] : res.plainLanguage.problems;
+        state.chats.notice = res.plainLanguage.ok
+          ? "Sent. They will see it the next time their app looks."
+          : null;
+      } catch (e) { state.chats.actionError = e.message; }
+      state.chats.busy = null; render();
+    }
+
+    async function checkChatReply() {
+      var words = (state.chats.draft || "").trim();
+      state.chats.busy = "check"; state.chats.actionError = null; render();
+      try {
+        var res = await api("POST", "/admin/chats/reply/check", { message: words });
+        state.chats.warnings = res.ok ? [] : res.problems;
+        state.chats.notice = res.ok ? "That reads the way Fayr writes." : null;
+      } catch (e) { state.chats.actionError = e.message; }
+      state.chats.busy = null; render();
+    }
+
+    async function closeConversation(id) {
+      state.chats.busy = "close"; state.chats.actionError = null; render();
+      try {
+        state.chats.open = await api("POST", "/admin/chats/" + id + "/close");
+        state.chats.notice = "Closed. Nobody can add to it now.";
+      } catch (e) { state.chats.actionError = e.message; }
+      state.chats.busy = null; render();
+    }
+
     async function loadChatQuestions() {
       state.chat.loading = true; state.chat.error = null; render();
       try {
@@ -3138,6 +3373,7 @@
       else if (state.screen === "verifications") content = VerificationsScreen();
       else if (state.screen === "amounts") content = AmountsScreen();
       else if (state.screen === "reviews") content = ReviewChecksScreen();
+      else if (state.screen === "chats") content = ConversationsScreen();
       else if (state.screen === "chat") content = ChatQuestionsScreen();
       else if (state.screen === "answers") content = AnswerBookScreen();
       else if (state.screen === "livepages") content = LivePagesScreen();

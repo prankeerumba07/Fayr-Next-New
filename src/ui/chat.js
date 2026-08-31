@@ -55,66 +55,91 @@ export function validateQuestion(question) {
 }
 
 /**
- * One exchange: what was asked, and what came back.
+ * WHAT ONE MESSAGE LOOKS LIKE ON SCREEN.
  *
- * Defensive about the reply's shape on purpose. A question a person typed must
- * never disappear because the answer arrived in a shape nobody expected.
+ * Four kinds, and the difference between them matters to the person reading:
+ * their own words, an answer from the answer book, a note saying a person is
+ * coming, and a reply written by an actual person at Fayr with their name on it.
+ *
+ * The last one is the whole reason this screen changed. Somebody who has been
+ * told "a person will get back to you" has to be able to tell, at a glance, that
+ * the next thing they are reading IS that person.
  */
-export function turnFromAsk(question, reply) {
-  const r = reply && typeof reply === 'object' ? reply : {};
-  const answered = r.answered === true;
-  return {
-    questionId: text(r.questionId) || 'unsent',
-    question: text(question).trim() || '(no question)',
-    answer: text(r.answer) || null,
-    language: text(r.language) || 'en',
-    languageName: text(r.languageName) || null,
-    answered,
-    waitingForAPerson: !answered,
-    helpful: typeof r.helpful === 'boolean' ? r.helpful : null,
-  };
-}
+function messageFrom(m, index) {
+  const id = text(m && m.id) || `message-${index}`;
+  const body = text(m && m.body);
+  const author = text(m && m.author);
 
-/** An earlier exchange as the backend stores it, turned into one of ours. */
-export function turnFromStored(row) {
-  const r = row && typeof row === 'object' ? row : {};
-  return {
-    questionId: text(r.questionId) || 'unsent',
-    question: text(r.question).trim() || '(no question)',
-    answer: text(r.answer) || null,
-    language: 'en',
-    languageName: null,
-    answered: r.answered === true,
-    waitingForAPerson: r.answered !== true,
-    helpful: typeof r.helpful === 'boolean' ? r.helpful : null,
-  };
-}
-
-function messagesFor(turns) {
-  const out = [];
-  for (const [i, raw] of turns.entries()) {
-    const turn = raw && typeof raw === 'object' ? raw : {};
-    const id = text(turn.questionId) || `turn-${i}`;
-    out.push({
-      id: `${id}:you`,
-      who: 'you',
-      text: text(turn.question) || '(no question)',
-      tone: 'question',
-      label: null,
-    });
-    // A turn with no reply yet is a question in flight. It still shows, so the
-    // person can see their own words went somewhere.
-    if (text(turn.answer) !== '') {
-      out.push({
-        id: `${id}:fayr`,
-        who: 'fayr',
-        text: text(turn.answer),
-        tone: turn.answered === true ? 'answer' : 'waiting',
-        label: turn.answered === true ? null : WAITING_LABEL,
-      });
-    }
+  if (author === 'PERSON') {
+    return { id, who: 'you', text: body, tone: 'question', label: null,
+             questionId: text(m && m.questionId) || null,
+             helpful: m && typeof m.helpful === 'boolean' ? m.helpful : null };
   }
-  return out;
+  if (author === 'AGENT') {
+    return { id, who: 'fayr', text: body, tone: 'person',
+             // The name goes on the message, not in a heading somewhere else.
+             label: text(m && m.from) || 'Fayr',
+             questionId: text(m && m.questionId) || null,
+             helpful: m && typeof m.helpful === 'boolean' ? m.helpful : null };
+  }
+  if (author === 'SYSTEM') {
+    return { id, who: 'fayr', text: body, tone: 'note', label: null,
+             questionId: null, helpful: null };
+  }
+  // The assistant. Whether it knew the answer decides how it reads.
+  const answered = !(m && m.waitingForAPerson === true);
+  return {
+    id, who: 'fayr', text: body,
+    tone: answered ? 'answer' : 'waiting',
+    label: answered ? null : WAITING_LABEL,
+    questionId: text(m && m.questionId) || null,
+    helpful: m && typeof m.helpful === 'boolean' ? m.helpful : null,
+  };
+}
+
+/**
+ * Every message in a conversation, in the order it was said.
+ *
+ * Defensive about the shape on purpose. A conversation somebody is in the middle
+ * of must never disappear because one field came back in a shape we did not
+ * expect — a blank screen is the worst possible answer to "where did my chat go".
+ */
+export function messagesFrom(chat) {
+  const c = chat && typeof chat === 'object' ? chat : {};
+  const raw = Array.isArray(c.messages) ? c.messages : [];
+  const waiting = c.waitingForAPerson === true;
+
+  // The assistant's LAST message is the one that triggered a hand over, so it is
+  // the only one that reads as "waiting". Earlier ones were answers at the time.
+  let lastAssistantAt = -1;
+  for (let i = 0; i < raw.length; i += 1) {
+    if (raw[i] && raw[i].author === 'ASSISTANT') lastAssistantAt = i;
+  }
+
+  return raw.map((m, i) =>
+    messageFrom(
+      { ...m, waitingForAPerson: waiting && i === lastAssistantAt },
+      i,
+    ),
+  );
+}
+
+/**
+ * What to tell the person about who has their conversation.
+ *
+ * Only when it is worth saying. While the assistant is handling it there is
+ * nothing to report, and a banner saying so would be noise on every screen.
+ */
+export function statusLine(chat) {
+  const c = chat && typeof chat === 'object' ? chat : {};
+  if (c.closed === true) return 'This conversation is closed.';
+  if (c.waitingForAPerson === true) {
+    return 'A person from Fayr will reply here.';
+  }
+  if (c.takenBy && text(c.takenBy.name) !== '') {
+    return `${text(c.takenBy.name)} from Fayr is helping you.`;
+  }
+  return null;
 }
 
 /**
@@ -126,25 +151,26 @@ function messagesFor(turns) {
  */
 export function chatView(state) {
   const s = state && typeof state === 'object' ? state : {};
-  const turns = Array.isArray(s.turns) ? s.turns : [];
+  const chat = s.chat && typeof s.chat === 'object' ? s.chat : null;
   const draft = text(s.draft);
   const busy = s.busy === true;
   const loading = s.loading === true;
 
-  const messages = messagesFor(turns);
+  const messages = messagesFrom(chat);
+  const closed = chat ? chat.closed === true : false;
 
-  // Asked after EVERY reply, answered or not. Somebody who only wanted to reach a
-  // person can still say that helped, and a no puts it back in the queue either
-  // way. Only ever about the newest reply, and only until they say.
-  const newest = turns.length > 0 ? turns[turns.length - 1] : null;
-  const askAbout =
-    newest &&
-    typeof newest === 'object' &&
-    text(newest.answer) !== '' &&
-    newest.helpful !== true &&
-    newest.helpful !== false
-      ? newest
-      : null;
+  // Asked after the newest reply, whoever wrote it, and only until they say. A
+  // reply from a person is worth asking about just as much as one from the answer
+  // book: "did that help" is what tells us whether the answer was any good.
+  let askAbout = null;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m.who !== 'fayr') continue;
+    if (m.text !== '' && m.questionId && m.helpful !== true && m.helpful !== false) {
+      askAbout = m;
+    }
+    break;
+  }
 
   const check = validateQuestion(draft);
   return {
@@ -153,9 +179,10 @@ export function chatView(state) {
     loading,
     empty: messages.length === 0 && !loading,
     messages,
+    status: statusLine(chat),
     feedback: askAbout
       ? {
-          questionId: text(askAbout.questionId) || 'unsent',
+          questionId: askAbout.questionId,
           prompt: FEEDBACK_PROMPT,
           yes: FEEDBACK_YES,
           no: FEEDBACK_NO,
@@ -164,10 +191,14 @@ export function chatView(state) {
     input: {
       value: draft,
       placeholder: PLACEHOLDER,
-      canSend: check.ok && !busy && !loading,
-      // Only shown once there is something wrong with what was typed, so an empty
-      // box is not nagged at.
-      hint: draft !== '' && !check.ok ? check.reason : null,
+      // A closed conversation takes nothing more. Saying so beats a box that
+      // silently throws away what somebody types into it.
+      canSend: check.ok && !busy && !loading && !closed,
+      hint: closed
+        ? 'This conversation is closed.'
+        : draft !== '' && !check.ok
+          ? check.reason
+          : null,
       busy,
     },
     error: text(s.error) || null,
