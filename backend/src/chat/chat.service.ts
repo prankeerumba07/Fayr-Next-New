@@ -17,6 +17,7 @@ import {
   mayTake,
   type StaffFacts,
 } from './chat.rules';
+import { draftEmail, type Draft } from './email-draft';
 import {
   LANGUAGE_CHOSEN,
   LANGUAGE_OFFER,
@@ -361,6 +362,57 @@ export class ChatService {
     if (!said.allowed) throw new ChatError(said.reason as string);
     await this.store.close(chatId);
     return this.store.getChat(chatId);
+  }
+
+  /**
+   * A SUGGESTED EMAIL, FOR AN AGENT TO COPY.
+   *
+   * Only once a person has the conversation. Before that there is nobody to sign
+   * it, and an email signed "Fayr" from a conversation the assistant is still
+   * handling would be a person's letter with no person behind it.
+   *
+   * The middle of it is either an answer already in the answer book, word for
+   * word, or an honest line saying somebody is looking. There is no third case,
+   * because the third case is Fayr inventing a promise in writing.
+   *
+   * FAYR DOES NOT SEND IT. Nothing here talks to a mail server. It is words and a
+   * copy button, and the agent sends it from their own email.
+   */
+  async emailDraftFor(chatId: string, staff: StaffFacts): Promise<Draft> {
+    const chat = await this.store.getChat(chatId);
+    const said = mayReply(chat, staff);
+    if (!said.allowed) throw new ChatError(said.reason as string);
+
+    const theirs = [...chat.messages]
+      .reverse()
+      .find((m) => m.author === 'PERSON');
+    const question = theirs ? theirs.body : '';
+
+    // The answer that was actually shown, if one was. Read off the question row
+    // rather than searched again: what went out is what we write about, and a
+    // fresh search could find something different a week later.
+    const answered = await this.prisma.assistantQuestion.findFirst({
+      where: { chatId, answerOrigin: 'ANSWER_BOOK' },
+      orderBy: { askedAt: 'desc' },
+      select: { answerText: true },
+    });
+
+    const person = await this.prisma.staffUser.findUnique({
+      where: { id: staff.id },
+      select: { name: true },
+    });
+    const account = await this.prisma.user.findUnique({
+      where: { id: chat.userId },
+      select: { name: true },
+    });
+
+    return draftEmail({
+      question,
+      answer: answered?.answerText ?? null,
+      agentName: person?.name ?? '',
+      accountName: account?.name ?? null,
+      language: chat.chosenLanguage ?? 'en',
+    });
   }
 
   /** What is wrong with the way something is written, without sending it. */

@@ -444,6 +444,35 @@ console.log('\n=== 7e. the conversations screen ===');
   ok(!/mobile/.test(convo), 'no phone number is drawn on the conversation screens');
 }
 
+console.log('\n=== 7f. the suggested email ===');
+{
+  const from = script.indexOf('function ConversationsScreen');
+  const to = script.indexOf('function ChatQuestionsScreen');
+  const convo = script.slice(from, to);
+
+  ok(script.includes('/email-draft'), 'it asks the server for the draft');
+  ok(convo.includes('Fayr does not send email'),
+    'and says out loud that Fayr does not send it');
+  ok(convo.includes('send it from your own email'),
+    'and who does send it');
+
+  // The words are the SERVER'S. A copy of the wording here would drift from the
+  // one the plain-language check is actually run against.
+  ok(!/Hello,|Fayr customer support|You asked us/.test(convo),
+    'the panel holds no copy of the email’s words');
+
+  // A text box is always there. Copying to the clipboard is blocked on a plain
+  // web address, which is exactly how the panel is reached from a phone.
+  ok(/h\("textarea"[\s\S]{0,200}st\.email\.body/.test(convo),
+    'the email is in a box you can select, not only behind a copy button');
+  ok(convo.includes('copyEmailDraft('), 'there is a copy button too');
+  ok(script.includes('copy it yourself'),
+    'and it says what to do when the browser will not copy for you');
+
+  ok(convo.includes('You can still send it'),
+    'a wording warning on an email is a warning, not a refusal');
+}
+
 console.log('\n=== 7d. no personal detail travels in a web address ===');
 {
   // A mobile number in an address lands in this laptop's browser history and in
@@ -543,7 +572,7 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     function checkAnswerWords() {} function saveAnswer() {} function setAnswerLive() {}
     function setChatsFilter() {} function openConversation() {} function backToConversations() {}
     function takeConversation() {} function sendChatReply() {} function checkChatReply() {}
-    function closeConversation() {}
+    function closeConversation() {} function loadEmailDraft() {} function copyEmailDraft() {}
     var state = STATE;
     ${src}
     return { chat: ChatQuestionsScreen(), book: AnswerBookScreen(), live: LivePagesScreen(),
@@ -603,10 +632,18 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     ...over,
   });
 
+  const EMAIL = {
+    subject: 'About your Fayr question',
+    body: 'Hello,\n\nYou asked us:\n"do you deliver to Kathmandu"\n\n'
+      + 'I am looking into this for you.\n\nAsha\nFayr customer support',
+    plainLanguage: { ok: true, problems: [] },
+    fromTheAnswerBook: false,
+  };
+
   const chatsBranch = (over) => ({
     loading: false, error: null, items: CONVOS, total: 3,
     filter: 'WAITING_FOR_PERSON', busy: null, notice: null, actionError: null,
-    open: null, draft: '', warnings: [], ...over,
+    open: null, draft: '', warnings: [], email: null, emailNote: null, ...over,
   });
 
   const chatState = (over) => ({
@@ -675,6 +712,27 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     ['sending a reply', convoState({
       open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
                        takenBy: { id: 's-asha', name: 'Asha' } }), busy: 'reply' })],
+    ['a suggested email', convoState({
+      open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
+                       takenBy: { id: 's-asha', name: 'Asha' } }),
+      email: EMAIL })],
+    ['a suggested email from the answer book', convoState({
+      open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
+                       takenBy: { id: 's-asha', name: 'Asha' } }),
+      email: { ...EMAIL, fromTheAnswerBook: true } })],
+    ['a suggested email that does not read plainly', convoState({
+      open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
+                       takenBy: { id: 's-asha', name: 'Asha' } }),
+      email: { ...EMAIL, plainLanguage: { ok: false, problems: ['"kyc" is not a word a person here would use.'] } } })],
+    ['a suggested email that could not be copied', convoState({
+      open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
+                       takenBy: { id: 's-asha', name: 'Asha' } }),
+      email: EMAIL,
+      emailNote: 'This browser will not let a page copy for you.' })],
+    ['writing a suggested email', convoState({
+      open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
+                       takenBy: { id: 's-asha', name: 'Asha' } }),
+      busy: 'email' })],
     ['an administrator on somebody else\'s conversation', convoState(
       { open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Ravi', waitingForAPerson: false,
                          takenBy: { id: 's-ravi', name: 'Ravi' } }) },

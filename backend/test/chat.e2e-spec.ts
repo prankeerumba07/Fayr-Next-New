@@ -494,6 +494,114 @@ describe('Chat conversations (e2e)', () => {
     });
   });
 
+  // ── a suggested email, for the agent to copy ──────────────────────────────
+  describe('the suggested email', () => {
+    async function aTakenChat(question: string): Promise<{
+      chatId: string;
+      asha: { id: string; name: string; token: string };
+    }> {
+      await anAnswerBook();
+      const shopper = await aShopper();
+      const chat = await say(shopper.token, question);
+      const asha = await anAgent('SUPPORT', 'Asha');
+      await request(server())
+        .post(`/admin/chats/${chat.chatId}/take`)
+        .set('Authorization', `Bearer ${asha.token}`)
+        .expect(200);
+      return { chatId: chat.chatId, asha };
+    }
+
+    it('quotes what they asked and signs it with the agent’s real name', async () => {
+      const { chatId, asha } = await aTakenChat('do you deliver to Kathmandu');
+      const draft = await request(server())
+        .get(`/admin/chats/${chatId}/email-draft`)
+        .set('Authorization', `Bearer ${asha.token}`)
+        .expect(200);
+
+      expect(draft.body.body).toContain('"do you deliver to Kathmandu"');
+      expect(draft.body.body).toContain('Asha');
+      expect(draft.body.subject.length).toBeGreaterThan(8);
+    });
+
+    it('uses the answer that was actually shown, word for word', async () => {
+      const { chatId, asha } = await aTakenChat('what are tickets');
+      const shown = await prisma.assistantQuestion.findFirstOrThrow({
+        where: { chatId }, orderBy: { askedAt: 'desc' },
+      });
+      const draft = await request(server())
+        .get(`/admin/chats/${chatId}/email-draft`)
+        .set('Authorization', `Bearer ${asha.token}`)
+        .expect(200);
+
+      expect(draft.body.fromTheAnswerBook).toBe(true);
+      expect(draft.body.body).toContain(shown.answerText as string);
+    });
+
+    it('INVENTS NOTHING when the answer book had nothing', async () => {
+      const { chatId, asha } = await aTakenChat('do you deliver to Kathmandu');
+      const draft = await request(server())
+        .get(`/admin/chats/${chatId}/email-draft`)
+        .set('Authorization', `Bearer ${asha.token}`)
+        .expect(200);
+
+      expect(draft.body.fromTheAnswerBook).toBe(false);
+      expect(draft.body.body).not.toMatch(/\d+\s*(hours?|days?|weeks?)/i);
+    });
+
+    it('reads plainly, which is the point of drafting it at all', async () => {
+      const { chatId, asha } = await aTakenChat('what are tickets');
+      const draft = await request(server())
+        .get(`/admin/chats/${chatId}/email-draft`)
+        .set('Authorization', `Bearer ${asha.token}`)
+        .expect(200);
+      expect(draft.body.plainLanguage.ok).toBe(true);
+      expect(draft.body.plainLanguage.problems).toEqual([]);
+    });
+
+    it('writes in the language the conversation is being held in', async () => {
+      await anAnswerBook();
+      const shopper = await aShopper();
+      await say(shopper.token, 'टिकट क्या है');
+      await say(shopper.token, 'मेरा पैसा कब आएगा');
+      await say(shopper.token, 'hindi');
+      const chat = await say(shopper.token, 'क्या आप काठमांडू भेजते हैं');
+
+      const asha = await anAgent('SUPPORT', 'Asha');
+      await request(server())
+        .post(`/admin/chats/${chat.chatId}/take`)
+        .set('Authorization', `Bearer ${asha.token}`)
+        .expect(200);
+
+      const draft = await request(server())
+        .get(`/admin/chats/${chat.chatId}/email-draft`)
+        .set('Authorization', `Bearer ${asha.token}`)
+        .expect(200);
+      expect(draft.body.body).toMatch(/[ऀ-ॿ]/);
+    });
+
+    it('REFUSES an agent who does not have the conversation', async () => {
+      // An email is a reply, sent a different way, so the same rule applies.
+      const { chatId } = await aTakenChat('do you deliver to Kathmandu');
+      const ravi = await anAgent('SUPPORT', 'Ravi');
+      const refused = await request(server())
+        .get(`/admin/chats/${chatId}/email-draft`)
+        .set('Authorization', `Bearer ${ravi.token}`)
+        .expect(400);
+      expect(refused.body.message).toMatch(/somebody else/i);
+    });
+
+    it('refuses one nobody has taken', async () => {
+      await anAnswerBook();
+      const shopper = await aShopper();
+      const chat = await say(shopper.token, 'do you deliver to Kathmandu');
+      const asha = await anAgent();
+      await request(server())
+        .get(`/admin/chats/${chat.chatId}/email-draft`)
+        .set('Authorization', `Bearer ${asha.token}`)
+        .expect(400);
+    });
+  });
+
   // ── the plain language rule, for what an agent types ──────────────────────
   describe('the plain language rule warns an agent, it does not block them', () => {
     it('sends the reply anyway, and says what is wrong with it', async () => {

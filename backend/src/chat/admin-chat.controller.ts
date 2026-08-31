@@ -27,6 +27,7 @@ import {
   type ChatQueueRow,
   type ChatResponse,
 } from './chat.response';
+import type { Draft } from './email-draft';
 import { CheckReplyDto, ReplyDto } from './dto/say.dto';
 import { ListChatsQueryDto } from './dto/list-chats.query';
 
@@ -161,6 +162,27 @@ export class AdminChatController {
       },
     });
     return { chat: toChat(done.chat), plainLanguage: done.warnings };
+  }
+
+  /**
+   * A suggested email, for this agent to copy and send from their own email.
+   *
+   * Refused unless this is the person who took the conversation, or an
+   * administrator, for exactly the reason replying is: an email is a reply, sent
+   * a different way.
+   *
+   * NOT AUDITED. Reading a draft is reading, and the conversation it is drawn
+   * from was already recorded when it was opened. Recording every look at a
+   * suggestion would bury the trail in the same noise the queue was kept out of.
+   */
+  @Get(':id/email-draft')
+  async emailDraft(
+    @CurrentStaff() staff: AuthenticatedStaff,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<Draft> {
+    return this.translate(() =>
+      this.chat.emailDraftFor(id, { id: staff.id, role: staff.role }),
+    );
   }
 
   /** What is wrong with these words, without sending them. */
