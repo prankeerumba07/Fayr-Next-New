@@ -12,7 +12,7 @@ import { AssistantSeedService } from '../src/assistant/assistant-seed.service';
 import {
   LANGUAGE_OFFER,
   STILL_WAITING,
-  SUPPORT_EMAIL_PLACEHOLDER,
+  SUPPORT_EMAIL,
 } from '../src/chat/chat-words';
 import { resetDatabase } from './reset-db';
 
@@ -281,7 +281,7 @@ describe('What the assistant says (e2e)', () => {
       expect(reply).toContain('a minute or two');
       expect(reply).toContain('reply to you here');
       expect(reply).toContain('24 to 48 hours');
-      expect(reply).toContain(SUPPORT_EMAIL_PLACEHOLDER);
+      expect(reply).toContain(SUPPORT_EMAIL);
     });
 
     it('and puts it where people look', async () => {
@@ -300,7 +300,7 @@ describe('What the assistant says (e2e)', () => {
       const reply = lastFayr(chat);
       expect(reply.language).toBe('hi');
       expect(reply.body).toMatch(/[ऀ-ॿ]/);
-      expect(reply.body).toContain(SUPPORT_EMAIL_PLACEHOLDER);
+      expect(reply.body).toContain(SUPPORT_EMAIL);
     });
   });
 

@@ -1,5 +1,5 @@
 import { plainLanguageProblems } from '../assistant/plain-language';
-import { SUPPORT_EMAIL_PLACEHOLDER } from './chat-words';
+import { SUPPORT_EMAIL } from './chat-words';
 
 /**
  * A SUGGESTED EMAIL, FOR THE AGENT TO COPY.
@@ -166,5 +166,5 @@ export function draftEmail(input: DraftInput): Draft {
   };
 }
 
-/** The address a shopper is told to write to. A stand-in, and named as one. */
-export const WRITE_TO_US_AT = SUPPORT_EMAIL_PLACEHOLDER;
+/** The address a shopper is told to write to. The real one. */
+export const WRITE_TO_US_AT = SUPPORT_EMAIL;

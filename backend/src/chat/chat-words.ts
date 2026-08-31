@@ -17,8 +17,15 @@ import { LANGUAGES } from '../assistant/language';
  * check the answer book uses over every string in this file, in its own language.
  */
 
-/** The stand-in for the address people can write to instead of waiting. */
-export const SUPPORT_EMAIL_PLACEHOLDER = 'support@fayr.example';
+/**
+ * The address people can write to instead of waiting. Real, not a stand-in.
+ *
+ * It is written here rather than read from a setting on purpose: a missing
+ * setting would put an empty gap in the middle of a sentence a shopper reads,
+ * and there is exactly one address. If that ever stops being true, move it to a
+ * setting WITH a default, never to a setting that can come back empty.
+ */
+export const SUPPORT_EMAIL = 'Customer.support@theratefair.com';
 
 /** India, always. It has never had daylight saving, so a fixed offset is right. */
 const IST = IST_OFFSET_MINUTES;
@@ -144,8 +151,8 @@ export function greetingFor(language: string, now: Date): string {
 /**
  * SAYING SO WHEN WE DO NOT KNOW, AND HANDING OVER.
  *
- * The address is a stand-in and is named as one. Putting a made-up address in
- * front of somebody who is already waiting would be worse than the wait.
+ * The address is handed in rather than read from here, so a test can prove the
+ * sentence puts back whatever address it is given. Callers pass SUPPORT_EMAIL.
  */
 export function handOverWords(language: string, email: string): string {
   const lang = HAND_OVER[language] ? language : 'en';

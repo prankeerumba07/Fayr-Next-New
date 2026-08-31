@@ -29,7 +29,7 @@ import {
   LANGUAGE_CHOSEN,
   LANGUAGE_OFFER,
   STILL_WAITING,
-  SUPPORT_EMAIL_PLACEHOLDER,
+  SUPPORT_EMAIL,
   WAITING_NOTE_AFTER_MS,
   greetingFor,
   handOverWords,
@@ -209,7 +209,7 @@ export class ChatService {
     const reply = await this.store.addMessage({
       chatId: chat.id,
       author: 'ASSISTANT',
-      body: handOverWords(replyIn, SUPPORT_EMAIL_PLACEHOLDER),
+      body: handOverWords(replyIn, SUPPORT_EMAIL),
       language: replyIn,
       assistantQuestionId: asked.questionId,
     });

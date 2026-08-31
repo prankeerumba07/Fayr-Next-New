@@ -4,7 +4,7 @@ import {
   LANGUAGE_CHOSEN,
   LANGUAGE_OFFER,
   STILL_WAITING,
-  SUPPORT_EMAIL_PLACEHOLDER,
+  SUPPORT_EMAIL,
   WAITING_NOTE_AFTER_MS,
   greetingFor,
   handOverWords,
@@ -120,12 +120,12 @@ describe('knowing a greeting from a question', () => {
 
 describe('handing over to a person', () => {
   it('says what will happen, how long, and what else they can do', () => {
-    const said = handOverWords('en', SUPPORT_EMAIL_PLACEHOLDER);
+    const said = handOverWords('en', SUPPORT_EMAIL);
     expect(said).toContain('transferring this chat to a customer support agent');
     expect(said).toContain('a minute or two');
     expect(said).toContain('reply to you here');
     expect(said).toContain('24 to 48 hours');
-    expect(said).toContain(SUPPORT_EMAIL_PLACEHOLDER);
+    expect(said).toContain(SUPPORT_EMAIL);
   });
 
   it('puts the address in, whatever address it is given', () => {
@@ -237,7 +237,7 @@ describe('EVERY LINE READS PLAINLY, IN ITS OWN LANGUAGE', () => {
       out.push([`greeting, morning`, language, greetingFor(language, inIndia(9))]);
       out.push([`greeting, afternoon`, language, greetingFor(language, inIndia(14))]);
       out.push([`greeting, evening`, language, greetingFor(language, inIndia(19))]);
-      out.push([`hand over`, language, handOverWords(language, SUPPORT_EMAIL_PLACEHOLDER)]);
+      out.push([`hand over`, language, handOverWords(language, SUPPORT_EMAIL)]);
       out.push([`still waiting`, language, STILL_WAITING[language]]);
       out.push([`language offer`, language, LANGUAGE_OFFER[language]]);
       out.push([`language chosen`, language, LANGUAGE_CHOSEN[language]]);
@@ -254,9 +254,26 @@ describe('EVERY LINE READS PLAINLY, IN ITS OWN LANGUAGE', () => {
     expect(languagesWeHaveWordsFor()).toEqual([...LANGUAGES]);
   });
 
-  it('uses a stand-in address, and says so by looking like one', () => {
-    // Named in the report as needing a real one. An invented address in front of
-    // somebody who is already waiting would be worse than the wait.
-    expect(SUPPORT_EMAIL_PLACEHOLDER).toContain('example');
+  it('is the real support address, written out here so a typo cannot hide', () => {
+    // Pinned to the exact characters on purpose. This address is read aloud from
+    // the middle of a sentence by somebody who is already waiting, and a silent
+    // one-letter change to it would send their email nowhere and tell nobody.
+    expect(SUPPORT_EMAIL).toBe('Customer.support@theratefair.com');
+  });
+
+  it('is not a stand-in any more, in any of the usual disguises', () => {
+    // The old value was support@fayr.example. This fails if anybody puts a
+    // pretend address back, whichever pretend domain they reach for.
+    for (const disguise of ['example', 'test', 'invalid', 'localhost', 'fayr.local']) {
+      expect(SUPPORT_EMAIL.toLowerCase()).not.toContain(disguise);
+    }
+  });
+
+  it('reads plainly on its own, and not only inside a sentence', () => {
+    // The every-line test above checks the hand over sentence. This checks the
+    // address by itself, because the drafted email puts it on its own line.
+    for (const language of LANGUAGES) {
+      expect(plainLanguageProblems(SUPPORT_EMAIL, language)).toEqual([]);
+    }
   });
 });
