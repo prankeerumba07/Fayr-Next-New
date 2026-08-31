@@ -285,13 +285,20 @@
   <p><strong>One thing to know before you worry.</strong> There is a known flaw in
     the area called the backend end to end. It fails roughly one run in four for
     reasons that have nothing to do with the code, and it lands on a different check
-    every time. It has three faces. The connection between the test and the server
+    every time. It has four faces. The connection between the test and the server
     dropping, which says socket hang up, or Parse Error: Expected HTTP, or
     ECONNRESET. Something running out of patience because the laptop is busy, which
-    says Exceeded timeout of, and is worth closing a few browser tabs over. Or a
+    says Exceeded timeout of, and is worth closing a few browser tabs over. A
     check not finding something it made a moment earlier, which says got 404 Not
     Found; that one is still being looked into, and has only ever happened when the
-    whole area runs in a shuffled order. If it is any of those three, run
+    whole area runs in a shuffled order. Or, seen once on 31 August, a check
+    getting an answer Fayr could not have written: a refusal whose body reads
+    <span class="where">{"type":"error","error":{"type":"authentication_error"…}}</span>,
+    which is not a shape Fayr produces anywhere, so whatever answered was not
+    Fayr. That suite then passed three times out of three on its own. It is not
+    understood and is not being claimed as understood; the tell is the body, not
+    the number, because a real refusal from Fayr says which rule refused it, in
+    words. If it is any of those four, run
     <span class="where">./check</span> again, and if it passes then that was all it
     was. Anything else is real.</p>
 
