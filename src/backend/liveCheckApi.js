@@ -7,8 +7,15 @@
 // token they get back is kept in memory for as long as the screen is open and
 // written down nowhere. Close the screen and it is gone.
 import { API_BASE } from './config';
+import { refuseWhileShowing } from './showing';
 
 async function call(path, { method, token, body }) {
+  // Marking offers as no longer working hides them from every user's feed, which
+  // is the last thing that should happen from a screen being demonstrated. This
+  // file answers in its own shape, so the refusal is translated into it.
+  const refused = refuseWhileShowing(method, path);
+  if (refused) return { ok: false, status: 0, error: refused.body.message };
+
   const headers = {};
   if (token) headers.Authorization = 'Bearer ' + token;
   if (body !== undefined) headers['Content-Type'] = 'application/json';

@@ -35,7 +35,7 @@ import {
 } from './../taskStore';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from './../ui/theme';
 import { StageChip, StepTracker } from './../ui/stagebits';
-import { checkLine, journeyStepFor, journeyView } from './../ui/journey';
+import { checkLine, journeyStepFor, journeyView, page } from './../ui/journey';
 import { goBackOrHome } from './../ui/nav';
 import { hasVisitedShop, markVisitedShop } from './shopVisits';
 
@@ -114,7 +114,14 @@ export default function JourneyScreen({ navigation, route }) {
     busy: busy || (campaignId ? isPending(campaignId) : false),
     error: error || (campaignId ? getActionError(campaignId) : null),
   };
-  const key = journeyStepFor(facts);
+  // `showPage` exists for the walk through, and for nothing else in the app.
+  // Which page this is, is normally the SERVER'S decision, worked out from the
+  // claim's own record — which is what makes coming back from the shop land on
+  // the right page. That also means eight of the ten pages cannot be looked at
+  // unless a claim happens to be at that exact point, so the walk through asks
+  // for one by name. Unset, nothing changes: the record decides, as it must.
+  const asked = (route && route.params && route.params.showPage) || null;
+  const key = asked && page(asked) ? asked : journeyStepFor(facts);
   const view = journeyView({
     ...facts,
     check: checkFor(newestOf(SHOT_KIND[key] || 'PURCHASE'), key),

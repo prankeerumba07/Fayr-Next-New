@@ -178,7 +178,12 @@ export default function ProfileScreen({ navigation }) {
               Hiding it would mean guessing who is staff from the app side, which
               the app has no way to know. */}
           <Row icon="🔍" title="Check offer pages" sub="For Fayr staff. Opens every offer page to see if it still works"
-            onPress={() => navigation.navigate('LiveCheck')} last />
+            onPress={() => navigation.navigate('LiveCheck')} />
+          {/* Same audience, same reasoning as the row above. It says on itself
+              that it is for showing the app rather than using it, and while it is
+              open the app reads and never writes. */}
+          <Row icon="🗺️" title="Walk through every screen" sub="For Fayr staff. Opens every screen in the design, including the ones you cannot reach"
+            onPress={() => navigation.navigate('Walkthrough')} last />
         </View>
 
         <TouchableOpacity

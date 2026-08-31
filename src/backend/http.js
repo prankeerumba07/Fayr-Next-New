@@ -6,6 +6,7 @@
 import { API_BASE } from './config';
 import { refreshTokens } from './authApi';
 import * as session from './authSession';
+import { refuseWhileShowing } from './showing';
 
 // Single-flight refresh: many requests can 401 at once (e.g. after a long spell
 // in the background); they must SHARE one /auth/refresh, not stampede it.
@@ -49,6 +50,13 @@ export function renewNow() {
 // once after a successful silent refresh; otherwise returns the 401 as-is
 // (session already cleared).
 export async function authedFetch(path, options = {}) {
+  // The walk through is open: reads go through, writes never leave the device.
+  // Checked here rather than in each caller because there are dozens of callers
+  // and one choke point, and the one that gets missed is the one that spends a
+  // claim in front of an audience. See showing.js.
+  const refused = refuseWhileShowing(options.method, path);
+  if (refused) return refused;
+
   const attempt = async () => {
     const token = session.getAccessToken();
     // A FormData body MUST set its own content-type, because only the runtime

@@ -17,6 +17,8 @@ import SupportScreen from './src/SupportScreen';
 import ChatScreen from './src/ChatScreen';
 import JourneyScreen from './src/journey/JourneyScreen';
 import LiveCheckScreen from './src/LiveCheckScreen';
+import WalkthroughScreen from './src/walkthrough/WalkthroughScreen';
+import WalkthroughOneScreen from './src/walkthrough/OneScreen';
 import PolicyScreen from './src/PolicyScreen';
 import FirstRunFlow from './src/firstrun/FirstRunFlow';
 import SetupFlow from './src/setup/SetupFlow';
@@ -290,6 +292,12 @@ function AppInner() {
           <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
           {/* The morning job. Staff only, and it asks for a staff sign-in itself. */}
           <Stack.Screen name="LiveCheck" component={LiveCheckScreen} options={{ headerShown: false }} />
+          {/* The walk through: every screen in the design, reachable by tapping.
+              Beside the offer page check because it is the same audience — the
+              team, not shoppers — and both own their own headers. Nothing in it
+              writes: see src/backend/showing.js. */}
+          <Stack.Screen name="Walkthrough" component={WalkthroughScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="OneScreen" component={WalkthroughOneScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Policy" component={PolicyScreen} options={{ headerShown: false }} />
           {/* Screenshot proof — the tier-3 fallback when the scraper can't read. */}
           <Stack.Screen name="ProofUpload" component={ProofUploadScreen} options={{ headerShown: false }} />

@@ -24,15 +24,21 @@ import * as authSession from '../backend/authSession';
 const N = 6;
 const MAX_FAILS = 5; // the backend locks the challenge after five wrong tries
 
-export default function OtpScreen({ mobile, resendIn, onBack, onVerified, onSupport }) {
+export default function OtpScreen({
+  mobile, resendIn, onBack, onVerified, onSupport, showAs,
+}) {
   const insets = useSafeAreaInsets();
   const [digits, setDigits] = useState(Array(N).fill(''));
   const [secs, setSecs] = useState(resendIn || 30);
   const [fails, setFails] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [locked, setLocked] = useState(false);
-  const [blocked, setBlocked] = useState(false);
+  // `showAs` exists for the walk through, and for nothing else in the app. Both
+  // of these states are reached only by getting a real code wrong five times or by
+  // being restricted on the server, so neither could be looked at on a real
+  // handset. Unset, both start false exactly as they always have.
+  const [locked, setLocked] = useState(showAs === 'locked');
+  const [blocked, setBlocked] = useState(showAs === 'blocked');
   const refs = useRef(Array.from({ length: N }, () => React.createRef()));
   const shake = useRef(new Animated.Value(0)).current;
 

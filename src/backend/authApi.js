@@ -10,8 +10,14 @@ import { toE164 } from './format';
 // Safe direction: authSession imports nothing from here (or from http.js), so
 // this cannot form a cycle.
 import * as session from './authSession';
+import { refuseWhileShowing } from './showing';
 
 async function post(path, body) {
+  // Every call in this file is a POST, and one of them sends a real text message
+  // to a real handset. While the walk through is open, none of them go.
+  const refused = refuseWhileShowing('POST', path);
+  if (refused) return refused;
+
   let res;
   try {
     res = await fetch(`${API_BASE}${path}`, {

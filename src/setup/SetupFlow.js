@@ -412,9 +412,14 @@ function HowFayr({ onFinish, onLater }) {
  * The sequence. `profile` comes from GET /me, so the entry point is decided by what
  * the server already has — that is what makes a resume land on the right screen.
  */
-export default function SetupFlow({ profile: initial, onFinished, onLater }) {
+export default function SetupFlow({ profile: initial, onFinished, onLater, startAt }) {
   const [profile, setProfile] = React.useState(initial || {});
-  const [screen, setScreen] = React.useState(() => setupStep(initial));
+  // `startAt` exists for the walk through, and for nothing else in the app.
+  // setupStep never returns BUILD — building the feed is only ever arrived at by
+  // finishing the name step — so that screen could not be looked at on a real
+  // handset at all. Unset, this behaves exactly as it always has: the server's
+  // saved answers decide, which is what makes a resume land in the right place.
+  const [screen, setScreen] = React.useState(() => startAt || setupStep(initial));
 
   const merge = (next) => {
     if (next && typeof next === 'object') setProfile((p) => ({ ...p, ...next }));
