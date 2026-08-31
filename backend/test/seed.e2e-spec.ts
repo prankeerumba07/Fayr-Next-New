@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
@@ -589,6 +591,32 @@ describe('Demo seed (e2e)', () => {
       expect(corrections).toHaveLength(1);
       expect(corrections[0].delta).toBe(TICKETS.DEFAULT_CLAIM_COST);
       expect(await tickets.getBalance(user.id)).toBe(TICKETS.DEFAULT_CLAIM_COST);
+    });
+
+    it('and no other suite reads that setting either', () => {
+      // The trap caught TWO suites, not one. Fixing the seed made this file green
+      // and left assistant-journey.e2e-spec.ts red, because it was looking up the
+      // seeded account by the same setting. So the rule is stated once, here, over
+      // every spec in the folder: a test may not read DEMO_MOBILE, because a test
+      // whose result depends on a file git has never seen is not a test.
+      //
+      // This file is the one exception, and only because it sets the setting on
+      // purpose to prove the seed ignores it.
+      const dir = __dirname;
+      const specs = readdirSync(dir).filter((f) => f.endsWith('.e2e-spec.ts'));
+      expect(specs.length).toBeGreaterThan(10);
+      // Comments are stripped first. The first version of this test failed on the
+      // comment in assistant-journey.e2e-spec.ts that EXPLAINS why that file must
+      // not read the setting, which would have been a rule against writing the
+      // explanation down.
+      const withoutComments = (src: string): string =>
+        src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      const guilty = specs.filter((f) => {
+        if (f === 'seed.e2e-spec.ts') return false;
+        return withoutComments(readFileSync(join(dir, f), 'utf8'))
+          .includes('process.env.DEMO_MOBILE');
+      });
+      expect(guilty).toEqual([]);
     });
 
     it('IGNORES DEMO_MOBILE during a test run, so the suite cannot depend on a .env', async () => {

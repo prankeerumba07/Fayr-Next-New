@@ -28,9 +28,17 @@ describe('Assistant journey (e2e)', () => {
   let store: AssistantStore;
   let journey: UserJourneyService;
 
+  // The DEFAULT, always, and deliberately NOT process.env.DEMO_MOBILE.
+  //
+  // That setting points the seed at a real handset so a presenter can sign in with
+  // a real code. Reading it here made this suite's result depend on the contents of
+  // a file git has never seen: with the setting present these three tests went
+  // looking for the real number and found nothing, and on any machine without it
+  // they went green again. The seed now ignores the setting under NODE_ENV=test for
+  // the same reason, so the account it builds is always this one.
   const demoUser = async () => {
     const user = await prisma.user.findUnique({
-      where: { mobile: process.env.DEMO_MOBILE ?? DEMO_MOBILE_DEFAULT },
+      where: { mobile: DEMO_MOBILE_DEFAULT },
     });
     if (!user) throw new Error('the demo seed did not create its own account');
     return user;
