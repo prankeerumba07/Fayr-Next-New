@@ -88,11 +88,23 @@ describe('The walk through writes nothing (e2e)', () => {
     prisma = app.get(PrismaService);
     jwt = app.get(JwtService);
     config = app.get(ConfigService);
+  });
+
+  afterAll(async () => app.close());
+
+  // Reset AND rebuild, before every test rather than once.
+  //
+  // The counting only has to hold inside a single test, so a fresh database each
+  // time costs nothing and the suite stops leaving its rows behind for whichever
+  // spec runs next. suite-isolation.e2e-spec.ts checks that every spec in this
+  // folder does this, and it caught this file for doing it once in beforeAll —
+  // which is exactly the drift that rule exists to prevent.
+  beforeEach(async () => {
     await resetDatabase(prisma);
 
     // One person with one claim on one offer, so every path the walk reads
-    // resolves to something real rather than to a 404. Built directly here: this
-    // is the setting up, and it happens BEFORE the counting starts.
+    // resolves to something real rather than to a 404. This is the setting up,
+    // and it happens BEFORE any counting starts.
     const user = await prisma.user.create({ data: { mobile: '+919100000001' } });
     token = await jwt.signAsync(
       { sub: user.id, mobile: user.mobile },
@@ -118,8 +130,6 @@ describe('The walk through writes nothing (e2e)', () => {
     });
     taskId = task.id;
   });
-
-  afterAll(async () => app.close());
 
   it('reads something worth counting: the walk is not empty', () => {
     // Without this, a catalogue that had lost every entry would pass every other
