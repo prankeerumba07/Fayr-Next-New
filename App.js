@@ -15,6 +15,7 @@ import DetailScreen from './src/DetailScreen';
 import WalletScreen from './src/WalletScreen';
 import SupportScreen from './src/SupportScreen';
 import ChatScreen from './src/ChatScreen';
+import JourneyScreen from './src/journey/JourneyScreen';
 import LiveCheckScreen from './src/LiveCheckScreen';
 import PolicyScreen from './src/PolicyScreen';
 import FirstRunFlow from './src/firstrun/FirstRunFlow';
@@ -281,6 +282,10 @@ function AppInner() {
           <Stack.Screen name="JoinFailed" component={JoinFailedScreen} options={{ headerShown: false }} />
           {/* Help and the policy documents own their headers as well. */}
           <Stack.Screen name="Support" component={SupportScreen} options={{ headerShown: false }} />
+          {/* The claim journey: one page per step, from joining to the refund.
+              Owns its own header, because every page in it does. */}
+          <Stack.Screen name="Journey" component={JourneyScreen} options={{ headerShown: false }} />
+
           {/* "Chat with us" — the fast answer. Owns its header too. */}
           <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
           {/* The morning job. Staff only, and it asks for a staff sign-in itself. */}

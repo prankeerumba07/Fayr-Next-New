@@ -161,8 +161,11 @@ export default function HomeScreen({ navigation }) {
               key={c.id}
               c={c}
               claimed={hasTask(c.id)}
+              // A claimed offer opens its JOURNEY, at whatever page it is on.
+              // That is the resume: the page comes from the server's record, so
+              // tapping the card can never land somebody back at the beginning.
               onOpen={() => navigation.navigate(
-                hasTask(c.id) ? 'Task' : 'Detail',
+                hasTask(c.id) ? 'Journey' : 'Detail',
                 { campaignId: c.id },
               )}
             />

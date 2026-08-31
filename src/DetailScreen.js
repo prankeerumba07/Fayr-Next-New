@@ -137,8 +137,13 @@ export default function DetailScreen({ navigation, route }) {
   // the design puts the cost, the refund, the deadline and the honesty
   // acknowledgement in front of the user first — this button used to spend them
   // on one tap, with the terms only visible further up the page.
+  //
+  // It opens the JOURNEY now, at its first page, rather than jumping straight to
+  // the confirmation. The journey is the spine: everything from here to the
+  // refund is one sequence, and starting inside it means the step counter is
+  // right from the very first screen instead of appearing halfway through.
   const doClaim = useCallback(() => {
-    navigation.navigate('ConfirmJoin', { campaignId });
+    navigation.navigate('Journey', { campaignId });
   }, [navigation, campaignId]);
 
   if (!campaign) {
@@ -405,13 +410,15 @@ export default function DetailScreen({ navigation, route }) {
           activeOpacity={0.88}
           onPress={
             claimed
-              ? () => navigation.navigate(campaign.marketplace, { campaignId: campaign.id })
+              ? () => navigation.navigate('Journey', { campaignId: campaign.id })
               : doClaim
           }
           style={[styles.cta, claimed && styles.ctaClaimed]}
         >
           <Text style={styles.ctaText}>
-            {claimed ? `Buy on ${mktName} →` : `Claim campaign · ${campaign.ticketCost} tickets →`}
+            {claimed
+              ? 'Carry on →'
+              : `Claim this campaign · ${campaign.ticketCost} tickets →`}
           </Text>
         </TouchableOpacity>
 
@@ -421,7 +428,7 @@ export default function DetailScreen({ navigation, route }) {
             style={styles.secondary}
             activeOpacity={0.7}
           >
-            <Text style={styles.secondaryText}>View task status ›</Text>
+            <Text style={styles.secondaryText}>See every detail ›</Text>
           </TouchableOpacity>
         ) : (
           <Text style={styles.ctaHint}>Claiming reserves this product for you</Text>
