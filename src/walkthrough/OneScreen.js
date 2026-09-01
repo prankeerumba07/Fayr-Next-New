@@ -47,6 +47,14 @@ import EarningsScreen from '../EarningsScreen';
 import WalletScreen from '../WalletScreen';
 import ProfileScreen from '../ProfileScreen';
 import ConnectScreen from '../ConnectScreen';
+// The design's own screens, each in its own file under its own key. See
+// src/screens/keys.js.
+import ForceUpdateScreen from '../screens/forceupdate';
+import MaintenanceScreen from '../screens/maintenance';
+import TruecallerScreen from '../screens/truecaller';
+import NewDeviceScreen from '../screens/newdevice';
+import OtpLockedScreen from '../screens/otplocked';
+import BlockedScreen from '../screens/blocked';
 
 /** A sample name for the sign-in screens, which have nobody signed in to read. */
 const SAMPLE_NAME = 'Practice account';
@@ -71,18 +79,33 @@ const KNOWN = {
   PhoneEntry: ({ nav }) => (
     <PhoneEntryScreen initial="" onBack={nav.nowhere} onSent={nav.nowhere} />
   ),
-  // showAs opens the two states nobody can reach on a handset: five wrong codes,
-  // and an account the server has restricted.
-  Otp: ({ nav, at }) => (
+  Otp: ({ nav }) => (
     <OtpScreen
       mobile="+919000000001"
       resendIn={30}
-      showAs={at}
       onBack={nav.nowhere}
       onVerified={nav.nowhere}
       onSupport={nav.nowhere}
+      onLocked={nav.nowhere}
+      onBlocked={nav.nowhere}
     />
   ),
+  // Five wrong codes, and an account the server has restricted. Screens of their
+  // own now, rather than two states hidden inside the code screen.
+  OtpLocked: ({ nav }) => (
+    <OtpLockedScreen navigation={nav} route={{ params: { secondsLeft: 872 } }} />
+  ),
+  Blocked: ({ nav }) => <BlockedScreen navigation={nav} route={{ params: {} }} />,
+  // Neither of these is on a normal path: nothing checks the app version, and
+  // nothing tells a planned outage from a dropped connection.
+  ForceUpdate: ({ nav }) => <ForceUpdateScreen navigation={nav} route={{ params: {} }} />,
+  Maintenance: ({ nav }) => (
+    <MaintenanceScreen navigation={nav} route={{ params: { backBy: '6:00 PM' } }} />
+  ),
+  NewDevice: ({ nav }) => <NewDeviceScreen navigation={nav} route={{ params: {} }} />,
+  // Deliberately given NO name and NO number. The design writes a real person's
+  // into this screen; the walk through shows the shape it takes with nobody in it.
+  Truecaller: ({ nav }) => <TruecallerScreen navigation={nav} route={{ params: {} }} />,
   // A profile that stops short of the step being shown, so the real screen decides
   // to show it for its own reasons rather than being forced. `startAt` is only
   // needed for building the feed, which the sequence never lands on directly.

@@ -25,7 +25,7 @@ const N = 6;
 const MAX_FAILS = 5; // the backend locks the challenge after five wrong tries
 
 export default function OtpScreen({
-  mobile, resendIn, onBack, onVerified, onSupport, showAs,
+  mobile, resendIn, onBack, onVerified, onSupport, onLocked, onBlocked,
 }) {
   const insets = useSafeAreaInsets();
   const [digits, setDigits] = useState(Array(N).fill(''));
@@ -33,12 +33,10 @@ export default function OtpScreen({
   const [fails, setFails] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  // `showAs` exists for the walk through, and for nothing else in the app. Both
-  // of these states are reached only by getting a real code wrong five times or by
-  // being restricted on the server, so neither could be looked at on a real
-  // handset. Unset, both start false exactly as they always have.
-  const [locked, setLocked] = useState(showAs === 'locked');
-  const [blocked, setBlocked] = useState(showAs === 'blocked');
+  // NOT STATES OF THIS SCREEN ANY MORE. The design draws OtpLocked and Blocked as
+  // two separate screens, and the owner's rule is that every page stays separate
+  // and works according to its purpose. They now live at src/screens/otplocked.js
+  // and src/screens/blocked.js, and this screen reports rather than renders.
   const refs = useRef(Array.from({ length: N }, () => React.createRef()));
   const shake = useRef(new Animated.Value(0)).current;
 
@@ -72,7 +70,7 @@ export default function OtpScreen({
       return;
     }
     setBusy(false);
-    if (res.status === 403) { setBlocked(true); return; }
+    if (res.status === 403) { if (onBlocked) onBlocked(); return; }
 
     const msg = (res.body && (res.body.message || res.body.error)) || '';
     const next = fails + 1;
@@ -80,7 +78,12 @@ export default function OtpScreen({
     runShake();
     setDigits(Array(N).fill(''));
     if (refs.current[0].current) refs.current[0].current.focus();
-    if (/too many/i.test(String(msg)) || next >= MAX_FAILS) { setLocked(true); return; }
+    if (/too many/i.test(String(msg)) || next >= MAX_FAILS) {
+      // The server knows how long the pause is; when it says nothing, the
+      // locked screen says to try again shortly rather than inventing a clock.
+      if (onLocked) onLocked(res.body && res.body.retryAfterSeconds);
+      return;
+    }
     setError(String(msg) || 'That code didn’t match.');
   };
 
@@ -107,33 +110,6 @@ export default function OtpScreen({
   };
 
   const shown = `+91 ${String(mobile || '').replace(/(\d{5})(\d{5})/, '$1 $2')}`;
-
-  if (blocked) {
-    return (
-      <Centered
-        insets={insets}
-        icon="⛔"
-        title="This account is on hold"
-        body="We can’t sign you in right now. Our team can tell you why and put it right."
-        cta="Contact support"
-        onCta={onSupport}
-      />
-    );
-  }
-  if (locked) {
-    return (
-      <Centered
-        insets={insets}
-        icon="🔒"
-        title="Too many attempts"
-        body="For your security, OTP entry is paused for a short while. You can try again shortly, or ask us for help."
-        cta="Contact support"
-        onCta={onSupport}
-        secondary="Use a different number"
-        onSecondary={onBack}
-      />
-    );
-  }
 
   const full = digits.every((x) => x);
 
@@ -227,26 +203,6 @@ export default function OtpScreen({
         <View style={{ height: Math.max(insets.bottom, 20) }} />
       </View>
     </KeyboardAvoidingView>
-  );
-}
-
-/** The design's centred dead-end layout, shared by OtpLocked and Blocked. */
-function Centered({ insets, icon, title, body, cta, onCta, secondary, onSecondary }) {
-  return (
-    <View style={styles.root}>
-      <View style={[styles.bar, { paddingTop: insets.top + 6 }]}>
-        <Text style={styles.barTitle}>Verify OTP</Text>
-      </View>
-      <View style={styles.centered}>
-        <Text style={{ fontSize: 56 }}>{icon}</Text>
-        <Text style={[hTitle, { marginTop: 16, textAlign: 'center' }]}>{title}</Text>
-        <Text style={[hSub, { textAlign: 'center', maxWidth: 280 }]}>{body}</Text>
-      </View>
-      <View style={{ paddingHorizontal: 28, paddingBottom: Math.max(insets.bottom, 28), gap: 10 }}>
-        <Ghost onPress={onCta}>{cta}</Ghost>
-        {secondary ? <Ghost onPress={onSecondary}>{secondary}</Ghost> : null}
-      </View>
-    </View>
   );
 }
 

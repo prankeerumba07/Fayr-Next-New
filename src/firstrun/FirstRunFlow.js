@@ -16,6 +16,11 @@ import OnboardingScreen from './OnboardingScreen';
 import AuthLandingScreen from './AuthLandingScreen';
 import PhoneEntryScreen from './PhoneEntryScreen';
 import OtpScreen from './OtpScreen';
+// The design draws these as two screens of their own, not as states of the
+// code screen. They are resolved from the one screen register, by their own
+// design keys, like every other screen.
+import OtpLockedScreen from '../screens/otplocked';
+import BlockedScreen from '../screens/blocked';
 import PolicyScreen from '../PolicyScreen';
 import { hasSeenOnboarding, markOnboardingSeen } from './firstRunStore';
 import { STEPS } from './steps';
@@ -25,6 +30,9 @@ export { STEPS };
 
 export default function FirstRunFlow({ sessionRestoring }) {
   const [step, setStep] = useState('splash');
+  // How long the server said the pause lasts, when it said. Null means it did
+  // not, and the locked screen then says to try again shortly.
+  const [lockedFor, setLockedFor] = useState(null);
   const [seen, setSeen] = useState(null); // null = still reading the flag
   const [mobile, setMobile] = useState('');
   const [resendIn, setResendIn] = useState(30);
@@ -99,7 +107,26 @@ export default function FirstRunFlow({ sessionRestoring }) {
           // here, so Help (which needs auth) is unreachable — the honest action is
           // to go back and try another number.
           onSupport={() => setStep('phone')}
+          onLocked={(seconds) => { setLockedFor(seconds); setStep('otplocked'); }}
+          onBlocked={() => setStep('blocked')}
         />
+      ) : null}
+
+      {step === 'otplocked' ? (
+        <OtpLockedScreen
+          route={{
+            params: {
+              secondsLeft: lockedFor,
+              // No signed-in session here, so Help is unreachable. Going back to
+              // the number is the honest way out of a dead end.
+              onSupport: () => setStep('phone'),
+            },
+          }}
+        />
+      ) : null}
+
+      {step === 'blocked' ? (
+        <BlockedScreen route={{ params: { onSupport: () => setStep('phone') } }} />
       ) : null}
 
       <Modal

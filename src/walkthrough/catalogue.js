@@ -82,16 +82,13 @@ export const SCREENS = {
   truecaller: {
     group: LAUNCH,
     title: 'Signing in with one tap through Truecaller',
-    designWords: {
-      heading: 'Verify with Truecaller',
-      body: 'Truecaller shares your verified name & number with fayr.',
-      buttons: ['Continue', 'Use another method'],
-    },
-    whyNot:
-      'Fayr signs people in by mobile number and a code, and the code arrives '
-      + 'through the text message retriever the Play Store allows. A second way '
-      + 'in is a second thing to keep safe, and nobody has asked for it yet.',
+    opens: { screen: 'Truecaller' },
     reads: READS.none,
+    note:
+      'The sheet is built. Nothing is behind it: Fayr cannot turn a Truecaller '
+      + 'sign in into a session, and the screen says so rather than offering a '
+      + 'button that fails. The name and number are handed in, because the '
+      + "design has a real person's name and number written into this screen.",
   },
   phone: {
     group: LAUNCH,
@@ -433,61 +430,43 @@ export const SCREENS = {
   forceupdate: {
     group: EDGES,
     title: 'This version is too old to use',
-    designWords: {
-      heading: 'A new version is required',
-      body:
-        'This version of fayr is no longer supported. Update to keep earning '
-        + 'securely.',
-      buttons: ['UPDATE NOW'],
-    },
-    whyNot:
-      'Nothing checks the app version, so nothing can decide to say this. The day '
-      + 'a released version has to be retired, this is the screen that is missing '
-      + 'and the check behind it is missing too.',
+    opens: { screen: 'ForceUpdate' },
     reads: READS.none,
+    note:
+      'Built, and nothing decides to show it: Fayr has no version check, so '
+      + 'nothing can work out that a version has been retired.',
   },
   maintenance: {
     group: EDGES,
     title: 'Fayr is down on purpose',
-    designWords: {
-      heading: "We'll be right back",
-      body:
-        'fayr is under scheduled maintenance. Your campaigns and earnings are '
-        + 'safe.',
-      buttons: [],
-    },
-    whyNot:
-      'A server that is down cannot tell the app it is down on purpose, and '
-      + 'nothing serves a maintenance answer. Today the app shows an ordinary '
-      + 'could-not-connect message instead, which reads like the phone is at fault.',
+    opens: { screen: 'Maintenance' },
     reads: READS.none,
+    note:
+      'Built, and nothing decides to show it. The card says when Fayr is back '
+      + 'only when something hands a time in; the design writes one into the '
+      + 'file, and a written-in time would be wrong every time it was shown.',
   },
   otplocked: {
     group: EDGES,
     title: 'Too many wrong codes',
-    opens: { screen: 'Otp', at: 'locked' },
+    opens: { screen: 'OtpLocked' },
     reads: READS.none,
   },
   blocked: {
     group: EDGES,
     title: 'This account is restricted',
-    opens: { screen: 'Otp', at: 'blocked' },
+    opens: { screen: 'Blocked' },
     reads: READS.none,
   },
   newdevice: {
     group: EDGES,
     title: 'Signing in on a new phone with money in the wallet',
-    designWords: {
-      heading: "Let's make sure it's you",
-      body:
-        "You're signing in on a new device and your wallet has a balance. We'll "
-        + 're-verify with an OTP to keep your earnings safe.',
-      buttons: [],
-    },
-    whyNot:
-      'Every sign in already needs a code, so there is no weaker path for this to '
-      + 'strengthen. It would become worth building alongside a second way in.',
+    opens: { screen: 'NewDevice' },
     reads: READS.none,
+    note:
+      'Built, and nothing decides to show it: Fayr records no device against a '
+      + 'session. It would also add no safety today, because every sign in '
+      + 'already needs a code.',
   },
   seatlost: {
     group: EDGES,

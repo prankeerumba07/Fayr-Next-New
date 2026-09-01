@@ -1,0 +1,42 @@
+// THE ONE PLACE A DESIGN SCREEN IS LOOKED UP BY ITS OWN KEY.
+//
+// App.js registers everything in here that belongs in the navigator, and the
+// first run sequence resolves the rest from the same map. One key, one file, one
+// component, looked up in one place — so a screen cannot be registered twice
+// under two names, and a screen cannot exist with nothing able to open it.
+//
+// The list of keys and where each one lives is in keys.js next door, which is
+// plain data and is checked against fayr-design.browser.jsx by keys.test.mjs.
+// That test also checks THIS file: every key that claims its own file must be
+// mapped here, and nothing else may be.
+import splash from './splash';
+import forceupdate from './forceupdate';
+import maintenance from './maintenance';
+import onboard from './onboard';
+import authlanding from './authlanding';
+import truecaller from './truecaller';
+import phone from './phone';
+import otp from './otp';
+import otplocked from './otplocked';
+import blocked from './blocked';
+import newdevice from './newdevice';
+
+/** Design key to the component that draws it. Nothing else belongs in here. */
+export const SCREENS = {
+  splash,
+  forceupdate,
+  maintenance,
+  onboard,
+  authlanding,
+  truecaller,
+  phone,
+  otp,
+  otplocked,
+  blocked,
+  newdevice,
+};
+
+/** The component for one design key, or null when the key is not one of ours. */
+export function screenFor(key) {
+  return Object.prototype.hasOwnProperty.call(SCREENS, key) ? SCREENS[key] : null;
+}

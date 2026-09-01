@@ -17,6 +17,10 @@ import SupportScreen from './src/SupportScreen';
 import ChatScreen from './src/ChatScreen';
 import JourneyScreen from './src/journey/JourneyScreen';
 import LiveCheckScreen from './src/LiveCheckScreen';
+// Every design screen is looked up by its own key in one place. See
+// src/screens/keys.js for which screens have their own file, and
+// src/screens/keys.test.mjs, which checks that against the design itself.
+import { SCREENS as DESIGN_SCREENS } from './src/screens';
 import WalkthroughScreen from './src/walkthrough/WalkthroughScreen';
 import WalkthroughOneScreen from './src/walkthrough/OneScreen';
 import PolicyScreen from './src/PolicyScreen';
@@ -296,6 +300,14 @@ function AppInner() {
               Beside the offer page check because it is the same audience — the
               team, not shoppers — and both own their own headers. Nothing in it
               writes: see src/backend/showing.js. */}
+          {/* The design's own screens, registered under the design's own keys.
+              Two so far: the version wall and the planned outage. Neither is on
+              a normal path yet, because nothing checks the version and nothing
+              tells a planned outage from a dropped connection. They exist,
+              under their own names, so the day those checks arrive they have
+              somewhere to send people. */}
+          <Stack.Screen name="forceupdate" component={DESIGN_SCREENS.forceupdate} options={{ headerShown: false }} />
+          <Stack.Screen name="maintenance" component={DESIGN_SCREENS.maintenance} options={{ headerShown: false }} />
           <Stack.Screen name="Walkthrough" component={WalkthroughScreen} options={{ headerShown: false }} />
           <Stack.Screen name="OneScreen" component={WalkthroughOneScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Policy" component={PolicyScreen} options={{ headerShown: false }} />
