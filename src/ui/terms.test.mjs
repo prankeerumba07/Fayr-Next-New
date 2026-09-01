@@ -167,4 +167,58 @@ console.log('\nthe claim call carries it all the way to the server');
   });
 }
 
+console.log('\nthe honesty promise moved, and did not disappear');
+{
+  // The owner decided the honesty promise does not belong at the claim. It is what
+  // makes Fayr honest rather than a bribe, so it has to be SOMEWHERE, and it is on
+  // the review guide, which is the screen where somebody is about to write.
+  //
+  // Both halves are checked. Removing it from the claim and forgetting to check the
+  // other screen would have quietly deleted the promise from the whole product.
+  const confirm = strip(read('../screens/confirm.js'));
+  // FLATTENED. Screen text is wrapped across lines by the code formatter, so
+  // "a low rating and a\n high one are paid the same" is one sentence to a reader
+  // and two lines to a regular expression. The first version of these checks failed
+  // on exactly that and would have read as a missing promise.
+  const guide = strip(read('../screens/reviewguide.js')).replace(/\s+/g, ' ');
+
+  t('the claim screen no longer asks anybody to promise an honest review', () => {
+    assert.doesNotMatch(confirm, /honest/i, 'the claim screen still mentions honesty');
+    assert.doesNotMatch(
+      confirm, /rating never affects/i,
+      'the claim screen still carries the rating promise',
+    );
+  });
+
+  t('and it has no tick box left at all', () => {
+    // The terms tick box is on the PRODUCT page. Two tick boxes two screens apart,
+    // both needed before one claim, is a gate a person walks into twice.
+    assert.doesNotMatch(confirm, /setAck|styles\.ackRow|ackText/, 'a tick box remains');
+  });
+
+  t('the review guide carries the promise, and carries it twice over', () => {
+    // Once in the words under the heading, once in the locked note. Neither is
+    // behind a tap, so it cannot be missed.
+    assert.match(
+      guide, /a low rating and a high one are paid the same/i,
+      'the review guide no longer says a low rating pays the same',
+    );
+    assert.match(
+      guide, /never asks for positive reviews/i,
+      'the review guide no longer carries the locked promise',
+    );
+    assert.match(
+      guide, /good or bad, earns the same refund/i,
+      'the review guide no longer says both earn the same refund',
+    );
+  });
+
+  t('and the promise is not hidden behind a tap on that screen', () => {
+    // A promise inside a collapsed card is a promise nobody reads. The locked note
+    // is drawn straight into the page: no open state, no toggle around it.
+    const noteBlock = (guide.match(/styles\.promise[\s\S]{0,400}/) || [''])[0];
+    assert.doesNotMatch(noteBlock, /open|Toggle|expand/i, 'the promise can be collapsed');
+  });
+}
+
 console.log(`\n${passed} passed, ${process.exitCode ? 'some' : '0'} failed`);

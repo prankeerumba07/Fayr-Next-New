@@ -7,10 +7,21 @@
 // IT IS ALSO THE SURVIVOR OF A DOUBLE BUILD. The claim journey drew its own
 // "join the offer" page as well, so one design screen had two implementations.
 // This one won: it reads the real ticket balance, the real refund figures and
-// the real claim window from the backend, it handles all three refusals the
-// server can give, and it carries the honesty acknowledgement the journey's
-// version left out. The journey's page is gone, and the journey now sends
+// the real claim window from the backend, and it handles all three refusals the
+// server can give. The journey's page is gone, and the journey now sends
 // somebody here instead of drawing a second version of it.
+//
+// THERE IS NO TICK BOX ON THIS SCREEN ANY MORE. It used to carry an honesty
+// acknowledgement, "I'll write an honest review. I understand my rating never
+// affects my refund." The owner decided on 1 September 2026 that this is not the
+// moment for it, and replaced it with a terms tick box on the PRODUCT page.
+//
+// The promise itself did not go anywhere: it is on the review guide, in the words
+// under the heading and again in the locked note, on the screen where somebody is
+// actually about to write. That is a better place for it — it is a promise about
+// writing, and here it sat two screens before anybody wrote anything. Both halves
+// are pinned by src/ui/terms.test.mjs, so removing it from one screen without
+// checking the other cannot quietly delete the promise from the product.
 //
 // It sits between the campaign detail and the claim, and it exists because the
 // claim is the moment 5 tickets are actually committed: the user should see what
@@ -33,7 +44,7 @@
 //  * "This claim uses 5 tickets" uses the campaign's real ticketCost.
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  View, Text, StyleSheet, ScrollView,
 } from 'react-native';
 import { PLATFORMS } from '../platforms';
 import * as campaignStore from '../backend/campaignStore';
@@ -59,7 +70,6 @@ export default function ConfirmJoinScreen({ route, navigation }) {
     campaignId ? campaignStore.getById(campaignId) : null,
   );
   const [wallet, setWallet] = useState(null);
-  const [ack, setAck] = useState(false);
   const [joining, setJoining] = useState(false);
 
   // The campaign may not be in the cache (paused, or a cold start), so fall back
@@ -85,7 +95,7 @@ export default function ConfirmJoinScreen({ route, navigation }) {
   });
 
   const join = useCallback(async () => {
-    if (!ack || !campaignId || !cameWithTerms) return;
+    if (!campaignId || !cameWithTerms) return;
     setJoining(true);
     // The value that ARRIVED, not a literal yes. Writing `true` here would keep
     // working if the guard above were ever removed, and would then send an
@@ -104,7 +114,7 @@ export default function ConfirmJoinScreen({ route, navigation }) {
       return;
     }
     navigation.replace('Claimed', { campaignId });
-  }, [ack, campaignId, cameWithTerms, navigation]);
+  }, [campaignId, cameWithTerms, navigation]);
 
   if (!campaign) {
     return (
@@ -191,19 +201,6 @@ export default function ConfirmJoinScreen({ route, navigation }) {
           </View>
         ) : null}
 
-        <TouchableOpacity
-          activeOpacity={0.8}
-          style={styles.ackRow}
-          onPress={() => setAck((v) => !v)}
-        >
-          <View style={[styles.box, ack && styles.boxOn]}>
-            {ack ? <Text style={styles.tick}>✓</Text> : null}
-          </View>
-          <Text style={styles.ackText}>
-            I'll write an honest review. I understand my rating never affects my
-            refund.
-          </Text>
-        </TouchableOpacity>
       </ScrollView>
 
       <View style={styles.footer}>
@@ -212,9 +209,9 @@ export default function ConfirmJoinScreen({ route, navigation }) {
         ) : null}
         <Pill
           onPress={join}
-          disabled={!ack || blocked || !cameWithTerms}
+          disabled={blocked || !cameWithTerms}
           loading={joining}
-          color={ack && !blocked && cameWithTerms ? COLOR.ink : '#cfcfcf'}
+          color={!blocked && cameWithTerms ? COLOR.ink : '#cfcfcf'}
         >
           CONFIRM &amp; JOIN
         </Pill>
@@ -249,17 +246,6 @@ const styles = StyleSheet.create({
   needsTerms: {
     fontFamily: FONT.body, fontSize: 12.5, lineHeight: 18, color: COLOR.sub,
     textAlign: 'center', marginBottom: 10,
-  },
-
-  ackRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginTop: 14 },
-  box: {
-    width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: '#B9BAA9',
-    marginTop: 2, alignItems: 'center', justifyContent: 'center',
-  },
-  boxOn: { backgroundColor: COLOR.green, borderColor: COLOR.green },
-  tick: { color: '#fff', fontSize: 13, fontFamily: FONT.displaySemi, marginTop: -1 },
-  ackText: {
-    flex: 1, fontFamily: FONT.bodySemi, fontSize: 12.5, color: COLOR.ink2, lineHeight: 19,
   },
 
   footer: { paddingHorizontal: SPACE.lg, paddingTop: 10, paddingBottom: SPACE.lg },
