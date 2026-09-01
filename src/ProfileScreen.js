@@ -56,7 +56,11 @@ function Row({ icon, title, sub, onPress, danger, last }) {
 
 export default function ProfileScreen({ navigation }) {
   // Read once, here, so the rest of the screen never has to think about it.
-  const showWalkthrough = walkthroughIsOn();
+  // The two rows below the policies are for the Fayr team and are useless to a
+  // shopper: one opens every screen in the design, the other opens the offer page
+  // check, which asks for a staff sign in the app cannot give. Both are off
+  // unless somebody turns the same switch on. See src/walkthrough/onlyForUs.js.
+  const showStaffTools = walkthroughIsOn();
   const insets = useSafeAreaInsets();
   const [wallet, setWallet] = useState(null);
   const [withdrawals, setWithdrawals] = useState([]);
@@ -175,21 +179,21 @@ export default function ProfileScreen({ navigation }) {
           <Row icon="📄" title="Terms & Conditions" sub={`Last updated ${POLICY_VERSION}`}
             onPress={() => navigation.navigate('Policy', { doc: 'terms' })} />
           <Row icon="🔒" title="Privacy Policy" sub="What we read, store and share"
-            onPress={() => navigation.navigate('Policy', { doc: 'privacy' })} />
-          {/* Shown to everybody, and useless to everybody but staff: the screen
-              itself asks for a staff sign-in, and the server refuses an app login.
-              Hiding it would mean guessing who is staff from the app side, which
-              the app has no way to know. */}
-          <Row icon="🔍" title="Check offer pages" sub="For Fayr staff. Opens every offer page to see if it still works"
-            onPress={() => navigation.navigate('LiveCheck')} last={!showWalkthrough} />
-          {/* OFF UNLESS SOMEBODY TURNS IT ON. The walk through opens every screen
-              in the design, including ones a shopper must never see, and it was
-              reachable here by anybody. It is not deleted: the screens, the
-              write block and the test all still work. The row is simply not
-              drawn unless the switch is on. See src/walkthrough/onlyForUs.js. */}
-          {showWalkthrough ? (
-            <Row icon="🗺️" title="Walk through every screen" sub="For the Fayr team. Opens every screen in the design, including the ones you cannot reach"
-              onPress={() => navigation.navigate('Walkthrough')} last />
+            onPress={() => navigation.navigate('Policy', { doc: 'privacy' })} last={!showStaffTools} />
+          {/* OFF UNLESS SOMEBODY TURNS IT ON. Neither of these is for a shopper.
+              The walk through opens every screen in the design, including ones a
+              shopper must never see. The offer page check is a staff job: the
+              screen asks for a staff sign in, and the server refuses an app one,
+              so the row was a dead end for everybody who tapped it. Nothing is
+              deleted. The screens, the write block and their tests all still
+              work; the rows are simply not drawn unless the switch is on. */}
+          {showStaffTools ? (
+            <>
+              <Row icon="🔍" title="Check offer pages" sub="For Fayr staff. Opens every offer page to see if it still works"
+                onPress={() => navigation.navigate('LiveCheck')} />
+              <Row icon="🗺️" title="Walk through every screen" sub="For the Fayr team. Opens every screen in the design, including the ones you cannot reach"
+                onPress={() => navigation.navigate('Walkthrough')} last />
+            </>
           ) : null}
         </View>
 

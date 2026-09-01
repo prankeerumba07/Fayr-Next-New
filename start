@@ -250,16 +250,20 @@ printf '
   Sign in with the number in DEMO_MOBILE and you land on the practice
   account, which already has products, earnings and a payout history.
 
-  TO SEE EVERY SCREEN IN THE DESIGN (FOR THE TEAM, NOT FOR SHOPPERS)
-  It is OFF by default and a shopper cannot find it. To turn it on, stop this
-  window and start again like this:
+  THE TWO STAFF TOOLS (FOR THE TEAM, NOT FOR SHOPPERS)
+  Both are OFF by default and a shopper cannot find either. To turn them on,
+  stop this window and start again like this:
 
     EXPO_PUBLIC_FAYR_WALKTHROUGH=1 ./start
 
-  Then in the app: My Profile, then "Walk through every screen". Every screen
-  the design has, including the ones you cannot reach by using the app, with
-  arrows to step from the first to the last. It reads and never writes, so
-  nothing you press in it spends a claim or moves money.
+  Then in the app, under My Profile:
+
+    "Walk through every screen"  Every screen the design has, including the
+      ones you cannot reach by using the app, with arrows to step from the
+      first to the last. It reads and never writes, so nothing you press in it
+      spends a claim or moves money.
+    "Check offer pages"  The morning job. It opens every offer page to see if
+      it still works, and it asks for an operations staff sign in of its own.
 
   TO STOP EVERYTHING
   Press Control and C together, in this window.

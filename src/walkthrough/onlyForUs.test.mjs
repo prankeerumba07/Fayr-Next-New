@@ -1,8 +1,14 @@
-// The walk through is off unless somebody turns it on, and a shopper cannot.
+// The staff tools are off unless somebody turns them on, and a shopper cannot.
 //
 // The owner found the walk through in Expo Go and asked for it gone from the
 // normal journey. This proves it is gone: the switch is off by default, off in
 // Expo Go, and the profile does not draw the row unless it is on.
+//
+// The SAME switch now hides the offer page check, for the same reason and on the
+// owner's instruction. That row asked every shopper to open a screen that then
+// asks for a staff sign in the app cannot give, so it was a dead end for
+// everybody who tapped it. One switch, not two: a second one would be a second
+// thing to remember.
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -77,29 +83,48 @@ test('the half that asks Expo is separate, so this test can run at all', () => {
   assert.match(wired, /switchedOn\(/, 'isItOn.js does not use the decision it is meant to');
 });
 
-test('the profile asks before it draws the row', () => {
+/** The one guarded block in the profile, or null if there is not one. */
+function staffBlock() {
+  return profile.match(/\{showStaffTools \?([\s\S]*?): null\}/);
+}
+
+test('the profile asks before it draws either staff row', () => {
   assert.match(profile, /walkthroughIsOn\(\)/, 'ProfileScreen does not ask the switch');
   // Inside the guard, not merely near it. The first version of this test looked
   // 900 characters after the first mention of the switch, which was the IMPORT
   // line, so it never reached the row and would have passed with no guard at all.
-  const guard = profile.match(/\{showWalkthrough \?([\s\S]*?): null\}/);
-  assert.ok(guard, 'ProfileScreen has no {showWalkthrough ? ... : null} guard');
-  assert.match(guard[1], /Walk through every screen/, 'the row is not inside the guard');
-  // And the guarded block is the ONLY place the row appears.
-  const outside = profile.replace(guard[0], '');
-  assert.ok(
-    !outside.includes('Walk through every screen'),
-    'the row also appears outside the guard',
-  );
+  const guard = staffBlock();
+  assert.ok(guard, 'ProfileScreen has no {showStaffTools ? ... : null} guard');
+  for (const row of ['Walk through every screen', 'Check offer pages']) {
+    assert.ok(guard[1].includes(row), `"${row}" is not inside the guard`);
+    // And the guarded block is the ONLY place that row appears.
+    const outside = profile.replace(guard[0], '');
+    assert.ok(!outside.includes(row), `"${row}" also appears outside the guard`);
+  }
 });
 
-test('the row cannot be reached any other way from the profile', () => {
-  // One entry point, and it is the guarded one. A second unguarded navigate to
-  // the walk through anywhere in this file would put it back in front of people.
-  const navigations = [...profile.matchAll(/navigate\('Walkthrough'\)/g)];
-  assert.equal(
-    navigations.length, 1,
-    `the profile has ${navigations.length} ways into the walk through; there must be one`,
+test('neither row can be reached any other way from the profile', () => {
+  // One entry point each, and both are inside the guard. A second unguarded
+  // navigate anywhere in this file would put the row back in front of people.
+  const guard = staffBlock();
+  assert.ok(guard, 'ProfileScreen has no guard to check');
+  for (const dest of ['Walkthrough', 'LiveCheck']) {
+    const all = [...profile.matchAll(new RegExp(`navigate\\('${dest}'\\)`, 'g'))];
+    assert.equal(
+      all.length, 1,
+      `the profile has ${all.length} ways into ${dest}; there must be one`,
+    );
+    const inside = [...guard[1].matchAll(new RegExp(`navigate\\('${dest}'\\)`, 'g'))];
+    assert.equal(inside.length, 1, `the one way into ${dest} is not the guarded one`);
+  }
+});
+
+test('the row above the staff tools becomes the last one when they are hidden', () => {
+  // Without this the group draws a divider under the privacy row and then
+  // nothing, which reads as a row that failed to load.
+  assert.match(
+    profile, /title="Privacy Policy"[\s\S]{0,200}last=\{!showStaffTools\}/,
+    'Privacy Policy is not marked as the last row when the staff rows are hidden',
   );
 });
 
