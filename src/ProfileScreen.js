@@ -28,6 +28,7 @@ import { getWallet } from './backend/meApi';
 import { getWithdrawals } from './backend/withdrawalsApi';
 import { listTasks } from './backend/tasksApi';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE, groupIndian } from './ui/theme';
+import { walkthroughIsOn } from './walkthrough/isItOn';
 // ONE definition of which withdrawals have left the balance, and one of the
 // all-time total — shared with the Earnings screen rather than restated here.
 import { ON_THE_WAY, allTimeEarningsPaise } from './ui/wallet';
@@ -54,6 +55,8 @@ function Row({ icon, title, sub, onPress, danger, last }) {
 }
 
 export default function ProfileScreen({ navigation }) {
+  // Read once, here, so the rest of the screen never has to think about it.
+  const showWalkthrough = walkthroughIsOn();
   const insets = useSafeAreaInsets();
   const [wallet, setWallet] = useState(null);
   const [withdrawals, setWithdrawals] = useState([]);
@@ -178,12 +181,16 @@ export default function ProfileScreen({ navigation }) {
               Hiding it would mean guessing who is staff from the app side, which
               the app has no way to know. */}
           <Row icon="🔍" title="Check offer pages" sub="For Fayr staff. Opens every offer page to see if it still works"
-            onPress={() => navigation.navigate('LiveCheck')} />
-          {/* Same audience, same reasoning as the row above. It says on itself
-              that it is for showing the app rather than using it, and while it is
-              open the app reads and never writes. */}
-          <Row icon="🗺️" title="Walk through every screen" sub="For Fayr staff. Opens every screen in the design, including the ones you cannot reach"
-            onPress={() => navigation.navigate('Walkthrough')} last />
+            onPress={() => navigation.navigate('LiveCheck')} last={!showWalkthrough} />
+          {/* OFF UNLESS SOMEBODY TURNS IT ON. The walk through opens every screen
+              in the design, including ones a shopper must never see, and it was
+              reachable here by anybody. It is not deleted: the screens, the
+              write block and the test all still work. The row is simply not
+              drawn unless the switch is on. See src/walkthrough/onlyForUs.js. */}
+          {showWalkthrough ? (
+            <Row icon="🗺️" title="Walk through every screen" sub="For the Fayr team. Opens every screen in the design, including the ones you cannot reach"
+              onPress={() => navigation.navigate('Walkthrough')} last />
+          ) : null}
         </View>
 
         <TouchableOpacity
