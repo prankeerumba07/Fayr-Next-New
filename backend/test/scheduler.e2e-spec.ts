@@ -77,7 +77,7 @@ describe('Scheduler (e2e)', () => {
     deliveredAt: number,
     permalink: string,
   ): Promise<string> {
-    const t = await taskSvc.claim(userId, campaign.id);
+    const t = await taskSvc.claim(userId, campaign.id, { terms: true });
     await taskSvc.submitEvidence(
       userId,
       t.id,
@@ -273,7 +273,7 @@ describe('Scheduler (e2e)', () => {
       const userId = await createUser();
       await ticketsSvc.grantSignup(userId);
       const campaign = await makeCampaign();
-      const t = await taskSvc.claim(userId, campaign.id);
+      const t = await taskSvc.claim(userId, campaign.id, { terms: true });
       expect(await ticketsSvc.getBalance(userId)).toBe(10);
 
       await prisma.task.update({

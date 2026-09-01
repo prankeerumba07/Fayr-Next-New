@@ -7,10 +7,14 @@ import { ACTION_PATHS } from './taskActions.js';
 // POST /tasks — claim a campaign (deducts tickets). IDEMPOTENT server-side: a
 // second claim for the same open campaign returns the existing task, no
 // double-spend. → { ok, status, task } | { ok:false, status, error }.
-export async function claim(campaignId) {
+//
+// `acceptedTerms` is the tick box on the product page and is passed straight
+// through, never defaulted. The server refuses the claim without it, so inventing
+// a true here would put a promise on the record that nobody made.
+export async function claim(campaignId, acceptedTerms) {
   const res = await authedFetch('/tasks', {
     method: 'POST',
-    body: JSON.stringify({ campaignId }),
+    body: JSON.stringify({ campaignId, acceptedTerms }),
   });
   return res.ok
     ? { ok: true, status: res.status, task: res.body }

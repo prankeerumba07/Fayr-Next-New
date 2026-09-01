@@ -35,7 +35,9 @@ export class TaskController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ClaimDto,
   ): Promise<TaskResponse> {
-    return this.tasks.claim(user.id, dto.campaignId);
+    return this.tasks.claim(user.id, dto.campaignId, {
+      terms: dto.acceptedTerms,
+    });
   }
 
   @Get()

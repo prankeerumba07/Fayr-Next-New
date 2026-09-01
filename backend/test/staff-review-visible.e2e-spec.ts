@@ -99,7 +99,7 @@ describe('Staff eyes-on-page review confirmation (e2e)', () => {
     const created = await request(app.getHttpServer())
       .post('/tasks')
       .set('Authorization', `Bearer ${userToken}`)
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const taskId = created.body.id as string;
     const applied = await request(app.getHttpServer())
@@ -153,7 +153,7 @@ describe('Staff eyes-on-page review confirmation (e2e)', () => {
     const created = await request(app.getHttpServer())
       .post('/tasks')
       .set('Authorization', `Bearer ${userToken}`)
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const taskId = created.body.id as string;
     await request(app.getHttpServer())
@@ -364,7 +364,7 @@ describe('Staff eyes-on-page review confirmation (e2e)', () => {
     const created = await request(server())
       .post('/tasks')
       .set('Authorization', `Bearer ${user.token}`)
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const support = await tokenFor('SUPPORT');
     const res = await request(server())

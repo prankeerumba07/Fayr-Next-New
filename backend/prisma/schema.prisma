@@ -307,6 +307,26 @@ model Task {
   windowEndsAt           DateTime? // delivery + return window; anchors the hold AND the 1.6 scheduler
   claimExpiresAt         DateTime? // deadline to purchase; past it with no purchase -> tickets returned
 
+  /// WHEN THIS PERSON ACCEPTED THIS OFFER'S OWN TERMS, and what they accepted.
+  ///
+  /// NOT the same thing as users.termsAcceptedAt, which is consent to Fayr itself
+  /// and is given once during first-run setup. This is the tick box on the product
+  /// page, given per offer, and the names are kept apart deliberately: two records
+  /// sharing one name is how two different consents get mistaken for each other.
+  ///
+  /// The claim carries the acceptance and is refused without it, so a task created
+  /// after 1 September 2026 cannot exist without these being set. They are
+  /// nullable only because rows created before that date have no answer.
+  ///
+  /// The TEXT is frozen here from the SERVER's own copy of the campaign, never
+  /// from the client, and for the same reason `category` is frozen: a campaign may
+  /// be edited while it is paused, and a record of "they agreed to whatever the
+  /// terms say now" is not a record. Null text means the campaign carried no terms
+  /// of its own and the app showed its own default set, which is not yet held
+  /// server side — a known gap, written down rather than papered over.
+  offerTermsAcceptedAt   DateTime?
+  offerTermsText         String?
+
   blocker       String? // why the task can't advance (BLOCKERS in taskflow)
   blockerReason String?
 

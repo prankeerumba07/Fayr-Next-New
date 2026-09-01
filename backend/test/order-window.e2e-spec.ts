@@ -60,7 +60,7 @@ describe('Order window (e2e)', () => {
     const res = await request(app.getHttpServer())
       .post('/tasks')
       .set('Authorization', `Bearer ${token}`)
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     return { taskId: res.body.id as string, campaign };
   }

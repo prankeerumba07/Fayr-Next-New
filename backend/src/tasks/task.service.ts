@@ -90,8 +90,25 @@ export class TaskService {
     this.claimTtlMinutes = config.get('CLAIM_TTL_MINUTES', { infer: true });
   }
 
-  /** Claim a campaign: deduct tickets + create the task, atomically. */
-  async claim(userId: string, campaignId: string): Promise<TaskResponse> {
+  /**
+   * Claim a campaign: deduct tickets + create the task, atomically.
+   *
+   * `accepted.terms` is the tick box on the product page, and it has NO DEFAULT on
+   * purpose. Every caller has to say whether this person accepted the offer's
+   * terms, so a new route cannot quietly create a task with no record of consent.
+   * The same rule is on the request body (ClaimDto) — the app's disabled button is
+   * a courtesy, this is the control.
+   */
+  async claim(
+    userId: string,
+    campaignId: string,
+    accepted: { terms: boolean },
+  ): Promise<TaskResponse> {
+    if (accepted.terms !== true) {
+      throw new ConflictException(
+        'You have to accept the terms and conditions before claiming.',
+      );
+    }
     try {
       return await this.prisma.$transaction(async (tx) => {
         // Lock the user row: serializes ticket ops for the floor check and
@@ -159,6 +176,18 @@ export class TaskService {
             claimExpiresAt: new Date(
               Date.now() + this.claimTtlMinutes * MINUTE,
             ),
+            // THE ACCEPTANCE, WRITTEN DOWN. The instant is the SERVER's, and the
+            // text is the server's own copy of the campaign — never anything the
+            // client sent. A client-supplied timestamp or wording proves nothing,
+            // and the campaign may be edited later while it is paused, so the
+            // terms are frozen onto the task exactly as `category` is.
+            //
+            // Null text means this campaign carries no terms of its own and the
+            // app showed its own default set. That set is not held server side
+            // yet; the gap is written down in the schema and in the report rather
+            // than filled in with a guess here.
+            offerTermsAcceptedAt: new Date(),
+            offerTermsText: campaign.terms,
           },
         });
 
@@ -178,7 +207,13 @@ export class TaskService {
             toState: 'CLAIMED',
             reason: 'claimed',
             idempotencyKey: `claim-task:${taskId}`,
-            payload: { campaignId, ticketCost: campaign.ticketCost },
+            payload: {
+              campaignId,
+              ticketCost: campaign.ticketCost,
+              // In the event history as well as on the row, because the event log
+              // is what staff read to see what happened and in what order.
+              acceptedOfferTerms: true,
+            },
           },
         });
 

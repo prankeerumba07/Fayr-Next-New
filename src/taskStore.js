@@ -262,8 +262,13 @@ export function applyAuthoritative(tr) {
 
 // Explicit claim (spends tickets; idempotent server-side). Seeds the entry from
 // the authoritative task the backend returns.
-export async function claim(campaignId) {
-  const res = await claimApi(campaignId);
+//
+// `acceptedTerms` comes from the tick box on the product page and is handed
+// through untouched. NO DEFAULT anywhere on this path: the server refuses a claim
+// that does not carry it, and a default here would claim somebody accepted terms
+// they never saw.
+export async function claim(campaignId, acceptedTerms) {
+  const res = await claimApi(campaignId, acceptedTerms);
   if (res.ok && res.task) {
     applyAuthoritative(res.task);
     return { ok: true, task: res.task };

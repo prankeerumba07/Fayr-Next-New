@@ -27,6 +27,7 @@ import { COLOR, FONT, RADIUS, SPACE, SHADOW, estMaxRefundRupees } from './ui/the
 import { seatsLine, joinedLine, isFullCampaign } from './ui/seats';
 import { Card, RefundBadge, MarketplaceTag, ProductImage } from './ui/primitives';
 import { copyToClipboard } from './ui/clipboard';
+import { TERMS_SENTENCE, acceptedTerms, claimBlockedLine } from './ui/terms';
 import { goBackOrHome } from './ui/nav';
 
 // Soft per-campaign hero tint (deterministic from the id) — the fayr palette's
@@ -114,6 +115,10 @@ export default function DetailScreen({ navigation, route }) {
   );
   const [faqOpen, setFaqOpen] = useState(-1);
   const [copied, setCopied] = useState(false);
+  // THE TERMS TICK BOX. Not remembered between visits on purpose: accepting the
+  // terms is something a person does when they are about to claim, and a tick that
+  // survived from a week ago is not an acceptance made now.
+  const [accepted, setAccepted] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -142,9 +147,15 @@ export default function DetailScreen({ navigation, route }) {
   // the confirmation. The journey is the spine: everything from here to the
   // refund is one sequence, and starting inside it means the step counter is
   // right from the very first screen instead of appearing halfway through.
+  //
+  // IT CARRIES THE ACCEPTANCE. The tick box is here; the claim happens two screens
+  // later, on the confirmation page. Passing it forward is what makes the tick a
+  // record rather than a light on a button — the confirmation page sends it with
+  // the claim and the server refuses a claim without it.
   const doClaim = useCallback(() => {
-    navigation.navigate('Journey', { campaignId });
-  }, [navigation, campaignId]);
+    if (!acceptedTerms(accepted)) return;
+    navigation.navigate('Journey', { campaignId, acceptedTerms: true });
+  }, [navigation, campaignId, accepted]);
 
   if (!campaign) {
     return (
@@ -406,6 +417,29 @@ export default function DetailScreen({ navigation, route }) {
           </TouchableOpacity>
         ) : null}
 
+        {/* THE TERMS TICK BOX, above the claim button, on the owner's
+            instruction of 1 September 2026. Only before the claim: once the
+            campaign is claimed the acceptance is already on the record and asking
+            again would suggest it had not been taken.
+
+            The sentence comes from src/ui/terms.js and is not typed out here, so
+            there is one copy of the words a person agrees to. */}
+        {!claimed ? (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => setAccepted((v) => !v)}
+            style={styles.termsRow}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: accepted }}
+            accessibilityLabel={TERMS_SENTENCE}
+          >
+            <View style={[styles.termsBox, accepted && styles.termsBoxOn]}>
+              {accepted ? <Text style={styles.termsTick}>✓</Text> : null}
+            </View>
+            <Text style={styles.termsText}>{TERMS_SENTENCE}</Text>
+          </TouchableOpacity>
+        ) : null}
+
         <TouchableOpacity
           activeOpacity={0.88}
           onPress={
@@ -413,7 +447,14 @@ export default function DetailScreen({ navigation, route }) {
               ? () => navigation.navigate('Journey', { campaignId: campaign.id })
               : doClaim
           }
-          style={[styles.cta, claimed && styles.ctaClaimed]}
+          // DEAD, NOT JUST GREY. A button that looks disabled and still works is
+          // the worst of both, so the press itself is refused as well.
+          disabled={!claimed && !acceptedTerms(accepted)}
+          style={[
+            styles.cta,
+            claimed && styles.ctaClaimed,
+            !claimed && !acceptedTerms(accepted) && styles.ctaOff,
+          ]}
         >
           <Text style={styles.ctaText}>
             {claimed
@@ -431,7 +472,11 @@ export default function DetailScreen({ navigation, route }) {
             <Text style={styles.secondaryText}>See every detail ›</Text>
           </TouchableOpacity>
         ) : (
-          <Text style={styles.ctaHint}>Claiming reserves this product for you</Text>
+          // SAYS WHY IT IS DEAD. A dead button with no explanation reads as a
+          // broken screen, and this one is dead on purpose.
+          <Text style={styles.ctaHint}>
+            {claimBlockedLine(accepted) || 'Claiming reserves this product for you'}
+          </Text>
         )}
       </LinearGradient>
     </View>
@@ -518,6 +563,21 @@ const styles = StyleSheet.create({
   ctaClaimed: { backgroundColor: '#2E9E00' },
   ctaText: { fontFamily: FONT.displaySemi, fontSize: 15.5, color: '#fff' },
   ctaHint: { fontFamily: FONT.bodySemi, fontSize: 11, color: '#a8a08e', textAlign: 'center', marginTop: 9 },
+  ctaOff: { backgroundColor: '#cfcfcf', shadowOpacity: 0 },
+
+  termsRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12,
+    paddingHorizontal: 2,
+  },
+  termsBox: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: '#B9BAA9',
+    backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
+  termsBoxOn: { backgroundColor: COLOR.green, borderColor: COLOR.green },
+  termsTick: { color: '#fff', fontSize: 13, fontFamily: FONT.bodySemi, lineHeight: 16 },
+  termsText: {
+    flex: 1, fontFamily: FONT.body, fontSize: 12.5, lineHeight: 18, color: COLOR.ink2,
+  },
   // Quieter than the primary CTA on purpose — it is a helper for the button
   // below it, not a competing action. Dashed border reads as "utility".
   copyName: {

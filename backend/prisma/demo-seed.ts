@@ -994,7 +994,12 @@ export async function seedDemo(
       return { created: false, taskId: existing.id };
     }
 
-    const claimed = await tasks.claim(spec.user.id, spec.campaignId);
+    // The seed walks the real journey, so it accepts the offer's terms the way a
+    // person does on the product page. Said out loud rather than defaulted: the
+    // claim has no default for this, deliberately.
+    const claimed = await tasks.claim(spec.user.id, spec.campaignId, {
+      terms: true,
+    });
 
     // MOVE THE CLOCK BEFORE ANY EVIDENCE ARRIVES. The order-window rule reads
     // tasks.createdAt and tasks.claimExpiresAt to decide whether a purchase could

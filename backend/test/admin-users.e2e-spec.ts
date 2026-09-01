@@ -69,7 +69,7 @@ describe('Admin user view (e2e)', () => {
     const user = await prisma.user.create({ data: { mobile: newMobile() } });
     await tickets.grantSignup(user.id); // +15
     const campaign = await makeCampaign();
-    await tasks.claim(user.id, campaign.id); // -5 tickets, 1 task
+    await tasks.claim(user.id, campaign.id, { terms: true }); // -5 tickets, 1 task
 
     // A refund credit, then a withdrawal debit, so both wallet sections populate.
     await wallet.postRefund({

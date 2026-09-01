@@ -45,9 +45,16 @@ import { Screen, Pill, ProductImage } from '../ui/primitives';
 import { CardBox, Row, TopBar } from '../ui/brand';
 import { goBackOrHome } from '../ui/nav';
 import { claimDeadline, ticketPlan, refundLines } from '../ui/confirmJoin';
+import { acceptedTerms, needsTermsLine } from '../ui/terms';
 
 export default function ConfirmJoinScreen({ route, navigation }) {
   const campaignId = route?.params?.campaignId ?? null;
+  // THE TICK BOX IS ON THE PRODUCT PAGE, and the acceptance travels here with the
+  // person. If it did not arrive, they reached this page some other way — from the
+  // staff walk through, for instance — and the claim cannot be made from here,
+  // because the server refuses a claim that does not carry it. Saying so plainly
+  // beats a button that fails with the server's own wording.
+  const cameWithTerms = acceptedTerms(route?.params?.acceptedTerms);
   const [campaign, setCampaign] = useState(
     campaignId ? campaignStore.getById(campaignId) : null,
   );
@@ -78,9 +85,12 @@ export default function ConfirmJoinScreen({ route, navigation }) {
   });
 
   const join = useCallback(async () => {
-    if (!ack || !campaignId) return;
+    if (!ack || !campaignId || !cameWithTerms) return;
     setJoining(true);
-    const res = await claimTask(campaignId);
+    // The value that ARRIVED, not a literal yes. Writing `true` here would keep
+    // working if the guard above were ever removed, and would then send an
+    // acceptance nobody gave.
+    const res = await claimTask(campaignId, cameWithTerms);
     setJoining(false);
     if (!res.ok) {
       // The two refusals the backend really has, told apart by its own message,
@@ -94,7 +104,7 @@ export default function ConfirmJoinScreen({ route, navigation }) {
       return;
     }
     navigation.replace('Claimed', { campaignId });
-  }, [ack, campaignId, navigation]);
+  }, [ack, campaignId, cameWithTerms, navigation]);
 
   if (!campaign) {
     return (
@@ -197,11 +207,14 @@ export default function ConfirmJoinScreen({ route, navigation }) {
       </ScrollView>
 
       <View style={styles.footer}>
+        {needsTermsLine(cameWithTerms) ? (
+          <Text style={styles.needsTerms}>{needsTermsLine(cameWithTerms)}</Text>
+        ) : null}
         <Pill
           onPress={join}
-          disabled={!ack || blocked}
+          disabled={!ack || blocked || !cameWithTerms}
           loading={joining}
-          color={ack && !blocked ? COLOR.ink : '#cfcfcf'}
+          color={ack && !blocked && cameWithTerms ? COLOR.ink : '#cfcfcf'}
         >
           CONFIRM &amp; JOIN
         </Pill>
@@ -232,6 +245,11 @@ const styles = StyleSheet.create({
   },
   shortTitle: { fontFamily: FONT.displaySemi, fontSize: 15, color: COLOR.ink },
   shortSub: { fontFamily: FONT.body, fontSize: 12.5, color: COLOR.sub, marginTop: 4, lineHeight: 18 },
+
+  needsTerms: {
+    fontFamily: FONT.body, fontSize: 12.5, lineHeight: 18, color: COLOR.sub,
+    textAlign: 'center', marginBottom: 10,
+  },
 
   ackRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginTop: 14 },
   box: {

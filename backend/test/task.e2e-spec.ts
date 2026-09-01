@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -151,7 +153,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const taskId: string = claim.body.id;
     expect(claim.body.state).toBe('CLAIMED');
@@ -224,7 +226,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const taskId: string = claim.body.id;
 
@@ -296,7 +298,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const taskId = claim.body.id as string;
     const deliveredAt = Date.now() - 30 * DAY; // window long closed
@@ -375,7 +377,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const taskId = claim.body.id as string;
     await driveToHolding(token, taskId, Date.now() - 30 * DAY); // itemPaise 129900
@@ -418,7 +420,7 @@ describe('Task loop (e2e)', () => {
       const claim = await request(server())
         .post('/tasks')
         .set('Authorization', bearer(token))
-        .send({ campaignId })
+        .send({ campaignId, acceptedTerms: true })
         .expect(201);
       const taskId = claim.body.id as string;
       // ONE order number, two different ASINs — the real fixture shape:
@@ -459,7 +461,7 @@ describe('Task loop (e2e)', () => {
       const claim = await request(server())
         .post('/tasks')
         .set('Authorization', bearer(token))
-        .send({ campaignId })
+        .send({ campaignId, acceptedTerms: true })
         .expect(201);
       const taskId = claim.body.id as string;
       await driveToHolding(token, taskId, deliveredAt, { itemId: 'B0SAMELINE' });
@@ -496,11 +498,11 @@ describe('Task loop (e2e)', () => {
 
     const claimA = await request(server())
       .post('/tasks').set('Authorization', bearer(token))
-      .send({ campaignId: first.id }).expect(201);
+      .send({ campaignId: first.id, acceptedTerms: true }).expect(201);
     await driveToHolding(token, claimA.body.id, deliveredAt, { itemId: 'B0KNOWN' });
     const claimB = await request(server())
       .post('/tasks').set('Authorization', bearer(token))
-      .send({ campaignId: second.id }).expect(201);
+      .send({ campaignId: second.id, acceptedTerms: true }).expect(201);
     await driveToHolding(token, claimB.body.id, deliveredAt); // no itemId at all
 
     await request(server())
@@ -521,7 +523,7 @@ describe('Task loop (e2e)', () => {
     const campaign = await makeCampaign({ title: 'Offer A' });
     const claim = await request(server())
       .post('/tasks').set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id }).expect(201);
+      .send({ campaignId: campaign.id, acceptedTerms: true }).expect(201);
     await driveToHolding(token, claim.body.id, Date.now() - 30 * DAY, {
       itemId: 'B0PROMOTED',
     });
@@ -540,7 +542,7 @@ describe('Task loop (e2e)', () => {
     const campaign = await makeCampaign({ title: 'Offer A' });
     const claim = await request(server())
       .post('/tasks').set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id }).expect(201);
+      .send({ campaignId: campaign.id, acceptedTerms: true }).expect(201);
     await request(server())
       .post(`/tasks/${claim.body.id}/evidence`)
       .set('Authorization', bearer(token))
@@ -572,7 +574,7 @@ describe('Task loop (e2e)', () => {
       const claim = await request(server())
         .post('/tasks')
         .set('Authorization', bearer(token))
-        .send({ campaignId })
+        .send({ campaignId, acceptedTerms: true })
         .expect(201);
       const taskId = claim.body.id as string;
       await driveToHolding(token, taskId, deliveredAt); // order id 'o1' both times
@@ -649,7 +651,7 @@ describe('Task loop (e2e)', () => {
     await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(409);
     // No task and no ticket entry were written.
     expect(await prisma.task.count()).toBe(0);
@@ -664,12 +666,12 @@ describe('Task loop (e2e)', () => {
     const a = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const b = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
 
     expect(b.body.id).toBe(a.body.id);
@@ -684,7 +686,7 @@ describe('Task loop (e2e)', () => {
     await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: paused.id })
+      .send({ campaignId: paused.id, acceptedTerms: true })
       .expect(409);
   });
 
@@ -695,7 +697,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     // Delivered today → the 10-day window is still open.
     await driveToHolding(token, claim.body.id, Date.now());
@@ -715,7 +717,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const taskId = claim.body.id;
 
@@ -757,7 +759,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(owner.token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
 
     const stranger = await newUser();
@@ -776,7 +778,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const taskId = claim.body.id;
     await driveToHolding(token, taskId, Date.now() - 30 * DAY);
@@ -798,6 +800,106 @@ describe('Task loop (e2e)', () => {
       .expect(409);
   });
 
+  // ACCEPTING THE OFFER'S TERMS IS A RECORD, NOT A BUTTON STATE.
+  //
+  // The owner asked for a tick box on the product page and for the acceptance to be
+  // written down. A disabled button is a courtesy that lives in the app; these
+  // three checks are the control that lives on the server.
+  describe('the offer’s terms', () => {
+    it('refuses a claim that does not carry the acceptance', async () => {
+      const { id: userId, token } = await newUser();
+      await ticketsSvc.grantSignup(userId);
+      const campaign = await makeCampaign();
+
+      await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id })
+        .expect(400);
+
+      // AND NOTHING WAS SPENT. A refusal that had already taken the tickets would
+      // be worse than no refusal at all.
+      expect(await ticketsSvc.getBalance(userId)).toBe(15);
+      expect(await prisma.task.count({ where: { userId } })).toBe(0);
+    });
+
+    it('refuses it just as firmly when the answer is a plain no', async () => {
+      const { id: userId, token } = await newUser();
+      await ticketsSvc.grantSignup(userId);
+      const campaign = await makeCampaign();
+
+      // `false` is a perfectly valid boolean, so a check that only asked "is this a
+      // boolean?" would have created a task recording that somebody declined the
+      // terms and claimed anyway.
+      const res = await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id, acceptedTerms: false })
+        .expect(400);
+      expect(JSON.stringify(res.body)).toMatch(/accept the terms/i);
+      expect(await ticketsSvc.getBalance(userId)).toBe(15);
+
+      // Nor does a string that merely looks like a yes.
+      await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id, acceptedTerms: 'true' })
+        .expect(400);
+      expect(await prisma.task.count({ where: { userId } })).toBe(0);
+    });
+
+    it('writes down WHEN they accepted and WHAT they accepted', async () => {
+      const { id: userId, token } = await newUser();
+      await ticketsSvc.grantSignup(userId);
+      const terms = 'Buy the exact product.\nOne entry per person.';
+      const campaign = await makeCampaign({ terms });
+
+      const before = Date.now();
+      const claim = await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id, acceptedTerms: true })
+        .expect(201);
+
+      const row = await prisma.task.findUniqueOrThrow({
+        where: { id: claim.body.id },
+      });
+      expect(row.offerTermsAcceptedAt).not.toBeNull();
+      expect(row.offerTermsAcceptedAt!.getTime()).toBeGreaterThanOrEqual(before);
+
+      // THE TEXT IS FROZEN, and it came from the server's own copy. Editing the
+      // campaign afterwards must not change what this person is recorded as having
+      // agreed to.
+      expect(row.offerTermsText).toBe(terms);
+      await prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { terms: 'Completely different rules.' },
+      });
+      const again = await prisma.task.findUniqueOrThrow({
+        where: { id: claim.body.id },
+      });
+      expect(again.offerTermsText).toBe(terms);
+
+      // And it is in the event history too, which is what staff read.
+      const claimEvent = await prisma.taskEvent.findFirstOrThrow({
+        where: { taskId: claim.body.id, type: 'CLAIM' },
+      });
+      expect(claimEvent.payload).toMatchObject({ acceptedOfferTerms: true });
+    });
+
+    it('never takes the acceptance from what the client sent', async () => {
+      // A client could send any instant or any wording it liked. Neither is
+      // allowed anywhere near the record: the server stamps its own clock and
+      // copies its own terms.
+      const src = readFileSync(
+        join(__dirname, '..', 'src', 'tasks', 'task.service.ts'),
+        'utf8',
+      );
+      expect(src).toMatch(/offerTermsAcceptedAt: new Date\(\)/);
+      expect(src).toMatch(/offerTermsText: campaign\.terms/);
+    });
+  });
+
   // THE THIRTY MINUTE SLOT, AND THE SWEEP THAT HAS TO KEEP UP WITH IT.
   //
   // The owner asked on 1 September 2026 for a thirty minute purchase window, and
@@ -814,7 +916,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     const after = Date.now();
 
@@ -851,7 +953,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     expect(await ticketsSvc.getBalance(userId)).toBe(10);
 
@@ -890,7 +992,7 @@ describe('Task loop (e2e)', () => {
     const claim = await request(server())
       .post('/tasks')
       .set('Authorization', bearer(token))
-      .send({ campaignId: campaign.id })
+      .send({ campaignId: campaign.id, acceptedTerms: true })
       .expect(201);
     expect(await ticketsSvc.getBalance(userId)).toBe(10);
 
@@ -921,7 +1023,7 @@ describe('Task loop (e2e)', () => {
       await request(server())
         .post('/tasks')
         .set('Authorization', bearer(token))
-        .send({ campaignId: campaign.id })
+        .send({ campaignId: campaign.id, acceptedTerms: true })
         .expect(201)
         .expect((r) => expect(r.body.state).toBe('CLAIMED'));
     });
@@ -934,7 +1036,7 @@ describe('Task loop (e2e)', () => {
       const first = await request(server())
         .post('/tasks')
         .set('Authorization', bearer(token))
-        .send({ campaignId: campaign.id })
+        .send({ campaignId: campaign.id, acceptedTerms: true })
         .expect(201);
 
       // Expire it unpurchased — state stays CLAIMED, task is closed.
@@ -948,7 +1050,7 @@ describe('Task loop (e2e)', () => {
       const second = await request(server())
         .post('/tasks')
         .set('Authorization', bearer(token))
-        .send({ campaignId: campaign.id })
+        .send({ campaignId: campaign.id, acceptedTerms: true })
         .expect(201)
         .expect((r) => expect(r.body.state).toBe('CLAIMED'));
       expect(second.body.id).not.toBe(first.body.id);
@@ -967,7 +1069,7 @@ describe('Task loop (e2e)', () => {
       const first = await request(server())
         .post('/tasks')
         .set('Authorization', bearer(token))
-        .send({ campaignId: campaign.id })
+        .send({ campaignId: campaign.id, acceptedTerms: true })
         .expect(201);
       const taskId: string = first.body.id;
 
@@ -983,7 +1085,7 @@ describe('Task loop (e2e)', () => {
       await request(server())
         .post('/tasks')
         .set('Authorization', bearer(token))
-        .send({ campaignId: campaign.id })
+        .send({ campaignId: campaign.id, acceptedTerms: true })
         .expect(409)
         .expect((r) => expect(r.body.message).toMatch(/already completed/i));
 
@@ -1011,7 +1113,7 @@ describe('Task loop (e2e)', () => {
       const res = await request(server())
         .post('/tasks')
         .set('Authorization', bearer(token))
-        .send({ campaignId: campaign.id })
+        .send({ campaignId: campaign.id, acceptedTerms: true })
         .expect(201);
       taskId = res.body.id;
     });
