@@ -4,7 +4,8 @@
 // an order number and an order date into the screen, and this file is why the app
 // can never do that.
 import {
-  howManyKnown, money, orderDate, orderDetailRows, readFrom,
+  agreeCount, agreeLabel, comparisonRows, howManyKnown, money, orderDate,
+  orderDetailRows, readFrom,
 } from './orderDetails.js';
 
 let pass = 0;
@@ -145,6 +146,55 @@ console.log('\n=== 7. where the details came from ===');
     ok(typeof r.label === 'string' && r.label.length > 5 && !/undefined/.test(r.label),
       `${JSON.stringify(unknown)} still reads as a sentence`);
     ok(typeof r.icon === 'string' && r.icon.length > 0, 'and still has an icon');
+  }
+}
+
+console.log('\n=== 8. THE FIELD BY FIELD COMPARISON, PASSED THROUGH UNTOUCHED ===');
+{
+  const fromServer = [
+    { field: 'orderId', label: 'Order ID', fromScreenshot: '402-1', fromOrder: '402-1', agree: true },
+    { field: 'amount', label: 'Order amount', fromScreenshot: '₹999.00', fromOrder: '₹1,299.00', agree: false },
+    { field: 'orderDate', label: 'Order date', fromScreenshot: null, fromOrder: '2026-07-02', agree: null },
+  ];
+  const rows = comparisonRows(fromServer);
+  ok(rows.length === 3, 'three rows in, three rows out');
+  ok(rows[0].agree === true && rows[1].agree === false && rows[2].agree === null,
+    'and the verdicts are the server’s, not recomputed');
+  ok(rows[1].fromScreenshot === '₹999.00' && rows[1].fromOrder === '₹1,299.00',
+    'both values come through');
+  ok(rows[2].fromScreenshot === null, 'and a missing side stays missing');
+
+  // NOTHING IS RECOMPUTED. A second opinion about whether two values agree is how
+  // a screen ends up contradicting the server, so a row that says "agree" while
+  // showing two different values is passed through exactly as sent.
+  const contradictory = comparisonRows([
+    { field: 'amount', label: 'Order amount', fromScreenshot: '₹1.00', fromOrder: '₹2.00', agree: true },
+  ]);
+  ok(contradictory[0].agree === true,
+    'the server’s verdict wins even when it looks odd, because it is the server’s');
+
+  for (const nothing of [undefined, null, [], 'rows', 42, {}, [null], [{}], [7]]) {
+    ok(comparisonRows(nothing) === null,
+      `${JSON.stringify(nothing)} is no comparison at all`);
+  }
+  // A row with an odd verdict is read as "could not compare", never as agreement.
+  const odd = comparisonRows([
+    { field: 'amount', label: 'Order amount', fromScreenshot: 'x', fromOrder: 'y', agree: 'yes' },
+  ]);
+  ok(odd[0].agree === null, 'a verdict that is not true or false is not agreement');
+
+  const counted = agreeCount(rows);
+  ok(counted.agree === 1 && counted.compared === 2 && counted.total === 3,
+    'the counts are honest: one agrees, two could be compared, three rows');
+  ok(agreeCount(null).total === 0, 'and nothing counts as nothing');
+
+  ok(agreeLabel(true) === 'These match', 'a match is said in words');
+  ok(agreeLabel(false) === 'These do not match', 'and so is a mismatch');
+  ok(/Nothing to compare/.test(agreeLabel(null)),
+    'and a row we could not compare says exactly that, not that it failed');
+  for (const odd2 of [undefined, 'yes', 1, {}]) {
+    ok(agreeLabel(odd2) === 'Nothing to compare',
+      `${JSON.stringify(odd2)} reads as nothing to compare`);
   }
 }
 

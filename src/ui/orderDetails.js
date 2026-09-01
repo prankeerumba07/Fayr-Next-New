@@ -100,6 +100,53 @@ export function orderDetailRows(state) {
   ];
 }
 
+/**
+ * THE OWNER'S FIELD BY FIELD COMPARISON, as rows a screen can draw.
+ *
+ * `details` is what the backend sends for the caller's own screenshot: one row per
+ * field with what the screenshot said, what the person's own order says, and whether
+ * the two agree. See backend/src/ocr/order-comparison.ts, which explains at length
+ * why this is safe to show and the staff comparison is not.
+ *
+ * Every value is passed through as the backend wrote it. Nothing is recomputed here:
+ * a second opinion about whether two values agree is exactly how a screen ends up
+ * contradicting the server.
+ */
+export function comparisonRows(details) {
+  if (!Array.isArray(details)) return null;
+  const rows = details
+    .filter((r) => r && typeof r === 'object' && typeof r.label === 'string')
+    .map((r) => ({
+      label: r.label,
+      field: typeof r.field === 'string' ? r.field : null,
+      fromScreenshot: typeof r.fromScreenshot === 'string' && r.fromScreenshot !== ''
+        ? r.fromScreenshot
+        : null,
+      fromOrder: typeof r.fromOrder === 'string' && r.fromOrder !== ''
+        ? r.fromOrder
+        : null,
+      agree: r.agree === true ? true : r.agree === false ? false : null,
+    }));
+  return rows.length > 0 ? rows : null;
+}
+
+/** What a row's verdict is called on screen. Never a tick with no word beside it. */
+export function agreeLabel(agree) {
+  if (agree === true) return 'These match';
+  if (agree === false) return 'These do not match';
+  return 'Nothing to compare';
+}
+
+/** How many rows really agree, and how many could be compared at all. */
+export function agreeCount(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  return {
+    agree: list.filter((r) => r && r.agree === true).length,
+    compared: list.filter((r) => r && r.agree !== null).length,
+    total: list.length,
+  };
+}
+
 /** How many of the five rows Fayr actually holds. Drawn as "4 of 5 read". */
 export function howManyKnown(rows) {
   return Array.isArray(rows) ? rows.filter((r) => r && r.known === true).length : 0;

@@ -17,6 +17,11 @@ import {
   type ScreenshotUploadResponse,
 } from './screenshot.response';
 import { VisionExtractionService } from './vision-extraction.service';
+import { platformDisplayName } from '../common/platform-name';
+// Read the order the way the ENGINE reads it, rather than picking columns and
+// hoping they are the same ones. task.mapper's own comment warns that the promoted
+// itemPaise column is null on essentially every task the current code produces.
+import { toEngineTask } from '../tasks/task.mapper';
 
 /**
  * The subset of a multer file we read. Declared locally so the backend needs no
@@ -128,6 +133,10 @@ export class ScreenshotVerificationService {
       reviewReason: null,
       reviewedAt: null,
       uploadedAt: upload.uploadedAt.toISOString(),
+      // Nothing has been read off the image yet, so there is nothing to compare.
+      // Null rather than an empty list: "not read yet" and "read and found nothing"
+      // are different things and the app says different words for them.
+      details: null,
     };
   }
 
@@ -149,7 +158,17 @@ export class ScreenshotVerificationService {
       include: { screenshot: true },
       orderBy: { createdAt: 'desc' },
     });
-    return subs.map(toUserScreenshot);
+    // THE OWNER'S FIELD BY FIELD COMPARISON. The other side of every row is the
+    // caller's OWN order, read out of the same task, so nothing about the campaign
+    // or about Fayr's tolerances is in reach of this response. The order comes
+    // through toEngineTask so this reads the order exactly as the engine does,
+    // rather than picking columns and hoping they are the same ones.
+    const engine = toEngineTask(task, []);
+    const context = {
+      order: engine.order,
+      platformName: platformDisplayName(task.platform),
+    };
+    return subs.map((sub) => toUserScreenshot(sub, context));
   }
 
   /** True while today's extraction count is below the configured cap. */

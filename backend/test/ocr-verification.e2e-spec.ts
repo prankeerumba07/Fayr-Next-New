@@ -440,4 +440,260 @@ describe('OCR verification (e2e)', () => {
       expect((await retention.purgeExpired()).purged).toBe(0);
     });
   });
+
+  describe('the field by field comparison the user is shown', () => {
+    /**
+     * The owner asked for this by name: on a screenshot upload, compare Order ID,
+     * Order amount, Order date, Product name and Marketplace against the real order,
+     * and report each one.
+     *
+     * Two things are proved here over real HTTP and a real database. That the rows
+     * arrive and say what they should. And that nothing about how Fayr JUDGES
+     * evidence arrives with them — no verdict, no confidence, no tolerance, no
+     * campaign expectation. That second half is the reason this comparison could be
+     * shown at all: both sides of every row are the person's own data.
+     *
+     * Extraction is off in this suite (no key), which is why the extracted fields
+     * are written straight onto the submission — the same shape the vision service
+     * stores, without needing to call Anthropic from a test.
+     */
+    const ORDER_ID = '402-3925017-7784521';
+
+    /** Put an order on the task, exactly as the mapper stores one. */
+    const giveTheTaskAnOrder = (taskId: string) =>
+      prisma.task.update({
+        where: { id: taskId },
+        data: {
+          orderId: ORDER_ID,
+          evidence: {
+            order: {
+              id: ORDER_ID,
+              product: 'boAt Airdopes 141 Bluetooth Earbuds',
+              unitPricePaise: '129900',
+              orderTotalPaise: '129900',
+              quantity: 1,
+              date: Date.UTC(2026, 6, 2, 12, 0, 0),
+              source: 'order-details',
+            },
+            orderConfirmed: false,
+          },
+        },
+      });
+
+    /** Write what "Claude read" onto the submission, since OCR is off here. */
+    const pretendItWasRead = (
+      submissionId: string,
+      extraction: Prisma.InputJsonObject,
+    ) =>
+      prisma.evidenceSubmission.update({
+        where: { id: submissionId },
+        data: { status: 'EXTRACTED', extraction },
+      });
+
+    const rowsFor = async (token: string, taskId: string) => {
+      const res = await request(server())
+        .get(`/tasks/${taskId}/screenshots`)
+        .set('Authorization', bearer(token))
+        .expect(200);
+      return res.body[0];
+    };
+
+    it('reports every field, with BOTH values, when the screenshot is of the right order', async () => {
+      const { id: userId, token } = await newUser();
+      const campaign = await makeCampaign();
+      const { id: taskId } = await makeTask(userId, campaign.id);
+      await giveTheTaskAnOrder(taskId);
+
+      const submissionId = await uploadScreenshot(token, taskId, 'PURCHASE');
+      await pretendItWasRead(submissionId, {
+        orderNumber: ORDER_ID,
+        productName: 'boAt Airdopes 141 Bluetooth Earbuds',
+        amount: 1299,
+        currency: 'INR',
+        orderDate: '2 Jul 2026',
+        marketplace: 'Amazon',
+        confidence: 88,
+      });
+
+      const shot = await rowsFor(token, taskId);
+      expect(Array.isArray(shot.details)).toBe(true);
+      expect(shot.details.map((r: { label: string }) => r.label)).toEqual([
+        'Order ID', 'Order amount', 'Order date', 'Product name', 'Marketplace',
+      ]);
+      for (const r of shot.details) {
+        expect(r.agree).toBe(true);
+        expect(typeof r.fromScreenshot).toBe('string');
+        expect(typeof r.fromOrder).toBe('string');
+      }
+      const amount = shot.details.find(
+        (r: { field: string }) => r.field === 'amount',
+      );
+      expect(amount.fromScreenshot).toBe('₹1,299.00');
+      expect(amount.fromOrder).toBe('₹1,299.00');
+    });
+
+    it('says WHICH field disagrees, and shows both values, for a screenshot of another order', async () => {
+      const { id: userId, token } = await newUser();
+      const campaign = await makeCampaign();
+      const { id: taskId } = await makeTask(userId, campaign.id);
+      await giveTheTaskAnOrder(taskId);
+
+      const submissionId = await uploadScreenshot(token, taskId, 'PURCHASE');
+      await pretendItWasRead(submissionId, {
+        orderNumber: '402-0000000-0000000',
+        productName: 'boAt Airdopes 141 Bluetooth Earbuds',
+        amount: 999,
+        orderDate: '2 Jul 2026',
+        marketplace: 'Amazon',
+        confidence: 71,
+      });
+
+      const shot = await rowsFor(token, taskId);
+      const by = Object.fromEntries(
+        shot.details.map((r: { field: string }) => [r.field, r]),
+      );
+      expect(by.orderId.agree).toBe(false);
+      expect(by.orderId.fromScreenshot).toBe('402-0000000-0000000');
+      expect(by.orderId.fromOrder).toBe(ORDER_ID);
+      expect(by.amount.agree).toBe(false);
+      expect(by.amount.fromScreenshot).toBe('₹999.00');
+      expect(by.amount.fromOrder).toBe('₹1,299.00');
+      // And the rows that DO agree still say so, so it is never all-or-nothing.
+      expect(by.orderDate.agree).toBe(true);
+      expect(by.productName.agree).toBe(true);
+      expect(by.marketplace.agree).toBe(true);
+
+      // A disagreement is not a refusal. The task has not moved and no staff
+      // decision has been made.
+      const task = await prisma.task.findUnique({ where: { id: taskId } });
+      expect(task?.state).toBe('CLAIMED');
+      expect(shot.status).toBe('pending_review');
+    });
+
+    it('NEVER leaks the staff verdict, the confidence, or any tolerance', async () => {
+      const { id: userId, token } = await newUser();
+      const campaign = await makeCampaign();
+      const { id: taskId } = await makeTask(userId, campaign.id);
+      await giveTheTaskAnOrder(taskId);
+
+      const submissionId = await uploadScreenshot(token, taskId, 'PURCHASE');
+      // A submission carrying a full staff match, which is the worst case: if any
+      // of it can escape into the user's response, this is where it would.
+      await prisma.evidenceSubmission.update({
+        where: { id: submissionId },
+        data: {
+          status: 'EXTRACTED',
+          extraction: {
+            orderNumber: ORDER_ID, productName: 'boAt Airdopes 141',
+            amount: 1299, orderDate: '2 Jul 2026', marketplace: 'Amazon',
+            confidence: 88, notes: 'clear screenshot',
+          },
+          verdict: 'PARTIAL',
+          confidence: 64,
+          match: {
+            fields: [
+              {
+                field: 'amount', expected: '₹1,299.00', extracted: '₹1,299.00',
+                matched: true,
+                note: 'within ₹2.00 band (paid off by ₹0.00)',
+              },
+              {
+                field: 'orderDate', expected: null, extracted: '2 Jul 2026',
+                matched: false, note: 'order predates the claim — suspicious',
+              },
+            ],
+          },
+        },
+      });
+
+      const res = await request(server())
+        .get(`/tasks/${taskId}/screenshots`)
+        .set('Authorization', bearer(token))
+        .expect(200);
+      const flat = JSON.stringify(res.body).toLowerCase();
+      for (const leak of ['verdict', 'partial', 'suspicious', 'band',
+        'tolerance', 'threshold', 'overlap', 'notes', 'expected',
+        'clear screenshot']) {
+        expect(flat).not.toContain(leak);
+      }
+      expect(res.body[0]).not.toHaveProperty('verdict');
+      expect(res.body[0]).not.toHaveProperty('confidence');
+      expect(res.body[0]).not.toHaveProperty('match');
+      // The campaign's own expected price is 1299_00 paise here and the row shows
+      // ₹1,299.00 legitimately, from the ORDER. What must never appear is the
+      // campaign's minimum rating, which nothing on this path reads.
+      expect(res.body[0].details.some(
+        (r: { field: string }) => r.field === 'rating',
+      )).toBe(false);
+    });
+
+    it('shows no rows at all before the screenshot has been read', async () => {
+      const { id: userId, token } = await newUser();
+      const campaign = await makeCampaign();
+      const { id: taskId } = await makeTask(userId, campaign.id);
+      await giveTheTaskAnOrder(taskId);
+
+      await uploadScreenshot(token, taskId, 'PURCHASE');
+      const shot = await rowsFor(token, taskId);
+      // Null, not an empty list. "Not read yet" and "read and found nothing" are
+      // different things and the app says different words for them.
+      expect(shot.details).toBeNull();
+    });
+
+    it('shows no rows for a screenshot of a review, which has no order on it', async () => {
+      const { id: userId, token } = await newUser();
+      const campaign = await makeCampaign();
+      const { id: taskId } = await makeTask(userId, campaign.id);
+      await giveTheTaskAnOrder(taskId);
+
+      const submissionId = await uploadScreenshot(token, taskId, 'REVIEW');
+      await pretendItWasRead(submissionId, {
+        productName: 'boAt Airdopes 141', rating: 4, confidence: 80,
+      });
+      const shot = await rowsFor(token, taskId);
+      expect(shot.details).toBeNull();
+    });
+
+    it('still shows our side of every row when nothing could be read off the image', async () => {
+      const { id: userId, token } = await newUser();
+      const campaign = await makeCampaign();
+      const { id: taskId } = await makeTask(userId, campaign.id);
+      await giveTheTaskAnOrder(taskId);
+
+      const submissionId = await uploadScreenshot(token, taskId, 'PURCHASE');
+      await pretendItWasRead(submissionId, { confidence: 12, notes: null });
+
+      const shot = await rowsFor(token, taskId);
+      const by = Object.fromEntries(
+        shot.details.map((r: { field: string }) => [r.field, r]),
+      );
+      // Nothing agrees and nothing DISAGREES: one side is missing, and a missing
+      // side is not a mismatch.
+      expect(by.orderId.agree).toBeNull();
+      expect(by.orderId.fromScreenshot).toBeNull();
+      expect(by.orderId.fromOrder).toBe(ORDER_ID);
+      expect(by.amount.fromOrder).toBe('₹1,299.00');
+    });
+
+    it('cannot be read by anybody but the owner', async () => {
+      const { id: userId, token } = await newUser();
+      const stranger = await newUser();
+      const campaign = await makeCampaign();
+      const { id: taskId } = await makeTask(userId, campaign.id);
+      await giveTheTaskAnOrder(taskId);
+
+      const submissionId = await uploadScreenshot(token, taskId, 'PURCHASE');
+      await pretendItWasRead(submissionId, {
+        orderNumber: ORDER_ID, amount: 1299, confidence: 88,
+      });
+
+      await request(server())
+        .get(`/tasks/${taskId}/screenshots`)
+        .set('Authorization', bearer(stranger.token))
+        .expect(404);
+      await request(server())
+        .get(`/tasks/${taskId}/screenshots`)
+        .expect(401);
+    });
+  });
 });

@@ -151,6 +151,13 @@ describe('ScreenshotVerificationService', () => {
       }),
     );
     // The USER response is minimal — pending only, no verdict/confidence leaked.
+    //
+    // `details` is null here on purpose and it is worth saying why. This is the
+    // answer to the UPLOAD itself, and the read of the image happens after it: at
+    // this moment nothing has been read, so there is nothing to compare. The rows
+    // arrive on the next list, which is what the app asks for straight afterwards.
+    // Null rather than an empty list, because "not read yet" and "read and found
+    // nothing" are different and the app says different words for them.
     expect(res).toEqual({
       id: 'sub-1',
       taskId: 'task-1',
@@ -159,8 +166,10 @@ describe('ScreenshotVerificationService', () => {
       reviewReason: null,
       reviewedAt: null,
       uploadedAt: '2026-07-02T10:00:00.000Z',
+      details: null,
     });
     expect(res).not.toHaveProperty('verdict');
+    expect(res).not.toHaveProperty('confidence');
   });
 
   it('skips extraction (still stores) when OCR is not configured', async () => {
