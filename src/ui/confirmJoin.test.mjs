@@ -382,6 +382,22 @@ console.log('the claimed sheet draws the slot, and says when it is gone');
     assert.ok(/over \?/.test(flat), 'the sheet does not change with the ran-out state');
   });
 
+  t('the button says Continue, and does not open a shop', () => {
+    // It used to open the marketplace's own web view, so the very next thing after
+    // claiming was a shop, with nothing in between saying what to buy. The owner
+    // asked for "Continue", into the journey that owns all of that.
+    assert.ok(/Continue →/.test(flat), 'the button does not say Continue');
+    assert.ok(!/Go to \$\{mktName\} →/.test(flat), 'the button still names a shop');
+    assert.ok(
+      !/navigation\.replace\(campaign\.marketplace/.test(flat),
+      'the sheet still opens the marketplace web view directly',
+    );
+    assert.ok(
+      /navigation\.replace\('Journey', \{ campaignId \}\)/.test(flat),
+      'the button does not open the claim journey',
+    );
+  });
+
   t('the tickets are described honestly in both states', () => {
     // Held while it is live; on their way back once it has lapsed. The sweep
     // really does return them, so this is a promise the backend keeps.

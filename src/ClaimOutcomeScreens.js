@@ -117,15 +117,25 @@ export function ClaimedScreen({ route, navigation }) {
   // passed puts the screen into its ran-out state.
   const over = left ? left.over === true : false;
 
-  const buy = useCallback(() => {
-    // Straight to the marketplace handoff the app already has, with the campaign
-    // attached so the scraper knows what it is looking for.
-    if (campaign?.marketplace) {
-      navigation.replace(campaign.marketplace, { campaignId });
-      return;
-    }
-    navigation.replace('Task', { campaignId });
-  }, [campaign, campaignId, navigation]);
+  // CONTINUE, NOT "GO TO AMAZON". The owner asked for this on 1 September 2026.
+  //
+  // This button used to open the marketplace's own web view directly, so the very
+  // next thing a person saw after claiming was a shop, with nothing in between
+  // telling them what to buy or reminding them what they had signed up to. It goes
+  // into the claim journey now, which is the sequence that owns all of that.
+  //
+  // WHERE IT LANDS, SAID PLAINLY. The journey works out which step this claim is
+  // on from the claim's own record. For a claim nobody has connected an account
+  // for, that is "Connect your account" today. The owner's flow puts the BUY page
+  // first, with a locked buy button that sends somebody to connect and back — and
+  // that lock is Part Two of his instructions, which is also what makes connecting
+  // reachable from the buy page. Swapping the order before the lock exists would
+  // leave nothing anywhere that opens the connect page, so the order changes in
+  // Part Two, together with the lock, and not here on its own.
+  const carryOn = useCallback(() => {
+    if (!campaignId) return;
+    navigation.replace('Journey', { campaignId });
+  }, [campaignId, navigation]);
 
   return (
     <Screen bg={COLOR.homeBg}>
@@ -182,8 +192,8 @@ export function ClaimedScreen({ route, navigation }) {
           ) : (
             <>
               <View style={{ marginTop: 18 }}>
-                <Pill onPress={buy} color={COLOR.greenDeep}>
-                  {`Go to ${mktName} →`}
+                <Pill onPress={carryOn} color={COLOR.greenDeep}>
+                  Continue →
                 </Pill>
               </View>
               <TextBtn onPress={() => navigation.replace('Task', { campaignId })}>
