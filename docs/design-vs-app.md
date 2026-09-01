@@ -235,6 +235,46 @@ missing purely on the phone:
 
 ---
 
+## Where the design itself is wrong, and what the app does instead
+
+Added 1 September 2026, on the owner's instruction.
+
+**The design file is not to be changed. Not for any of this.** It is the
+authority on what a screen looks like and what it says, and it stays clean. Where
+it states a number that is wrong, or forgets one of its own screens, the app reads
+the real number from the backend and the discrepancy is written down here.
+
+### The design states numbers Fayr does not use
+
+| where in the design | what the design says | what Fayr actually does | what the app does |
+|---|---|---|---|
+| `tickets`, "The loop" card (line 4180) | "Start with **20** → joining locks a few → completing returns them" | Everybody starts with **15**. A claim costs **5**. **10** come back after a completed withdrawal. | Reads the balance and the cost from the backend. The sentence is rewritten with the real figures, not with 20. |
+| `confirm`, the Deadline card (line 2403) | "within **48 hours** of joining — by **6 Jul, 6:00 PM**" | The backend expires a claim after its own claim window, seven days by default. | Already fixed. `src/ui/confirmJoin.js` states the length the server sends and no clock time, and the card is left out entirely if the server sent none. |
+| `claimedsheet` (line 2192, 2201) | "yours for the next **2 hours**", counting down from **25m 35s** | Same claim window as above, and it is neither two hours nor twenty five minutes. | The claim outcome screen states the server's own window. No countdown is invented. |
+| `returnwindow` (line 3083, 3088) | a ring reading "**5 DAYS**", and "closes on **11 Jul**" | The return window is per category and comes from the campaign. | The screen reads the campaign's own return window. Where the exact date is not known it is not stated. |
+| `ocrconfirm` (line 2900) | Order ID **1269146612**, Order Date **2 Jul 2026** | These are whatever the screenshot and the order say. | Every row is filled from the real reading and the real order. Nothing is written into the file. |
+| `emailcode` (line 2709) | resend countdown starting at **41** seconds | The backend decides how long a code lasts. | The countdown is handed in, and when nothing hands one in the line says so. |
+| `otplocked` (line 766) | a countdown written in as **14:32** | The server sends how long the pause is. | Already fixed. `src/screens/otplocked.js` takes the seconds and says "You can try again shortly" when it has none. |
+| `maintenance` (line 530) | "Expected back by **6:00 PM**" | Nothing knows when an outage ends. | Already fixed. `src/screens/maintenance.js` says "We do not have a time yet" when nobody hands a time in. |
+| `truecaller` (line 631) | **a real person's name and a real, only partly masked, mobile number** | Neither belongs in the app. | Already fixed. `src/screens/truecaller.js` takes both as parameters and masks the number to its last three digits. Nothing is copied from the design. |
+
+### The design's own list forgets five of its own screens
+
+The design keeps two lists of itself. `const screens = {}` (line 4609) can draw
+**sixty one**. `const FLOW_GROUPS` (line 4590) groups **fifty six** of them into
+the seven groups the app follows. Five screens the design can draw have no button
+in its own list:
+
+    setupintrolegacy    insufficient    deliverycheck    underreview    campaigns
+
+Both counts were read out of the file rather than typed. `src/screens/keys.js`
+holds all **sixty one**, because "every page in the design" means every page, and
+`src/screens/keys.test.mjs` reads the design file and fails if the two ever
+disagree. The walk through carries the five under a group of its own that says
+plainly they are missing from the design's own list.
+
+---
+
 ## What this means for the phases that follow
 
 - **Phase B is the largest piece of work in the whole prompt.** Forty two new
