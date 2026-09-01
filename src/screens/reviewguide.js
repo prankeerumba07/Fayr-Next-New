@@ -15,18 +15,26 @@
 // that Fayr has not built. Both say the same thing; keeping it here means it is in
 // front of somebody at the moment they write, which is when it matters.
 //
-// ONE DEPARTURE: the design opens the shop's homepage in a browser tab. Here the
-// shop opens inside Fayr, which is the only way the reader can see the review
-// afterwards.
-import React, { useCallback } from 'react';
+// TWO DEPARTURES:
+//
+//  * The design opens the shop's homepage in a browser tab. Here there are two
+//    doors: the shop inside Fayr, which is how Fayr later reads that the review is
+//    really there, and the shop's own installed app, which the owner asked for.
+//    One plain line says which is which.
+//  * The product name goes on the clipboard on the way out, on either door, so
+//    nobody has to type it into a search box to find their own product again. The
+//    name and nothing else, and the screen says out loud that it happened.
+import React, { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
 import { markVisitedShop } from '../journey/shopVisits';
+import { copyProductName, openShopApp } from '../openShop';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from '../ui/theme';
-import { Pill, TopBar, hSub, hTitle } from '../ui/brand';
+import { Ghost, Pill, TopBar, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
+import { appButtonLabel, copyLine, whichDoorLine } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
 
 /**
@@ -53,10 +61,26 @@ export default function ReviewGuideScreen({ navigation, route }) {
   const key = campaign ? campaign.marketplace : params.marketplace || 'amazon';
   const shop = PLATFORMS[key] ? PLATFORMS[key].name : String(key);
 
-  const openShop = useCallback(() => {
+  const product = campaign ? campaign.productName || campaign.title : null;
+  const opens = PLATFORMS[key] ? PLATFORMS[key].startUrl : null;
+  const [copied, setCopied] = useState(null);
+
+  const putOnClipboard = useCallback(async () => {
+    const done = await copyProductName(product);
+    setCopied(done);
+  }, [product]);
+
+  const openInFayr = useCallback(async () => {
+    await putOnClipboard();
     if (campaignId) markVisitedShop(campaignId);
     navigation.navigate(key, { campaignId });
-  }, [navigation, key, campaignId]);
+  }, [putOnClipboard, navigation, key, campaignId]);
+
+  const openTheirApp = useCallback(async () => {
+    await putOnClipboard();
+    if (campaignId) markVisitedShop(campaignId);
+    await openShopApp(key, opens);
+  }, [putOnClipboard, key, opens, campaignId]);
 
   return (
     <Screen bg={COLOR.homeBg}>
@@ -93,12 +117,20 @@ export default function ReviewGuideScreen({ navigation, route }) {
             Honest feedback, good or bad, earns the same refund.
           </Text>
         </View>
+        <Text style={styles.doors}>{whichDoorLine(shop)}</Text>
+
+        {copied === null ? null : (
+          <Text style={[styles.copied, copied === false && styles.copiedNo]}>
+            {copyLine(product, copied)}
+          </Text>
+        )}
       </ScrollView>
 
       <View style={styles.foot}>
-        <Pill onPress={openShop} color={COLOR.ink}>
-          OPEN {shop.toUpperCase()} AND WRITE IT →
+        <Pill onPress={openInFayr} color={COLOR.ink}>
+          OPEN {shop.toUpperCase()} INSIDE FAYR →
         </Pill>
+        <Ghost onPress={openTheirApp}>{appButtonLabel(key, shop)}</Ghost>
       </View>
     </Screen>
   );
@@ -145,5 +177,19 @@ const styles = StyleSheet.create({
     color: '#2F6FD0',
   },
 
-  foot: { paddingHorizontal: SPACE.xl, paddingTop: 10, paddingBottom: SPACE.xl },
+  doors: {
+    fontFamily: FONT.body, fontSize: 11.5, lineHeight: 18, color: COLOR.sub,
+    marginTop: 14,
+  },
+  copied: {
+    fontFamily: FONT.bodySemi, fontSize: 12, lineHeight: 18,
+    color: COLOR.refundInk, backgroundColor: COLOR.refundBg,
+    borderRadius: RADIUS.md, paddingHorizontal: 12, paddingVertical: 10,
+    marginTop: 12,
+  },
+  copiedNo: { color: '#8A5A00', backgroundColor: COLOR.amberBg },
+
+  foot: {
+    paddingHorizontal: SPACE.xl, paddingTop: 10, paddingBottom: SPACE.xl, gap: 8,
+  },
 });

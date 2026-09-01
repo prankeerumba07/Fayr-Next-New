@@ -24,6 +24,29 @@
 // shop's own page inside a web view. Fayr never sees the password and never types
 // it. What it reads afterwards is the person's own orders and their own reviews,
 // on this device, and nothing else.
+//
+// "GO TO <SHOP> NOW", which the owner asked for by name, appears on the second step
+// — after the person says they have signed in, which is the moment the owner
+// described. It opens the shop's own installed app by its own address, falling back
+// to the website when that app is not there. See src/ui/shopApp.js for how sure we
+// are about each address, and src/openShop.js for the fallback.
+//
+// WHAT IS NOT BUILT HERE, AND WHY, because it is the part the owner asked about most
+// carefully. Two things:
+//
+//   RETURNING TO FAYR THE INSTANT THE SHOP'S SIGN IN SUCCEEDS. Fayr would have to
+//   watch the sign in happen, and the only place that can see it is the web view in
+//   src/ConnectScreen.js, which is frozen and is being rebuilt by the owner. It has
+//   not been touched. What happens today: the person comes back themselves, by the
+//   back arrow or the "Fayr home" button that is always in the header, and lands on
+//   this screen's second step rather than anywhere on the shop.
+//
+//   CHECKING THAT THE ACCOUNT CONNECTED THROUGH FAYR IS THE ONE SIGNED IN TO THE
+//   SHOP'S OWN APP. Fayr cannot see inside another app at all — no phone lets it —
+//   so as asked this cannot be done by anybody. What CAN be done is remembering
+//   which account Fayr connected and refusing to move on when a later reading shows
+//   a different one, and the only thing that can read an account identity is the
+//   same frozen web view. So this is waiting on the same file.
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ScrollView, StyleSheet, Text, TouchableOpacity, View,
@@ -32,9 +55,11 @@ import {
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
 import { markVisitedShop } from '../journey/shopVisits';
+import { openShopApp } from '../openShop';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from '../ui/theme';
-import { Pill, TextBtn, TopBar, hSub, hTitle } from '../ui/brand';
+import { Ghost, Pill, TextBtn, TopBar, hSub, hTitle } from '../ui/brand';
 import { Screen, ShopMark } from '../ui/primitives';
+import { appButtonLabel } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
 
 /** The three lines in the design's blue "what we never do" card. */
@@ -86,6 +111,12 @@ export default function LinkAccountScreen({ navigation, route }) {
     if (campaignId) markVisitedShop(campaignId);
     if (params.onConnected) params.onConnected();
   }, [campaignId, params]);
+
+  const opens = PLATFORMS[key] ? PLATFORMS[key].startUrl : null;
+  const openTheirApp = useCallback(async () => {
+    if (campaignId) markVisitedShop(campaignId);
+    await openShopApp(key, opens);
+  }, [key, opens, campaignId]);
 
   return (
     <Screen bg={COLOR.cream}>
@@ -148,6 +179,9 @@ export default function LinkAccountScreen({ navigation, route }) {
             <Pill onPress={signedIn} color={COLOR.greenDeep}>
               I HAVE SIGNED IN — CONTINUE →
             </Pill>
+            {/* The owner's own wording. It opens the shop's installed app, and
+                falls back to the website when that app is not there. */}
+            <Ghost onPress={openTheirApp}>{appButtonLabel(key, shop)}</Ghost>
             <TextBtn onPress={openShop}>Did it not open? Open {shop} again</TextBtn>
           </>
         ) : (
@@ -224,7 +258,9 @@ const styles = StyleSheet.create({
     fontFamily: FONT.bodyMed, fontSize: 11.5, lineHeight: 18, color: COLOR.sub,
   },
 
-  foot: { paddingHorizontal: SPACE.xl, paddingTop: 10, paddingBottom: SPACE.xl },
+  foot: {
+    paddingHorizontal: SPACE.xl, paddingTop: 10, paddingBottom: SPACE.xl, gap: 8,
+  },
   footNote: {
     textAlign: 'center', marginTop: 9, fontFamily: FONT.bodySemi, fontSize: 10.5,
     lineHeight: 15, color: COLOR.sub,

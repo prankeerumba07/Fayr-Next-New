@@ -14,17 +14,36 @@
 //
 //  * "Variant: {variant}". Campaigns carry no variant or size — the audit records
 //    this. The line is left out rather than filled with the product name again.
-//  * The design opens the shop's homepage in a browser tab. Here the shop opens
-//    inside Fayr, on the same address, which is what the OPENS box shows.
-import React, { useCallback } from 'react';
+//  * The design opens the shop's homepage in a browser tab. Here there are two
+//    doors, because the owner asked for both and they are genuinely different.
+//
+// THE TWO DOORS, AND WHY BOTH ARE HERE.
+//
+//   OPEN <SHOP>            the shop inside Fayr, in its own web view. This is the
+//                          one that lets Fayr read the order afterwards.
+//   GO TO <SHOP> NOW       the shop's own installed app, by its own address,
+//                          falling back to the website when it is not installed.
+//
+// Fayr cannot see inside another app, so an order placed there is invisible until
+// the person comes back and lets Fayr read their orders. That is not hidden: one
+// plain line on the screen says which door is which and why it matters.
+//
+// AND THE PRODUCT NAME GOES ON THE CLIPBOARD, on either door. The owner asked for
+// it so nobody has to type a product name into a search box. It is the name and
+// nothing else — no price, no shop, nothing of ours — because anything extra turns
+// a search that finds the product into a search that finds nothing. The screen says
+// out loud that the clipboard changed, and says so if it could not.
+import React, { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
 import { markVisitedShop } from '../journey/shopVisits';
+import { copyProductName, openShopApp } from '../openShop';
 import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
-import { CardBox, Pill, TopBar } from '../ui/brand';
+import { CardBox, Ghost, Pill, TopBar } from '../ui/brand';
 import { Screen, ProductImage } from '../ui/primitives';
+import { appButtonLabel, copyLine, whichDoorLine } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
 
 /** The design's three lines about how to buy, in its order and its words. */
@@ -45,14 +64,29 @@ export default function BuyInterstitialScreen({ navigation, route }) {
   const shop = platform ? platform.name : String(key);
   const opens = platform ? platform.startUrl : null;
 
-  const go = useCallback(() => {
-    if (campaignId) markVisitedShop(campaignId);
-    navigation.navigate(key, { campaignId });
-  }, [navigation, key, campaignId]);
-
   const product = campaign
     ? campaign.productName || campaign.title
     : params.productName || null;
+
+  // null = not tried yet, true = on the clipboard, false = we could not.
+  const [copied, setCopied] = useState(null);
+
+  const putOnClipboard = useCallback(async () => {
+    const done = await copyProductName(product);
+    setCopied(done);
+  }, [product]);
+
+  const openInFayr = useCallback(async () => {
+    await putOnClipboard();
+    if (campaignId) markVisitedShop(campaignId);
+    navigation.navigate(key, { campaignId });
+  }, [putOnClipboard, navigation, key, campaignId]);
+
+  const openTheirApp = useCallback(async () => {
+    await putOnClipboard();
+    if (campaignId) markVisitedShop(campaignId);
+    await openShopApp(key, opens);
+  }, [putOnClipboard, key, opens, campaignId]);
 
   return (
     <Screen bg={COLOR.cream}>
@@ -90,10 +124,21 @@ export default function BuyInterstitialScreen({ navigation, route }) {
             <Text style={styles.opensUrl}>{opens}</Text>
           </View>
         ) : null}
+
+        <Text style={styles.doors}>{whichDoorLine(shop)}</Text>
+
+        {copied === null ? null : (
+          <Text style={[styles.copied, copied === false && styles.copiedNo]}>
+            {copyLine(product, copied)}
+          </Text>
+        )}
       </ScrollView>
 
       <View style={styles.foot}>
-        <Pill onPress={go} color={COLOR.ink}>OPEN {shop.toUpperCase()} →</Pill>
+        <Pill onPress={openInFayr} color={COLOR.ink}>
+          OPEN {shop.toUpperCase()} INSIDE FAYR →
+        </Pill>
+        <Ghost onPress={openTheirApp}>{appButtonLabel(key, shop)}</Ghost>
       </View>
     </Screen>
   );
@@ -129,5 +174,19 @@ const styles = StyleSheet.create({
   opensLabel: { fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.7, color: '#A9AA9C' },
   opensUrl: { fontFamily: FONT.bodyMed, fontSize: 11, color: COLOR.greenDeep, marginTop: 3 },
 
-  foot: { paddingHorizontal: SPACE.xl, paddingTop: 10, paddingBottom: SPACE.xl },
+  doors: {
+    fontFamily: FONT.body, fontSize: 11.5, lineHeight: 18, color: COLOR.sub,
+    marginTop: 14,
+  },
+  copied: {
+    fontFamily: FONT.bodySemi, fontSize: 12, lineHeight: 18,
+    color: COLOR.refundInk, backgroundColor: COLOR.refundBg,
+    borderRadius: RADIUS.md, paddingHorizontal: 12, paddingVertical: 10,
+    marginTop: 12,
+  },
+  copiedNo: { color: '#8A5A00', backgroundColor: COLOR.amberBg },
+
+  foot: {
+    paddingHorizontal: SPACE.xl, paddingTop: 10, paddingBottom: SPACE.xl, gap: 8,
+  },
 });
