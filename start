@@ -177,24 +177,59 @@ if lsof -ti ":$BACKEND_PORT" >/dev/null 2>&1; then
 fi
 (cd "$HERE/backend" && exec npm run start:dev >"$LOGS/backend.log" 2>&1) &
 PIDS+=($!)
-note "Waiting for it to say it is listening."
-for _ in $(seq 1 90); do
-  grep -q "listening on" "$LOGS/backend.log" 2>/dev/null && break
+note "Waiting for it to answer."
+# ASK THE BACKEND, DO NOT READ ITS DIARY.
+#
+# This used to wait for the words "listening on" to appear in backend.log, and on
+# 1 September 2026 that failed while the backend was perfectly fine. The reason is
+# worth writing down. The logger batches its lines and hands them over in one go,
+# and when the output is going to a FILE rather than to a screen that hand-over can
+# come minutes late — every line then lands with the same timestamp, which is the
+# tell. So the file sat empty for the whole ninety seconds while the backend was up
+# and serving, and the script reported a failure that had not happened.
+#
+# Reading a log to find out whether a server is up was the mistake. The server can
+# be asked directly, which is what the staff panel step below has always done, and
+# an answer from the port cannot be early, late or buffered. Same idea as the rule
+# about checking a real record rather than what a screen appears to show.
+BACKEND_UP=""
+for _ in $(seq 1 120); do
+  if curl -sf -o /dev/null --max-time 2 \
+      "http://127.0.0.1:$BACKEND_PORT/health/ready"; then
+    BACKEND_UP="yes"; break
+  fi
+  # A settings mistake is reported straight away rather than after two minutes.
+  # This still reads the log, but ONLY to fail faster, never to decide success —
+  # and even then the port gets one last chance below, so a stray line in the log
+  # can never on its own condemn a backend that is actually answering.
   grep -qi "failed to start" "$LOGS/backend.log" 2>/dev/null && break
   sleep 1
 done
-if ! grep -q "listening on" "$LOGS/backend.log" 2>/dev/null; then
+# The last word belongs to the port, not to the log.
+if [ -z "$BACKEND_UP" ] && curl -sf -o /dev/null --max-time 5 \
+    "http://127.0.0.1:$BACKEND_PORT/health/ready"; then
+  BACKEND_UP="yes"
+fi
+if [ -z "$BACKEND_UP" ]; then
   printf '\n    ── the last few lines it printed ──\n'
-  tail -12 "$LOGS/backend.log" 2>/dev/null | sed 's/^/    /'
-  fail "The backend did not start" \
-"  The lines above are what it said. The full log is in
+  if [ -s "$LOGS/backend.log" ]; then
+    tail -12 "$LOGS/backend.log" 2>/dev/null | sed 's/^/    /'
+  else
+    printf '    (nothing yet — see the note below)\n'
+  fi
+  fail "The backend did not answer" \
+"  The full log is in
     .local-logs/backend.log
 
-  The two commonest causes:
+  If those lines are empty, the log simply had not been written yet. To see what
+  the backend is really doing, run it on its own in a new window and watch:
+    cd ~/FAYR-Next/backend && npm run start:dev
+
+  The two commonest real causes:
    * A setting is missing or wrong. It names the exact one.
    * The database is not reachable. Run ./start again from the top."
 fi
-ok "Listening on port $BACKEND_PORT."
+ok "Answering on port $BACKEND_PORT."
 
 # ── 8. the staff panel ──────────────────────────────────────────────────────
 doing "Serving the staff panel"
