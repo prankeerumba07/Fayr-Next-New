@@ -29,7 +29,7 @@
 // it, so that a screen opened on its own is exactly what the design draws.
 import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import * as campaignStore from '../backend/campaignStore';
 import { listScreenshots } from '../backend/screenshotsApi';
@@ -175,29 +175,48 @@ export default function JourneyScreen({ navigation, route }) {
   return (
     <View style={styles.root}>
       <Where insets={insets} view={view} tone={tone} />
-      {/* THE KEY IS LOAD-BEARING. Two adjacent steps can be drawn by two different
+      {/* THE STRIP HAS ALREADY EATEN THE TOP OF THE PHONE, so the screen below it
+          must not step around the notch a second time.
+
+          Every one of the twelve screens is built to be opened on its own as well
+          as inside the journey, so each keeps clear of the notch by itself. Under
+          the strip that is the wrong thing to do: the strip is already below the
+          notch, so the screen leaves a second notch-sized band of empty colour
+          under it. That is the gap the owner saw on 1 September 2026 above
+          "Confirm participation" and above "Connect your account".
+
+          Rather than passing a flag down into twelve screens and hoping each one
+          honours it, the router simply tells everything inside it that there is no
+          notch left to avoid. Nothing in the screens changes, nothing can forget
+          to check a flag, and the very same screen opened on its own still keeps
+          clear of the notch exactly as before, because then nobody is telling it
+          otherwise.
+
+          THE KEY IS LOAD-BEARING. Two adjacent steps can be drawn by two different
           components, and React keeps a component instance when the type is the
           same. Keying on the design key forces a real remount when the step
           changes, which is what moving to another screen is. */}
-      <View style={styles.stage} key={designKey}>
-        <Screen
-          navigation={navigation}
-          route={{
-            params: {
-              ...params,
-              campaignId,
-              journeyStep: stepKey,
-              // THE ONE CALLBACK THE ELEVEN GET, and it is not a way to move the
-              // journey. The first few steps happen entirely on the phone, before
-              // the shop has told Fayr anything, and a screen that writes one of
-              // those notes has to be able to say "look again". The router then
-              // re-derives the step from the record and the notes, exactly as it
-              // does on every other arrival. A screen still cannot choose a step.
-              onJourneyMoved: () => setTick((n) => n + 1),
-            },
-          }}
-        />
-      </View>
+      <SafeAreaInsetsContext.Provider value={{ ...insets, top: 0 }}>
+        <View style={styles.stage} key={designKey}>
+          <Screen
+            navigation={navigation}
+            route={{
+              params: {
+                ...params,
+                campaignId,
+                journeyStep: stepKey,
+                // THE ONE CALLBACK THE ELEVEN GET, and it is not a way to move the
+                // journey. The first few steps happen entirely on the phone, before
+                // the shop has told Fayr anything, and a screen that writes one of
+                // those notes has to be able to say "look again". The router then
+                // re-derives the step from the record and the notes, exactly as it
+                // does on every other arrival. A screen still cannot choose a step.
+                onJourneyMoved: () => setTick((n) => n + 1),
+              },
+            }}
+          />
+        </View>
+      </SafeAreaInsetsContext.Provider>
     </View>
   );
 }

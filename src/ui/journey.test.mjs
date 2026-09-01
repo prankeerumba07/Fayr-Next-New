@@ -408,6 +408,32 @@ console.log('\n=== 10. THE ROUTER DECIDES WHICH SCREEN, AND DRAWS NONE OF THEM =
   ok(/StageChip/.test(router), 'and the design’s tone chip');
   ok(/total=\{view\.of\}/.test(router),
     'with as many segments as there are steps, not a hard-coded seven');
+
+  // THE NOTCH IS STEPPED AROUND ONCE, NOT TWICE. The strip at the top has already
+  // moved below the notch. Every screen also keeps clear of the notch on its own,
+  // because every screen can be opened on its own, so under the strip each one
+  // left a second empty band the width of the notch. That is the gap the owner saw
+  // above "Confirm participation" and above "Connect your account".
+  //
+  // The router tells everything inside it there is no notch left to avoid, so no
+  // screen has to be changed and none can forget. Checked on the real thing: the
+  // provider must be there, it must zero the top, and the stage must be inside it.
+  ok(/SafeAreaInsetsContext\.Provider/.test(router),
+    'the router tells the screen below the strip where the safe area really is');
+  ok(/top: 0/.test(router), 'and that there is no notch left to step around');
+  const wrapped = (router.match(
+    /<SafeAreaInsetsContext\.Provider[^>]*>([\s\S]*?)<\/SafeAreaInsetsContext\.Provider>/,
+  ) || [])[1] || '';
+  ok(/key=\{designKey\}/.test(wrapped),
+    'and the stage really is inside it, not beside it');
+  ok(/<Screen\b/.test(wrapped), 'so the screen itself is covered');
+  // The strip is OUTSIDE it. The strip is the thing that has to clear the notch;
+  // putting it inside would move it back under the notch and hide it.
+  const outside = router.replace(
+    /<SafeAreaInsetsContext\.Provider[\s\S]*?<\/SafeAreaInsetsContext\.Provider>/, '',
+  );
+  ok(/<Where\b/.test(outside),
+    'the strip stays outside it, because the strip is what clears the notch');
 }
 
 console.log('\n=== 11. EACH OF THE THIRTEEN CHECKS MOVED TO THE FILE THAT OWNS IT ===');
