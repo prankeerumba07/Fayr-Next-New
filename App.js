@@ -324,6 +324,16 @@ function AppInner() {
           <Stack.Screen name="reviewguide" component={DESIGN_SCREENS.reviewguide} options={{ headerShown: false }} />
           <Stack.Screen name="reviewproof" component={DESIGN_SCREENS.reviewproof} options={{ headerShown: false }} />
           <Stack.Screen name="returnwindow" component={DESIGN_SCREENS.returnwindow} options={{ headerShown: false }} />
+          {/* THE FIVE THE BUYING JOURNEY WAS MISSING. "Did you buy it?" is a step
+              of the journey now. The inbox pair is drawn as the design draws it and
+              says on the screen that Fayr has nowhere to connect an inbox to yet.
+              The other two are the moments after something lands: the refund being
+              tracked, and the pictures arriving. */}
+          <Stack.Screen name="returncatch" component={DESIGN_SCREENS.returncatch} options={{ headerShown: false }} />
+          <Stack.Screen name="emailconnect" component={DESIGN_SCREENS.emailconnect} options={{ headerShown: false }} />
+          <Stack.Screen name="emailcode" component={DESIGN_SCREENS.emailcode} options={{ headerShown: false }} />
+          <Stack.Screen name="orderverified" component={DESIGN_SCREENS.orderverified} options={{ headerShown: false }} />
+          <Stack.Screen name="imagesuploaded" component={DESIGN_SCREENS.imagesuploaded} options={{ headerShown: false }} />
           <Stack.Screen name="Walkthrough" component={WalkthroughScreen} options={{ headerShown: false }} />
           <Stack.Screen name="OneScreen" component={WalkthroughOneScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Policy" component={PolicyScreen} options={{ headerShown: false }} />

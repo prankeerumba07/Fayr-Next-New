@@ -74,6 +74,13 @@ export const JOURNEY = [
     next: 'When it arrives, come back and tell us it was delivered.',
   },
   {
+    key: 'returncatch',
+    designKey: 'returncatch',
+    from: 'ReturnCatch',
+    short: 'Did you buy it?',
+    next: 'You will show us the order, so we can check it against the offer.',
+  },
+  {
     key: 'purchase-shot',
     designKey: 'proofprimer',
     from: 'ProofPrimer',
@@ -272,8 +279,22 @@ export function journeyStepFor(state) {
     return 'delivered';
   }
 
-  // Joined, nothing bought yet. Connecting comes first, and only once.
+  // JOINED, AND THE SHOP HAS TOLD US NOTHING YET.
+  //
+  // Everything above this line is the server's word. Everything below it is the few
+  // steps that happen entirely on the phone, before there is any record to read —
+  // so the notes in journey/shopVisits.js can only ever move somebody between these
+  // four, and never past the point where money is decided.
+  //
+  // Connecting comes first, and only once.
   if (s.connected !== true) return 'connect';
+  // They came back from the shop and told us they bought it. We cannot see the
+  // order yet, so the next thing is to show us one.
+  if (s.saidTheyBought === true) return 'purchase-shot';
+  // They were sent to the shop to buy and they are back. Asking is the design's own
+  // screen for exactly this, and it is better than showing "before you go" to
+  // somebody who has already been.
+  if (s.wentToBuy === true) return 'returncatch';
   return 'buy';
 }
 

@@ -32,7 +32,7 @@ import * as campaignStore from '../backend/campaignStore';
 import { getTask as getTaskFromServer } from '../backend/tasksApi';
 import { getAuthoritative, getTaskId, subscribe } from '../taskStore';
 import { PLATFORMS } from '../platforms';
-import { markVisitedShop } from '../journey/shopVisits';
+import { SIGNED_IN, markVisitedShop } from '../journey/shopVisits';
 import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
 import { Ghost, Pill, TextBtn, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
@@ -80,7 +80,7 @@ export default function DeliveryScreen({ navigation, route }) {
   }, [campaignId, looking]);
 
   const openShop = useCallback(() => {
-    if (campaignId) markVisitedShop(campaignId);
+    if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
     if (key) navigation.navigate(key, { campaignId });
   }, [navigation, key, campaignId]);
 

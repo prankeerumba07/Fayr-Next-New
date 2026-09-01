@@ -38,7 +38,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
-import { markVisitedShop } from '../journey/shopVisits';
+import { WENT_TO_BUY, markVisitedShop } from '../journey/shopVisits';
 import { copyProductName, openShopApp } from '../openShop';
 import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
 import { CardBox, Ghost, Pill, TopBar } from '../ui/brand';
@@ -78,13 +78,13 @@ export default function BuyInterstitialScreen({ navigation, route }) {
 
   const openInFayr = useCallback(async () => {
     await putOnClipboard();
-    if (campaignId) markVisitedShop(campaignId);
+    if (campaignId) markVisitedShop(campaignId, WENT_TO_BUY);
     navigation.navigate(key, { campaignId });
   }, [putOnClipboard, navigation, key, campaignId]);
 
   const openTheirApp = useCallback(async () => {
     await putOnClipboard();
-    if (campaignId) markVisitedShop(campaignId);
+    if (campaignId) markVisitedShop(campaignId, WENT_TO_BUY);
     await openShopApp(key, opens);
   }, [putOnClipboard, key, opens, campaignId]);
 

@@ -12,6 +12,11 @@
 //
 // Also dropped: the design's fake upload progress bar and "resumable — a dropped
 // connection picks up where it left off". Neither is true.
+//
+// ADDED 1 September 2026: on a successful upload this now opens the design's own
+// imagesuploaded screen, which says what to do next rather than repeating that the
+// picture arrived. It was one of the twenty design screens that had never been
+// built. See src/screens/imagesuploaded.js.
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View,
@@ -96,6 +101,12 @@ export default function ProofUploadScreen({ navigation, route }) {
       // Refresh the authoritative task too: an upload can change what the task
       // screen should say next.
       if (taskId) getTask(taskId).catch(() => {});
+      // THE DESIGN'S OWN NEXT SCREEN, built 1 September 2026. Its job is not to say
+      // the picture arrived — the card below already says that, where the picture
+      // is — it is to say WHAT TO DO NEXT, which after a delivery picture is go and
+      // write the review, and nothing was telling anybody that. It is given the
+      // kind, so it says the right next thing for each of the three.
+      navigation.navigate('imagesuploaded', { campaignId, taskId, kind });
     }
     setBusy(false);
   };

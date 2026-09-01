@@ -15,12 +15,14 @@
 //    Amazon order number into the file. Showing a made-up number in a picture of
 //    what to send is the fastest way to have somebody send us that number, so the
 //    sample shows the SHAPE and says in words what belongs there.
-//  * THE INBOX CARD IS NOT TAPPABLE YET. Connecting an inbox is the strongest
-//    evidence Fayr can hold, because the shop signs its own email and a person
-//    cannot forge one. It is not built. The card is drawn where the design draws
-//    it and says plainly that it is coming, rather than being a control that fails.
+//  * THE INBOX CARD OPENS THE DESIGN'S OWN INBOX SCREEN, which was built later the
+//    same day and is the page the owner asked about by name. Connecting an inbox is
+//    the strongest evidence Fayr can hold, because the shop signs its own email and
+//    a person cannot forge one, and that screen says on itself that Fayr has
+//    nowhere to connect one to yet. The card says the same in one line, so nobody
+//    taps it expecting it to work.
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
@@ -42,7 +44,12 @@ export default function ProofPrimerScreen({ navigation, route }) {
       <TopBar title="Order proof" onBack={() => goBackOrHome(navigation)} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
         {/* The inbox card, where the design puts it: at the moment of need. */}
-        <View style={styles.inbox}>
+        <TouchableOpacity
+          style={styles.inbox}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('emailconnect', { campaignId })}
+          accessibilityRole="button"
+        >
           <View style={styles.inboxIcon}><Text style={styles.inboxEmoji}>📧</Text></View>
           <View style={styles.flex}>
             <Text style={styles.inboxTitle}>Skip screenshots — connect your inbox</Text>
@@ -50,9 +57,11 @@ export default function ProofPrimerScreen({ navigation, route }) {
               We would read only order emails from {shop} and the other shops we
               work with, never your personal mail.
             </Text>
-            <Text style={styles.inboxSoon}>Not ready yet. Send a screenshot below.</Text>
+            <Text style={styles.inboxSoon}>
+              Not ready yet. Tap to see what it will do, then send a screenshot below.
+            </Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         <Text style={styles.divider}>or send a screenshot</Text>
 

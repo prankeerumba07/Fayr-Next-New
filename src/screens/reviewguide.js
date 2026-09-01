@@ -29,7 +29,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
-import { markVisitedShop } from '../journey/shopVisits';
+import { SIGNED_IN, markVisitedShop } from '../journey/shopVisits';
 import { copyProductName, openShopApp } from '../openShop';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from '../ui/theme';
 import { Ghost, Pill, TopBar, hSub, hTitle } from '../ui/brand';
@@ -72,13 +72,13 @@ export default function ReviewGuideScreen({ navigation, route }) {
 
   const openInFayr = useCallback(async () => {
     await putOnClipboard();
-    if (campaignId) markVisitedShop(campaignId);
+    if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
     navigation.navigate(key, { campaignId });
   }, [putOnClipboard, navigation, key, campaignId]);
 
   const openTheirApp = useCallback(async () => {
     await putOnClipboard();
-    if (campaignId) markVisitedShop(campaignId);
+    if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
     await openShopApp(key, opens);
   }, [putOnClipboard, key, opens, campaignId]);
 

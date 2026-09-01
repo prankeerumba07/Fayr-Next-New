@@ -97,8 +97,15 @@ export default function OcrConfirmScreen({ navigation, route }) {
       type: 'CONFIRM_ORDER', key: 'confirm', at: Date.now(),
     });
     setTapped(false);
-    if (res.rejected) Alert.alert('Not yet', res.reason);
-  }, [campaignId, busy]);
+    if (res.rejected) {
+      Alert.alert('Not yet', res.reason);
+      return;
+    }
+    // The design's own next screen: the refund is tracked, and it is pending
+    // rather than paid. It was never built until 1 September 2026, so confirming
+    // an order used to be answered by the screen quietly becoming a different one.
+    navigation.navigate('orderverified', { campaignId });
+  }, [campaignId, busy, navigation]);
 
   const notMine = useCallback(() => {
     Alert.alert(

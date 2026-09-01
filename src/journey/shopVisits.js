@@ -1,8 +1,17 @@
-// "HAS THIS PERSON BEEN TO THE SHOP FOR THIS OFFER YET?"
+// "WHAT HAS THIS PERSON ALREADY DONE FOR THIS OFFER?"
 //
-// One small note per offer, and it exists for one reason: connecting the shop
-// account and buying the product are two different pages, and the app has one
-// way to open the shop for both.
+// Three small notes per offer, and they exist for one reason: the first few steps
+// of a claim happen entirely on the phone, before the shop has told Fayr anything,
+// so there is no record on the server to read yet.
+//
+//   signin   they said they signed in to the shop
+//   buy      they were sent to the shop to buy the product
+//   bought   they came back and said they had bought it
+//
+// It started as ONE note, meaning only "the shop has been opened", and that was
+// not enough: opening the shop to sign in and opening it to buy are two different
+// things, and treating them as one meant somebody who tapped through to sign in
+// was moved on as though they had gone shopping. The notes are separate now.
 //
 // WHY IT IS NOT READ OFF THE SHOP. Whether somebody is signed in to Amazon is
 // not something this app can see. The cookies that say so are hidden from
@@ -23,10 +32,21 @@ import { File, Paths } from 'expo-file-system';
 
 const FILE = 'fayr-shop-visits.json';
 
+/** The three things a note can say. Anything else is not written. */
+export const SIGNED_IN = 'signin';
+export const WENT_TO_BUY = 'buy';
+export const SAID_THEY_BOUGHT = 'bought';
+const REASONS = [SIGNED_IN, WENT_TO_BUY, SAID_THEY_BOUGHT];
+
 let visited = null; // null = not read yet
 
 function file() {
   return new File(Paths.document, FILE);
+}
+
+/** One note's own name in the file: the offer and what was done. */
+function noteName(campaignId, why) {
+  return `${campaignId}::${why}`;
 }
 
 function read() {
@@ -41,31 +61,51 @@ function read() {
       }
     }
   } catch (e) {
-    // A note we cannot read means we have not been. Showing "connect your shop"
+    // A note we cannot read means it did not happen. Showing "connect your shop"
     // once more is the harmless direction to fail in.
   }
   return visited;
 }
 
-/** Has the shop been opened for this offer? */
-export function hasVisitedShop(campaignId) {
-  if (typeof campaignId !== 'string' || campaignId === '') return false;
-  return read().has(campaignId);
-}
-
-/** Note that the shop has been opened for this offer. */
-export function markVisitedShop(campaignId) {
-  if (typeof campaignId !== 'string' || campaignId === '') return;
-  const set = read();
-  if (set.has(campaignId)) return;
-  set.add(campaignId);
+function save(set) {
   try {
     const f = file();
     f.create({ overwrite: true });
     f.write(JSON.stringify([...set]));
   } catch (e) {
-    /* best-effort: the note is a convenience, never a decision about money */
+    /* best-effort: a note is a convenience, never a decision about money */
   }
+}
+
+/**
+ * Has this been done for this offer?
+ *
+ * `why` is one of the three above. Left out, it means what the single note used to
+ * mean — the shop has been opened at all, for any reason — so nothing that already
+ * asked this question got a different answer when the notes were split.
+ */
+export function hasVisitedShop(campaignId, why) {
+  if (typeof campaignId !== 'string' || campaignId === '') return false;
+  const set = read();
+  if (why == null) {
+    // Old notes were written as the bare offer id, so they still count here.
+    return set.has(campaignId)
+      || REASONS.some((r) => set.has(noteName(campaignId, r)));
+  }
+  if (!REASONS.includes(why)) return false;
+  return set.has(noteName(campaignId, why));
+}
+
+/** Note that this has been done for this offer. An unknown reason writes nothing. */
+export function markVisitedShop(campaignId, why) {
+  if (typeof campaignId !== 'string' || campaignId === '') return;
+  const reason = why == null ? SIGNED_IN : why;
+  if (!REASONS.includes(reason)) return;
+  const set = read();
+  const name = noteName(campaignId, reason);
+  if (set.has(name)) return;
+  set.add(name);
+  save(set);
 }
 
 /** Dev and testing: forget every note. */

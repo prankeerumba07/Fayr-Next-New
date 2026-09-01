@@ -229,17 +229,15 @@ export const SCREENS = {
   returncatch: {
     group: JOURNEY,
     title: 'Asking whether you bought it',
-    designWords: {
-      heading: 'Did you buy it?',
-      body:
-        'Tell us once your order is placed so we can move you to Step 2.',
-      buttons: [],
-    },
-    whyNot:
-      'The journey works out where somebody is from what the shop and the server '
-      + 'say, so it never has to ask. Asking would also let somebody say yes '
-      + 'without buying anything.',
-    reads: READS.none,
+    opens: { screen: 'ReturnCatch' },
+    reads: READS.campaign,
+    note:
+      'Built 1 September 2026, on the owner\'s instruction. The old reason for '
+      + 'skipping it was half right: the journey does work out where somebody is '
+      + 'from what the shop and the server say, from the moment either says '
+      + 'anything. In the gap before that, somebody who had just come back from '
+      + 'the shop was being shown "Before you go". Saying yes skips nothing: it '
+      + 'moves them one screen on, to the one that asks for the order.',
   },
   proofprimer: {
     group: JOURNEY,
@@ -250,29 +248,25 @@ export const SCREENS = {
   emailconnect: {
     group: JOURNEY,
     title: 'Connecting your inbox instead of taking screenshots',
-    designWords: {
-      heading: 'Skip the screenshots?',
-      body:
-        "Totally optional. Connect your inbox and we'll confirm your orders "
-        + 'automatically — or keep uploading screenshots, whichever you prefer.',
-      buttons: [],
-    },
-    whyNot:
-      'This is the strongest evidence Fayr can have: the shop signs its own '
-      + 'emails, so a person cannot forge one. It is not built in the app yet. '
-      + 'It is the one unbuilt screen here that changes what Fayr can prove.',
+    opens: { screen: 'EmailConnect' },
     reads: READS.none,
+    note:
+      'The page the owner asked about by name, built 1 September 2026. The screen '
+      + 'is real and is the design\'s. What is not built is anywhere for the '
+      + 'answer to go: Fayr has no route that connects an inbox and nothing that '
+      + 'reads an email, and both actions say so on the screen rather than '
+      + 'pretending. This is still the strongest evidence Fayr could ever hold, '
+      + 'because a shop signs its own emails and nobody can forge that.',
   },
   emailcode: {
     group: JOURNEY,
     title: 'The code sent to your inbox',
-    designWords: {
-      heading: 'Enter the 6-digit code',
-      body: 'Sent to the address just given, to prove the inbox belongs to them.',
-      buttons: [],
-    },
-    whyNot: 'The second half of connecting an inbox, and unbuilt for the same reason.',
+    opens: { screen: 'EmailCode' },
     reads: READS.none,
+    note:
+      'The second half of connecting an inbox, built the same day. Nothing has '
+      + 'sent a code and the screen says so at the top, rather than letting '
+      + 'somebody type six digits and wait.',
   },
   proofupload: {
     group: JOURNEY,
@@ -297,17 +291,13 @@ export const SCREENS = {
   orderverified: {
     group: JOURNEY,
     title: 'Order confirmed, refund on its way',
-    designWords: {
-      heading: 'Refund tracked',
-      body:
-        'Tracked to your fayr Wallet as Pending. It confirms once your review is '
-        + 'approved and the return window closes.',
-      buttons: ['Continue →'],
-    },
-    whyNot:
-      'There is no moment of celebration between the order being read and the '
-      + 'waiting starting. The status screen states the same fact quietly.',
-    reads: READS.none,
+    opens: { screen: 'OrderVerified' },
+    reads: READS.task,
+    note:
+      'Built 1 September 2026 and reached from ocrconfirm the moment somebody '
+      + 'confirms their order details. The amount is what the server says would '
+      + 'be paid if it were released now, not a percentage of a listed price, and '
+      + 'when no figure can be settled yet no figure is shown.',
   },
   taskstatus: {
     group: JOURNEY,
@@ -323,16 +313,15 @@ export const SCREENS = {
   },
   imagesuploaded: {
     group: JOURNEY,
-    title: 'Your pictures were received',
-    designWords: {
-      heading: 'Images Uploaded!',
-      body: 'A short page confirming the pictures arrived.',
-      buttons: [],
-    },
-    whyNot:
-      'The upload screen says so where the picture is, which is where somebody '
-      + 'is already looking. A whole page to repeat it is a tap for nothing.',
-    reads: READS.none,
+    title: 'Your pictures were received, and what to do next',
+    opens: { screen: 'ImagesUploaded' },
+    reads: READS.campaign,
+    note:
+      'Built 1 September 2026. The old reason for skipping it missed what the '
+      + 'screen is for: it is not there to repeat that the picture arrived, it is '
+      + 'there to say what to do next, and after a delivery picture that is go and '
+      + 'write the review, which nothing was telling anybody. It is given the kind '
+      + 'of picture, so it says the right next thing for each of the three.',
   },
   delivery: {
     group: JOURNEY,

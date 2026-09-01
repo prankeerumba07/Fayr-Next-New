@@ -41,7 +41,9 @@ import { StageChip, StepTracker } from '../ui/stagebits';
 import { journeyView } from '../ui/journey';
 import { goBackOrHome } from '../ui/nav';
 import { screenFor } from '../screens';
-import { hasVisitedShop } from './shopVisits';
+import {
+  SAID_THEY_BOUGHT, SIGNED_IN, WENT_TO_BUY, hasVisitedShop,
+} from './shopVisits';
 
 /** The tone each step is drawn in, from the design's own palette. */
 const TONE = {
@@ -102,7 +104,12 @@ export default function JourneyScreen({ navigation, route }) {
     connected:
       !!(authoritative && authoritative.order)
       || purchaseShots > 0
-      || hasVisitedShop(campaignId),
+      || hasVisitedShop(campaignId, SIGNED_IN),
+    // The two steps that happen entirely on the phone, before the shop has told
+    // Fayr anything. Everything from "we can see an order" onwards ignores these
+    // completely — see journey.js, where the server's record is read first.
+    wentToBuy: hasVisitedShop(campaignId, WENT_TO_BUY),
+    saidTheyBought: hasVisitedShop(campaignId, SAID_THEY_BOUGHT),
     // Whether a screenshot is needed at all is the SERVER'S business, read off the
     // task's own blocker by journey.js. Not passed here, so there is one place that
     // decides it and no chance of this file disagreeing.
@@ -175,7 +182,20 @@ export default function JourneyScreen({ navigation, route }) {
       <View style={styles.stage} key={designKey}>
         <Screen
           navigation={navigation}
-          route={{ params: { ...params, campaignId, journeyStep: stepKey } }}
+          route={{
+            params: {
+              ...params,
+              campaignId,
+              journeyStep: stepKey,
+              // THE ONE CALLBACK THE ELEVEN GET, and it is not a way to move the
+              // journey. The first few steps happen entirely on the phone, before
+              // the shop has told Fayr anything, and a screen that writes one of
+              // those notes has to be able to say "look again". The router then
+              // re-derives the step from the record and the notes, exactly as it
+              // does on every other arrival. A screen still cannot choose a step.
+              onJourneyMoved: () => setTick((n) => n + 1),
+            },
+          }}
         />
       </View>
     </View>

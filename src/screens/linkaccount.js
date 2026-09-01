@@ -54,7 +54,7 @@ import {
 
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
-import { markVisitedShop } from '../journey/shopVisits';
+import { SIGNED_IN, markVisitedShop } from '../journey/shopVisits';
 import { openShopApp } from '../openShop';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from '../ui/theme';
 import { Ghost, Pill, TextBtn, TopBar, hSub, hTitle } from '../ui/brand';
@@ -108,13 +108,15 @@ export default function LinkAccountScreen({ navigation, route }) {
 
   const signedIn = useCallback(() => {
     // Only now does the journey move on. See the note at the top of this file.
-    if (campaignId) markVisitedShop(campaignId);
-    if (params.onConnected) params.onConnected();
-  }, [campaignId, params]);
+    if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
+    // Ask the journey to look again, exactly as returncatch does.
+    if (params.onJourneyMoved) params.onJourneyMoved();
+    else navigation.navigate('buyinterstitial', { campaignId });
+  }, [campaignId, params, navigation]);
 
   const opens = PLATFORMS[key] ? PLATFORMS[key].startUrl : null;
   const openTheirApp = useCallback(async () => {
-    if (campaignId) markVisitedShop(campaignId);
+    if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
     await openShopApp(key, opens);
   }, [key, opens, campaignId]);
 

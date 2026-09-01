@@ -66,14 +66,14 @@ export const SCREENS = [
 
   // ── Buying, proving, waiting, being paid ─────────────────────────────────
   { key: 'buyinterstitial', at: 'own' },
-  { key: 'returncatch', at: 'missing' },
+  { key: 'returncatch', at: 'own' },
   { key: 'proofprimer', at: 'own' },
-  { key: 'emailconnect', at: 'missing' },
-  { key: 'emailcode', at: 'missing' },
+  { key: 'emailconnect', at: 'own' },
+  { key: 'emailcode', at: 'own' },
   { key: 'proofupload', at: 'folded', inside: 'src/ProofUploadScreen.js' },
   { key: 'ocrconfirm', at: 'own' },
-  { key: 'orderverified', at: 'missing' },
-  { key: 'imagesuploaded', at: 'missing' },
+  { key: 'orderverified', at: 'own' },
+  { key: 'imagesuploaded', at: 'own' },
   { key: 'taskstatus', at: 'folded', inside: 'src/TaskScreen.js' },
   { key: 'deliverycheck', at: 'missing' },
   { key: 'deliveryupload', at: 'folded', inside: 'src/ProofUploadScreen.js' },
@@ -143,8 +143,13 @@ export function stillToSplit() {
  * 50 → 39 later the same day, when the claim journey was split. Eleven design
  * screens came out of one file: two of them (confirm, reward) were being built
  * TWICE and are now built once, and nine had never had a file of their own.
+ *
+ * 39 → 34 the same day again, when the buying journey's five missing screens were
+ * built: asking whether they bought it, connecting an inbox, the code sent to it,
+ * the order being tracked, and the pictures arriving. Two of the five were named
+ * by the owner directly.
  */
-export const STILL_TO_SPLIT_CEILING = 39;
+export const STILL_TO_SPLIT_CEILING = 34;
 
 /** One screen's row, or null when the key is not the design's. */
 export function screenFor(key) {

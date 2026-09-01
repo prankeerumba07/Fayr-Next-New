@@ -36,6 +36,14 @@ import reviewguide from './reviewguide';
 import reviewproof from './reviewproof';
 import returnwindow from './returnwindow';
 import reward from './reward';
+// The five the buying journey was missing, built 1 September 2026. Two of them —
+// emailconnect and emailcode — are drawn as the design draws them and say plainly
+// on the screen that Fayr has nowhere to connect an inbox to yet.
+import returncatch from './returncatch';
+import emailconnect from './emailconnect';
+import emailcode from './emailcode';
+import orderverified from './orderverified';
+import imagesuploaded from './imagesuploaded';
 
 /** Design key to the component that draws it. Nothing else belongs in here. */
 export const SCREENS = {
@@ -61,6 +69,11 @@ export const SCREENS = {
   reviewproof,
   returnwindow,
   reward,
+  returncatch,
+  emailconnect,
+  emailcode,
+  orderverified,
+  imagesuploaded,
 };
 
 /** The component for one design key, or null when the key is not one of ours. */

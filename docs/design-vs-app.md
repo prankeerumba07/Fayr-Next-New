@@ -34,9 +34,9 @@ first written" is the morning of 1 September 2026, before any of Phase B landed.
 | | when first written | now |
 |---|---|---|
 | Screens in the design | **61** | **61** |
-| Screens with a React Native screen of their own, in their own file, under the design's own key | **0** | **22** |
-| Screens reachable in the app in some form | 41 | 45 |
-| Screens with nothing at all behind them | 20 | 16 |
+| Screens with a React Native screen of their own, in their own file, under the design's own key | **0** | **27** |
+| Screens reachable in the app in some form | 41 | 50 |
+| Screens with nothing at all behind them | 20 | 11 |
 | Design screens still folded into a shared file | **28** across 6 files | **23** across 11 files |
 | Further screen files that are not in the design at all | 6 | 6 |
 
@@ -46,7 +46,7 @@ file was doing the work of two. The largest single case was
 `src/journey/JourneyScreen.js`, one file carrying eleven design screens as ten
 interior pages. **That file is now the journey's router and draws none of them.**
 
-**Thirty nine to go.** `src/screens/keys.js` holds the register and
+**Thirty four to go.** `src/screens/keys.js` holds the register and
 `STILL_TO_SPLIT_CEILING` is the ratchet: `src/screens/keys.test.mjs` fails if that
 number ever goes up, and fails again if the ceiling is left more than two above the
 real figure, so it cannot be quietly parked.

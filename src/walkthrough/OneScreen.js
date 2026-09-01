@@ -66,6 +66,12 @@ import ReviewGuideScreen from '../screens/reviewguide';
 import ReviewProofScreen from '../screens/reviewproof';
 import ReturnWindowScreen from '../screens/returnwindow';
 import RewardScreen from '../screens/reward';
+// The five the buying journey was missing, built 1 September 2026.
+import ReturnCatchScreen from '../screens/returncatch';
+import EmailConnectScreen from '../screens/emailconnect';
+import EmailCodeScreen from '../screens/emailcode';
+import OrderVerifiedScreen from '../screens/orderverified';
+import ImagesUploadedScreen from '../screens/imagesuploaded';
 
 /** A sample name for the sign-in screens, which have nobody signed in to read. */
 const SAMPLE_NAME = 'Practice account';
@@ -192,6 +198,22 @@ const KNOWN = {
   ),
   ReturnWindow: ({ nav, sample }) => (
     <ReturnWindowScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  ),
+  ReturnCatch: ({ nav, sample }) => (
+    <ReturnCatchScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  ),
+  // Deliberately given NO address: the screen shows the shape it takes with nobody
+  // in it, and nothing here is a real person's inbox.
+  EmailConnect: ({ nav }) => <EmailConnectScreen navigation={nav} route={{ params: {} }} />,
+  EmailCode: ({ nav }) => <EmailCodeScreen navigation={nav} route={{ params: {} }} />,
+  OrderVerified: ({ nav, sample }) => (
+    <OrderVerifiedScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  ),
+  ImagesUploaded: ({ nav, sample }) => (
+    <ImagesUploadedScreen
+      navigation={nav}
+      route={{ params: { campaignId: sample.campaignId, kind: 'DELIVERY' } }}
+    />
   ),
   ProofUpload: ({ nav, sample, at }) => (
     <ProofUploadScreen

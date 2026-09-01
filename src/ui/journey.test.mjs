@@ -1,4 +1,4 @@
-// The claim journey as eleven steps — every decision, without React.
+// The claim journey as twelve steps — every decision, without React.
 //
 // The thing worth proving hardest: coming back from the shop lands on the step
 // somebody was on. It cannot land at the beginning, because there is no local
@@ -38,12 +38,12 @@ function ok(cond, label) {
   else { fail += 1; console.log(`  FAIL ${label}`); }
 }
 
-console.log('=== 1. eleven steps, in the order the journey runs in ===');
+console.log('=== 1. twelve steps, in the order the journey runs in ===');
 {
-  ok(OF === 11, `eleven steps, found ${OF}`);
+  ok(OF === 12, `twelve steps, found ${OF}`);
   ok(JSON.stringify(JOURNEY_KEYS) === JSON.stringify([
-    'join', 'connect', 'buy', 'purchase-shot', 'checking', 'order-details',
-    'delivered', 'review', 'review-shot', 'window', 'refund',
+    'join', 'connect', 'buy', 'returncatch', 'purchase-shot', 'checking',
+    'order-details', 'delivered', 'review', 'review-shot', 'window', 'refund',
   ]), 'in exactly the order asked for');
   ok(new Set(JOURNEY_KEYS).size === OF, 'no step twice');
 
@@ -167,6 +167,37 @@ console.log('\n=== 3b. AN ORDER NOBODY HAS SAID IS THEIRS GETS ITS OWN STEP ==='
   }
 }
 
+console.log('\n=== 3c. THE FOUR STEPS THE PHONE MAY DECIDE, AND ONLY THOSE FOUR ===');
+{
+  // Before the shop has told Fayr anything there is no record to read, so three
+  // small notes on the phone move somebody between four screens. The rule that
+  // matters: the moment the server says anything, the notes are ignored entirely.
+  const claimed = { task: { state: STATES.CLAIMED } };
+  ok(journeyStepFor({ ...claimed, connected: false }) === 'connect',
+    'nothing done yet: connect the shop account');
+  ok(journeyStepFor({ ...claimed, connected: true }) === 'buy',
+    'connected: go and buy it');
+  ok(journeyStepFor({ ...claimed, connected: true, wentToBuy: true }) === 'returncatch',
+    'been to the shop and back: did you buy it?');
+  ok(journeyStepFor({
+    ...claimed, connected: true, wentToBuy: true, saidTheyBought: true,
+  }) === 'purchase-shot', 'said they bought it: show us the order');
+
+  // AND THE SERVER ALWAYS WINS. Every note set, and an order on file, still lands
+  // on the order the server can see. This is the guarantee that the notes cannot
+  // move anybody past the point where money is decided.
+  const allNotes = { connected: true, wentToBuy: true, saidTheyBought: true };
+  ok(journeyStepFor({
+    task: { state: STATES.PURCHASED, order: { id: 'o1' } }, ...allNotes,
+  }) === 'order-details', 'an order on file beats every note on the phone');
+  for (const later of [STATES.DELIVERED, STATES.REVIEWED, STATES.HOLDING,
+                       STATES.REFUNDED]) {
+    const step = journeyStepFor({ task: { state: later }, ...allNotes });
+    ok(!['connect', 'buy', 'returncatch', 'purchase-shot'].includes(step),
+      `${later} is past anything the phone may decide, and is ${step}`);
+  }
+}
+
 console.log('\n=== 4. the screenshot step is only in the way when it is needed ===');
 {
   // The shop is read for us where it can be. A screenshot page in front of
@@ -225,10 +256,10 @@ console.log('\n=== 6. the whole page, as data ===');
   });
   ok(view.key === 'review', 'it knows which step');
   ok(view.designKey === 'reviewguide', 'and which design screen draws it');
-  ok(view.where === 'Step 8 of 11', 'and says where you are');
-  ok(view.stepNumber === 8 && view.of === 11, 'with the numbers to draw it');
-  ok(view.track.length === 11, 'one segment per step');
-  ok(view.track.filter((t) => t.state === 'done').length === 7, 'seven behind');
+  ok(view.where === 'Step 9 of 12', 'and says where you are');
+  ok(view.stepNumber === 9 && view.of === 12, 'with the numbers to draw it');
+  ok(view.track.length === 12, 'one segment per step');
+  ok(view.track.filter((t) => t.state === 'done').length === 8, 'eight behind');
   ok(view.track.filter((t) => t.state === 'here').length === 1, 'one here');
   ok(view.track.filter((t) => t.state === 'todo').length === 3, 'three to come');
   ok(view.product === 'Prestige cooktop', 'it carries the product');
@@ -289,7 +320,7 @@ console.log('\n=== 8. nothing missing reaches the screen ===');
     ok(!flat.includes('undefined'), `${label}: nothing "undefined" reaches the screen`);
     ok(!flat.includes('[object Object]'), `${label}: no raw object reaches the screen`);
     ok(typeof view.next === 'string' && view.next !== '', `${label}: and what comes next`);
-    ok(/^Step \d+ of 11$/.test(view.where), `${label}: and where you are`);
+    ok(/^Step \d+ of 12$/.test(view.where), `${label}: and where you are`);
     ok(typeof view.designKey === 'string' && view.designKey !== '',
       `${label}: and which screen draws it`);
   }
@@ -408,9 +439,10 @@ console.log('\n=== 11. EACH OF THE THIRTEEN CHECKS MOVED TO THE FILE THAT OWNS I
   // ONE SCREEN OWNS THE ORDER GATE. Two screens firing CONFIRM_ORDER is exactly
   // what the split was meant to end: the delivery screen used to fire it under the
   // words "Yes, it is delivered", which is a different fact.
-  const firing = ['confirm', 'linkaccount', 'buyinterstitial', 'proofprimer',
-    'ocrconfirm', 'underreview', 'delivery', 'reviewguide', 'reviewproof',
-    'returnwindow', 'reward']
+  const firing = ['confirm', 'linkaccount', 'buyinterstitial', 'returncatch',
+    'proofprimer', 'ocrconfirm', 'underreview', 'delivery', 'reviewguide',
+    'reviewproof', 'returnwindow', 'reward', 'emailconnect', 'emailcode',
+    'orderverified', 'imagesuploaded']
     .filter((key) => /CONFIRM_ORDER/.test(strip(read(key))));
   ok(JSON.stringify(firing) === JSON.stringify(['ocrconfirm']),
     `exactly one screen confirms an order, and it is ocrconfirm (found: ${firing.join(', ') || 'none'})`);
@@ -428,11 +460,26 @@ console.log('\n=== 11. EACH OF THE THIRTEEN CHECKS MOVED TO THE FILE THAT OWNS I
 
   // AND NONE OF THEM DECIDES WHICH STEP IT IS. That is the router's job, and a
   // screen that worked it out again could disagree with the record.
-  for (const key of ['linkaccount', 'buyinterstitial', 'proofprimer', 'ocrconfirm',
-                     'underreview', 'delivery', 'reviewguide', 'reviewproof',
-                     'returnwindow']) {
+  for (const key of ['linkaccount', 'buyinterstitial', 'returncatch', 'proofprimer',
+                     'ocrconfirm', 'underreview', 'delivery', 'reviewguide',
+                     'reviewproof', 'returnwindow', 'emailconnect', 'emailcode',
+                     'orderverified', 'imagesuploaded']) {
     ok(!/journeyStepFor|journeyView/.test(strip(read(key))),
       `${key} does not work out which step it is`);
+  }
+
+  // THE TWO SCREENS THAT SAY A THING IS NOT BUILT MUST SAY IT ON THE SCREEN, not
+  // only in a comment. The owner asked for exactly this: anything not yet working
+  // said plainly on the screen rather than faked.
+  for (const key of ['emailconnect', 'emailcode']) {
+    const src = strip(read(key));
+    ok(/[Nn]ot (ready|built) yet/.test(src),
+      `${key} says on the screen that it is not built yet`);
+    // And neither may claim an inbox got connected or a code got sent.
+    ok(!/\bconnected!|inbox is connected\b/.test(src),
+      `${key} never claims an inbox was connected`);
+    ok(!/setTimeout/.test(src),
+      `${key} runs no pretend timer, which is how the design fakes it`);
   }
 }
 
