@@ -6,27 +6,58 @@
 //
 // THE DEADLINE IS THE ONE THAT WAS MISSING. The design's confirmation screen says
 // "buy the product within 48 hours of joining"; its own claimed sheet says 2 hours
-// and counts down from 25 minutes; the backend's real window is CLAIM_TTL_DAYS
-// (7 by default) and is the only one that actually expires a claim. The server now
-// sends that number with the campaign (claimWindowDays), and claimDeadline refuses
-// to state a window it was not given rather than inheriting one of the design's.
+// and counts down from 25 minutes; the backend's real window is the only one that
+// actually expires a claim. The server sends that number with the campaign
+// (claimWindowMinutes), and claimDeadline refuses to state a window it was not
+// given rather than inheriting one of the design's.
+//
+// IT IS MINUTES NOW. The owner asked on 1 September 2026 for a thirty minute slot,
+// and the old setting was whole days: its smallest possible value was one day, so
+// it could not express thirty minutes at all. The setting, the campaign field and
+// this function all moved to minutes together, in one commit, so there is never a
+// moment where two numbers claim to be the same window.
 import { estMaxRefundRupees } from './theme.js';
+
+/**
+ * The length of a window in minutes, said the way a person would say it.
+ *
+ * The largest plain unit, and the second one only when the first does not divide
+ * exactly: 30 minutes, 1 hour, 2 days, "1 hour 30 minutes", "2 days 15 minutes".
+ * Never rounded — saying "1 hour" for ninety minutes hands somebody half an hour
+ * they do not have, and this is a purchase deadline.
+ */
+function lengthInWords(totalMinutes) {
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+  if (days > 0) parts.push(plural(days, 'day'));
+  if (hours > 0) parts.push(plural(hours, 'hour'));
+  if (minutes > 0) parts.push(plural(minutes, 'minute'));
+  // Two units at most. A window of "1 day 2 hours 3 minutes" is precision nobody
+  // reads; the two largest units are always enough to plan a purchase around, and
+  // dropping the smallest can only ever understate the time left, never overstate
+  // it, which is the safe direction for a deadline.
+  return parts.slice(0, 2).join(' ');
+}
 
 /**
  * The design's deadline sentence, with the operator's real window in it — as a
  * LENGTH only. See the body for why it states no clock time.
  *
  * Returns null — meaning "do not draw the deadline card" — when the window is
- * absent or not a positive whole number of days. A claim screen that guesses a
+ * absent or not a positive whole number of minutes. A claim screen that guesses a
  * deadline is worse than one that stays quiet: the user plans a purchase around it.
  */
 export function claimDeadline(opts) {
   const o = opts || {};
-  const days = o.windowDays;
-  if (typeof days !== 'number' || !Number.isInteger(days) || days < 1) return null;
-  const within = `${days} ${days === 1 ? 'day' : 'days'}`;
+  const minutes = o.windowMinutes;
+  if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1) {
+    return null;
+  }
+  const within = lengthInWords(minutes);
   return {
-    days,
+    minutes,
     within,
     // A LENGTH, and deliberately no clock time. The design's card reads "within
     // 48 hours of joining — by 6 Jul, 6:00 PM", but the exact deadline does not

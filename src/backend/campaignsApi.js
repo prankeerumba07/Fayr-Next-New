@@ -22,11 +22,16 @@ export function normalizeCampaign(c) {
     payoutPercent: c.payoutPercent != null ? c.payoutPercent : 100,
     payoutCapPaise: c.payoutCapPaise != null ? Number(c.payoutCapPaise) : null,
     ticketCost: c.ticketCost != null ? c.ticketCost : 5,
-    // How many days the buyer has to purchase after claiming. NO fallback: if the
-    // server did not say, the confirmation screen shows no deadline at all rather
-    // than a number this file invented. The server's value comes from the same
-    // setting that actually expires the claim.
-    claimWindowDays: Number.isInteger(c.claimWindowDays) ? c.claimWindowDays : null,
+    // How many MINUTES the buyer has to purchase after claiming. Minutes since
+    // 1 September 2026, when the owner asked for a thirty minute slot; the old
+    // setting was whole days and could not say thirty minutes at all.
+    //
+    // NO fallback: if the server did not say, the confirmation screen shows no
+    // deadline at all rather than a number this file invented. The server's value
+    // comes from the same setting that actually expires the claim.
+    claimWindowMinutes: Number.isInteger(c.claimWindowMinutes)
+      ? c.claimWindowMinutes
+      : null,
     // Seats, both counted server-side from real tasks. NO FALLBACK, for the same
     // reason as the claim window: a default here would be a number this file
     // invented. Missing must stay missing so the screen can say nothing — a

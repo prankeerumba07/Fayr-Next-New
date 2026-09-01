@@ -102,7 +102,29 @@ export const envSchema = z.object({
   // --- Task loop (step 1.5) -------------------------------------------------
   // How long a claim may sit before purchase before it expires and returns the
   // user's tickets. Operator policy, not a fetched fact.
-  CLAIM_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+  //
+  // MINUTES, AND THIRTY BY DEFAULT. The owner asked on 1 September 2026 for a
+  // thirty minute slot: the purchase has to be made inside it. This used to be
+  // CLAIM_TTL_DAYS, whole days, minimum one — so it could not express thirty
+  // minutes at all. Every reader moved with it in the same commit, and the old
+  // name is gone rather than kept working alongside this one, because two
+  // settings for one window is how two screens end up quoting different numbers.
+  //
+  // The ceiling is ninety days in minutes, which is the ceiling the old setting
+  // had. The floor is one minute; a floor of zero would expire a claim the instant
+  // it was made and take the tickets with it until the next sweep.
+  //
+  // BEFORE RAISING THE SWEEP'S CADENCE, READ THIS. Thirty minutes will expire
+  // constantly where seven days almost never did, so the sweep that returns the
+  // tickets is now on the busy path. SCHEDULER_CRON is hourly by default, which
+  // means somebody can wait up to an hour past the deadline for their tickets.
+  // task.e2e-spec.ts proves the return itself; the cadence is an operator setting.
+  CLAIM_TTL_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(129_600)
+    .default(30),
 
   // --- Scheduler (step 1.6) -------------------------------------------------
   // The maintenance cron: re-checks review visibility during HOLDING, auto-

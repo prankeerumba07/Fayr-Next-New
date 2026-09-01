@@ -13,7 +13,7 @@ import { toCampaignResponse } from './campaign.response';
  * here. An OBJECT, which is what makes the bare-.map trap a compile error — see
  * the test at the bottom.
  */
-const CTX = { claimWindowDays: 7, claimedCount: 0 };
+const CTX = { claimWindowMinutes: 30, claimedCount: 0 };
 
 const baseCampaign: Campaign = {
   id: 'c1',
@@ -108,14 +108,20 @@ describe('the claim window on a campaign', () => {
     // know N: claimExpiresAt only appears on a task, which is to say only AFTER
     // the user has already committed 5 tickets. So the screen either stayed silent
     // about the deadline or invented one.
+    // MINUTES since 1 September 2026: the owner asked for a thirty minute slot,
+    // and the old setting could only say whole days.
     expect(
-      toCampaignResponse(baseCampaign, { claimWindowDays: 7, claimedCount: 0 })
-        .claimWindowDays,
-    ).toBe(7);
+      toCampaignResponse(baseCampaign, {
+        claimWindowMinutes: 30,
+        claimedCount: 0,
+      }).claimWindowMinutes,
+    ).toBe(30);
     expect(
-      toCampaignResponse(baseCampaign, { claimWindowDays: 2, claimedCount: 0 })
-        .claimWindowDays,
-    ).toBe(2);
+      toCampaignResponse(baseCampaign, {
+        claimWindowMinutes: 120,
+        claimedCount: 0,
+      }).claimWindowMinutes,
+    ).toBe(120);
   });
 
   it('CANNOT be handed to .map bare any more — the compiler refuses it', () => {
@@ -141,7 +147,7 @@ describe('the claim window on a campaign', () => {
   describe('seats', () => {
     it('reports the count it was given, not one it worked out', () => {
       const res = toCampaignResponse(baseCampaign, {
-        claimWindowDays: 7,
+        claimWindowMinutes: 30,
         claimedCount: 1240,
       });
       expect(res.claimedCount).toBe(1240);
@@ -155,7 +161,7 @@ describe('the claim window on a campaign', () => {
       // empty room rather than a new offer. The mapper's job is to state the fact;
       // suppressing it is the screen's job, the same as every other absent figure.
       const res = toCampaignResponse(baseCampaign, {
-        claimWindowDays: 7,
+        claimWindowMinutes: 30,
         claimedCount: 0,
       });
       expect(res.claimedCount).toBe(0);
@@ -165,7 +171,7 @@ describe('the claim window on a campaign', () => {
     it('says nothing about seats when the campaign has no limit', () => {
       const res = toCampaignResponse(
         { ...baseCampaign, totalSlots: null },
-        { claimWindowDays: 7, claimedCount: 300 },
+        { claimWindowMinutes: 30, claimedCount: 300 },
       );
       expect(res.seatsLeft).toBeNull();
       // The joined count is still a fact worth having.
@@ -186,15 +192,15 @@ describe('the claim window on a campaign', () => {
   });
 
   it('is passed IN, never defaulted here', () => {
-    // The window is one operator setting (CLAIM_TTL_DAYS) and the claim itself
+    // The window is one operator setting (CLAIM_TTL_MINUTES) and the claim itself
     // computes claimExpiresAt from it. A fallback in this mapper would be a second
     // number claiming to be the same policy — and the two would drift silently the
     // first time the setting changed. Required parameter, no default: the type
     // system refuses a call site that does not supply it.
     const src = readFileSync(join(__dirname, 'campaign.response.ts'), 'utf8');
-    for (const field of ['claimWindowDays', 'claimedCount']) {
+    for (const field of ['claimWindowMinutes', 'claimedCount']) {
       // Declared, and never given a fallback. A default for either would be a
-      // second number claiming to be the same thing: the operator's CLAIM_TTL_DAYS
+      // second number claiming to be the same thing: the operator's CLAIM_TTL_MINUTES
       // that the claim itself uses, and a live count of tasks.
       expect(src).toMatch(new RegExp(`${field}:\\s*number\\b`));
       expect(src).not.toMatch(new RegExp(`${field}\\s*[:=][^;\\n]*\\?\\?`));

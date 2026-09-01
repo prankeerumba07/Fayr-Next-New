@@ -169,6 +169,13 @@ export function sourceRank(source?: string | null): number {
 
 export const DAY = 86_400_000;
 
+/**
+ * One minute in milliseconds. Here beside DAY rather than written out at the one
+ * call site, because the claim window is measured in minutes now and a second
+ * copy of 60_000 is a second thing that can be typed wrong.
+ */
+export const MINUTE = 60_000;
+
 export function rank(state: string): number {
   return ORDER.indexOf(state as TaskStateName);
 }

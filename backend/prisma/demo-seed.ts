@@ -133,6 +133,7 @@ const JOURNEY_OFFERS = [
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
+const MINUTE = 60_000;
 
 /**
  * The one offer the catalogue was missing.
@@ -298,7 +299,9 @@ export async function seedDemo(
 
   await assertSafeDatabase(prisma, opts.databaseNameOverride);
 
-  const claimTtlDays: number = config.get('CLAIM_TTL_DAYS', { infer: true });
+  const claimTtlMinutes: number = config.get('CLAIM_TTL_MINUTES', {
+    infer: true,
+  });
   const now = Date.now();
   const report: DemoSeedReport = {
     campaigns: 0,
@@ -861,13 +864,21 @@ export async function seedDemo(
       },
     });
     if (live) {
-      const fullWindow = new Date(now + claimTtlDays * DAY);
+      // A FULL WINDOW FROM NOW, and "full" is now thirty minutes rather than a
+      // week. So a demo has to be run SOON after seeding: a database seeded in the
+      // morning has a claim that lapsed long before an afternoon walkthrough, and
+      // the sweep will have closed it. Re-running the seed tops it up again, which
+      // is why the run sheet says to seed just before demonstrating. The report
+      // line says the length out loud rather than leaving somebody to assume.
+      const fullWindow = new Date(now + claimTtlMinutes * MINUTE);
       if ((live.claimExpiresAt?.getTime() ?? 0) < fullWindow.getTime()) {
         await prisma.task.update({
           where: { id: live.id },
           data: { createdAt: new Date(now), claimExpiresAt: fullWindow },
         });
-        report.journeys.push('topped up the unbought claim’s purchase deadline');
+        report.journeys.push(
+          `topped up the unbought claim’s purchase deadline (${claimTtlMinutes} minutes from now)`,
+        );
       } else {
         report.skipped.push('claimed, still to buy');
       }
@@ -993,12 +1004,21 @@ export async function seedDemo(
       where: { id: claimed.id },
       data: {
         createdAt: new Date(spec.claimedAt),
-        claimExpiresAt: new Date(spec.claimedAt + claimTtlDays * DAY),
+        claimExpiresAt: new Date(spec.claimedAt + claimTtlMinutes * MINUTE),
       },
     });
 
     if (spec.advance !== 'claim') {
-      const orderAt = spec.claimedAt + 1 * HOUR;
+      // INSIDE THE CLAIM WINDOW, whatever the operator has set it to.
+      //
+      // This was a flat one hour after the claim, which was fine while the window
+      // was seven days and broke the moment it became thirty minutes: the order
+      // fell past the purchase deadline, the order-window rule refused it as
+      // "after-deadline", and every journey that needed an order died with "return
+      // status unknown (no readable order data)". Halfway through the real window
+      // is inside it for any setting, including the one-minute floor.
+      const orderAt =
+        spec.claimedAt + Math.floor((claimTtlMinutes * MINUTE) / 2);
       if (spec.order) {
         await tasks.submitEvidence(spec.user.id, claimed.id, {
           key: `seed:order:${claimed.id}`,

@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { INestApplication } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
@@ -53,6 +54,19 @@ describe('Demo seed (e2e)', () => {
   let questions: SupportQuestionService;
   let verifications: StaffVerificationService;
   let reports: ReportService;
+  let config: ConfigService;
+
+  /**
+   * The operator's real purchase window in milliseconds.
+   *
+   * Read from the setting, never written in here. These tests used to assert "more
+   * than six days left", which was the window's own length minus a day — true
+   * while the window was seven days and false the moment the owner asked for
+   * thirty minutes. Asking the setting means the assertion stays right whatever an
+   * operator sets, and it still fails if the seed leaves a stale deadline.
+   */
+  const claimWindowMs = (): number =>
+    config.getOrThrow<number>('CLAIM_TTL_MINUTES') * 60_000;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -69,6 +83,7 @@ describe('Demo seed (e2e)', () => {
     questions = app.get(SupportQuestionService);
     verifications = app.get(StaffVerificationService);
     reports = app.get(ReportService);
+    config = app.get(ConfigService);
 
     const rows = await prisma.$queryRawUnsafe<{ current_database: string }[]>(
       'SELECT current_database()',
@@ -286,7 +301,7 @@ describe('Demo seed (e2e)', () => {
       expect(second).toEqual(first);
     });
 
-    it('leaves an unbought claim with a WEEK to run, not merely an unexpired one', async () => {
+    it('leaves an unbought claim with a FULL window to run, not merely an unexpired one', async () => {
       await seedDemo(app, { quiet: true });
       // The bug this pins, found by reading a seeded database rather than by
       // reasoning: a claim backdated one day had a deadline seven days after
@@ -302,21 +317,29 @@ describe('Demo seed (e2e)', () => {
         where: { state: 'CLAIMED', closedAt: null },
       });
       expect(open.length).toBeGreaterThanOrEqual(1);
-      const SIX_DAYS = 6 * 86_400_000;
+      // NEARLY the whole window, because seeding itself takes a few seconds. Ten
+      // seconds of slack, not a day: with a thirty minute window a day of slack
+      // would let every value through and the test would prove nothing.
+      const nearlyAll = claimWindowMs() - 10_000;
       for (const t of open) {
         expect(t.claimExpiresAt).not.toBeNull();
-        expect(t.claimExpiresAt!.getTime() - Date.now()).toBeGreaterThan(SIX_DAYS);
+        expect(t.claimExpiresAt!.getTime() - Date.now()).toBeGreaterThan(nearlyAll);
       }
     });
 
-    it('tops up a nearly-lapsed claim, the way a week-old database arrives on demo morning', async () => {
+    it('tops up a nearly-lapsed claim, the way an old database arrives on demo morning', async () => {
+      // THIS MATTERS MORE THAN IT USED TO. A thirty minute window means a database
+      // seeded in the morning has a lapsed claim by the afternoon, so the top-up is
+      // no longer an edge case — it is the normal path, and the run sheet says to
+      // seed just before demonstrating.
       await seedDemo(app, { quiet: true });
       const claimed = await prisma.task.findFirstOrThrow({
         where: { state: 'CLAIMED', closedAt: null },
       });
+      // A minute left: nearly gone, whatever the window is set to.
       await prisma.task.update({
         where: { id: claimed.id },
-        data: { claimExpiresAt: new Date(Date.now() + 3_600_000) },
+        data: { claimExpiresAt: new Date(Date.now() + 60_000) },
       });
 
       await seedDemo(app, { quiet: true });
@@ -326,7 +349,7 @@ describe('Demo seed (e2e)', () => {
       });
       expect(after.state).toBe('CLAIMED');
       expect(after.claimExpiresAt!.getTime() - Date.now()).toBeGreaterThan(
-        6 * 86_400_000,
+        claimWindowMs() - 10_000,
       );
     });
 
@@ -363,7 +386,7 @@ describe('Demo seed (e2e)', () => {
       });
       expect(live.id).not.toBe(claimed.id);
       expect(live.claimExpiresAt!.getTime() - Date.now()).toBeGreaterThan(
-        6 * 86_400_000,
+        claimWindowMs() - 10_000,
       );
 
       // And the tickets balance out by the real rules: expiry returns 5, the
@@ -470,7 +493,7 @@ describe('Demo seed (e2e)', () => {
       });
       expect(live).not.toBeNull();
       expect(live!.claimExpiresAt!.getTime() - Date.now()).toBeGreaterThan(
-        6 * 86_400_000,
+        claimWindowMs() - 10_000,
       );
       // EXACTLY one task added — the missing state, and nothing else.
       expect(await prisma.task.count({ where: { userId: user.id } })).toBe(before + 1);

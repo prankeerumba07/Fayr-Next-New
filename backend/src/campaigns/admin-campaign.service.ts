@@ -40,8 +40,8 @@ export class AdminCampaignService {
   ) {}
 
   /** The same operator setting the user-facing responses quote. One source. */
-  private get claimWindowDays(): number {
-    return this.config.get('CLAIM_TTL_DAYS', { infer: true });
+  private get claimWindowMinutes(): number {
+    return this.config.get('CLAIM_TTL_MINUTES', { infer: true });
   }
 
   /**
@@ -54,7 +54,7 @@ export class AdminCampaignService {
    */
   private view(campaign: Campaign, claimedCount: number): CampaignResponse {
     return toCampaignResponse(campaign, {
-      claimWindowDays: this.claimWindowDays,
+      claimWindowMinutes: this.claimWindowMinutes,
       claimedCount,
     });
   }

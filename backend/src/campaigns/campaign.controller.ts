@@ -29,12 +29,13 @@ export class CampaignController {
   ) {}
 
   /**
-   * The operator's claim window, read from the one setting the claim itself uses.
+   * The operator's claim window in MINUTES, read from the one setting the claim
+   * itself uses.
    * Read per request rather than cached so an operator changing it does not need a
    * redeploy to stop the app quoting the old number.
    */
-  private get claimWindowDays(): number {
-    return this.config.get('CLAIM_TTL_DAYS', { infer: true });
+  private get claimWindowMinutes(): number {
+    return this.config.get('CLAIM_TTL_MINUTES', { infer: true });
   }
 
   /** List active campaigns, optionally filtered by ?platform=. */
@@ -45,7 +46,7 @@ export class CampaignController {
     const taken = await this.campaigns.claimedSeats(rows.map((c) => c.id));
     return rows.map((c) =>
       toCampaignResponse(c, {
-        claimWindowDays: this.claimWindowDays,
+        claimWindowMinutes: this.claimWindowMinutes,
         claimedCount: claimedFor(taken, c.id),
       }),
     );
@@ -59,7 +60,7 @@ export class CampaignController {
     const campaign = await this.campaigns.getById(id);
     const taken = await this.campaigns.claimedSeats([campaign.id]);
     return toCampaignResponse(campaign, {
-      claimWindowDays: this.claimWindowDays,
+      claimWindowMinutes: this.claimWindowMinutes,
       claimedCount: claimedFor(taken, campaign.id),
     });
   }

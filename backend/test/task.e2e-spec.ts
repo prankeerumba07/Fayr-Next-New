@@ -798,6 +798,91 @@ describe('Task loop (e2e)', () => {
       .expect(409);
   });
 
+  // THE THIRTY MINUTE SLOT, AND THE SWEEP THAT HAS TO KEEP UP WITH IT.
+  //
+  // The owner asked on 1 September 2026 for a thirty minute purchase window, and
+  // named the risk himself: a sweep that used to run once a week is now going to
+  // run every half hour. So these two tests do not force a date into the row. The
+  // first proves the real claim really is thirty minutes long, and the second lets
+  // that real window pass and proves the tickets come back.
+  it('gives a fresh claim exactly the operator’s window, in minutes', async () => {
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const campaign = await makeCampaign();
+
+    const before = Date.now();
+    const claim = await request(server())
+      .post('/tasks')
+      .set('Authorization', bearer(token))
+      .send({ campaignId: campaign.id })
+      .expect(201);
+    const after = Date.now();
+
+    const minutes = config.getOrThrow<number>('CLAIM_TTL_MINUTES');
+    expect(minutes).toBe(30); // the default the owner asked for
+
+    const row = await prisma.task.findUniqueOrThrow({
+      where: { id: claim.body.id },
+    });
+    const deadline = row.claimExpiresAt?.getTime() ?? 0;
+    // Inside the window the request itself took, so this cannot pass on a stale
+    // or defaulted date. A day-long window would be nowhere near this range.
+    expect(deadline).toBeGreaterThanOrEqual(before + minutes * 60_000);
+    expect(deadline).toBeLessThanOrEqual(after + minutes * 60_000);
+
+    // AND THE APP IS TOLD THE SAME NUMBER. The confirmation screen states the
+    // window before the claim exists, so it reads it off the campaign. One
+    // setting, two readers, and this is the check that they cannot drift.
+    const feed = await request(server())
+      .get('/campaigns')
+      .set('Authorization', bearer(token))
+      .expect(200);
+    const card = (feed.body as { id: string; claimWindowMinutes: number }[]).find(
+      (c) => c.id === campaign.id,
+    );
+    expect(card?.claimWindowMinutes).toBe(minutes);
+  });
+
+  it('returns the tickets when the thirty minutes really run out', async () => {
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const campaign = await makeCampaign();
+
+    const claim = await request(server())
+      .post('/tasks')
+      .set('Authorization', bearer(token))
+      .send({ campaignId: campaign.id })
+      .expect(201);
+    expect(await ticketsSvc.getBalance(userId)).toBe(10);
+
+    const minutes = config.getOrThrow<number>('CLAIM_TTL_MINUTES');
+
+    // A sweep DURING the window must take nothing. This is the half that matters
+    // most now: the sweep runs against every open claim, so a boundary that is one
+    // comparison out would close a claim somebody is still shopping for.
+    expect((await taskSvc.sweepExpiredClaims(new Date())).expired).toBe(0);
+    expect(await ticketsSvc.getBalance(userId)).toBe(10);
+
+    // The clock is moved, not the row: the sweep is told a later `now`, exactly as
+    // the scheduler tells it the real one. The deadline in the database is the one
+    // the claim itself computed.
+    const oneMinuteLate = new Date(Date.now() + (minutes + 1) * 60_000);
+    expect((await taskSvc.sweepExpiredClaims(oneMinuteLate)).expired).toBe(1);
+
+    expect(await ticketsSvc.getBalance(userId)).toBe(15); // all 5 back
+    const closed = await prisma.task.findUniqueOrThrow({
+      where: { id: claim.body.id },
+    });
+    expect(closed.closeReason).toBe('expired');
+    expect(closed.closedAt).not.toBeNull();
+
+    // Sweeping again changes nothing. Every half hour means this runs often, and
+    // a second pass over an already-closed claim must not hand out five more
+    // tickets.
+    expect((await taskSvc.sweepExpiredClaims(oneMinuteLate)).expired).toBe(0);
+    expect(await ticketsSvc.getBalance(userId)).toBe(15);
+  });
+
   it('returns tickets when a claim expires unpurchased', async () => {
     const { id: userId, token } = await newUser();
     await ticketsSvc.grantSignup(userId);

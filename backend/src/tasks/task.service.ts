@@ -27,7 +27,7 @@ import type {
 } from './engine/evidence.types';
 import { computeRefundPaise } from './engine/money';
 import { policyForWindowDays } from './engine/return-policy';
-import { DAY, SOURCES, STATES } from './engine/states';
+import { MINUTE, SOURCES, STATES } from './engine/states';
 import {
   refundEligibility,
   transition,
@@ -79,7 +79,7 @@ type ReleaseOutcome =
 @Injectable()
 export class TaskService {
   private readonly logger = new Logger(TaskService.name);
-  private readonly claimTtlDays: number;
+  private readonly claimTtlMinutes: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -87,7 +87,7 @@ export class TaskService {
     private readonly wallet: WalletService,
     config: ConfigService<Env, true>,
   ) {
-    this.claimTtlDays = config.get('CLAIM_TTL_DAYS', { infer: true });
+    this.claimTtlMinutes = config.get('CLAIM_TTL_MINUTES', { infer: true });
   }
 
   /** Claim a campaign: deduct tickets + create the task, atomically. */
@@ -153,7 +153,12 @@ export class TaskService {
             category: campaign.category,
             targetAsin: campaign.asin,
             targetProduct: campaign.productName,
-            claimExpiresAt: new Date(Date.now() + this.claimTtlDays * DAY),
+            // THE THIRTY MINUTE SLOT. Minutes, not days — see CLAIM_TTL_MINUTES
+            // in env.validation.ts for why, and for the note about the sweep that
+            // has to return the tickets afterwards.
+            claimExpiresAt: new Date(
+              Date.now() + this.claimTtlMinutes * MINUTE,
+            ),
           },
         });
 

@@ -29,11 +29,16 @@ export interface CampaignResponse {
   minRating: number | null;
   totalSlots: number | null;
   /**
-   * How many days the buyer has to purchase after claiming, before the claim
-   * expires and their tickets come back. The operator's CLAIM_TTL_DAYS setting,
+   * How many MINUTES the buyer has to purchase after claiming, before the claim
+   * expires and their tickets come back. The operator's CLAIM_TTL_MINUTES setting,
    * passed in — see toCampaignResponse for why it is not read here.
+   *
+   * Minutes, not days, since 1 September 2026: the owner asked for a thirty minute
+   * slot and the old setting's smallest value was one whole day. The field was
+   * renamed rather than kept alongside a new one, so a screen cannot read a stale
+   * `claimWindowDays` and quote seven days over a thirty minute window.
    */
-  claimWindowDays: number;
+  claimWindowMinutes: number;
   /**
    * How many people have taken a seat on this campaign, counted from real tasks
    * every time this is built — never a stored counter, which drifts the moment a
@@ -77,7 +82,7 @@ export interface CampaignResponse {
  *
  * AN OBJECT, NOT POSITIONAL ARGUMENTS, and that is the whole point.
  *
- * `claimWindowDays` used to be a second positional parameter, and making it
+ * `claimWindowMinutes` used to be a second positional parameter, and making it
  * required did not protect it: `rows.map(toCampaignResponse)` still COMPILED,
  * because Array.map calls back with (item, index, array) — so the first campaign
  * silently reported a 0-day deadline, the second 1 day, and nothing failed. That
@@ -91,12 +96,12 @@ export interface CampaignResponse {
  * the build if the bare form ever type-checks again.
  *
  * Neither field has a default. Both are policy or fact owned elsewhere — the
- * operator's CLAIM_TTL_DAYS, which the claim itself uses to compute
+ * operator's CLAIM_TTL_MINUTES, which the claim itself uses to compute
  * claimExpiresAt, and a live count of tasks. A fallback for either would be a
  * second number claiming to be the same thing.
  */
 export interface CampaignResponseContext {
-  claimWindowDays: number;
+  claimWindowMinutes: number;
   claimedCount: number;
   /**
    * Now, passed in rather than read here, so a test can put the clock where it
@@ -127,7 +132,7 @@ export function toCampaignResponse(
     returnWindowDays: c.returnWindowDays,
     minRating: c.minRating,
     totalSlots: c.totalSlots,
-    claimWindowDays: ctx.claimWindowDays,
+    claimWindowMinutes: ctx.claimWindowMinutes,
     claimedCount: ctx.claimedCount,
     // Through seats.ts, not `c.totalSlots - ctx.claimedCount` — one definition of
     // a remaining seat, shared with the gate that refuses the claim.

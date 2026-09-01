@@ -34,35 +34,66 @@ const t = (name, fn) => {
 const NOW = new Date('2026-08-25T10:30:00.000Z');
 
 console.log('claimDeadline');
-t('states the window the server sent, and the date it lands on', () => {
-  const d = claimDeadline({ windowDays: 7, now: NOW });
-  assert.equal(d.days, 7);
-  assert.match(d.within, /^7 days$/);
-  // The design's sentence, with the real numbers in it.
-  assert.equal(d.line, 'Buy the product within 7 days of joining.');
+// THE WINDOW IS MINUTES NOW, NOT DAYS. The owner asked on 1 September 2026 for a
+// thirty minute slot: the purchase has to be made inside it. The old setting was
+// whole days and could not say thirty minutes at all — its smallest value was one
+// day. The server sends minutes, and this turns whatever it sent into the plain
+// sentence the design's card carries.
+t('thirty minutes, which is the window the owner asked for', () => {
+  const d = claimDeadline({ windowMinutes: 30, now: NOW });
+  assert.equal(d.minutes, 30);
+  assert.equal(d.within, '30 minutes');
+  assert.equal(d.line, 'Buy the product within 30 minutes of joining.');
 });
 
-t('says "1 day", not "1 days"', () => {
-  assert.equal(claimDeadline({ windowDays: 1, now: NOW }).within, '1 day');
+t('one of anything is not plural', () => {
+  assert.equal(claimDeadline({ windowMinutes: 1, now: NOW }).within, '1 minute');
+  assert.equal(claimDeadline({ windowMinutes: 60, now: NOW }).within, '1 hour');
+  assert.equal(claimDeadline({ windowMinutes: 1440, now: NOW }).within, '1 day');
+});
+
+t('a longer window is still said in the largest plain unit', () => {
+  // The setting has a wide range, so an operator may set hours or days. Whatever
+  // they set has to read as a sentence a person would say out loud.
+  assert.equal(claimDeadline({ windowMinutes: 120, now: NOW }).within, '2 hours');
+  assert.equal(claimDeadline({ windowMinutes: 2880, now: NOW }).within, '2 days');
+  assert.equal(claimDeadline({ windowMinutes: 10080, now: NOW }).within, '7 days');
+});
+
+t('a window that is not a whole number of hours or days says both parts', () => {
+  // Never rounded. "1 hour" for ninety minutes would give away half an hour the
+  // person does not have, and "90 minutes" is not how anybody says it.
+  assert.equal(claimDeadline({ windowMinutes: 90, now: NOW }).within, '1 hour 30 minutes');
+  assert.equal(claimDeadline({ windowMinutes: 1500, now: NOW }).within, '1 day 1 hour');
+  assert.equal(claimDeadline({ windowMinutes: 2895, now: NOW }).within, '2 days 15 minutes');
 });
 
 t('returns NOTHING when the server did not say', () => {
   // The screen then omits the deadline card entirely. A missing number must not
   // become a guessed one: this is the screen where tickets are spent.
-  assert.equal(claimDeadline({ windowDays: null, now: NOW }), null);
-  assert.equal(claimDeadline({ windowDays: undefined, now: NOW }), null);
+  assert.equal(claimDeadline({ windowMinutes: null, now: NOW }), null);
+  assert.equal(claimDeadline({ windowMinutes: undefined, now: NOW }), null);
   assert.equal(claimDeadline({ now: NOW }), null);
 });
 
-t('refuses a zero or negative window rather than showing "within 0 days"', () => {
-  assert.equal(claimDeadline({ windowDays: 0, now: NOW }), null);
-  assert.equal(claimDeadline({ windowDays: -3, now: NOW }), null);
+t('refuses a zero or negative window rather than showing "within 0 minutes"', () => {
+  assert.equal(claimDeadline({ windowMinutes: 0, now: NOW }), null);
+  assert.equal(claimDeadline({ windowMinutes: -3, now: NOW }), null);
 });
 
 t('refuses a non-integer window', () => {
-  assert.equal(claimDeadline({ windowDays: 2.5, now: NOW }), null);
-  assert.equal(claimDeadline({ windowDays: '7', now: NOW }), null);
-  assert.equal(claimDeadline({ windowDays: NaN, now: NOW }), null);
+  assert.equal(claimDeadline({ windowMinutes: 2.5, now: NOW }), null);
+  assert.equal(claimDeadline({ windowMinutes: '30', now: NOW }), null);
+  assert.equal(claimDeadline({ windowMinutes: NaN, now: NOW }), null);
+});
+
+t('the old days field is gone, so nothing can read the wrong number', () => {
+  // Leaving windowDays working alongside windowMinutes would be two settings for
+  // one thing, which is exactly what the owner said not to leave behind. A caller
+  // still passing days gets nothing rather than a window thirty times too short.
+  assert.equal(claimDeadline({ windowDays: 7, now: NOW }), null);
+  const d = claimDeadline({ windowMinutes: 30, now: NOW });
+  assert.equal(d.days, undefined);
 });
 
 console.log('ticketPlan');
@@ -215,8 +246,8 @@ t('the PRE-claim card states a length, never a clock time', () => {
   // does — the server stamps claimExpiresAt when it creates the task. So the
   // pre-claim card forecasts a length and stops there; the sheet, which has the
   // real instant, is the only screen that names one. Nothing to contradict.
-  const d = claimDeadline({ windowDays: 7, now: NOW });
-  assert.equal(d.line, 'Buy the product within 7 days of joining.');
+  const d = claimDeadline({ windowMinutes: 30, now: NOW });
+  assert.equal(d.line, 'Buy the product within 30 minutes of joining.');
   assert.doesNotMatch(d.line, /\bby\b/);
   assert.doesNotMatch(d.line, /[AP]M/);
   // And it does not even hand a screen an instant it could print by mistake.
