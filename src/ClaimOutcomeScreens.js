@@ -12,12 +12,21 @@
 // backend does not:
 //
 //  * The claimed sheet's timer. The design counts down from 25m 35s and says the
-//    product is yours "for the next 2 hours". The real deadline is the task's own
-//    claimExpiresAt (CLAIM_TTL_DAYS, 7 days by default), so the sheet names that
-//    instant — not a relative day count, which read "6 days" one screen after the
-//    confirmation card promised 7. A ticking clock on a 7-day window would be
-//    theatre, so the countdown reads in days and hours and refreshes on focus
-//    rather than every second.
+//    product is yours "for the next 2 hours". Neither number exists in the system.
+//    The real deadline is the task's own claimExpiresAt, which comes from the
+//    operator's claim window — thirty minutes by default since 1 September 2026.
+//
+//    SO THE CLOCK REALLY TICKS NOW. While the window was seven days a per-second
+//    countdown would have been theatre, and this sheet read in days and hours and
+//    refreshed when it came back into view. At thirty minutes it is the opposite:
+//    the owner asked for a countdown of the slot, so it redraws every second, in
+//    the design's own "29m : 45s" shape. Above an hour, which an operator can
+//    still set, it goes back to hours and stops ticking — src/ui/confirmJoin.js
+//    decides which, and says so with `ticking`.
+//
+//    AND IT SAYS WHEN IT RUNS OUT. Thirty minutes will run out while somebody is
+//    looking at this screen. Sitting at "0m : 00s" would look broken, so the sheet
+//    changes what it says and offers the way back.
 //  * "Held in active claims" on the insufficient sheet. There is no held bucket in
 //    the ledger — claiming DEDUCTS and an expiry RETURNS — so the figure is
 //    derived from the user's own open claims, which are exactly the tickets that
@@ -30,7 +39,8 @@ import { getWallet } from './backend/meApi';
 import { getAuthoritative, getTasks } from './taskStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
 import { Screen, Pill } from './ui/primitives';
-import { heldTicketCount, remainingToBuy } from './ui/confirmJoin';
+import { countdown, heldTicketCount } from './ui/confirmJoin';
+import { goHome } from './ui/nav';
 
 /** The design's TextBtn: a quiet centred secondary action. */
 function TextBtn({ children, onPress }) {
@@ -39,6 +49,22 @@ function TextBtn({ children, onPress }) {
       <Text style={styles.textBtnLabel}>{children}</Text>
     </TouchableOpacity>
   );
+}
+
+/**
+ * What the claimed sheet says under its heading, in the state it is in.
+ *
+ * Out here rather than inline so each sentence is one whole string that a person
+ * and a test can both read.
+ */
+function subLine({ over, left, mktName, cost }) {
+  if (over) {
+    return `This slot was held until ${left.when}. Your ${cost} tickets are on their way back, and you can take the offer again.`;
+  }
+  if (left) {
+    return `This product is yours until ${left.when}. Buy it on ${mktName} before then.`;
+  }
+  return `Buy it on ${mktName} to start your refund.`;
 }
 
 function Row({ a, b, last }) {
@@ -55,22 +81,41 @@ function Row({ a, b, last }) {
 export function ClaimedScreen({ route, navigation }) {
   const campaignId = route?.params?.campaignId ?? null;
   const campaign = campaignId ? campaignStore.getById(campaignId) : null;
-  const [remaining, setRemaining] = useState(() =>
-    remainingToBuy(getAuthoritative(campaignId)),
-  );
+  const [left, setLeft] = useState(() => countdown(getAuthoritative(campaignId)));
 
-  // Re-read on focus, not on a timer: the window is days long, so a per-second
-  // clock would burn battery to redraw the same sentence.
+  // Re-read when the screen comes back into view: the record is the truth, and it
+  // may have changed while somebody was away.
   useEffect(() => {
     const un = navigation.addListener('focus', () => {
-      setRemaining(remainingToBuy(getAuthoritative(campaignId)));
+      setLeft(countdown(getAuthoritative(campaignId)));
     });
     return un;
   }, [navigation, campaignId]);
 
+  // AND ONCE A SECOND WHILE IT IS TICKING. Thirty minutes is a clock somebody
+  // watches, so it has to move. It reads the RECORD every time rather than
+  // counting down a number it is holding, so a clock left running while the phone
+  // slept cannot drift away from the real deadline.
+  //
+  // The timer stops itself the moment the countdown says it is no longer ticking —
+  // when the time runs out, and on a long window an operator has set — so nothing
+  // is redrawing a picture that is not changing.
+  const ticking = left ? left.ticking : false;
+  useEffect(() => {
+    if (!ticking) return undefined;
+    const id = setInterval(() => {
+      setLeft(countdown(getAuthoritative(campaignId)));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [ticking, campaignId]);
+
   const mkt = PLATFORMS[campaign?.marketplace] || {};
   const mktName = mkt.name || 'the marketplace';
   const cost = campaign?.ticketCost ?? 5;
+  // OVER IS NOT THE SAME AS UNKNOWN. A task with no readable deadline gives null,
+  // and this sheet then simply draws no clock; only a deadline that has really
+  // passed puts the screen into its ran-out state.
+  const over = left ? left.over === true : false;
 
   const buy = useCallback(() => {
     // Straight to the marketplace handoff the app already has, with the campaign
@@ -87,32 +132,65 @@ export function ClaimedScreen({ route, navigation }) {
       <View style={styles.sheetWrap}>
         <View style={styles.sheet}>
           <View style={styles.grabber} />
-          <Text style={styles.bigTick}>✔️</Text>
-          <Text style={styles.claimedTitle}>Product Claimed!</Text>
-          <Text style={styles.claimedSub}>
-            {remaining
-              ? `This product is yours until ${remaining.when}. Buy it on ${mktName} before then.`
-              : `Buy it on ${mktName} to start your refund.`}
+          <Text style={styles.bigTick}>{over ? '⏳' : '✔️'}</Text>
+          {/* THE OWNER'S WORDS. The design's own sticky bar calls this state
+              "Slot Reserved", and he asked for that here rather than "Product
+              Claimed!", because reserving a slot for thirty minutes is what has
+              actually happened. */}
+          <Text style={styles.claimedTitle}>
+            {over ? 'Your time ran out' : 'Slot Reserved!'}
           </Text>
-          <View style={styles.ticketChip}>
-            <Text style={styles.ticketChipText}>
-              🎟 {cost} tickets held · returned if the claim expires
-            </Text>
-          </View>
-          {remaining ? (
+          {/* ONE SENTENCE PER STATE, each written as ONE string. Splitting a
+              sentence across a join to fit the line width makes it impossible to
+              search for, and a sentence nothing can search for is a sentence
+              nothing can check. */}
+          <Text style={styles.claimedSub}>{subLine({ over, left, mktName, cost })}</Text>
+          {!over ? (
+            <View style={styles.ticketChip}>
+              <Text style={styles.ticketChipText}>
+                🎟 {cost} tickets held · returned if the claim expires
+              </Text>
+            </View>
+          ) : null}
+          {left && !over ? (
             <View style={styles.timerBox}>
-              <Text style={styles.timerValue}>{remaining.clock}</Text>
+              <Text style={styles.timerValue}>{left.clock}</Text>
               <Text style={styles.timerLabel}>Remaining</Text>
             </View>
           ) : null}
-          <View style={{ marginTop: 18 }}>
-            <Pill onPress={buy} color={COLOR.greenDeep}>
-              {`Go to ${mktName} →`}
-            </Pill>
-          </View>
-          <TextBtn onPress={() => navigation.replace('Task', { campaignId })}>
-            I'll buy in a bit
-          </TextBtn>
+          {/* THE WAY BACK, when the thirty minutes have gone. Leaving the buy
+              button live would send somebody to the shop for a purchase the
+              order-window rule is going to refuse, and leaving the sheet at
+              "0m : 00s" with a live button would be worse still. */}
+          {over ? (
+            <>
+              <View style={{ marginTop: 18 }}>
+                <Pill
+                  onPress={() => navigation.replace('Detail', { campaignId })}
+                  color={COLOR.ink}
+                >
+                  See the offer again →
+                </Pill>
+              </View>
+              {/* Through goHome, not navigate('Home'): Home is a TAB, not a
+                  screen on this stack, and navigating straight at it is the
+                  silent no-op src/ui/nav.js exists to prevent. */}
+              <TextBtn onPress={() => goHome(navigation)}>
+                Back to offers
+              </TextBtn>
+            </>
+          ) : (
+            <>
+              <View style={{ marginTop: 18 }}>
+                <Pill onPress={buy} color={COLOR.greenDeep}>
+                  {`Go to ${mktName} →`}
+                </Pill>
+              </View>
+              <TextBtn onPress={() => navigation.replace('Task', { campaignId })}>
+                I'll buy in a bit
+              </TextBtn>
+            </>
+          )}
         </View>
       </View>
     </Screen>

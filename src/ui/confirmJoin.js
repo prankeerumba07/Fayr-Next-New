@@ -141,68 +141,76 @@ export function heldTicketCount(tasks) {
 }
 
 /**
- * How long is left to buy, from the task's OWN deadline.
+ * THE LIVE COUNTDOWN ON THE CLAIMED SHEET, from the task's OWN deadline.
  *
  * The design's claimed sheet counts down from 25m 35s and tells the user the
  * product is theirs "for the next 2 hours". Neither number exists anywhere in the
- * system: `claimExpiresAt` does, it comes from the operator's claim window, and it
+ * system. `claimExpiresAt` does, it comes from the operator's claim window, and it
  * is the only one that actually expires a claim and returns the tickets.
  *
- * Returns null when there is no usable deadline or it has already passed — the
- * sheet then simply does not draw a timer. Counting backwards past zero, or
- * printing "the next undefined", is worse than saying nothing.
+ * THREE ANSWERS, NOT TWO, and that is the whole reason this replaced the old
+ * function. It used to return null both for "this task has no deadline" and for
+ * "the deadline has passed", so the sheet could not tell those apart and drew
+ * nothing either way: somebody whose thirty minutes ran out saw a sheet with no
+ * timer and no explanation. Now:
+ *
+ *   null                  — no usable deadline. Say nothing.
+ *   { over: true, when }  — the time is up. Say so, and offer the way back.
+ *   { over: false, ... }  — live, with a clock to draw.
+ *
+ * `ticking` tells the screen whether to redraw every second. It does under an
+ * hour, which is the case the owner asked for; above that the clock reads in hours
+ * or days and a per-second redraw would be battery spent on the same picture.
  */
-export function remainingToBuy(task, now) {
+export function countdown(task, now) {
   const iso = task && task.claimExpiresAt;
   if (!iso) return null;
   const end = Date.parse(iso);
   if (!Number.isFinite(end)) return null;
   const from = (now instanceof Date ? now : new Date()).getTime();
-  const ms = end - from;
-  if (ms <= 0) return null;
-
-  const totalMinutes = Math.floor(ms / 60000);
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
 
   // The deadline ITSELF, formatted exactly as the confirmation screen formatted
   // it. This is what the sheet states, and it is why the two screens can no
-  // longer contradict each other: the confirmation screen promised "within 7
-  // days", the sheet used to answer "yours for the next 6 days" — true, because
-  // the claim had already eaten four seconds of the window, and indefensible in
-  // front of a room. Both now name the same instant.
+  // longer contradict each other: the confirmation screen promises a LENGTH and
+  // names no instant, and this is the only screen that names one. Present on an
+  // expired claim too, so the sheet can say when it ran out and not merely that
+  // it did.
   const when = formatDeadline(new Date(end));
 
-  // One unit of precision in the sentence, two on the clock — the same shape the
-  // design uses, at the scale the real window actually has.
-  if (days >= 1) {
+  const ms = end - from;
+  if (ms <= 0) return { over: true, clock: null, ticking: false, when };
+
+  // ROUNDED UP, deliberately. Rounding down would print "0m : 00s" for the last
+  // second of a live claim, which reads as a stuck clock; this prints one second
+  // and then ends.
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (totalSeconds < 3600) {
     return {
-      phrase: plural(days, 'day'),
-      when,
-      clock: `${days}d ${hours}h`,
-      days,
-      hours,
+      over: false,
+      // The design's own shape, at the scale the real window now has.
+      clock: `${minutes}m : ${String(seconds).padStart(2, '0')}s`,
+      ticking: true,
       minutes,
+      seconds,
+      when,
     };
   }
-  if (hours >= 1) {
-    return {
-      phrase: plural(hours, 'hour'),
-      when,
-      clock: `${hours}h ${String(minutes).padStart(2, '0')}m`,
-      days: 0,
-      hours,
-      minutes,
-    };
-  }
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
   return {
-    phrase: plural(minutes, 'minute'),
+    over: false,
+    clock: days >= 1
+      ? `${days}d ${hours}h`
+      : `${hours}h ${String(totalMinutes % 60).padStart(2, '0')}m`,
+    ticking: false,
+    minutes: totalMinutes,
+    seconds: 0,
     when,
-    clock: `${minutes}m`,
-    days: 0,
-    hours: 0,
-    minutes,
   };
 }
 
