@@ -1,5 +1,17 @@
-// The payoff — the design's Reward screen (fayr-design.browser.jsx:3601), built on
-// its reusable MilestoneCelebration block (:3554).
+// reward — fayr-design.browser.jsx:3601 (Reward), built on the design's reusable
+// MilestoneCelebration block (:3554).
+//
+// MOVED HERE ON 1 SEPTEMBER 2026, from src/RewardScreen.js, as part of giving
+// every design screen its own file under its own key. It is the SAME screen:
+// nothing about what it draws changed in the move.
+//
+// IT IS ALSO THE SURVIVOR OF A DOUBLE BUILD. The claim journey drew its own
+// "your refund is in your wallet" page as well, so one design screen had two
+// implementations. This one won: it shows the amount the ledger actually paid
+// rather than a percentage of a listed price, it states the charged basis it was
+// worked out from, it refuses to celebrate when there is no refund on file, and
+// it is the design's own celebration block rather than a heading and a sentence.
+// The journey's page is gone, and the journey now sends somebody here.
 //
 // This is step 16 of the demo, and until now it had no screen. Releasing the
 // refund re-rendered the same timeline with one row flipped to "done", and the
@@ -39,12 +51,12 @@ import {
   Easing,
   AccessibilityInfo,
 } from 'react-native';
-import * as campaignStore from './backend/campaignStore';
-import { getAuthoritative } from './taskStore';
-import { COLOR, FONT, RADIUS, SPACE } from './ui/theme';
-import { Screen, Pill } from './ui/primitives';
-import { displayRefundPaise, displayChargedPaise } from './ui/refund';
-import { rewardView } from './ui/reward';
+import * as campaignStore from '../backend/campaignStore';
+import { getAuthoritative } from '../taskStore';
+import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
+import { Screen, Pill } from '../ui/primitives';
+import { displayRefundPaise, displayChargedPaise } from '../ui/refund';
+import { rewardView } from '../ui/reward';
 
 /** The design's TextBtn: a quiet centred secondary action. */
 function TextBtn({ children, onPress }) {

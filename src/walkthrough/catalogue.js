@@ -186,7 +186,7 @@ export const SCREENS = {
   linkaccount: {
     group: CLAIM,
     title: 'Connecting your shop account',
-    opens: { screen: 'Journey', at: 'connect' },
+    opens: { screen: 'LinkAccount' },
     reads: READS.task,
   },
   redirect: {
@@ -223,7 +223,7 @@ export const SCREENS = {
   buyinterstitial: {
     group: JOURNEY,
     title: 'Buy exactly this one',
-    opens: { screen: 'Journey', at: 'buy' },
+    opens: { screen: 'BuyInterstitial' },
     reads: READS.task,
   },
   returncatch: {
@@ -244,7 +244,7 @@ export const SCREENS = {
   proofprimer: {
     group: JOURNEY,
     title: 'What the order screenshot has to show',
-    opens: { screen: 'Journey', at: 'purchase-shot' },
+    opens: { screen: 'ProofPrimer' },
     reads: READS.task,
   },
   emailconnect: {
@@ -282,9 +282,17 @@ export const SCREENS = {
   },
   ocrconfirm: {
     group: JOURNEY,
-    title: 'What the reading found in your screenshot',
-    opens: { screen: 'Journey', at: 'checking' },
+    title: 'Confirming the order details are yours',
+    opens: { screen: 'OcrConfirm' },
     reads: READS.task,
+    note:
+      'Built and reachable for the first time on 1 September 2026. The task '
+      + 'engine has always had a gate here — "this is my order" — and the design '
+      + 'has always had this screen for it, but the app had none, so the tap that '
+      + 'fired the gate sat on the delivery screen under the words "Yes, it is '
+      + 'delivered". Two different facts under one button. It has its own screen '
+      + 'now, and the rows are filled from the real order. The reading of a '
+      + 'screenshot is not shown beside them yet.',
   },
   orderverified: {
     group: JOURNEY,
@@ -329,7 +337,7 @@ export const SCREENS = {
   delivery: {
     group: JOURNEY,
     title: 'Has it arrived?',
-    opens: { screen: 'Journey', at: 'delivered' },
+    opens: { screen: 'Delivery' },
     reads: READS.task,
   },
   honesty: {
@@ -351,13 +359,13 @@ export const SCREENS = {
   reviewguide: {
     group: JOURNEY,
     title: 'Writing the review',
-    opens: { screen: 'Journey', at: 'review' },
+    opens: { screen: 'ReviewGuide' },
     reads: READS.task,
   },
   reviewproof: {
     group: JOURNEY,
     title: 'Sending the review screenshot',
-    opens: { screen: 'Journey', at: 'review-shot' },
+    opens: { screen: 'ReviewProof' },
     reads: READS.task,
   },
   verifywait: {
@@ -369,7 +377,7 @@ export const SCREENS = {
   returnwindow: {
     group: JOURNEY,
     title: 'Waiting for the return window to close',
-    opens: { screen: 'Journey', at: 'window' },
+    opens: { screen: 'ReturnWindow' },
     reads: READS.task,
   },
   reward: {
@@ -516,7 +524,7 @@ export const SCREENS = {
   confirm: {
     group: EDGES,
     title: 'Confirming what a claim costs',
-    opens: { screen: 'ConfirmJoin' },
+    opens: { screen: 'Confirm' },
     reads: READS.oneCampaign,
   },
   enrollsuccess: {
@@ -597,8 +605,12 @@ export const SCREENS = {
   underreview: {
     group: FORGOTTEN,
     title: 'Waiting while something is checked',
-    opens: { screen: 'Journey', at: 'checking' },
-    reads: READS.task,
+    opens: { screen: 'UnderReview' },
+    reads: READS.none,
+    note:
+      'Its own screen since 1 September 2026. It used to share one page with '
+      + 'ocrconfirm, which is a different thing: this one is the wait, that one '
+      + 'is the details.',
   },
 };
 

@@ -353,7 +353,7 @@ export default function TaskScreen({ navigation, route }) {
     const prev = prevState.current;
     prevState.current = state;
     if (state === STATES.REFUNDED && prev != null && prev !== STATES.REFUNDED) {
-      navigation.navigate('Reward', { campaignId });
+      navigation.navigate('reward', { campaignId });
     }
   }, [authoritative, navigation, campaignId]);
 

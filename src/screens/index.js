@@ -20,6 +20,22 @@ import otp from './otp';
 import otplocked from './otplocked';
 import blocked from './blocked';
 import newdevice from './newdevice';
+// The claim journey, split out of src/journey/JourneyScreen.js on 1 September
+// 2026 — eleven design screens that were eleven pages inside one file. The
+// journey's router resolves them from this map by the design's own key; App.js
+// registers each of them under the same key so it is also a destination in its
+// own right. See src/ui/journey.js for which step maps to which key.
+import confirm from './confirm';
+import linkaccount from './linkaccount';
+import buyinterstitial from './buyinterstitial';
+import proofprimer from './proofprimer';
+import underreview from './underreview';
+import ocrconfirm from './ocrconfirm';
+import delivery from './delivery';
+import reviewguide from './reviewguide';
+import reviewproof from './reviewproof';
+import returnwindow from './returnwindow';
+import reward from './reward';
 
 /** Design key to the component that draws it. Nothing else belongs in here. */
 export const SCREENS = {
@@ -34,6 +50,17 @@ export const SCREENS = {
   otplocked,
   blocked,
   newdevice,
+  confirm,
+  linkaccount,
+  buyinterstitial,
+  proofprimer,
+  underreview,
+  ocrconfirm,
+  delivery,
+  reviewguide,
+  reviewproof,
+  returnwindow,
+  reward,
 };
 
 /** The component for one design key, or null when the key is not one of ours. */

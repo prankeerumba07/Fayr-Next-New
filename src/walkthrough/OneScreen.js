@@ -34,14 +34,11 @@ import OtpScreen from '../firstrun/OtpScreen';
 import SetupFlow from '../setup/SetupFlow';
 import HomeScreen from '../HomeScreen';
 import DetailScreen from '../DetailScreen';
-import ConfirmJoinScreen from '../ConfirmJoinScreen';
 import {
   ClaimedScreen, JoinFailedScreen, NotEnoughTicketsScreen,
 } from '../ClaimOutcomeScreens';
-import JourneyScreen from '../journey/JourneyScreen';
 import ProofUploadScreen from '../ProofUploadScreen';
 import TaskScreen from '../TaskScreen';
-import RewardScreen from '../RewardScreen';
 import MyProductsScreen from '../MyProductsScreen';
 import EarningsScreen from '../EarningsScreen';
 import WalletScreen from '../WalletScreen';
@@ -55,6 +52,20 @@ import TruecallerScreen from '../screens/truecaller';
 import NewDeviceScreen from '../screens/newdevice';
 import OtpLockedScreen from '../screens/otplocked';
 import BlockedScreen from '../screens/blocked';
+// The claim journey, eleven screens since 1 September 2026. Before that they were
+// eleven pages inside one file, addressed here by the journey's own page names.
+// Each is its own component now, so each is its own entry.
+import ConfirmScreen from '../screens/confirm';
+import LinkAccountScreen from '../screens/linkaccount';
+import BuyInterstitialScreen from '../screens/buyinterstitial';
+import ProofPrimerScreen from '../screens/proofprimer';
+import UnderReviewScreen from '../screens/underreview';
+import OcrConfirmScreen from '../screens/ocrconfirm';
+import DeliveryScreen from '../screens/delivery';
+import ReviewGuideScreen from '../screens/reviewguide';
+import ReviewProofScreen from '../screens/reviewproof';
+import ReturnWindowScreen from '../screens/returnwindow';
+import RewardScreen from '../screens/reward';
 
 /** A sample name for the sign-in screens, which have nobody signed in to read. */
 const SAMPLE_NAME = 'Practice account';
@@ -121,8 +132,8 @@ const KNOWN = {
   Detail: ({ nav, sample }) => (
     <DetailScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
   ),
-  ConfirmJoin: ({ nav, sample }) => (
-    <ConfirmJoinScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  Confirm: ({ nav, sample }) => (
+    <ConfirmScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
   ),
   Claimed: ({ nav, sample }) => (
     <ClaimedScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
@@ -147,13 +158,40 @@ const KNOWN = {
       route={{ params: { campaignId: sample.campaignId } }}
     />
   ),
-  // The journey works its page out from the server's record, so `page` here asks
-  // for one page in particular instead of wherever this claim happens to be.
-  Journey: ({ nav, sample, at }) => (
-    <JourneyScreen
+  // THE CLAIM JOURNEY, ONE ENTRY EACH. Until the split these were one entry that
+  // asked the journey for a page by name, because eleven design screens shared one
+  // component and the walk through had no other way to reach nine of them. Each is
+  // its own file now, so each is opened directly — which is also the only way to
+  // look at a screen for a step no practice claim happens to be at.
+  LinkAccount: ({ nav, sample }) => (
+    <LinkAccountScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  ),
+  BuyInterstitial: ({ nav, sample }) => (
+    <BuyInterstitialScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  ),
+  ProofPrimer: ({ nav, sample }) => (
+    <ProofPrimerScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  ),
+  UnderReview: ({ nav, sample }) => (
+    <UnderReviewScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  ),
+  OcrConfirm: ({ nav, sample }) => (
+    <OcrConfirmScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  ),
+  Delivery: ({ nav, sample }) => (
+    <DeliveryScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  ),
+  ReviewGuide: ({ nav, sample }) => (
+    <ReviewGuideScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
+  ),
+  ReviewProof: ({ nav, sample }) => (
+    <ReviewProofScreen
       navigation={nav}
-      route={{ params: { campaignId: sample.campaignId, showPage: at } }}
+      route={{ params: { campaignId: sample.campaignId, taskId: sample.taskId } }}
     />
+  ),
+  ReturnWindow: ({ nav, sample }) => (
+    <ReturnWindowScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
   ),
   ProofUpload: ({ nav, sample, at }) => (
     <ProofUploadScreen

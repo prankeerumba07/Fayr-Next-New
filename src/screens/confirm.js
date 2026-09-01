@@ -1,4 +1,16 @@
-// Confirm participation — the design's ConfirmJoin (fayr-design.browser.jsx:2369).
+// confirm — fayr-design.browser.jsx:2369 (ConfirmJoin)
+//
+// MOVED HERE ON 1 SEPTEMBER 2026, from src/ConfirmJoinScreen.js, as part of
+// giving every design screen its own file under its own key. It is the SAME
+// screen: nothing about what it draws changed in the move.
+//
+// IT IS ALSO THE SURVIVOR OF A DOUBLE BUILD. The claim journey drew its own
+// "join the offer" page as well, so one design screen had two implementations.
+// This one won: it reads the real ticket balance, the real refund figures and
+// the real claim window from the backend, it handles all three refusals the
+// server can give, and it carries the honesty acknowledgement the journey's
+// version left out. The journey's page is gone, and the journey now sends
+// somebody here instead of drawing a second version of it.
 //
 // It sits between the campaign detail and the claim, and it exists because the
 // claim is the moment 5 tickets are actually committed: the user should see what
@@ -22,28 +34,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
 } from 'react-native';
-import { PLATFORMS } from './platforms';
-import * as campaignStore from './backend/campaignStore';
-import { getCampaign } from './backend/campaignsApi';
-import { getWallet } from './backend/meApi';
-import { claim as claimTask } from './taskStore';
-import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
-import { Screen, Pill, ProductImage } from './ui/primitives';
-import { claimDeadline, ticketPlan, refundLines } from './ui/confirmJoin';
-
-/** The design's Row: label left, value right, hairline between. */
-function Row({ a, b, last }) {
-  return (
-    <View style={[styles.row, last && styles.rowLast]}>
-      <Text style={styles.rowA}>{a}</Text>
-      <Text style={styles.rowB}>{b}</Text>
-    </View>
-  );
-}
-
-function CardBox({ children, style }) {
-  return <View style={[styles.cardBox, style]}>{children}</View>;
-}
+import { PLATFORMS } from '../platforms';
+import * as campaignStore from '../backend/campaignStore';
+import { getCampaign } from '../backend/campaignsApi';
+import { getWallet } from '../backend/meApi';
+import { claim as claimTask } from '../taskStore';
+import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
+import { Screen, Pill, ProductImage } from '../ui/primitives';
+import { CardBox, Row, TopBar } from '../ui/brand';
+import { goBackOrHome } from '../ui/nav';
+import { claimDeadline, ticketPlan, refundLines } from '../ui/confirmJoin';
 
 export default function ConfirmJoinScreen({ route, navigation }) {
   const campaignId = route?.params?.campaignId ?? null;
@@ -98,7 +98,7 @@ export default function ConfirmJoinScreen({ route, navigation }) {
   if (!campaign) {
     return (
       <Screen bg={COLOR.cream}>
-        <TopBar title="Confirm participation" onBack={() => navigation.goBack()} />
+        <TopBar title="Confirm participation" onBack={() => goBackOrHome(navigation)} />
         <View style={styles.loading}>
           <Text style={styles.loadingText}>Loading this campaign…</Text>
         </View>
@@ -113,7 +113,7 @@ export default function ConfirmJoinScreen({ route, navigation }) {
 
   return (
     <Screen bg={COLOR.cream}>
-      <TopBar title="Confirm participation" onBack={() => navigation.goBack()} />
+      <TopBar title="Confirm participation" onBack={() => goBackOrHome(navigation)} />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={{ padding: SPACE.lg, paddingTop: 4, paddingBottom: SPACE.xl }}
@@ -209,35 +209,11 @@ export default function ConfirmJoinScreen({ route, navigation }) {
   );
 }
 
-/** The design's TopBar: back chevron, centred title. */
-function TopBar({ title, onBack }) {
-  return (
-    <View style={styles.topBar}>
-      <TouchableOpacity onPress={onBack} hitSlop={12} style={styles.back}>
-        <Text style={styles.backIcon}>‹</Text>
-      </TouchableOpacity>
-      <Text style={styles.topTitle}>{title}</Text>
-      <View style={styles.back} />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  topBar: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: SPACE.md, paddingVertical: 10,
-  },
-  back: { width: 32, alignItems: 'center' },
-  backIcon: { fontFamily: FONT.display, fontSize: 30, color: COLOR.ink, marginTop: -4 },
-  topTitle: { fontFamily: FONT.displaySemi, fontSize: 16, color: COLOR.ink },
-
   scroll: { flex: 1 },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { fontFamily: FONT.body, fontSize: 14, color: COLOR.sub },
 
-  cardBox: {
-    backgroundColor: COLOR.surface, borderRadius: RADIUS.lg, padding: 16, ...SHADOW.card,
-  },
   productCard: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   thumb: { width: 56, height: 56 },
   productInfo: { flex: 1, minWidth: 0 },
@@ -246,13 +222,6 @@ const styles = StyleSheet.create({
   productMax: { fontFamily: FONT.bodySemi, fontSize: 11, color: COLOR.greenDeep, marginTop: 5 },
 
   boxTitle: { fontFamily: FONT.bodySemi, fontSize: 14, color: COLOR.ink2, marginBottom: 8 },
-  row: {
-    flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLOR.line,
-  },
-  rowLast: { borderBottomWidth: 0 },
-  rowA: { fontFamily: FONT.bodySemi, fontSize: 13, color: COLOR.sub },
-  rowB: { fontFamily: FONT.bodySemi, fontSize: 13, color: COLOR.ink2 },
   note: { fontFamily: FONT.body, fontSize: 11, color: COLOR.sub, marginTop: 8, lineHeight: 16 },
   deadline: { fontFamily: FONT.body, fontSize: 12.5, color: COLOR.sub, lineHeight: 19 },
   deadlineStrong: { fontFamily: FONT.bodySemi, color: COLOR.ink2 },

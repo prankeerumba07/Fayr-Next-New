@@ -93,6 +93,46 @@ export function MarketplaceTag({ marketplace, style }) {
   );
 }
 
+// ── Shop mark — the marketplace tile the design puts beside a heading ────────
+//
+// The design draws a real brand logo here, out of assets/mp/*.png. Fayr does not
+// have those files and they are somebody else's trademarks, so this is the same
+// tile at the same size with the shop's own colour and its name in it. Nothing is
+// invented: the name and the colour both come from the frozen platforms.js, which
+// is only ever read.
+export function ShopMark({ marketplace, size = 54, style }) {
+  const p = PLATFORMS[marketplace];
+  const name = p ? p.name : String(marketplace || '');
+  const color = (p && p.color) || COLOR.ink;
+  return (
+    <View
+      style={[
+        {
+          width: size, height: size, borderRadius: size * 0.28,
+          backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
+          borderWidth: 1.5, borderColor: color + '55',
+        },
+        SHADOW.chip,
+        style,
+      ]}
+      accessible
+      accessibilityLabel={name}
+    >
+      <Text
+        numberOfLines={1}
+        style={{
+          fontFamily: FONT.displaySemi,
+          fontSize: Math.max(9, size * 0.19),
+          color,
+          paddingHorizontal: 3,
+        }}
+      >
+        {name}
+      </Text>
+    </View>
+  );
+}
+
 // ── Product image — real campaign photo, else a themed placeholder ───────────
 const PLACEHOLDER_TINTS = [
   [COLOR.purpleBg, '#D9C7F5'],

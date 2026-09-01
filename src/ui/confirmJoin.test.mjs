@@ -234,7 +234,10 @@ t('the claimed sheet DOES name the instant, from the task', () => {
 
 console.log('no phantom deadline in the screens');
 {
-  const src = ['../ConfirmJoinScreen.js', '../ClaimOutcomeScreens.js']
+  // src/ConfirmJoinScreen.js became src/screens/confirm.js on 1 September 2026,
+  // when every design screen was given its own file under the design's own key.
+  // Same screen, same rules about it.
+  const src = ['../screens/confirm.js', '../ClaimOutcomeScreens.js']
     .map((f) => readFileSync(new URL(f, import.meta.url), 'utf8'));
 
   t('neither screen hardcodes a deadline the backend never stated', () => {

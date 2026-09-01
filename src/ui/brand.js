@@ -3,14 +3,18 @@
 // LogoMark (:310) and GridFloor (:303) are real SVG in the design, so they are
 // real SVG here too — the mark is the brand and an approximation built out of
 // Views would show. Pill (:362), Ghost (:369), TextBtn (:372) and ProgressDots
-// (:403) are the buttons every first-run screen is built from.
+// (:403) are the buttons every first-run screen is built from. TopBar (:395),
+// CardBox (:412) and Row (:2418) are the three pieces almost every other screen
+// in the design is assembled out of, and they live here for the same reason: they
+// are at the top of the design file, above any one screen, because the design
+// treats them as shared.
 //
 // Existing screens already use src/ui/primitives.js; this file adds only what
-// the first-run journey needs and does not replace it.
+// the design's own screens need and does not replace it.
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
-import { COLOR, FONT, RADIUS } from './theme';
+import { COLOR, FONT, RADIUS, SHADOW } from './theme';
 
 /** The stacked-tile "f" mark. Geometry copied exactly from the design. */
 export function LogoMark({ size = 64 }) {
@@ -112,6 +116,57 @@ export function ProgressDots({ n, i, style }) {
   );
 }
 
+/**
+ * The bar at the top of almost every screen the design draws: a round white back
+ * button, then the title beside it.
+ *
+ * The design's own arrow is "←" in a white circle with a soft shadow, and the
+ * title sits NEXT to it rather than centred. Several screens in the app grew a
+ * local copy of this with a "‹" and a centred title; this is the design's, and it
+ * is one file so they cannot drift apart again.
+ *
+ * `onBack` is optional, exactly as in the design: a screen with no way back draws
+ * no button. Pass goBackOrHome from src/ui/nav.js rather than goBack, so the
+ * arrow can never be a control that does nothing.
+ */
+export function TopBar({ title, onBack, style }) {
+  return (
+    <View style={[styles.topBar, style]}>
+      {onBack ? (
+        <TouchableOpacity
+          onPress={onBack}
+          activeOpacity={0.8}
+          style={styles.topBack}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Text style={styles.topBackIcon}>←</Text>
+        </TouchableOpacity>
+      ) : null}
+      {title ? <Text style={styles.topTitle} numberOfLines={1}>{title}</Text> : null}
+    </View>
+  );
+}
+
+/** The white rounded card the design puts nearly every group of facts inside. */
+export function CardBox({ children, style }) {
+  return <View style={[styles.cardBox, style]}>{children}</View>;
+}
+
+/**
+ * One line inside a CardBox: what it is on the left, what it is on the right, a
+ * hairline under it unless it is the last one.
+ */
+export function Row({ a, b, last, style }) {
+  return (
+    <View style={[styles.row, last && styles.rowLast, style]}>
+      <Text style={styles.rowA}>{a}</Text>
+      <Text style={styles.rowB}>{b}</Text>
+    </View>
+  );
+}
+
 /** The design's shared heading + subheading type. */
 export const hTitle = {
   fontFamily: FONT.displayXBold, fontSize: 27, color: COLOR.ink2,
@@ -138,4 +193,31 @@ const styles = StyleSheet.create({
   dots: { flexDirection: 'row', gap: 6, justifyContent: 'center' },
   dot: { width: 7, height: 7, borderRadius: 6, backgroundColor: 'rgba(25,25,25,0.22)' },
   radius: { borderRadius: RADIUS.md },
+
+  topBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 18, paddingTop: 6, paddingBottom: 8,
+  },
+  topBack: {
+    width: 36, height: 36, borderRadius: 18, backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center', ...SHADOW.chip,
+  },
+  topBackIcon: { fontFamily: FONT.bodyBold, fontSize: 17, color: COLOR.ink2 },
+  topTitle: { flex: 1, fontFamily: FONT.bodyBold, fontSize: 16, color: COLOR.ink2 },
+
+  cardBox: {
+    backgroundColor: '#fff', borderRadius: RADIUS.lg, padding: 16, ...SHADOW.card,
+  },
+
+  row: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    gap: 12, paddingVertical: 7,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLOR.line,
+  },
+  rowLast: { borderBottomWidth: 0 },
+  rowA: { fontFamily: FONT.bodySemi, fontSize: 13, color: COLOR.sub },
+  rowB: {
+    fontFamily: FONT.bodyBold, fontSize: 13, color: COLOR.ink2,
+    textAlign: 'right', flexShrink: 1,
+  },
 });

@@ -30,8 +30,6 @@ import MyProductsScreen from './src/MyProductsScreen';
 import EarningsScreen from './src/EarningsScreen';
 import ProfileScreen from './src/ProfileScreen';
 import ProofUploadScreen from './src/ProofUploadScreen';
-import RewardScreen from './src/RewardScreen';
-import ConfirmJoinScreen from './src/ConfirmJoinScreen';
 import {
   ClaimedScreen, NotEnoughTicketsScreen, JoinFailedScreen,
 } from './src/ClaimOutcomeScreens';
@@ -281,8 +279,9 @@ function AppInner() {
             options={{ headerShown: false }}
           />
           {/* The claim path: confirm what it costs, then one of three outcomes.
-              Each owns its own chrome, exactly as the design draws them. */}
-          <Stack.Screen name="ConfirmJoin" component={ConfirmJoinScreen} options={{ headerShown: false }} />
+              Each owns its own chrome, exactly as the design draws them.
+              "confirm" is the design's own key for it — see src/screens/keys.js. */}
+          <Stack.Screen name="confirm" component={DESIGN_SCREENS.confirm} options={{ headerShown: false }} />
           <Stack.Screen name="Claimed" component={ClaimedScreen} options={{ headerShown: false }} />
           <Stack.Screen name="NotEnoughTickets" component={NotEnoughTicketsScreen} options={{ headerShown: false }} />
           <Stack.Screen name="JoinFailed" component={JoinFailedScreen} options={{ headerShown: false }} />
@@ -308,14 +307,32 @@ function AppInner() {
               somewhere to send people. */}
           <Stack.Screen name="forceupdate" component={DESIGN_SCREENS.forceupdate} options={{ headerShown: false }} />
           <Stack.Screen name="maintenance" component={DESIGN_SCREENS.maintenance} options={{ headerShown: false }} />
+          {/* THE CLAIM JOURNEY, SCREEN BY SCREEN. Nine design screens that used to
+              be nine pages inside src/journey/JourneyScreen.js. They are normally
+              reached by walking a claim, which is what the Journey router above
+              does: it works out from the server's record which of these a person is
+              on and renders it. They are registered here as well so each can be
+              opened directly — by a link, by the walk through, or by another screen
+              with a reason to send somebody straight to one. One component, one
+              file, one key, two ways in. */}
+          <Stack.Screen name="linkaccount" component={DESIGN_SCREENS.linkaccount} options={{ headerShown: false }} />
+          <Stack.Screen name="buyinterstitial" component={DESIGN_SCREENS.buyinterstitial} options={{ headerShown: false }} />
+          <Stack.Screen name="proofprimer" component={DESIGN_SCREENS.proofprimer} options={{ headerShown: false }} />
+          <Stack.Screen name="underreview" component={DESIGN_SCREENS.underreview} options={{ headerShown: false }} />
+          <Stack.Screen name="ocrconfirm" component={DESIGN_SCREENS.ocrconfirm} options={{ headerShown: false }} />
+          <Stack.Screen name="delivery" component={DESIGN_SCREENS.delivery} options={{ headerShown: false }} />
+          <Stack.Screen name="reviewguide" component={DESIGN_SCREENS.reviewguide} options={{ headerShown: false }} />
+          <Stack.Screen name="reviewproof" component={DESIGN_SCREENS.reviewproof} options={{ headerShown: false }} />
+          <Stack.Screen name="returnwindow" component={DESIGN_SCREENS.returnwindow} options={{ headerShown: false }} />
           <Stack.Screen name="Walkthrough" component={WalkthroughScreen} options={{ headerShown: false }} />
           <Stack.Screen name="OneScreen" component={WalkthroughOneScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Policy" component={PolicyScreen} options={{ headerShown: false }} />
           {/* Screenshot proof — the tier-3 fallback when the scraper can't read. */}
           <Stack.Screen name="ProofUpload" component={ProofUploadScreen} options={{ headerShown: false }} />
           {/* The payoff. Reached only on a CONFIRMED transition to refunded (see
-              TaskScreen), never by opening a task that is already paid. */}
-          <Stack.Screen name="Reward" component={RewardScreen} options={{ headerShown: false }} />
+              TaskScreen), never by opening a task that is already paid.
+              "reward" is the design's own key for it. */}
+          <Stack.Screen name="reward" component={DESIGN_SCREENS.reward} options={{ headerShown: false }} />
           {/* The wallet owns its own gradient header and back button too. */}
           <Stack.Screen
             name="Wallet"

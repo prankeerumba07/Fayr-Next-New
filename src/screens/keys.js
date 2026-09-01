@@ -55,9 +55,9 @@ export const SCREENS = [
   { key: 'detail', at: 'folded', inside: 'src/DetailScreen.js' },
   { key: 'claimedsheet', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },
   { key: 'redirect', at: 'missing' },
-  { key: 'confirm', at: 'folded', inside: 'src/ConfirmJoinScreen.js' },
+  { key: 'confirm', at: 'own' },
   { key: 'insufficient', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },
-  { key: 'linkaccount', at: 'folded', inside: 'src/journey/JourneyScreen.js' },
+  { key: 'linkaccount', at: 'own' },
   { key: 'seatlost', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },
   { key: 'enrollfailed', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },
   { key: 'enrollsuccess', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },
@@ -65,27 +65,27 @@ export const SCREENS = [
   { key: 'waitlisted', at: 'missing' },
 
   // ── Buying, proving, waiting, being paid ─────────────────────────────────
-  { key: 'buyinterstitial', at: 'folded', inside: 'src/journey/JourneyScreen.js' },
+  { key: 'buyinterstitial', at: 'own' },
   { key: 'returncatch', at: 'missing' },
-  { key: 'proofprimer', at: 'folded', inside: 'src/journey/JourneyScreen.js' },
+  { key: 'proofprimer', at: 'own' },
   { key: 'emailconnect', at: 'missing' },
   { key: 'emailcode', at: 'missing' },
   { key: 'proofupload', at: 'folded', inside: 'src/ProofUploadScreen.js' },
-  { key: 'ocrconfirm', at: 'folded', inside: 'src/journey/JourneyScreen.js' },
+  { key: 'ocrconfirm', at: 'own' },
   { key: 'orderverified', at: 'missing' },
   { key: 'imagesuploaded', at: 'missing' },
   { key: 'taskstatus', at: 'folded', inside: 'src/TaskScreen.js' },
   { key: 'deliverycheck', at: 'missing' },
   { key: 'deliveryupload', at: 'folded', inside: 'src/ProofUploadScreen.js' },
-  { key: 'underreview', at: 'folded', inside: 'src/journey/JourneyScreen.js' },
-  { key: 'delivery', at: 'folded', inside: 'src/journey/JourneyScreen.js' },
+  { key: 'underreview', at: 'own' },
+  { key: 'delivery', at: 'own' },
   { key: 'deliverydelayed', at: 'missing' },
   { key: 'honesty', at: 'missing' },
-  { key: 'reviewguide', at: 'folded', inside: 'src/journey/JourneyScreen.js' },
-  { key: 'reviewproof', at: 'folded', inside: 'src/journey/JourneyScreen.js' },
+  { key: 'reviewguide', at: 'own' },
+  { key: 'reviewproof', at: 'own' },
   { key: 'verifywait', at: 'folded', inside: 'src/TaskScreen.js' },
-  { key: 'returnwindow', at: 'folded', inside: 'src/journey/JourneyScreen.js' },
-  { key: 'reward', at: 'folded', inside: 'src/RewardScreen.js' },
+  { key: 'returnwindow', at: 'own' },
+  { key: 'reward', at: 'own' },
 
   // ── The tabs, and the account ────────────────────────────────────────────
   { key: 'myproducts', at: 'folded', inside: 'src/MyProductsScreen.js' },
@@ -139,8 +139,12 @@ export function stillToSplit() {
  *
  * Started at 50 of 61 on 1 September 2026: 28 folded into six files, 20 missing
  * altogether, and 2 more that existed but not under their own key.
+ *
+ * 50 → 39 later the same day, when the claim journey was split. Eleven design
+ * screens came out of one file: two of them (confirm, reward) were being built
+ * TWICE and are now built once, and nine had never had a file of their own.
  */
-export const STILL_TO_SPLIT_CEILING = 50;
+export const STILL_TO_SPLIT_CEILING = 39;
 
 /** One screen's row, or null when the key is not the design's. */
 export function screenFor(key) {

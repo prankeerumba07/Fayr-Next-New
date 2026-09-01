@@ -193,7 +193,7 @@ export function JoinFailedScreen({ route, navigation }) {
         {error ? <Text style={styles.reason}>{error}</Text> : null}
       </View>
       <View style={styles.footer}>
-        <Pill onPress={() => navigation.replace('ConfirmJoin', { campaignId })}>
+        <Pill onPress={() => navigation.replace('confirm', { campaignId })}>
           TRY AGAIN
         </Pill>
         <TextBtn onPress={() => navigation.replace('Detail', { campaignId })}>

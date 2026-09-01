@@ -1,14 +1,30 @@
-// The claim journey as ten pages — every decision, without React.
+// The claim journey as eleven steps — every decision, without React.
 //
-// The thing worth proving hardest: coming back from the shop lands on the page
+// The thing worth proving hardest: coming back from the shop lands on the step
 // somebody was on. It cannot land at the beginning, because there is no local
-// pointer to lose — the page is worked out from the server's record every time.
+// pointer to lose — the step is worked out from the server's record every time.
+//
+// REWRITTEN ON 1 SEPTEMBER 2026, when the journey's eleven screens moved out of
+// src/journey/JourneyScreen.js into src/screens/, one file each. Two things changed
+// about what this file may check:
+//
+//   journey.js no longer holds a heading, a body or a button label. Those are the
+//   screens' own words now, so the checks that read them here are gone; what
+//   replaced them is stricter, because every step must name a design screen that
+//   really exists on disk.
+//
+//   the last section used to grep ONE file for thirteen things. The drawing lives
+//   in eleven files now, so each of those thirteen is checked against the file that
+//   actually carries it, and the router is checked for NOT carrying them.
+import { readFileSync } from 'node:fs';
 import { STATES } from '../taskflow.js';
 import {
+  DESIGN_KEYS,
   JOURNEY,
   JOURNEY_KEYS,
   OF,
   checkLine,
+  designKeyFor,
   journeyStepFor,
   journeyView,
   page,
@@ -22,25 +38,60 @@ function ok(cond, label) {
   else { fail += 1; console.log(`  FAIL ${label}`); }
 }
 
-console.log('=== 1. ten pages, in the order that was asked for ===');
+console.log('=== 1. eleven steps, in the order the journey runs in ===');
 {
-  ok(OF === 10, `ten pages, found ${OF}`);
+  ok(OF === 11, `eleven steps, found ${OF}`);
   ok(JSON.stringify(JOURNEY_KEYS) === JSON.stringify([
-    'join', 'connect', 'buy', 'delivered', 'purchase-shot',
-    'checking', 'review', 'review-shot', 'window', 'refund',
+    'join', 'connect', 'buy', 'purchase-shot', 'checking', 'order-details',
+    'delivered', 'review', 'review-shot', 'window', 'refund',
   ]), 'in exactly the order asked for');
-  ok(new Set(JOURNEY_KEYS).size === OF, 'no page twice');
+  ok(new Set(JOURNEY_KEYS).size === OF, 'no step twice');
 
   for (const step of JOURNEY) {
-    ok(typeof step.title === 'string' && step.title.length > 4,
-      `${step.key} has a heading`);
-    ok(typeof step.body === 'string' && step.body.length > 20,
-      `${step.key} says something`);
     ok(typeof step.next === 'string' && step.next.length > 10,
       `${step.key} says what happens next`);
     ok(typeof step.from === 'string' && step.from.length > 3,
       `${step.key} names the design screen it came from`);
+    ok(typeof step.short === 'string' && step.short.length > 3,
+      `${step.key} has a short label for the tracker`);
   }
+}
+
+console.log('\n=== 1b. NO STEP DECIDES WHAT A SCREEN LOOKS LIKE ===');
+{
+  // The whole point of the split. A heading or a button label here would be a
+  // second copy of a sentence that is already on a screen, and two copies of one
+  // sentence drift. Checked on the shape rather than on the source, so a heading
+  // reintroduced under any name is caught.
+  for (const step of JOURNEY) {
+    ok(step.title === undefined, `${step.key} carries no heading`);
+    ok(step.body === undefined, `${step.key} carries no body text`);
+    ok(step.act === undefined, `${step.key} carries no button label`);
+  }
+  const src = readFileSync(new URL('./journey.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  ok(!/\btitle:/.test(src), 'and the file has no title field at all');
+  ok(!/\bact:/.test(src), 'and no button label field');
+}
+
+console.log('\n=== 1c. EVERY STEP NAMES A DESIGN SCREEN THAT REALLY EXISTS ===');
+{
+  // This is the one join between the journey machine and the eleven screens. A
+  // step naming a key with no file behind it would render nothing at all, and the
+  // router has no way to know better.
+  ok(DESIGN_KEYS.length === OF, 'one design key per step');
+  ok(new Set(DESIGN_KEYS).size === OF,
+    'and no two steps are drawn by the same screen');
+  for (const step of JOURNEY) {
+    ok(designKeyFor(step.key) === step.designKey,
+      `${step.key} resolves to ${step.designKey}`);
+    let exists = true;
+    try {
+      readFileSync(new URL(`../screens/${step.designKey}.js`, import.meta.url));
+    } catch (e) { exists = false; }
+    ok(exists, `src/screens/${step.designKey}.js exists`);
+  }
+  ok(designKeyFor('not-a-step') === null, 'a step we do not know resolves to nothing');
 }
 
 console.log('\n=== 2. every page says where you are and what comes next ===');
@@ -66,9 +117,9 @@ console.log('\n=== 3. which page, from the server’s record ===');
     'connected but nothing bought: buy');
 
   ok(at({ task: { state: STATES.PURCHASED }, connected: true }) === 'delivered',
-    'bought and read for us: straight to has it arrived');
+    'bought, with nothing to confirm: straight to has it arrived');
   ok(at({ task: { state: STATES.CLAIMED, order: { id: 'o1' } }, connected: true })
-      === 'delivered',
+      === 'order-details',
     'an order we could read counts as bought, whatever the state says');
 
   ok(at({ task: { state: STATES.DELIVERED } }) === 'review', 'delivered: write the review');
@@ -76,6 +127,44 @@ console.log('\n=== 3. which page, from the server’s record ===');
     'reviewed: send the picture of it');
   ok(at({ task: { state: STATES.HOLDING } }) === 'window', 'holding: the return window');
   ok(at({ task: { state: STATES.REFUNDED } }) === 'refund', 'refunded: the last page');
+}
+
+console.log('\n=== 3b. AN ORDER NOBODY HAS SAID IS THEIRS GETS ITS OWN STEP ===');
+{
+  // Added when the journey was split. The engine has always had a gate here —
+  // CONFIRM_ORDER, "this is my order" — and the design has always had a screen for
+  // it, but the app had none, so the tap that fired the gate sat on the DELIVERY
+  // screen under the words "Yes, it is delivered". Two different facts under one
+  // button. Splitting made keeping that impossible, and this is the step that
+  // replaced it.
+  const order = { id: '402-1', product: 'A thing' };
+  ok(journeyStepFor({ task: { state: STATES.PURCHASED, order }, connected: true })
+      === 'order-details',
+    'an unconfirmed order stops on its own step');
+
+  // BOTH SHAPES. The server's record carries the flag inside the order; the engine
+  // task carries it at the top. journeyStepFor is handed whichever the caller has.
+  ok(journeyStepFor({
+    task: { state: STATES.PURCHASED, order: { ...order, orderConfirmed: true } },
+    connected: true,
+  }) === 'delivered', 'confirmed on the server’s shape moves on');
+  ok(journeyStepFor({
+    task: { state: STATES.PURCHASED, order, orderConfirmed: true },
+    connected: true,
+  }) === 'delivered', 'confirmed on the engine’s shape moves on too');
+
+  // And it never gets in the way of somebody with no order at all to confirm.
+  ok(journeyStepFor({ task: { state: STATES.PURCHASED }, connected: true })
+      === 'delivered',
+    'no order means nothing to confirm, so the step is skipped');
+
+  // Nor does it reappear after delivery, a review, or the money.
+  for (const later of [STATES.DELIVERED, STATES.REVIEWED, STATES.HOLDING,
+                       STATES.REFUNDED]) {
+    ok(journeyStepFor({ task: { state: later, order }, connected: true })
+        !== 'order-details',
+      `${later} is past confirming an order`);
+  }
 }
 
 console.log('\n=== 4. the screenshot step is only in the way when it is needed ===');
@@ -134,25 +223,25 @@ console.log('\n=== 6. the whole page, as data ===');
     task: { state: STATES.DELIVERED }, connected: true,
     productName: 'Prestige cooktop', shopName: 'Amazon',
   });
-  ok(view.key === 'review', 'it knows which page');
-  ok(view.where === 'Step 7 of 10', 'and says where you are, in the design’s words');
-  ok(view.stepNumber === 7 && view.of === 10, 'with the numbers to draw it');
-  ok(view.track.length === 10, 'one segment per page');
-  ok(view.track.filter((t) => t.state === 'done').length === 6, 'six behind');
+  ok(view.key === 'review', 'it knows which step');
+  ok(view.designKey === 'reviewguide', 'and which design screen draws it');
+  ok(view.where === 'Step 8 of 11', 'and says where you are');
+  ok(view.stepNumber === 8 && view.of === 11, 'with the numbers to draw it');
+  ok(view.track.length === 11, 'one segment per step');
+  ok(view.track.filter((t) => t.state === 'done').length === 7, 'seven behind');
   ok(view.track.filter((t) => t.state === 'here').length === 1, 'one here');
   ok(view.track.filter((t) => t.state === 'todo').length === 3, 'three to come');
-  ok(view.action !== null && view.action.enabled === true, 'and something to press');
   ok(view.product === 'Prestige cooktop', 'it carries the product');
 
   const waiting = journeyView({ task: { state: STATES.HOLDING } });
-  ok(waiting.waiting === true, 'a waiting page says so');
-  ok(waiting.action === null, 'and offers nothing to press');
+  ok(waiting.waiting === true, 'a waiting step says so');
 
   const busy = journeyView({
     task: { state: STATES.DELIVERED }, connected: true, busy: true,
   });
-  ok(busy.action.busy === true && busy.action.enabled === false,
-    'a button in flight cannot be pressed again');
+  ok(busy.busy === true, 'and it says when something is in flight');
+  ok(busy.action === undefined,
+    'there is no button label here any more — the screen owns its own words');
 }
 
 console.log('\n=== 7. what the reading of a screenshot says ===');
@@ -199,9 +288,10 @@ console.log('\n=== 8. nothing missing reaches the screen ===');
     const flat = JSON.stringify(view);
     ok(!flat.includes('undefined'), `${label}: nothing "undefined" reaches the screen`);
     ok(!flat.includes('[object Object]'), `${label}: no raw object reaches the screen`);
-    ok(typeof view.title === 'string' && view.title !== '', `${label}: there is a heading`);
     ok(typeof view.next === 'string' && view.next !== '', `${label}: and what comes next`);
-    ok(/^Step \d+ of 10$/.test(view.where), `${label}: and where you are`);
+    ok(/^Step \d+ of 11$/.test(view.where), `${label}: and where you are`);
+    ok(typeof view.designKey === 'string' && view.designKey !== '',
+      `${label}: and which screen draws it`);
   }
 }
 
@@ -237,49 +327,113 @@ console.log('\n=== 9. the design covers every page, and what I added is named ==
   }
 }
 
-console.log('\n=== 10. the screen draws it and decides nothing itself ===');
+console.log('\n=== 10. THE ROUTER DECIDES WHICH SCREEN, AND DRAWS NONE OF THEM ===');
 {
-  const fs = await import('node:fs');
-  const screen = fs.readFileSync(
-    new URL('../journey/JourneyScreen.js', import.meta.url), 'utf8',
-  );
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const router = read('../journey/JourneyScreen.js');
 
-  ok(screen.includes('journeyView('), 'the screen asks journey.js for the page');
-  ok(screen.includes('journeyStepFor('), 'and for which page it is');
-  ok(!/const JOURNEY\s*=/.test(screen), 'and holds no copy of the pages itself');
-  ok(!/'Step ' \+|`Step \$/.test(screen),
+  ok(/journeyView\(/.test(router), 'the router asks journey.js which step this is');
+  ok(!/const JOURNEY\s*=/.test(router), 'and holds no copy of the steps itself');
+  ok(!/'Step ' \+|`Step \$/.test(router),
     'the step wording comes from journey.js, not from a second copy here');
 
-  // The design's own parts, reused rather than redrawn.
-  ok(screen.includes('StepTracker'), 'it draws the design\'s segment tracker');
-  ok(screen.includes('StageChip'), 'and the design\'s tone chip');
-  ok(/total=\{view\.of\}/.test(screen),
-    'with as many segments as there are pages, not a hard-coded seven');
+  // ONE DERIVATION. Asking journeyStepFor as well as journeyView would be a second
+  // copy of the same decision, which is the defect class this project keeps finding.
+  ok(!/journeyStepFor\(/.test(router),
+    'the router derives the step ONCE, through journeyView');
 
-  // The screenshot page really opens the photos. The design's button does not.
-  ok(screen.includes('launchImageLibraryAsync'),
-    'choosing a picture from the phone is real, not a mock');
-  ok(screen.includes('requestMediaLibraryPermissionsAsync'),
-    'and it asks permission first');
-  ok(screen.includes('exif: false'),
-    'and strips where the picture was taken before sending it');
+  // It resolves the screen from the registry rather than importing eleven of them.
+  ok(/screenFor\(/.test(router), 'it looks the screen up by the design’s own key');
+  ok(/from '\.\.\/screens'/.test(router), 'from the one registry');
 
-  // Coming back re-reads the record. Without this the page is whatever it was
-  // when the screen was first opened, which is the bug the whole item is about.
-  // NOT just that the listener exists. Emptying its body passed that, which is
-  // the whole failure this is here to catch: a screen that listens for a return
-  // and then does nothing shows whatever it was showing when it was first opened.
-  const focusBody = (screen.match(
+  // AND IT DRAWS NONE OF THE ELEVEN. Every heading, card and button belongs to a
+  // screen now. A stray one here would be a twelfth version of a screen.
+  for (const gone of ['Buy exactly this', 'Delivered?', 'Share your honest review',
+                      'Grab a screenshot', 'Connect your']) {
+    ok(!router.includes(gone), `the router does not draw "${gone}" any more`);
+  }
+  ok(!/launchImageLibraryAsync/.test(router),
+    'and it opens no photo library: the screens that need one do that');
+
+  // The remount key, which is load-bearing: two adjacent steps can be two
+  // different components, and React keeps an instance when the type is the same.
+  ok(/key=\{designKey\}/.test(router),
+    'the stage is keyed on the design key, so stepping really remounts');
+
+  // COMING BACK RE-READS THE RECORD. Without this the screen is whatever it was
+  // when it was first opened, which is the bug the whole journey exists to avoid.
+  // NOT just that the listener exists: emptying its body used to pass.
+  const focusBody = (router.match(
     /addListener\('focus',\s*\(\)\s*=>\s*\{([\s\S]*?)\n {4}\}\)/,
   ) || [])[1] || '';
-  ok(/loadShots\(/.test(focusBody),
-    'a return to the screen re-reads the screenshots');
+  ok(/loadShots\(/.test(focusBody), 'a return to the router re-reads the screenshots');
   ok(/getTask\(/.test(focusBody),
-    'and re-reads the server’s record, which is what decides the page');
+    'and re-reads the server’s record, which is what decides the step');
 
-  // And nothing here promises a screenshot was accepted on its own.
-  ok(/never\s+accepted without a person at Fayr/.test(screen.replace(/\s+/g, ' ')),
-    'the screenshot page says a person decides');
+  // The design's own progress parts, reused rather than redrawn, with as many
+  // segments as there are steps.
+  ok(/StepTracker/.test(router), 'it draws the design’s segment tracker');
+  ok(/StageChip/.test(router), 'and the design’s tone chip');
+  ok(/total=\{view\.of\}/.test(router),
+    'with as many segments as there are steps, not a hard-coded seven');
+}
+
+console.log('\n=== 11. EACH OF THE THIRTEEN CHECKS MOVED TO THE FILE THAT OWNS IT ===');
+{
+  // Section 10 used to grep ONE file for all of this. It is eleven files now, and a
+  // check pointed at the wrong one passes for the wrong reason.
+  const read = (key) => readFileSync(
+    new URL(`../screens/${key}.js`, import.meta.url), 'utf8',
+  );
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  // THE PICTURE IS REAL. The design's upload button on the review-proof screen has
+  // nothing behind it; this one opens the phone's photos.
+  const reviewproof = strip(read('reviewproof'));
+  ok(/launchImageLibraryAsync/.test(reviewproof),
+    'reviewproof really opens the photos');
+  ok(/requestMediaLibraryPermissionsAsync/.test(reviewproof),
+    'and asks permission first');
+  ok(/exif: false/.test(reviewproof),
+    'and strips where the picture was taken before sending it');
+
+  // A PERSON DECIDES, ALWAYS. Neither screen may imply a reading was enough.
+  for (const key of ['ocrconfirm', 'reviewproof']) {
+    const flat = strip(read(key)).replace(/\s+/g, ' ');
+    ok(/never accepted without a person at Fayr/.test(flat),
+      `${key} says a person at Fayr decides`);
+  }
+
+  // ONE SCREEN OWNS THE ORDER GATE. Two screens firing CONFIRM_ORDER is exactly
+  // what the split was meant to end: the delivery screen used to fire it under the
+  // words "Yes, it is delivered", which is a different fact.
+  const firing = ['confirm', 'linkaccount', 'buyinterstitial', 'proofprimer',
+    'ocrconfirm', 'underreview', 'delivery', 'reviewguide', 'reviewproof',
+    'returnwindow', 'reward']
+    .filter((key) => /CONFIRM_ORDER/.test(strip(read(key))));
+  ok(JSON.stringify(firing) === JSON.stringify(['ocrconfirm']),
+    `exactly one screen confirms an order, and it is ocrconfirm (found: ${firing.join(', ') || 'none'})`);
+
+  // NO SCREEN INVENTS A NUMBER THE DESIGN WROTE INTO ITSELF.
+  const wrote = [
+    ['returnwindow', /\b5\s*DAYS\b|\b11 Jul\b/i, 'the design’s "5 DAYS" and "11 Jul"'],
+    ['ocrconfirm', /1269146612|2 Jul 2026/, 'the design’s order number and order date'],
+    ['proofprimer', /402-3925017-7784521/, 'the design’s sample order number'],
+    ['confirm', /48\s*hours/i, 'the design’s "48 hours"'],
+  ];
+  for (const [key, bad, what] of wrote) {
+    ok(!bad.test(strip(read(key))), `${key} does not copy ${what}`);
+  }
+
+  // AND NONE OF THEM DECIDES WHICH STEP IT IS. That is the router's job, and a
+  // screen that worked it out again could disagree with the record.
+  for (const key of ['linkaccount', 'buyinterstitial', 'proofprimer', 'ocrconfirm',
+                     'underreview', 'delivery', 'reviewguide', 'reviewproof',
+                     'returnwindow']) {
+    ok(!/journeyStepFor|journeyView/.test(strip(read(key))),
+      `${key} does not work out which step it is`);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

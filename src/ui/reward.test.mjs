@@ -128,8 +128,12 @@ console.log('\n=== 7. the screen reads the helper, not the raw payload ===');
   const strip = (p) => readFileSync(join(HERE, '..', p), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
-  const screen = strip('RewardScreen.js');
-  ok(/rewardView/.test(screen), 'RewardScreen composes the helper');
+  // src/RewardScreen.js became src/screens/reward.js on 1 September 2026, when
+  // every design screen was given its own file under the design's own key. It is
+  // the same screen, and it is the survivor of a double build: the claim journey
+  // drew its own version of the refund page as well.
+  const screen = strip('screens/reward.js');
+  ok(/rewardView/.test(screen), 'the reward screen composes the helper');
   ok(!/You've been paid|Refund paid|Credited to fayr Wallet/.test(screen),
     'and does not hardcode the copy a second time');
   ok(/displayRefundPaise/.test(screen) && /displayChargedPaise/.test(screen),
@@ -140,7 +144,9 @@ console.log('\n=== 7. the screen reads the helper, not the raw payload ===');
   // useCallbacks sat BELOW the early return, so a render that bailed out called
   // fewer hooks than one that did not. React throws on that — on the
   // most-watched screen in the demo, at the moment the money lands.
-  const body = screen.slice(screen.indexOf('export default function RewardScreen'));
+  const marker = 'export default function RewardScreen';
+  ok(screen.includes(marker), 'the reward screen is still the default export');
+  const body = screen.slice(screen.indexOf(marker));
   const afterReturn = body.slice(body.indexOf('if (view == null) return'));
   const strayHooks = afterReturn.match(/\buse[A-Z]\w*\(/g) || [];
   ok(strayHooks.length === 0,
@@ -153,17 +159,31 @@ console.log('\n=== 8. it is reachable, and only on a confirmed transition ===');
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
   const app = readFileSync(join(HERE, '..', '..', 'App.js'), 'utf8');
-  ok(/import RewardScreen from '\.\/src\/RewardScreen'/.test(app), 'App.js imports it');
-  ok(/name="Reward"\s+component=\{RewardScreen\}/.test(app), 'and registers the route');
+  // REGISTERED UNDER THE DESIGN'S OWN KEY, through the one registry, since the
+  // split. There is one route name for one component: the old CamelCase alias is
+  // gone, because two names for one screen is two things to keep working.
+  ok(/name="reward" component=\{DESIGN_SCREENS\.reward\}/.test(app),
+    'App.js registers it under the design’s own key, from the registry');
+  ok(!/name="Reward"/.test(app), 'and the old second name for it is gone');
+  ok(!/import RewardScreen from/.test(app),
+    'and App.js does not import it a second way');
 
   const ts = strip('TaskScreen.js');
-  ok(/navigation\.navigate\('Reward'/.test(ts), 'TaskScreen navigates to it');
+  const dest = "navigate('reward'";
+  ok(ts.includes(dest), 'TaskScreen navigates to it');
+  ok(!/navigate\('Reward'/.test(ts), 'and not to the name that no longer exists');
   // The two rules that keep it from firing wrongly. It must watch the SERVER's
   // task, because the release is asynchronous and the optimistic local state
   // would celebrate before the money moved; and it must require a KNOWN earlier
   // state, or opening an already-paid task from My Products would bounce to a
   // celebration every time and the timeline would be unreadable.
-  ok(/authoritative/.test(ts.slice(ts.indexOf("navigate('Reward'") - 700, ts.indexOf("navigate('Reward'"))),
+  // THE WINDOW IS TAKEN FROM A STRING THAT IS PROVED TO BE THERE. The first
+  // version of this sliced from indexOf(...) - 700 without checking, so when the
+  // route was renamed indexOf returned -1, the slice became slice(-701, -1), and
+  // the check read a random 700 characters and passed or failed for no reason.
+  const where = ts.indexOf(dest);
+  ok(where > 0, 'and the call really is in TaskScreen');
+  ok(/authoritative/.test(ts.slice(Math.max(0, where - 700), where)),
     'it watches the authoritative (server) task, not the optimistic one');
   ok(/prev\s*!=\s*null/.test(ts), 'and only fires on a move from a KNOWN earlier state');
 }

@@ -1,151 +1,142 @@
-// THE CLAIM JOURNEY, AS TEN PAGES.
+// THE CLAIM JOURNEY, AS TEN STEPS — AND NOTHING ABOUT HOW A STEP LOOKS.
 //
-// What was there before: one long scrolling screen with a vertical rail of every
-// stage at once. It was honest and it was complete, and it read as a list. This
-// is the same journey as a sequence of pages, one thing at a time, which is what
-// the design draws and what somebody holding a phone can actually follow.
+// This file answers exactly two questions and no others:
 //
-// PURE. No React, no fetch, no clock unless it is handed in — so every page's
-// wording and every "which page am I on" decision can be checked under node.
-// Same reason as ui/stages.js and ui/chat.js.
+//   WHICH step of the claim is this person on?   journeyStepFor(record)
+//   WHERE is that in the whole journey?          journeyView(record)
 //
-// WHERE THE WORDS COME FROM. The headings and the button labels are the design's
-// own (fayr-design.browser.jsx), named against each step below so anybody can go
-// and look. Two things are mine and are marked as such: the "what happens next"
-// line, which the design does not have on every page, and the step counter's
-// total, because the design's tracker counts seven and this journey has ten.
+// It used to answer a third — what each page says — and that is now wrong. Every
+// one of the ten steps is a screen the design already drew, and as of the split
+// on 1 September 2026 each of those has its own file under src/screens/, named by
+// the design's own key, holding the design's own words and layout. Each step below
+// therefore names the design key it maps to, and says nothing about what is drawn.
+//
+// PURE. No React, no fetch, no clock unless it is handed in — so every "which
+// step am I on" decision can be checked under node. Same reason as ui/stages.js
+// and ui/chat.js.
+//
+// TWO THINGS HERE ARE OURS AND NOT THE DESIGN'S, and they are the reason this
+// file still has words in it at all:
+//
+//   the step counter    The design's own tracker counts seven. This journey has
+//     ten steps, so the total is ours. No journey screen in the design tells
+//     anybody where they are.
+//   what happens next   One line per step, on no design screen. It belongs to
+//     the journey machine rather than to any one screen: it is a statement about
+//     what FOLLOWS this step, which only something that knows the order can make.
+//
+// Both are drawn once, by the strip the router puts above a design screen while
+// somebody is inside a claim. Opened on its own, a design screen has neither and
+// is exactly what the design draws.
 
 import { STATES } from '../taskflow.js'; // explicit extension: also run under node
 
 /**
- * The ten pages, in order.
+ * The ten steps, in order.
  *
- *   title    the heading, in the design's words where the design has one
- *   short    the tracker's own label. Seven of these are the design's STEPS7
- *            (fayr-design.browser.jsx:482) - its own canonical journey copy,
- *            which was written and then never put on a screen.
- *   from     which design screen it is ported from, so it can be checked
- *   next     what happens after this page. Mine, not the design's.
- *   act      the button, or null when there is nothing to press
- *   waiting  true when nothing is needed from the person on this page
- *   mine     true when the design has no page for this step and I wrote it,
- *            matching the nearest page the design does cover. Four of ten.
+ *   key        the step's name, used by journeyStepFor and by nothing on a screen
+ *   designKey  the design's own key for the screen that draws this step. The
+ *              screen lives at src/screens/<designKey>.js and owns every word on
+ *              it. This is the whole link between the machine and the drawing.
+ *   from       the design's own component name, so the design file can be found
+ *   short      the tracker's own label. Seven of these are the design's STEPS7
+ *              (fayr-design.browser.jsx:482) - its own canonical journey copy,
+ *              which was written and then never put on a screen.
+ *   next       what happens after this step. Ours, not the design's.
+ *   waiting    true when nothing is needed from the person on this step
+ *   iAdded     true when the design has no screen for this step and the nearest
+ *              one is used instead, with what was added spelt out.
+ *
+ * THERE ARE NO TITLES, BODIES OR BUTTON LABELS HERE ANY MORE. They moved to the
+ * eleven screens on 1 September 2026. A heading in this file and a heading on the
+ * screen would be two copies of one sentence, and they would drift.
  */
 export const JOURNEY = [
   {
     key: 'join',
-    short: 'Join the offer',
-    title: 'Confirm participation',
+    designKey: 'confirm',
     from: 'ConfirmJoin',
-    body:
-      'Joining uses five of your tickets. They come back if the offer runs out '
-      + 'of time before you buy.',
+    short: 'Join the offer',
     next: 'You will connect your shop account, so we can see your order.',
-    act: 'Join this offer',
   },
   {
     key: 'connect',
-    short: 'Connect your shop',
-    title: 'Connect your shop account',
+    designKey: 'linkaccount',
     from: 'LinkAccount',
-    body:
-      'You sign in on the shop’s own page, not ours. We never see your shop '
-      + 'password, and we only read your own orders and reviews.',
+    short: 'Connect your shop',
     next: 'You will buy the product on the shop, then come back here.',
-    act: 'Connect now',
   },
   {
     key: 'buy',
-    short: 'Buy the exact product',
-    title: 'Buy exactly this',
+    designKey: 'buyinterstitial',
     from: 'BuyInterstitial',
-    body:
-      'It has to be this exact product. A different size or colour is a different '
-      + 'product to the shop, and we will not be able to match it.',
+    short: 'Buy the exact product',
     next: 'When it arrives, come back and tell us it was delivered.',
-    act: 'Open the shop',
-  },
-  {
-    key: 'delivered',
-    short: 'Confirm it arrived',
-    title: 'Has it arrived?',
-    from: 'DeliveryConfirm',
-    body:
-      'Tell us once it is in your hands. That is what opens the review step.',
-    next: 'You will send us a picture of your order.',
-    act: 'Yes, it arrived',
   },
   {
     key: 'purchase-shot',
-    short: 'Upload order proof',
-    title: 'Grab a screenshot of your order',
+    designKey: 'proofprimer',
     from: 'ProofPrimer',
-    body:
-      'Open your orders on the shop, take a screenshot of this one, and choose it '
-      + 'here. It only has to show the product, the amount and the date.',
+    short: 'Upload order proof',
     next: 'We will read it and check it against the offer.',
-    act: 'Choose a picture',
   },
   {
     key: 'checking',
+    designKey: 'underreview',
+    from: 'UnderReview',
     iAdded:
       'the design goes straight from here to a green "refund tracked" '
       + 'celebration. It has no state for waiting on a person, and the product '
       + 'never accepts a screenshot without one.',
     short: 'We check your proof',
-    title: 'We are reading your screenshot',
-    from: 'UnderReview',
-    body:
-      'A person at Fayr checks every screenshot. Nothing is decided by the '
-      + 'reading alone.',
-    next: 'Once it is checked, you can write your review.',
-    act: null,
+    next: 'Once your order is read, you confirm the details are yours.',
     waiting: true,
   },
   {
+    key: 'order-details',
+    designKey: 'ocrconfirm',
+    from: 'OcrConfirm',
+    short: 'Confirm your order',
+    next: 'We wait for the shop to tell us it was delivered.',
+  },
+  {
+    key: 'delivered',
+    designKey: 'delivery',
+    from: 'DeliveryConfirm',
+    short: 'Confirm it arrived',
+    next: 'You will write your review, and it can say anything you like.',
+  },
+  {
     key: 'review',
-    short: 'Use it & review honestly',
-    title: 'Share your honest review',
+    designKey: 'reviewguide',
     from: 'ReviewGuide',
-    body:
-      'One star or five, you are paid the same. Write what you really think: how '
-      + 'you used it, what surprised you, and who it is for.',
+    short: 'Use it & review honestly',
     next: 'You will send us a picture of your review once it is live.',
-    act: 'Write it on the shop',
   },
   {
     key: 'review-shot',
+    designKey: 'reviewproof',
+    from: 'ReviewProof',
     iAdded:
       'the design has an "upload a screenshot instead" button with nothing '
       + 'behind it. This one really opens the photos.',
     short: 'Submit review proof',
-    title: 'Posted? Show us',
-    from: 'ReviewProof',
-    body:
-      'Take a screenshot of your review on the product page and choose it here.',
     next: 'We wait for the shop’s return window to close.',
-    act: 'Choose a picture',
   },
   {
     key: 'window',
-    short: 'Return window closes',
-    title: 'Waiting for the return window',
+    designKey: 'returnwindow',
     from: 'ReturnWindow',
-    body:
-      'Your money is released once the shop’s return window has closed and '
-      + 'your review is still there. We check it again before we pay.',
+    short: 'Return window closes',
     next: 'Your refund lands in your Fayr wallet.',
-    act: null,
     waiting: true,
   },
   {
     key: 'refund',
-    short: 'Get paid',
-    title: 'Your refund is in your wallet',
+    designKey: 'reward',
     from: 'Reward',
-    body: 'It is yours to withdraw whenever you like.',
+    short: 'Get paid',
     next: 'Nothing. This one is finished.',
-    act: 'Go to my wallet',
   },
 ];
 
@@ -156,23 +147,25 @@ export const OF = JOURNEY.length;
 export const JOURNEY_KEYS = JOURNEY.map((s) => s.key);
 
 /**
- * WHAT THE DESIGN COVERS, AND WHAT I ADDED, OUT LOUD.
+ * WHAT THE DESIGN COVERS, AND WHAT WE ADDED, OUT LOUD.
  *
- * The design has a screen for every one of the ten pages, so no page's look is
- * invented. What it does not have is listed here per page, and there are four
- * things across the whole journey rather than four missing pages:
+ * The design has a screen for every one of the ten steps, so no step's look is
+ * invented, and since the split each step's screen IS the design's screen. What
+ * the design does not have is four things across the whole journey rather than
+ * four missing screens:
  *
  *   the step indicator   The design wrote its own journey copy - STEPS7, at
  *     line 482 - and then never put it on a screen. Seven of the short labels
- *     below are those words; the other three are mine, for the three steps
+ *     above are those words; the other three are ours, for the three steps
  *     STEPS7 does not count. No journey screen in the design tells anybody
  *     where they are.
- *   what happens next    On no page in the design. Mine, on all ten.
- *   a real upload on the review-proof page   The design's button is dead.
+ *   what happens next    On no screen in the design. Ours, on all ten.
+ *   a real upload on the review-proof screen   The design's button is dead.
  *   waiting on a person after a screenshot   The design has no such state.
  */
 export const EVERY_PAGE_HAS_A_DESIGN = JOURNEY.every(
-  (s) => typeof s.from === 'string' && s.from !== '',
+  (s) => typeof s.from === 'string' && s.from !== ''
+    && typeof s.designKey === 'string' && s.designKey !== '',
 );
 export const WHAT_I_ADDED = JOURNEY.filter((s) => s.iAdded).map((s) => ({
   key: s.key,
@@ -181,10 +174,26 @@ export const WHAT_I_ADDED = JOURNEY.filter((s) => s.iAdded).map((s) => ({
 
 const byKey = new Map(JOURNEY.map((s) => [s.key, s]));
 
-/** One page by name, or null. */
+/** One step by name, or null. */
 export function page(key) {
   return byKey.get(key) || null;
 }
+
+/**
+ * The design key for one step, or null.
+ *
+ * This is the ONE place the journey machine and the eleven screens are joined.
+ * The router looks the step up here and renders src/screens/<designKey>.js, so a
+ * step cannot end up drawn by two screens and a screen cannot be reached by two
+ * steps. src/screens/keys.test.mjs checks every key named here really exists.
+ */
+export function designKeyFor(stepKey) {
+  const s = byKey.get(stepKey);
+  return s ? s.designKey : null;
+}
+
+/** Every step's design key, in the journey's order. */
+export const DESIGN_KEYS = JOURNEY.map((s) => s.designKey);
 
 /** Which page is this, counting from one? Zero when the name is not one of ours. */
 export function stepNumber(key) {
@@ -240,6 +249,26 @@ export function journeyStepFor(state) {
     if (needs) {
       return s.purchaseShotSent === true ? 'checking' : 'purchase-shot';
     }
+    // AN ORDER NOBODY HAS SAID IS THEIRS.
+    //
+    // The engine has a human gate here — CONFIRM_ORDER, "this is my order" —
+    // and until the split there was no screen for it. The design has one, and
+    // has had one all along: ocrconfirm, "are these order details correct?". It
+    // was drawn, listed in the design's own map, and unreachable in the app,
+    // and the tap that fired the event was on the DELIVERY screen instead,
+    // where it was labelled as confirming a delivery. Two different facts under
+    // one button. This step is that screen, in its own place.
+    //
+    // BOTH SHAPES ARE CHECKED, and that is not belt and braces. The server's own
+    // record carries the flag inside the order (task.order.orderConfirmed); the
+    // engine task the machine was written against carries it at the top. This
+    // function is handed whichever one the caller has, so it has to read both, and
+    // getting it wrong in either direction would either strand somebody on a screen
+    // they have already finished with or skip the gate entirely.
+    const confirmed =
+      task.orderConfirmed === true ||
+      (task.order && task.order.orderConfirmed === true);
+    if (task.order && !confirmed) return 'order-details';
     return 'delivered';
   }
 
@@ -257,7 +286,15 @@ export function journeyStepFor(state) {
  */
 export function journeyView(state) {
   const s = state && typeof state === 'object' ? state : {};
-  const key = journeyStepFor(s);
+  // `forcedStep` exists for the walk through, which has to be able to look at a
+  // step no real claim happens to be at. It is honoured ONLY when it names a real
+  // step, so nothing can push a person onto a screen the record does not support,
+  // and it lives here rather than in the router so that "where am I in the journey"
+  // is answered in exactly one place. Unset, the record decides, as it must.
+  const forced = typeof s.forcedStep === 'string' && byKey.has(s.forcedStep)
+    ? s.forcedStep
+    : null;
+  const key = forced || journeyStepFor(s);
   const current = page(key) || JOURNEY[0];
   const n = stepNumber(key) || 1;
 
@@ -266,28 +303,30 @@ export function journeyView(state) {
 
   return {
     key,
-    title: current.title,
-    body: current.body,
-    /** Where somebody is, said out loud as well as drawn. The design's wording. */
+    /** Which design screen draws this step. The router renders exactly this one. */
+    designKey: current.designKey,
+    /** Where somebody is, said out loud as well as drawn. */
     where: `Step ${n} of ${OF}`,
-    /** What happens after this page. Mine: the design does not have one per page. */
+    /** What happens after this step. Ours: the design does not have one per screen. */
     next: current.next,
     stepNumber: n,
     of: OF,
-    /** One segment per page: done, here, or still to come. */
+    /** One segment per step: done, here, or still to come. */
     track: JOURNEY.map((s2, i) => ({
       key: s2.key,
       short: s2.short,
       state: i + 1 < n ? 'done' : i + 1 === n ? 'here' : 'todo',
     })),
-    /** The tracker's label for this page, in the design's own short words. */
+    /** The tracker's label for this step, in the design's own short words. */
     short: current.short,
-    /** True when nothing at all is needed from the person on this page. */
+    /** True when nothing at all is needed from the person on this step. */
     waiting: current.waiting === true,
-    action:
-      current.act && !current.waiting
-        ? { label: current.act, busy, enabled: !busy }
-        : null,
+    /**
+     * True while an action for this step is in flight, so the strip can say so
+     * and the screen can refuse a second tap. There is no button LABEL here any
+     * more: the screen owns its own words, and the design already wrote them.
+     */
+    busy,
     /** What the reading of a screenshot found, when there is a reading to show. */
     check,
     error: typeof s.error === 'string' && s.error ? s.error : null,
