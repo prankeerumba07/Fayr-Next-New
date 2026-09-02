@@ -31,6 +31,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { InsideJourneyContext } from './insideJourney';
+
 import * as campaignStore from '../backend/campaignStore';
 import { listScreenshots } from '../backend/screenshotsApi';
 import { getTask } from '../backend/tasksApi';
@@ -196,6 +198,19 @@ export default function JourneyScreen({ navigation, route }) {
           components, and React keeps a component instance when the type is the
           same. Keying on the design key forces a real remount when the step
           changes, which is what moving to another screen is. */}
+      {/* TWO THINGS SAID ONCE TO EVERYTHING INSIDE, for the same reason.
+          The notch has already been stepped around by the strip, and the space
+          above a screen's body is already owned by the strip too. Rather than
+          passing two flags down into a dozen screens and hoping each one honours
+          them, the router says both here. A screen opened on its own hears neither
+          and behaves exactly as it did before.
+
+          THE EMPTY BAND THE OWNER REPORTED was three lots of padding stacked: the
+          strip's own 8 points below "Next:", the screen's title bar adding the
+          design's 6, and the screen's body adding the design's 4. Eighteen points
+          of empty colour, and not one of the three wrong on its own. See
+          src/ui/journeySpacing.js for the measurements and where they came from. */}
+      <InsideJourneyContext.Provider value>
       <SafeAreaInsetsContext.Provider value={{ ...insets, top: 0 }}>
         <View style={styles.stage} key={designKey}>
           <Screen
@@ -217,6 +232,7 @@ export default function JourneyScreen({ navigation, route }) {
           />
         </View>
       </SafeAreaInsetsContext.Provider>
+      </InsideJourneyContext.Provider>
     </View>
   );
 }

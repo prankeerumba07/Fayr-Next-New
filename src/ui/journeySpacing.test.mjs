@@ -1,0 +1,141 @@
+// ONE PLACE OWNS THE SPACE ABOVE A JOURNEY SCREEN'S BODY.
+//
+// The owner reported an empty band between the "Step N of 11" strip and the screen
+// under it. It was three lots of padding stacked and none of them wrong on its own.
+// See src/ui/journeySpacing.js for the measurements and where they come from.
+import { strict as assert } from 'node:assert';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { BODY_TOP, TOP_BAR_TOP, topPaddingInside } from './journeySpacing.js';
+
+let passed = 0;
+const t = (name, fn) => {
+  try {
+    fn();
+    console.log('  PASS ' + name);
+    passed++;
+  } catch (e) {
+    console.log('  FAIL ' + name + ' — ' + e.message);
+    process.exitCode = 1;
+  }
+};
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = join(here, '..', '..');
+const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const read = (p) => readFileSync(join(root, p), 'utf8');
+
+console.log('the decision');
+
+t('inside the journey a screen contributes nothing', () => {
+  assert.equal(topPaddingInside(TOP_BAR_TOP, true), 0);
+  assert.equal(topPaddingInside(BODY_TOP, true), 0);
+  assert.equal(topPaddingInside(99, true), 0);
+});
+
+t('on its own it contributes its own value again', () => {
+  assert.equal(topPaddingInside(TOP_BAR_TOP, false), TOP_BAR_TOP);
+  assert.equal(topPaddingInside(BODY_TOP, false), BODY_TOP);
+  // Anything that is not a firm yes means "not inside", so a missing context
+  // leaves a screen looking exactly as it did before.
+  for (const notInside of [undefined, null, 0, '', 'true', 1]) {
+    assert.equal(topPaddingInside(TOP_BAR_TOP, notInside), TOP_BAR_TOP);
+  }
+});
+
+t('a value we cannot use becomes nothing rather than NaN on a screen', () => {
+  for (const bad of [undefined, null, NaN, -4, 'six', {}]) {
+    assert.equal(topPaddingInside(bad, false), 0, `${String(bad)} leaked through`);
+  }
+});
+
+t('the two values are the design’s own, not chosen', () => {
+  // TopBar    padding: "6px 18px 8px"   fayr-design.browser.jsx:397
+  // body      padding: "4px 22px 22px"  fayr-design.browser.jsx:2303
+  assert.equal(TOP_BAR_TOP, 6);
+  assert.equal(BODY_TOP, 4);
+  const design = read('fayr-design.browser.jsx');
+  assert.ok(
+    design.includes('padding: "6px 18px 8px"'),
+    'the design’s title bar padding has changed; re-measure TOP_BAR_TOP',
+  );
+  assert.ok(
+    design.includes('padding: "4px 22px 22px"'),
+    'the design’s body padding has changed; re-measure BODY_TOP',
+  );
+});
+
+t('it is pure, so this test can read it at all', () => {
+  assert.ok(!read('src/ui/journeySpacing.js').includes('import '));
+});
+
+console.log('\nit is said once, by the router, to everything inside it');
+
+t('the router provides it, and wraps the screen in it', () => {
+  const router = strip(read('src/journey/JourneyScreen.js'));
+  assert.ok(/InsideJourneyContext\.Provider value>/.test(router),
+    'the router does not say it at all');
+  const wrapped = (router.match(
+    /<InsideJourneyContext\.Provider[^>]*>([\s\S]*?)<\/InsideJourneyContext\.Provider>/,
+  ) || [])[1] || '';
+  assert.ok(/<Screen\b/.test(wrapped), 'the screen is not inside it');
+  assert.ok(/key=\{designKey\}/.test(wrapped), 'the stage is not inside it');
+});
+
+t('the title bar is the one place that reads it', () => {
+  const brand = strip(read('src/ui/brand.js'));
+  assert.ok(/useInsideJourney\(\)/.test(brand), 'the shared title bar ignores it');
+  assert.ok(
+    /paddingTop: topPaddingInside\(TOP_BAR_TOP, inside\)/.test(brand),
+    'the title bar does not ask what to contribute',
+  );
+  // And its own style no longer states a top of its own, so there is one answer.
+  const style = (brand.match(/\n  topBar: \{[\s\S]*?\n  \},/) || [''])[0];
+  assert.ok(!/paddingTop/.test(style), 'the title bar still has a top padding of its own');
+});
+
+t('a context, not a prop, so no screen can forget to pass it on', () => {
+  const ctx = strip(read('src/journey/insideJourney.js'));
+  assert.ok(/createContext\(false\)/.test(ctx), 'it does not default to being outside');
+  // Not handed to screens as a route param, which is the mistake this avoids.
+  const router = strip(read('src/journey/JourneyScreen.js'));
+  assert.ok(
+    !/insideJourney:/.test(router),
+    'the router passes it as a parameter, which a screen can drop',
+  );
+});
+
+console.log('\nno journey screen sets a top of its own on its outermost box');
+
+t('every screen’s outermost box carries no top padding or margin', () => {
+  // THE OWNER'S OWN CHECK. A screen that pads its own outermost container is
+  // adding space above its body, which is the journey's job now.
+  const dir = join(root, 'src', 'screens');
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.js') && f !== 'keys.js' && f !== 'index.js');
+  assert.ok(files.length > 20, `only found ${files.length} screens`);
+
+  const guilty = [];
+  for (const f of files) {
+    const src = strip(readFileSync(join(dir, f), 'utf8'));
+    // The outermost element of the returned tree: the first tag after the last
+    // `return (` in the file's default export.
+    const m = src.match(/return \(\s*\n\s*<([A-Za-z][A-Za-z0-9.]*)([^>]*)>/);
+    if (!m) continue;
+    const attrs = m[2];
+    const styleAttr = (attrs.match(/style=\{([\s\S]*?)\}\s*$/) || attrs.match(/style=\{([^}]*)\}/) || [])[1];
+    if (!styleAttr) continue;
+
+    // Inline top spacing on the outermost box.
+    if (/(padding|margin)Top\s*:/.test(styleAttr)) { guilty.push(`${f} (inline)`); continue; }
+    // Or through a named style.
+    for (const name of [...styleAttr.matchAll(/styles\.([A-Za-z0-9_]+)/g)].map((x) => x[1])) {
+      const def = (src.match(new RegExp(`\\n  ${name}: \\{[^}]*\\}`)) || [''])[0];
+      if (/(padding|margin)Top\s*:/.test(def)) guilty.push(`${f} (styles.${name})`);
+    }
+  }
+  assert.deepEqual(guilty, [], `these pad their own outermost box: ${guilty.join(', ')}`);
+});
+
+console.log(`\n${passed} passed, ${process.exitCode ? 'some' : '0'} failed`);

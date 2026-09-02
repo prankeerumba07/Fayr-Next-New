@@ -15,6 +15,8 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 import { COLOR, FONT, RADIUS, SHADOW } from './theme';
+import { TOP_BAR_TOP, topPaddingInside } from './journeySpacing';
+import { useInsideJourney } from '../journey/insideJourney';
 
 /** The stacked-tile "f" mark. Geometry copied exactly from the design. */
 export function LogoMark({ size = 64 }) {
@@ -130,8 +132,18 @@ export function ProgressDots({ n, i, style }) {
  * arrow can never be a control that does nothing.
  */
 export function TopBar({ title, onBack, style }) {
+  // ZERO TOP PADDING INSIDE THE JOURNEY. The strip above it already owns that
+  // space; the design's own 6 points is right only when a screen is opened on its
+  // own. One place, so no screen can forget. See src/ui/journeySpacing.js.
+  const inside = useInsideJourney();
   return (
-    <View style={[styles.topBar, style]}>
+    <View
+      style={[
+        styles.topBar,
+        { paddingTop: topPaddingInside(TOP_BAR_TOP, inside) },
+        style,
+      ]}
+    >
       {onBack ? (
         <TouchableOpacity
           onPress={onBack}
@@ -195,8 +207,11 @@ const styles = StyleSheet.create({
   radius: { borderRadius: RADIUS.md },
 
   topBar: {
+    // The design's own bar: padding "6px 18px 8px" at
+    // fayr-design.browser.jsx:397. The TOP is applied above rather than here,
+    // because it is the one value that changes inside the journey.
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: 18, paddingTop: 6, paddingBottom: 8,
+    paddingHorizontal: 18, paddingBottom: 8,
   },
   topBack: {
     width: 36, height: 36, borderRadius: 18, backgroundColor: '#fff',
