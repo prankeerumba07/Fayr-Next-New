@@ -47,6 +47,9 @@ const flipkart = {
   authCookies: ['at', 'rt'],
   color: '#2874F0',
   startUrl: 'https://www.flipkart.com/',
+  // NOT ESTABLISHED. Asked for from this machine and refused with a 403 by
+  // Flipkart's own front door, which tells us nothing either way. Not guessed.
+  signInUrl: null,
   hint: 'Log in to Flipkart (OTP), then tap "Fetch my reviews".',
   // Fetch submitted reviews (RESPONSE.product[]: pid, certifiedBuyer, date,
   // rating, text, title, status) and order history, then join by pid (unit.fsn)
@@ -409,6 +412,31 @@ const amazon = {
   authCookies: ['at-acbin'],
   color: '#FF9900',
   startUrl: 'https://www.amazon.in/',
+  // WHERE SOMEBODY SIGNS IN, added 2 September 2026 on the owner's instruction.
+  //
+  // His words: "when I click on 'Connect My Amazon' it takes me to the homepage.
+  // Why is it not taking me to the login/signup page?"
+  //
+  // THIS IS A CHANGE FROM THE DESIGN, and the design says the opposite in as many
+  // words: fayr-design.browser.jsx:424 defines marketplaceHome with the comment
+  // "homepage only — no search/UTM/deep link", and its connect screen (:2283)
+  // opens exactly that. The owner has overruled it for this one thing.
+  //
+  // IT MUST BE ON THE SAME HOST AS startUrl, and that is not a style rule. The
+  // frozen connect screen uses one address for three jobs: the page it opens, and
+  // the origin it saves and restores this shop's sign in for (see
+  // src/session.js persistSession, which asks the phone for that address's own
+  // cookies). An address on another host would quietly save the sign in against
+  // the wrong place. src/signin.js refuses one and says so.
+  //
+  // null means WE HAVE NOT ESTABLISHED THIS SHOP'S OWN SIGN IN ADDRESS. It is not
+  // a guess and never will be: the shop keeps the behaviour it has, which is its
+  // own site, where the person taps the shop's own sign in themselves.
+  // ESTABLISHED. Asked for from this machine on 2 September 2026: it answered 200
+  // and landed on Amazon's own sign in flow. And this file's own Amazon reader
+  // already treats a bounce to /ap/signin as "this page wanted a sign in", which
+  // is the same door seen from the other side.
+  signInUrl: 'https://www.amazon.in/gp/sign-in.html',
   // Force the desktop orders page so the order-card selectors below can match
   // (see DESKTOP_UA). Amazon-only: no other platform sets this.
   userAgent: DESKTOP_UA,
@@ -1185,6 +1213,10 @@ const myntra = {
   authCookies: ['at', 'rt'],
   color: '#FF3F6C',
   startUrl: 'https://www.myntra.com/my/orders',
+  // ESTABLISHED. Asked for from this machine on 2 September 2026: it answered 200
+  // with a real sign in page on it. Myntra is a dormant shop and its reader is
+  // deliberately left alone; this is a written down address and nothing else.
+  signInUrl: 'https://www.myntra.com/login',
   beforeLoadScript: MYNTRA_HOOK,
   hint: 'Log in, wait for My Orders to load (ratings appear), then tap "Fetch my reviews".',
   // Two-step: fetch orders (product name + order date), then best-effort fetch
@@ -1853,6 +1885,8 @@ const meesho = {
   // with no navigation: the fetch reads the authenticated orders.json + each
   // rated order's detail endpoint itself.
   startUrl: 'https://www.meesho.com/orders',
+  // NOT ESTABLISHED. Refused with a 403 from this machine. Not guessed.
+  signInUrl: null,
   beforeLoadScript: discoveryHook(),
   hint: 'Log in if asked, then just tap "Fetch my reviews" — no need to open anything.',
   // Meesho's orders live in the Next.js data endpoint
@@ -2081,6 +2115,9 @@ const instamart = {
   // Open on the Swiggy account page - the capture shows the DASH order list
   // (/mapi/order/dash) loads here - so it's captured without the user navigating.
   startUrl: 'https://www.swiggy.com/my-account',
+  // NOT ESTABLISHED. Its sign in is a panel on its own site rather than a page of
+  // its own, so there may be no address to find. Not guessed.
+  signInUrl: null,
   // Keep the interceptor: Swiggy's /mapi/order/* endpoints are session + CSRF
   // guarded and computed by the SPA, so we parse the real authenticated
   // responses the hook captured while you browsed Orders rather than re-fetch.
@@ -2233,6 +2270,9 @@ const blinkit = {
   // navigation reuses the same document and the hook (injected before content
   // loads) keeps capturing into window.__fayrCalls the whole way.
   startUrl: 'https://blinkit.com/',
+  // NOT ESTABLISHED. Refused with a 403, and its sign in is a panel on its own
+  // site rather than a page of its own. Not guessed.
+  signInUrl: null,
   // Keep the interceptor: Blinkit's order data comes back as server-driven
   // "layout" widget trees (v1/layout/order_history + order_details). Those
   // endpoints need exact app headers/params the SPA computes, so instead of
@@ -2422,6 +2462,9 @@ const zepto = {
   // Open straight on Order History so the list (with per-order star ratings)
   // loads and is captured - the user shouldn't have to navigate or open orders.
   startUrl: 'https://www.zepto.com/account/orders',
+  // NOT ESTABLISHED. Answered 202 with an empty page from this machine, and its
+  // sign in is a panel on its own site rather than a page of its own. Not guessed.
+  signInUrl: null,
   // Parse, don't re-fetch: Zepto's bff-gateway rejects a blind re-fetch (it
   // needs auth headers the SPA computes). We keep the interceptor and read the
   // order LIST the page itself loads (order.rating = the star shown on the

@@ -106,9 +106,13 @@ export default function LinkAccountScreen({ navigation, route }) {
     return navigation.addListener('focus', () => setSent((was) => was));
   }, [navigation]);
 
+  // GOING THERE TO SIGN IN, and saying so in one word. That word is what makes
+  // the shop's own sign in page the one that opens instead of its shopping page.
+  // See src/signin.js: a visit made to read somebody's orders keeps the page it
+  // needs, and only a visit made to sign in is redirected.
   const openShop = useCallback(() => {
     setSent(true);
-    navigation.navigate(key, { campaignId });
+    navigation.navigate(key, { campaignId, toSignIn: true });
   }, [navigation, key, campaignId]);
 
   const signedIn = useCallback(() => {

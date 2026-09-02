@@ -43,6 +43,7 @@ import BottomNav from './src/ui/BottomNav';
 import ErrorBoundary from './src/ErrorBoundary';
 import ErrorFallback from './src/ErrorFallback';
 import { PLATFORM_LIST } from './src/platforms';
+import { shopHandedToConnectScreen } from './src/signin';
 import { goHome } from './src/ui/nav';
 import { COLOR, FONT } from './src/ui/theme';
 import { load as loadTask, applyAuthoritative, configureSync } from './src/taskStore';
@@ -82,15 +83,23 @@ function TabsRoot() {
 // therefore fails closed on fetch (no name/id target → no order surfaced) —
 // exactly the frozen ConnectScreen's existing behaviour. ConnectScreen still
 // only reads the `campaign` prop, so it stays byte-for-byte untouched.
+//
+// AND WHICH PAGE OF THE SHOP IT OPENS, added 2 September 2026. The owner found
+// that tapping "connect my Amazon account" dropped him on Amazon's shopping page
+// with no sign in anywhere on it. A visit made to SIGN IN now lands on the shop's
+// own sign in; a visit made to READ somebody's orders keeps the page it needs.
+// The whole decision is one function, src/signin.js, and the check calls that
+// same function, so an address nothing reads cannot pass again.
 function makeConnectScreen(platform) {
   return function Screen(props) {
-    const campaignId =
-      props.route && props.route.params && props.route.params.campaignId;
+    const params = (props.route && props.route.params) || undefined;
+    const campaignId = params && params.campaignId;
     const campaign =
       (campaignId && campaignStore.getById(campaignId)) ||
       campaignStore.forMarketplace(platform.key) ||
       undefined;
-    return <ConnectScreen {...props} platform={platform} campaign={campaign} />;
+    const shop = shopHandedToConnectScreen(platform.key, params) || platform;
+    return <ConnectScreen {...props} platform={shop} campaign={campaign} />;
   };
 }
 
