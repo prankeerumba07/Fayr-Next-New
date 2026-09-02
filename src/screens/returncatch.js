@@ -12,10 +12,17 @@
 // screen sits: somebody who has just come back from the shop was being shown "Before
 // you go", a screen about a trip they had already made.
 //
-// AND SAYING YES SKIPS NOTHING. It moves them one screen on, to the one that asks
-// for the order. It does not create an order, does not confirm one, and does not
-// move money: every one of those still needs the shop's own word, read by Fayr.
-// What the answer really does is stop asking a question that has been answered.
+// AND SAYING YES SKIPS NOTHING. It moves them one screen on. It does not create an
+// order, does not confirm one, and does not move money: every one of those still
+// needs the shop's own word, read by Fayr. What the answer really does is stop
+// asking a question that has been answered.
+//
+// WHAT SAYING YES LEADS TO, since 2 September 2026. It used to go straight to
+// "show us the order". Now Fayr has a look first: the shop's own list of recent
+// orders is read on the phone, the server decides whether any of it is this
+// offer's product, and if one is, the next screen shows it and asks "is this your
+// order?". If not, the person is asked to show us, exactly as before, and nothing
+// is ever explained about why — see src/order/LookingForItScreen.js.
 //
 // THE DESIGN'S OWN SCREEN: the product picture, the heading, the sentence naming
 // the product, the green button and the quiet second action. One departure: the
@@ -39,11 +46,11 @@ export default function ReturnCatchScreen({ navigation, route }) {
 
   const yes = useCallback(() => {
     if (campaignId) markVisitedShop(campaignId, SAID_THEY_BOUGHT);
-    // Ask the journey to look again. It re-derives the step from the record and the
-    // notes; this screen does not choose where anybody goes.
-    if (params.onJourneyMoved) params.onJourneyMoved();
-    else navigation.navigate('proofprimer', { campaignId });
-  }, [campaignId, params, navigation]);
+    // THE NOTE IS WRITTEN FIRST, so the journey knows this was answered whatever
+    // happens next. Then Fayr has a look. That screen always leaves by itself,
+    // and it decides between showing an order it found and asking for one.
+    navigation.navigate('LookingForIt', { campaignId });
+  }, [campaignId, navigation]);
 
   return (
     <Screen bg={COLOR.cream}>

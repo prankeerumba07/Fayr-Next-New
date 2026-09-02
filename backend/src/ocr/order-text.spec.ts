@@ -217,6 +217,50 @@ describe('reading an order screen that holds several shipments', () => {
     });
   });
 
+  describe('one row out of a LIST of orders', () => {
+    // A row in a shop's list of recent orders is the whole order in five lines,
+    // with no bill block under it. This is the shape the phone hands the server
+    // after it looks at somebody's order list, so it has to read.
+    const ROW = [
+      'Order ID SOSIJGGRL26770',
+      'Placed on 21 Aug 2026',
+      'Boldfit Strapless Sports Headband',
+      '1 x ₹149',
+      'Total ₹368',
+    ].join('\n');
+
+    it('reads a row with no bill block under it', () => {
+      const order = parseOrderText(ROW);
+      expect(order.orderNumber).toBe('SOSIJGGRL26770');
+      expect(order.orderDate).toBe('2026-08-21');
+      expect(order.totalPaise).toBe(36800n);
+      expect(order.items).toEqual([
+        { name: 'Boldfit Strapless Sports Headband', pricePaise: 14900n },
+      ]);
+    });
+
+    it('does not turn the word Total into a product', () => {
+      const order = parseOrderText(ROW);
+      expect(order.items.map((i) => i.name)).not.toContain('Total');
+      expect(order.items).toHaveLength(1);
+    });
+
+    it('still reads a product whose name merely starts like a label', () => {
+      // "Totally" begins with the letters of "total". A label is only a label
+      // when it is a whole word, or this product disappears and its price
+      // becomes the order total.
+      const order = parseOrderText([
+        'Order ID 12345678',
+        'Totally Awesome Headband ₹499',
+        'Total ₹499',
+      ].join('\n'));
+      expect(order.items).toEqual([
+        { name: 'Totally Awesome Headband', pricePaise: 49900n },
+      ]);
+      expect(order.totalPaise).toBe(49900n);
+    });
+  });
+
   describe('nothing is invented when there is nothing to read', () => {
     it('gives an empty shape for empty text', () => {
       expect(parseOrderText('')).toEqual({

@@ -13,7 +13,10 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ClaimDto } from './dto/claim.dto';
+import { FoundOrdersDto } from './dto/found-orders.dto';
 import { SubmitEvidenceDto } from './dto/submit-evidence.dto';
+import { OrderCandidatesService } from './order-candidates.service';
+import type { OrderCandidateResponse } from './order-candidate.response';
 import { TaskService } from './task.service';
 import type { TaskResponse } from './task.response';
 
@@ -26,7 +29,10 @@ import type { TaskResponse } from './task.response';
 @Controller('tasks')
 @UseGuards(JwtAuthGuard)
 export class TaskController {
-  constructor(private readonly tasks: TaskService) {}
+  constructor(
+    private readonly tasks: TaskService,
+    private readonly candidates: OrderCandidatesService,
+  ) {}
 
   /** Claim a campaign: deduct tickets + create the task. */
   @Post()
@@ -62,6 +68,49 @@ export class TaskController {
     @Body() dto: SubmitEvidenceDto,
   ): Promise<TaskResponse> {
     return this.tasks.submitEvidence(user.id, id, dto);
+  }
+
+  /**
+   * WHAT THE PHONE FOUND IN THE SHOP'S OWN LIST OF RECENT ORDERS.
+   *
+   * The phone can look because the person's sign in to the shop lives on the
+   * device. It sends the TEXT of each order it found and nothing else: there is
+   * no field for its own verdict, and the app-wide validation refuses any field
+   * this route does not name, so a phone claiming a match is turned away rather
+   * than quietly ignored. Every order is read and judged here.
+   */
+  @Post(':id/orders-found')
+  @HttpCode(HttpStatus.OK)
+  ordersFound(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: FoundOrdersDto,
+  ): Promise<OrderCandidateResponse[]> {
+    return this.candidates.record(user.id, id, dto.pages);
+  }
+
+  /** The orders we have already asked about, newest first. */
+  @Get(':id/orders-found')
+  ordersAsked(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<OrderCandidateResponse[]> {
+    return this.candidates.list(user.id, id);
+  }
+
+  /**
+   * "Yes, that is mine." The evidence is built from the order the SERVER read and
+   * judged, never from anything sent with the tap, and it goes down the same
+   * funnel the on-device scraper uses.
+   */
+  @Post(':id/orders-found/:candidateId/mine')
+  @HttpCode(HttpStatus.OK)
+  thisOrderIsMine(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('candidateId', ParseUUIDPipe) candidateId: string,
+  ): Promise<TaskResponse> {
+    return this.candidates.chooseMine(user.id, id, candidateId);
   }
 
   @Post(':id/confirm-order')

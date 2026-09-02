@@ -17,6 +17,12 @@ import SupportScreen from './src/SupportScreen';
 import ChatScreen from './src/ChatScreen';
 import JourneyScreen from './src/journey/JourneyScreen';
 import LiveCheckScreen from './src/LiveCheckScreen';
+// The automatic look at the shop's own list of orders, after somebody says they
+// bought it. Two screens, neither of them a design screen: the design's own
+// BuildFeed and OcrConfirm are what each is drawn from, and src/screens is only
+// for the design's sixty one.
+import LookingForItScreen from './src/order/LookingForItScreen';
+import IsThisYourOrderScreen from './src/order/IsThisYourOrderScreen';
 // Every design screen is looked up by its own key in one place. See
 // src/screens/keys.js for which screens have their own file, and
 // src/screens/keys.test.mjs, which checks that against the design itself.
@@ -295,6 +301,8 @@ function AppInner() {
           <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
           {/* The morning job. Staff only, and it asks for a staff sign-in itself. */}
           <Stack.Screen name="LiveCheck" component={LiveCheckScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="LookingForIt" component={LookingForItScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="IsThisYourOrder" component={IsThisYourOrderScreen} options={{ headerShown: false }} />
           {/* The walk through: every screen in the design, reachable by tapping.
               Beside the offer page check because it is the same audience — the
               team, not shoppers — and both own their own headers. Nothing in it

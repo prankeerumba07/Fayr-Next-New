@@ -99,6 +99,10 @@ export const BILL_LABELS: readonly string[] = [
   'total paid',
   'to pay',
   'you pay',
+  // BARE "TOTAL", which is what a row in a LIST of orders prints. It has no bill
+  // block of its own — just the order, the products and one figure — so without
+  // this a list row's total would be read as a product called "Total".
+  'total',
 ];
 
 /** The labels that mean "what the products came to". */
@@ -122,6 +126,9 @@ const TOTAL_BILL_LABELS: readonly string[] = [
   'total paid',
   'to pay',
   'you pay',
+  // Last, so a page that says both "Total" and "Total Bill" is read on the more
+  // specific one first.
+  'total',
 ];
 
 /** Where the products stop and the bill starts. */
@@ -191,10 +198,23 @@ function quantityAndPrice(line: string): bigint | null {
   return m ? paise(m[2]) : null;
 }
 
+/**
+ * Does this line begin with this label, as a whole word?
+ *
+ * Whole word matters: "Totally Awesome Headband ₹499" begins with the letters of
+ * "total", and reading that as the order's total would lose a product and invent
+ * a figure.
+ */
+function startsWithLabel(line: string, label: string): boolean {
+  const l = low(line);
+  if (!l.startsWith(label)) return false;
+  const next = l.charAt(label.length);
+  return next === '' || !/[a-z0-9]/.test(next);
+}
+
 /** Does this line start with one of the bill block's labels? */
 function isBillLabel(line: string): boolean {
-  const l = low(line);
-  return BILL_LABELS.some((label) => l.startsWith(label));
+  return BILL_LABELS.some((label) => startsWithLabel(line, label));
 }
 
 /**
@@ -274,8 +294,7 @@ function moneyForLabels(
   labels: readonly string[],
 ): bigint | null {
   for (let i = from; i < lines.length; i += 1) {
-    const l = low(lines[i]);
-    if (!labels.some((label) => l.startsWith(label))) continue;
+    if (!labels.some((label) => startsWithLabel(lines[i], label))) continue;
     const sameLine = NAME_AND_MONEY.exec(lines[i].trim());
     if (sameLine) {
       const p = paise(sameLine[2]);
@@ -367,11 +386,17 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     i += 1;
   }
 
+  // WHERE TO LOOK FOR THE TOTALS. Inside the bill block when there is one. When
+  // there is not — which is every ROW IN A LIST of orders, where the whole order
+  // is a number, a day, a product and one figure — the whole thing is looked at,
+  // because a labelled total is a labelled total wherever it sits.
+  const totalsFrom = billStart < lines.length ? billStart : 0;
+
   return {
     orderNumber,
     orderDate,
-    totalPaise: moneyForLabels(lines, billStart, TOTAL_BILL_LABELS),
-    itemTotalPaise: moneyForLabels(lines, billStart, ITEM_TOTAL_LABELS),
+    totalPaise: moneyForLabels(lines, totalsFrom, TOTAL_BILL_LABELS),
+    itemTotalPaise: moneyForLabels(lines, totalsFrom, ITEM_TOTAL_LABELS),
     shipments,
     items,
   };

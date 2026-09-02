@@ -215,13 +215,28 @@ console.log('\n=== 6. THE THREE SCREENS THAT SEND SOMEBODY SHOPPING REALLY DO IT
       const src = strip(readFileSync(f, 'utf8'));
       return /from 'react-native-webview'/.test(src);
     }).map((f) => f.slice(dir.length + 1));
-    // TWO FILES MAY, AND BOTH ARE NAMED. ConnectScreen.js is the connect flow
-    // described above. LiveCheckScreen.js is the staff offer page check, which
-    // opens a product page to see whether a shopper could buy it — it is a staff
-    // tool, it is off unless somebody deliberately turns it on (see
-    // src/walkthrough/onlyForUs.js), and no shopper can reach it. Anything else
-    // rendering a web view is a shopper being shown a marketplace inside Fayr.
-    const ALLOWED = ['ConnectScreen.js', 'LiveCheckScreen.js'];
+    // THREE FILES MAY, AND ALL THREE ARE NAMED, AND NOT ONE OF THEM SHOWS A SHOP
+    // TO A SHOPPER TO SHOP IN.
+    //
+    //   ConnectScreen.js         the connect flow described above. It is the only
+    //                            way Fayr can read an order at all, and the design
+    //                            itself describes it doing exactly this (:2284).
+    //   LiveCheckScreen.js       the staff offer page check. A staff tool, off
+    //                            unless somebody deliberately turns it on (see
+    //                            src/walkthrough/onlyForUs.js), unreachable by any
+    //                            shopper.
+    //   order/LookingForItScreen.js  reads the shop's own list of recent orders
+    //                            after somebody says they bought it. One point
+    //                            across, fully see through, off the side of the
+    //                            screen: there is nothing on it for anybody to
+    //                            look at and nothing to tap. It is a read, like the
+    //                            other two, and not a place to shop.
+    //
+    // Anything else rendering a web view is a shopper being shown a marketplace
+    // inside Fayr, which is the thing the owner had removed.
+    const ALLOWED = [
+      'ConnectScreen.js', 'LiveCheckScreen.js', 'order/LookingForItScreen.js',
+    ];
     const extra = webViews.filter((f) => !ALLOWED.includes(f));
     ok(extra.length === 0, `these render a web view and should not: ${extra.join(', ')}`);
     // And the two that may are still there, so this cannot pass by them being

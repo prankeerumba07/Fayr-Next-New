@@ -324,8 +324,8 @@ model Task {
   /// terms say now" is not a record. Null text means the campaign carried no terms
   /// of its own and the app showed its own default set, which is not yet held
   /// server side — a known gap, written down rather than papered over.
-  offerTermsAcceptedAt   DateTime?
-  offerTermsText         String?
+  offerTermsAcceptedAt DateTime?
+  offerTermsText       String?
 
   blocker       String? // why the task can't advance (BLOCKERS in taskflow)
   blockerReason String?
@@ -343,6 +343,7 @@ model Task {
   events            TaskEvent[]
   visibilityChecks  VisibilityCheck[]
   screenshotUploads ScreenshotUpload[]
+  orderCandidates   OrderCandidate[]
 
   @@index([userId, state])
   @@index([campaignId])
@@ -379,6 +380,68 @@ model TaskEvent {
 /// in 1.6). Each row records whether the review was still publicly visible at
 /// `checkedAt`. A review that vanished mid-hold must be provable after the fact —
 /// never a boolean that silently flipped.
+/// WHERE AN ORDER WE ARE ASKING ABOUT CAME FROM.
+///
+/// order-list  the phone looked at the shop's own list of recent orders
+/// screenshot  a picture the person uploaded, read by machine
+/// hand-typed  the person typed it in themselves
+///
+/// hand-typed is kept apart on purpose: a staff member has to be able to see at a
+/// glance which orders were never read by a machine at all.
+enum OrderCandidateSource {
+  ORDER_LIST
+  SCREENSHOT
+  HAND_TYPED
+}
+
+/// ONE ORDER WE ASKED SOMEBODY ABOUT, AND WHAT FAYR MADE OF IT.
+///
+/// THE PHONE LOOKS, THE SERVER JUDGES AND REMEMBERS. The phone can only look at
+/// the shop's own list of orders, because the sign in lives on the device. What it
+/// sends is the TEXT of each order it found. Every field below is read from that
+/// text HERE, by backend/src/ocr/order-text.ts, and `matches` is decided HERE, by
+/// matchOrderToCampaign. The phone is never asked whether something matched and
+/// its opinion is not accepted if offered.
+///
+/// `reason` always names what happened — matched, product_name_not_found,
+/// price_differs, no_products_read, no_campaign_product, no_expected_price. It is
+/// never simply "no match", because that tells the next person reading this row
+/// nothing at all.
+model OrderCandidate {
+  id     String @id @default(uuid()) @db.Uuid
+  taskId String @db.Uuid
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  /// 0 is the newest order on the shop's own list, so the order the shop showed
+  /// first is the order shown first here.
+  position Int
+
+  source OrderCandidateSource @default(ORDER_LIST)
+
+  orderNumber String?
+  orderDate   DateTime?
+  /// What was charged for the whole order. Integer paise, never a float.
+  totalPaise  BigInt?
+  /// Every product read off it: [{ name, pricePaise }]. pricePaise is a STRING of
+  /// paise, because JSON has no place for a whole number this size.
+  items       Json
+  /// How many shipments the order was split into. One order can hold several.
+  shipments   Int       @default(0)
+
+  /// THE SERVER'S OWN ANSWER, never the phone's.
+  matches Boolean
+  reason  String
+
+  /// Which one the person said was theirs, and when. Null until they answer.
+  chosenAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, position])
+  @@index([taskId, matches])
+  @@map("order_candidates")
+}
+
 model VisibilityCheck {
   id        String   @id @default(uuid()) @db.Uuid
   taskId    String   @db.Uuid
