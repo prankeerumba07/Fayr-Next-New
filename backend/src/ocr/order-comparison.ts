@@ -41,10 +41,32 @@ export interface ExtractedForComparison {
   deliveryStatus?: string | null;
 }
 
+/**
+ * ONE PRODUCT ON AN ORDER, with its own price in integer paise.
+ *
+ * Added 2 September 2026, because a real Zepto order is one order with several
+ * shipments and several products on it, and until now every shape in here
+ * assumed exactly one. See order-text.ts, which reads a screen into this.
+ */
+export interface OrderItemForComparison {
+  name: string;
+  pricePaise: bigint | number;
+}
+
 /** The user's own order, as Fayr holds it. Integer paise, milliseconds. */
 export interface OwnOrderForComparison {
   id?: string | null;
   product?: string | null;
+  /**
+   * Every product on the order, when the order has more than one.
+   *
+   * Optional, and absent on every order Fayr held before this existed: an Amazon
+   * order carries one product in `product` and its price in the money fields
+   * below, and that shape still works exactly as it did. When both are present
+   * the single product is not ignored — it is simply one more product to look
+   * through.
+   */
+  items?: readonly OrderItemForComparison[] | null;
   /** Every money field Fayr holds for the line, so the comparison can accept any. */
   unitPricePaise?: bigint | number | null;
   lineTotalPaise?: bigint | number | null;
@@ -183,13 +205,76 @@ export function paiseFromRupees(amount: number | null | undefined): bigint | nul
  */
 function moneyCandidates(order: OwnOrderForComparison): bigint[] {
   const out: bigint[] = [];
+  const add = (raw: bigint | number | null | undefined): void => {
+    if (raw == null) return;
+    const v = typeof raw === 'bigint' ? raw : BigInt(Math.trunc(raw));
+    if (v > 0n && !out.includes(v)) out.push(v);
+  };
+  add(order.unitPricePaise);
+  add(order.lineTotalPaise);
+  add(order.itemPaise);
+  add(order.orderTotalPaise);
+  // AND EACH PRODUCT'S OWN PRICE. On an order with several products, a screenshot
+  // of one row shows that row's figure and a screenshot of the bill shows the
+  // whole total, and both are the same order. Neither may read as a disagreement.
+  for (const item of itemsOf(order)) add(item.pricePaise);
+  return out;
+}
+
+/**
+ * The products on an order, whatever shape the order came in.
+ *
+ * An order with a list has that list. An order with no list but a product name
+ * has one product, priced at the most specific figure Fayr holds for it — which
+ * is what every order looked like before this file learned to count. An order
+ * with neither has none, and none is not an error, it is a thing we could not
+ * read, and it is said as that.
+ */
+function itemsOf(order: OwnOrderForComparison): OrderItemForComparison[] {
+  const list = Array.isArray(order.items) ? order.items : [];
+  const out: OrderItemForComparison[] = [];
+  for (const raw of list) {
+    if (!raw || typeof raw !== 'object') continue;
+    const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+    if (name === '') continue;
+    const price = raw.pricePaise;
+    if (price == null) continue;
+    const paise = typeof price === 'bigint' ? price : BigInt(Math.trunc(price));
+    if (paise <= 0n) continue;
+    out.push({ name, pricePaise: paise });
+  }
+  if (out.length > 0) return out;
+
+  const single = typeof order.product === 'string' && order.product.trim() !== ''
+    ? order.product.trim() : null;
+  if (single == null) return [];
+  // Deliberately NOT moneyCandidates, which would call this back. The four money
+  // fields in their order of preference, first one that is a real figure.
   for (const raw of [order.unitPricePaise, order.lineTotalPaise, order.itemPaise,
     order.orderTotalPaise]) {
     if (raw == null) continue;
-    const v = typeof raw === 'bigint' ? raw : BigInt(Math.trunc(raw));
-    if (v > 0n && !out.includes(v)) out.push(v);
+    const paise = typeof raw === 'bigint' ? raw : BigInt(Math.trunc(raw));
+    if (paise > 0n) return [{ name: single, pricePaise: paise }];
   }
-  return out;
+  return [];
+}
+
+/**
+ * Are these two the same product's name?
+ *
+ * One name is very often the other with extra words after it, because an order
+ * page prints the full title and a campaign carries a shorter one. Either
+ * containing the other counts as the same product; nothing looser than that.
+ *
+ * THERE IS NO SCORE IN THIS AND THERE MUST NOT BE. The staff side has a token
+ * overlap threshold and prints it out loud; this side is a yes or a no, so there
+ * is no number here for anybody to find by trying.
+ */
+function sameProductName(a: string, b: string): boolean {
+  const x = loose(a);
+  const y = loose(b);
+  if (x === '' || y === '') return false;
+  return x === y || x.includes(y) || y.includes(x);
 }
 
 function row(
@@ -247,14 +332,30 @@ export function compareToOwnOrder(
     ? e.productName.trim() : null;
   const ourProduct = typeof o.product === 'string' && o.product.trim() !== ''
     ? o.product.trim() : null;
-  // One name is very often the other with extra words after it, because an order
-  // page prints the full title and a screenshot may be cropped. Either containing
-  // the other counts as the same product; nothing looser than that.
+  const ourItems = itemsOf(o);
+  // OUR SIDE MAY BE A LIST. The screenshot names one product; the order may hold
+  // several. Any one of them being the named product means the two documents
+  // agree, and the one that agreed is the one shown, so the two columns read
+  // identically instead of looking wrong beside a product the person did buy.
   let productAgree: boolean | null = null;
-  if (shotProduct != null && ourProduct != null) {
-    const a = loose(shotProduct);
-    const b = loose(ourProduct);
-    productAgree = a === b || a.includes(b) || b.includes(a);
+  let ourProductShown = ourProduct;
+  if (shotProduct != null) {
+    if (ourProduct != null && sameProductName(shotProduct, ourProduct)) {
+      productAgree = true;
+    } else {
+      const hit = ourItems.find((it) => sameProductName(shotProduct, it.name));
+      if (hit) {
+        productAgree = true;
+        ourProductShown = hit.name;
+      } else if (ourProduct != null) {
+        productAgree = false;
+      } else if (ourItems.length > 0) {
+        productAgree = false;
+        ourProductShown = ourItems[0].name;
+      }
+    }
+  } else if (ourProduct == null && ourItems.length > 0) {
+    ourProductShown = ourItems[0].name;
   }
 
   // ── marketplace ───────────────────────────────────────────────────────────
@@ -272,7 +373,7 @@ export function compareToOwnOrder(
     row('orderId', 'Order ID', shotId, ourId, idAgree),
     row('amount', 'Order amount', rupeesFromPaise(shotPaise), rupeesFromPaise(ourPaise), amountAgree),
     row('orderDate', 'Order date', shotDay, ourDay, dateAgree),
-    row('productName', 'Product name', shotProduct, ourProduct, productAgree),
+    row('productName', 'Product name', shotProduct, ourProductShown, productAgree),
     row('marketplace', 'Marketplace', shotShop, ourShop, shopAgree),
   ];
 
@@ -304,4 +405,108 @@ export function howManyAgree(rows: UserFieldRow[]): number {
 /** How many rows could be compared at all. */
 export function howManyCompared(rows: UserFieldRow[]): number {
   return Array.isArray(rows) ? rows.filter((r) => r && r.agree !== null).length : 0;
+}
+
+/* ============================================================================
+   DOES THIS ORDER CONTAIN WHAT WE ASKED THEM TO BUY?
+   ----------------------------------------------------------------------------
+   A different question from everything above, asked of the same data.
+
+   Above: does the user's screenshot say the same as the user's own order. Both
+   sides are theirs, and it leaks nothing.
+
+   Here: is one of the products on this order the campaign's product, at the
+   campaign's price. This is the question the automatic check after "yes, I
+   purchased" has to answer, over an order that may hold several products.
+
+   EXACT, PURE, AND WITHOUT A TOLERANCE ANYWHERE IN IT. The staff side
+   (EvidenceMatchService) has a rupee band and a percentage band and prints them
+   out loud, and it is staff-only for that reason. This one has no band, so there
+   is nothing here for somebody to find the edge of by uploading twice.
+
+   IT NEVER SAYS ONLY "NO MATCH". Every answer names what failed, because "no
+   match" tells the person nothing and tells the next person reading a record even
+   less.
+   ========================================================================== */
+
+/** What the campaign says the product is and what it should cost. */
+export interface CampaignForOrderMatch {
+  productName?: string | null;
+  /** The campaign's own expected price, in integer paise. */
+  expectedPricePaise?: bigint | number | null;
+}
+
+/**
+ * Why the answer is what it is. Each one names a thing that actually happened.
+ *
+ *   matched                 one product on the order is it, at the right price
+ *   product_name_not_found  nothing on the order is that product
+ *   price_differs           the product is on the order, at a different price
+ *   no_products_read        we could not read any product off the order
+ *   no_campaign_product     the campaign does not say what the product is
+ *   no_expected_price       the campaign does not say what it should cost
+ */
+export type OrderMatchReason =
+  | 'matched'
+  | 'product_name_not_found'
+  | 'price_differs'
+  | 'no_products_read'
+  | 'no_campaign_product'
+  | 'no_expected_price';
+
+export interface OrderMatchAnswer {
+  matches: boolean;
+  reason: OrderMatchReason;
+  /**
+   * The product this answer is about, where there is one.
+   *
+   * On a match, the product that matched. On `price_differs`, the product whose
+   * NAME matched, so whoever shows this can say which product and what it
+   * actually cost without going and looking for it again.
+   */
+  item: OrderItemForComparison | null;
+}
+
+/**
+ * One campaign product against an order that may hold several.
+ *
+ * THE RULE: the order matches if ANY product on it is the campaign's product by
+ * name AND that product's price is the campaign's expected price. Not the order
+ * total, not the sum of the products — that one product's own price.
+ */
+export function matchOrderToCampaign(
+  order: OwnOrderForComparison | null | undefined,
+  campaign: CampaignForOrderMatch | null | undefined,
+): OrderMatchAnswer {
+  const o = order && typeof order === 'object' ? order : {};
+  const c = campaign && typeof campaign === 'object' ? campaign : {};
+
+  const items = itemsOf(o);
+  if (items.length === 0) {
+    return { matches: false, reason: 'no_products_read', item: null };
+  }
+
+  const wanted = typeof c.productName === 'string' && c.productName.trim() !== ''
+    ? c.productName.trim() : null;
+  if (wanted == null) {
+    return { matches: false, reason: 'no_campaign_product', item: null };
+  }
+
+  // NAME FIRST, ALWAYS. "The product is not on this order" and "the product is on
+  // this order at the wrong price" are two different things to be told, and the
+  // second one can only be said once the first has been answered.
+  const named = items.filter((it) => sameProductName(wanted, it.name));
+  if (named.length === 0) {
+    return { matches: false, reason: 'product_name_not_found', item: null };
+  }
+
+  const raw = c.expectedPricePaise;
+  if (raw == null) {
+    return { matches: false, reason: 'no_expected_price', item: named[0] };
+  }
+  const expected = typeof raw === 'bigint' ? raw : BigInt(Math.trunc(raw));
+
+  const exact = named.find((it) => it.pricePaise === expected);
+  if (exact) return { matches: true, reason: 'matched', item: exact };
+  return { matches: false, reason: 'price_differs', item: named[0] };
 }

@@ -4,6 +4,7 @@ import {
   dayFromText,
   howManyAgree,
   howManyCompared,
+  matchOrderToCampaign,
   paiseFromRupees,
   rupeesFromPaise,
 } from './order-comparison';
@@ -262,6 +263,201 @@ describe('the user’s own screenshot against the user’s own order', () => {
       for (const bad of [undefined, null, '', 'soon', '2026', '13/13/2026', 42]) {
         expect(dayFromText(bad as never)).toBeNull();
       }
+    });
+  });
+});
+
+/* ============================================================================
+   ONE CAMPAIGN PRODUCT AGAINST AN ORDER THAT HOLDS SEVERAL
+   ----------------------------------------------------------------------------
+   Added 2 September 2026. A real Zepto order carries several products under
+   several shipment headings, so "does this order contain the thing we asked them
+   to buy" can no longer be answered by looking at one name and one price.
+   ========================================================================== */
+
+const HEADBAND = { name: 'Boldfit Strapless Sports Headband', pricePaise: 14900n };
+const EARPHONES = { name: 'Hammer Nova earphones', pricePaise: 21900n };
+
+/** The Zepto order from the fixture, in the shape the comparison takes. */
+const MANY = {
+  id: 'SOSIJGGRL26770',
+  date: day(2026, 8, 21),
+  orderTotalPaise: 36800n,
+  items: [HEADBAND, EARPHONES],
+};
+
+describe('an order that holds several products', () => {
+  describe('the field by field rows read it too', () => {
+    it('agrees on a product that is one of several on the order', () => {
+      const rows = by(compareToOwnOrder(
+        { productName: 'Hammer Nova earphones', amount: 219 },
+        MANY,
+        'Zepto',
+      ));
+      expect(rows.productName.agree).toBe(true);
+      expect(rows.productName.fromOrder).toBe('Hammer Nova earphones');
+      expect(rows.amount.agree).toBe(true);
+    });
+
+    it('shows the price of the product that agreed, not the whole bill', () => {
+      const rows = by(compareToOwnOrder(
+        { productName: 'Boldfit Strapless Sports Headband', amount: 149 },
+        MANY,
+        'Zepto',
+      ));
+      expect(rows.amount.fromScreenshot).toBe('₹149.00');
+      expect(rows.amount.fromOrder).toBe('₹149.00');
+    });
+
+    it('still accepts the whole bill as the amount', () => {
+      // A screenshot of the bill block shows ₹368 and nothing else. That is the
+      // same order, so the row must not read as a disagreement.
+      const rows = by(compareToOwnOrder({ amount: 368 }, MANY, 'Zepto'));
+      expect(rows.amount.agree).toBe(true);
+    });
+
+    it('disagrees on a product that is not on the order at all', () => {
+      const rows = by(compareToOwnOrder(
+        { productName: 'Prestige Induction Cooktop', amount: 1326 },
+        MANY,
+        'Zepto',
+      ));
+      expect(rows.productName.agree).toBe(false);
+      expect(rows.amount.agree).toBe(false);
+    });
+
+    it('changes nothing for an order with one product and no item list', () => {
+      // The old shape, untouched. This is the check that stops the hard case from
+      // being fixed by breaking the easy one.
+      const rows = by(compareToOwnOrder(SHOT, ORDER, 'Amazon'));
+      expect(rows.productName.agree).toBe(true);
+      expect(rows.amount.agree).toBe(true);
+      expect(rows.orderId.agree).toBe(true);
+      expect(rows.orderDate.agree).toBe(true);
+    });
+  });
+
+  describe('does this order contain what we asked them to buy', () => {
+    const CAMPAIGN = {
+      productName: 'Hammer Nova earphones',
+      expectedPricePaise: 21900n,
+    };
+
+    it('matches when any one product on the order is the right one', () => {
+      const answer = matchOrderToCampaign(MANY, CAMPAIGN);
+      expect(answer.matches).toBe(true);
+      expect(answer.reason).toBe('matched');
+      expect(answer.item).toEqual(EARPHONES);
+    });
+
+    it('matches the first product on the order just as readily as the last', () => {
+      const answer = matchOrderToCampaign(MANY, {
+        productName: 'Boldfit Strapless Sports Headband',
+        expectedPricePaise: 14900n,
+      });
+      expect(answer.matches).toBe(true);
+      expect(answer.item).toEqual(HEADBAND);
+    });
+
+    it('says the name was not found when nothing on the order is it', () => {
+      const answer = matchOrderToCampaign(MANY, {
+        productName: 'Prestige Induction Cooktop 1900W Black',
+        expectedPricePaise: 132600n,
+      });
+      expect(answer.matches).toBe(false);
+      expect(answer.reason).toBe('product_name_not_found');
+      expect(answer.item).toBeNull();
+    });
+
+    it('says the price differs when the name was found and the price was not', () => {
+      const answer = matchOrderToCampaign(MANY, {
+        productName: 'Hammer Nova earphones',
+        expectedPricePaise: 19900n,
+      });
+      expect(answer.matches).toBe(false);
+      expect(answer.reason).toBe('price_differs');
+      // The item is handed back, so whoever shows this can say which product and
+      // what it actually cost without going looking for it again.
+      expect(answer.item).toEqual(EARPHONES);
+    });
+
+    it('never says only that there was no match', () => {
+      // Every answer names what failed. This is the owner's rule, checked over
+      // every way the comparison can end rather than one of them.
+      const answers = [
+        matchOrderToCampaign(MANY, CAMPAIGN),
+        matchOrderToCampaign(MANY, { productName: 'Nothing Like It', expectedPricePaise: 100n }),
+        matchOrderToCampaign(MANY, { productName: 'Hammer Nova earphones', expectedPricePaise: 100n }),
+        matchOrderToCampaign({ items: [] }, CAMPAIGN),
+        matchOrderToCampaign(MANY, { productName: 'Hammer Nova earphones', expectedPricePaise: null }),
+        matchOrderToCampaign(MANY, { productName: null, expectedPricePaise: 21900n }),
+      ];
+      expect(answers.map((a) => a.reason)).toEqual([
+        'matched',
+        'product_name_not_found',
+        'price_differs',
+        'no_products_read',
+        'no_expected_price',
+        'no_campaign_product',
+      ]);
+      for (const a of answers) {
+        expect(typeof a.reason).toBe('string');
+        expect(a.reason).not.toBe('no_match');
+      }
+    });
+
+    it('has no tolerance in it at all', () => {
+      // One paise out is out. The staff side has a rupee band and a percentage
+      // band on purpose; this one must not, or it becomes a way for somebody to
+      // find where the band ends by trying.
+      for (const off of [21899n, 21901n, 21800n, 22000n]) {
+        const answer = matchOrderToCampaign(MANY, {
+          productName: 'Hammer Nova earphones',
+          expectedPricePaise: off,
+        });
+        expect(answer.matches).toBe(false);
+        expect(answer.reason).toBe('price_differs');
+      }
+    });
+
+    it('reads an order with one product and no item list', () => {
+      // Amazon's shape. The order carries a product and a price and no list, and
+      // it must still match, or every Amazon task stops working.
+      const answer = matchOrderToCampaign(ORDER, {
+        productName: 'Prestige Induction Cooktop 1900W Black',
+        expectedPricePaise: 132600n,
+      });
+      expect(answer.matches).toBe(true);
+      expect(answer.reason).toBe('matched');
+    });
+
+    it('says nothing was read when the order has no products on it', () => {
+      for (const empty of [{}, { items: [] }, { items: null }]) {
+        const answer = matchOrderToCampaign(empty, CAMPAIGN);
+        expect(answer.matches).toBe(false);
+        expect(answer.reason).toBe('no_products_read');
+      }
+    });
+
+    it('accepts a longer name on the order than on the campaign', () => {
+      // An order line prints the full title and a campaign carries a shorter one,
+      // or the other way about. One containing the other is the same product;
+      // nothing looser than that counts, and there is no score anywhere in it.
+      const answer = matchOrderToCampaign(
+        { items: [{ name: 'Hammer Nova Bluetooth earphones with 60 hour battery', pricePaise: 21900n }] },
+        { productName: 'Hammer Nova Bluetooth earphones', expectedPricePaise: 21900n },
+      );
+      expect(answer.matches).toBe(true);
+    });
+
+    it('survives junk on either side', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const j = (v: any) => v;
+      expect(matchOrderToCampaign(j(null), j(null)).matches).toBe(false);
+      expect(matchOrderToCampaign(j(undefined), CAMPAIGN).reason).toBe('no_products_read');
+      expect(matchOrderToCampaign(MANY, j(null)).reason).toBe('no_campaign_product');
+      expect(matchOrderToCampaign(j({ items: 'not a list' }), CAMPAIGN).reason)
+        .toBe('no_products_read');
     });
   });
 });
