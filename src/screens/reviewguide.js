@@ -32,9 +32,9 @@ import { PLATFORMS } from '../platforms';
 import { SIGNED_IN, markVisitedShop } from '../journey/shopVisits';
 import { copyProductName, openShopApp } from '../openShop';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from '../ui/theme';
-import { Ghost, Pill, TopBar, hSub, hTitle } from '../ui/brand';
+import { Pill, TopBar, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
-import { appButtonLabel, copyLine, whichDoorLine } from '../ui/shopApp';
+import { copyLine } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
 
 /**
@@ -69,12 +69,6 @@ export default function ReviewGuideScreen({ navigation, route }) {
     const done = await copyProductName(product);
     setCopied(done);
   }, [product]);
-
-  const openInFayr = useCallback(async () => {
-    await putOnClipboard();
-    if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
-    navigation.navigate(key, { campaignId });
-  }, [putOnClipboard, navigation, key, campaignId]);
 
   const openTheirApp = useCallback(async () => {
     await putOnClipboard();
@@ -117,7 +111,6 @@ export default function ReviewGuideScreen({ navigation, route }) {
             Honest feedback, good or bad, earns the same refund.
           </Text>
         </View>
-        <Text style={styles.doors}>{whichDoorLine(shop)}</Text>
 
         {copied === null ? null : (
           <Text style={[styles.copied, copied === false && styles.copiedNo]}>
@@ -127,10 +120,20 @@ export default function ReviewGuideScreen({ navigation, route }) {
       </ScrollView>
 
       <View style={styles.foot}>
-        <Pill onPress={openInFayr} color={COLOR.ink}>
-          OPEN {shop.toUpperCase()} INSIDE FAYR →
+        {/* ONE DOOR, AND IT IS THE SHOP'S OWN APP. The other button opened the
+            shop inside Fayr in a web view. The owner asked on 2 September 2026 for
+            no marketplace ever to open inside Fayr, so it is gone.
+
+            THE WORDS ARE THE DESIGN'S OWN. Its before you go screen has exactly
+            one button, reading "OPEN AMAZON →" (fayr-design.browser.jsx:2568), so
+            that is what this says rather than wording of mine.
+
+            src/openShop.js opens the shop's own app by its own address and falls
+            back to the shop's website in the phone's own browser. Nothing renders
+            a marketplace inside Fayr. */}
+        <Pill onPress={openTheirApp} color={COLOR.ink}>
+          OPEN {shop.toUpperCase()} →
         </Pill>
-        <Ghost onPress={openTheirApp}>{appButtonLabel(key, shop)}</Ghost>
       </View>
     </Screen>
   );
@@ -177,10 +180,6 @@ const styles = StyleSheet.create({
     color: '#2F6FD0',
   },
 
-  doors: {
-    fontFamily: FONT.body, fontSize: 11.5, lineHeight: 18, color: COLOR.sub,
-    marginTop: 14,
-  },
   copied: {
     fontFamily: FONT.bodySemi, fontSize: 12, lineHeight: 18,
     color: COLOR.refundInk, backgroundColor: COLOR.refundBg,

@@ -3,7 +3,9 @@
 // The two things worth proving hardest: what goes on somebody's clipboard is the
 // product name and nothing else, and a shop we have no app address for still has
 // a way through.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import {
   SHOP_APP, addressesToTry, appButtonLabel, appLinkFor, copyLine, hasAppLink,
   whatToCopy, whichDoorLine,
@@ -167,15 +169,74 @@ console.log('\n=== 6. THE THREE SCREENS THAT SEND SOMEBODY SHOPPING REALLY DO IT
     new URL(`../screens/${key}.js`, import.meta.url), 'utf8',
   ));
 
+  // ONE DOOR NOW, NOT TWO. Changed on 2 September 2026: the owner asked for no
+  // marketplace ever to open inside Fayr, so the "open the shop inside Fayr"
+  // button is gone from both screens and the line explaining which door was which
+  // went with it, because there is nothing left to explain.
   for (const key of ['buyinterstitial', 'reviewguide']) {
     const src = read(key);
     ok(/copyProductName\(/.test(src), `${key} puts the product name on the clipboard`);
     ok(/copyLine\(/.test(src), `${key} says out loud that the clipboard changed`);
     ok(/openShopApp\(/.test(src), `${key} offers the shop’s own app`);
-    ok(/whichDoorLine\(/.test(src), `${key} says which door is which`);
-    // The shop inside Fayr is still there, because it is the only door Fayr can
-    // read an order through.
-    ok(/navigation\.navigate\(key/.test(src), `${key} still opens the shop inside Fayr`);
+    ok(!/whichDoorLine\(/.test(src), `${key} still explains two doors`);
+    ok(!/navigation\.navigate\(key/.test(src),
+      `${key} still opens a marketplace inside Fayr`);
+    // THE DESIGN'S OWN WORDING for the one button that remains: its before you go
+    // screen reads "OPEN AMAZON →" at fayr-design.browser.jsx:2568.
+    ok(/OPEN \{shop\.toUpperCase\(\)\} →/.test(src),
+      `${key} does not use the design's own button wording`);
+  }
+
+  console.log('\n=== 6b. NOTHING SHOWS A MARKETPLACE INSIDE FAYR EXCEPT CONNECTING ===');
+  {
+    // ONE FILE MAY, AND ONLY ONE. src/ConnectScreen.js is the connect flow: it
+    // loads the shop in a web view and reads the signed-in order pages, which is
+    // the only way Fayr can see an order at all. The design says so itself, in the
+    // comment at fayr-design.browser.jsx:2284: "The native app connects by loading
+    // the marketplace in an in-app WebView and capturing the logged-in session
+    // cookie." That file is frozen and this part of the work did not name it.
+    //
+    // So the rule that can be checked is the real one: no OTHER file under src may
+    // render a web view, and no screen may send somebody to a marketplace route to
+    // go shopping.
+    const dir = join(dirname(fileURLToPath(import.meta.url)), '..');
+    const files = [];
+    const walk = (d) => {
+      for (const entry of readdirSync(d, { withFileTypes: true })) {
+        const full = join(d, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.js')) files.push(full);
+      }
+    };
+    walk(dir);
+    ok(files.length > 40, `walked ${files.length} files under src`);
+
+    const webViews = files.filter((f) => {
+      const src = strip(readFileSync(f, 'utf8'));
+      return /from 'react-native-webview'/.test(src);
+    }).map((f) => f.slice(dir.length + 1));
+    // TWO FILES MAY, AND BOTH ARE NAMED. ConnectScreen.js is the connect flow
+    // described above. LiveCheckScreen.js is the staff offer page check, which
+    // opens a product page to see whether a shopper could buy it — it is a staff
+    // tool, it is off unless somebody deliberately turns it on (see
+    // src/walkthrough/onlyForUs.js), and no shopper can reach it. Anything else
+    // rendering a web view is a shopper being shown a marketplace inside Fayr.
+    const ALLOWED = ['ConnectScreen.js', 'LiveCheckScreen.js'];
+    const extra = webViews.filter((f) => !ALLOWED.includes(f));
+    ok(extra.length === 0, `these render a web view and should not: ${extra.join(', ')}`);
+    // And the two that may are still there, so this cannot pass by them being
+    // deleted.
+    for (const f of ALLOWED) {
+      ok(webViews.includes(f), `${f} no longer renders a web view`);
+    }
+
+    // AND NO SHOPPING SCREEN SENDS ANYBODY INTO IT. The screens that take somebody
+    // to a shop to buy or to review must use the shop's own app, never a route
+    // inside Fayr.
+    for (const key of ['buyinterstitial', 'reviewguide']) {
+      ok(!/navigation\.(navigate|replace|push)\(key/.test(read(key)),
+        `${key} opens a marketplace route inside Fayr`);
+    }
   }
 
   // The owner asked for "Go to Amazon Now" after the account is connected, which is
