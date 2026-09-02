@@ -113,7 +113,13 @@ export const ANSWER_DRAFTS: AnswerDraftSet[] = [
           'We pay back a share of what you were really charged for the product. ' +
           'Not the crossed-out price, and not the price on the label. If you paid ' +
           'less than the price on the offer, we use the lower amount. Delivery ' +
-          'charges and other things in the same order are not counted.',
+          'charges and other things in the same order are not counted. ' +
+          // WHERE THE REAL FIGURE IS, added 2 September 2026. The answer
+          // explained the rule and never said where somebody's own number was,
+          // so the only way to find it was to ask. Nothing here states a figure:
+          // it points at the two screens that hold the real one.
+          'Each offer page shows the most you can get back on that product. ' +
+          'Your wallet screen shows what has already come back.',
         phrases: [
           'how much refund will i get',
           'how much money will i get back',
@@ -127,7 +133,9 @@ export const ANSWER_DRAFTS: AnswerDraftSet[] = [
           'सामान के लिए आपने असल में जितना पैसा दिया, उसी का एक हिस्सा वापस आता है। ' +
           'काटा हुआ दाम नहीं, और लेबल का दाम भी नहीं। अगर आपने ऑफर के दाम से कम दिया ' +
           'है, तो हम कम वाला ही मानते हैं। डिलीवरी का खर्च और उसी ऑर्डर की दूसरी ' +
-          'चीज़ें इसमें नहीं गिनी जातीं।',
+          'चीज़ें इसमें नहीं गिनी जातीं। हर ऑफर के पेज पर दिखता है कि उस सामान पर ' +
+          'ज्यादा से ज्यादा कितना वापस आ सकता है। आपके वॉलेट के पेज पर दिखता है ' +
+          'कि अब तक कितना आ चुका है।',
         phrases: [
           'कितना पैसा मिलेगा',
           'पूरा पैसा मिलेगा क्या',
@@ -140,7 +148,9 @@ export const ANSWER_DRAFTS: AnswerDraftSet[] = [
           'Saman ke liye aapne asal mein jitna paisa diya, usi ka ek hissa wapas ' +
           'aata hai. Kata hua daam nahi, aur label ka daam bhi nahi. Agar aapne ' +
           'offer ke daam se kam diya hai, to hum kam wala hi maante hain. Delivery ' +
-          'ka kharch aur usi order ki dusri cheezein isme nahi ginti.',
+          'ka kharch aur usi order ki dusri cheezein isme nahi ginti. Har offer ke ' +
+          'page par dikhta hai ki us saman par zyada se zyada kitna wapas aa sakta ' +
+          'hai. Aapke wallet ke page par dikhta hai ki ab tak kitna aa chuka hai.',
         phrases: [
           'kitna paisa milega',
           'pura paisa milega kya',

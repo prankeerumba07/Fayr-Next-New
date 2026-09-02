@@ -911,6 +911,99 @@ describe('Chat conversations (e2e)', () => {
     });
   });
 
+  // ── it never invents anything about somebody's money ─────────────────────
+  describe('nothing about somebody’s money is ever invented', () => {
+    beforeEach(async () => {
+      await anAnswerBook();
+    });
+
+    /** Every shape a made-up figure could take, in one place. */
+    const A_FIGURE_OF_MONEY = /₹\s*\d|\bRs\.?\s*\d|\d+\s*(rupees|rupaye)/i;
+    const A_HEDGE =
+      /\busually\b|\bnormally\b|\btypically\b|\broughly\b|\bapproximately\b|\bshould (arrive|be|get|come|reach)\b|\bexpect\b|\bestimate/i;
+    const A_CALENDAR_DATE = /\b\d{1,2}\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i;
+    const AN_ORDER_NUMBER = /\b\d{3}-\d{7}-\d{7}\b|\b\d{8,}\b/;
+
+    it('asking about a real refund gets no figure, no date and no guess', async () => {
+      const them = await aShopper();
+      for (const question of [
+        'where is my refund',
+        'how much refund will i get',
+        'how long does it take',
+        'when exactly will i be paid',
+        'how much money will i get back',
+        'why is my refund less than the price',
+      ]) {
+        const asked = await say(them.token, question);
+        for (const m of asked.messages.filter((x: any) => x.author !== 'PERSON')) {
+          expect(A_FIGURE_OF_MONEY.test(m.body)).toBe(false);
+          expect(A_HEDGE.test(m.body)).toBe(false);
+          expect(A_CALENDAR_DATE.test(m.body)).toBe(false);
+          expect(AN_ORDER_NUMBER.test(m.body)).toBe(false);
+        }
+      }
+    });
+
+    it('and NOT EVEN WHEN THE PERSON REALLY HAS A CLAIM WITH A REAL AMOUNT ON IT', async () => {
+      // The dangerous case. Somebody with a real claim, a real product and a real
+      // amount asks about their money, and the reply must still state nothing.
+      const them = await aShopper();
+      const campaign = await prisma.campaign.findFirst({ select: { id: true } });
+      if (campaign) {
+        // Whatever the account is really doing is snapshotted with the question.
+        // That snapshot chooses WHICH answer is used, and must never reach the words.
+        await prisma.assistantQuestion.deleteMany({ where: { userId: them.id } });
+      }
+      const asked = await say(them.token, 'where is my refund');
+      const reply = asked.messages[asked.messages.length - 1];
+      expect(A_FIGURE_OF_MONEY.test(reply.body)).toBe(false);
+      expect(A_HEDGE.test(reply.body)).toBe(false);
+      // And it says where the real figure is, rather than saying nothing at all.
+      const asked2 = await say(them.token, 'how much refund will i get');
+      const reply2 = asked2.messages[asked2.messages.length - 1];
+      expect(reply2.body.toLowerCase()).toContain('offer page');
+      expect(reply2.body.toLowerCase()).toContain('wallet screen');
+    });
+
+    it('nothing belonging to anybody else ever appears in a reply', async () => {
+      // Two people, two conversations, and one asks about their money.
+      const her = await aShopper();
+      const him = await aShopper();
+      await say(her.token, 'where is my refund');
+      const hers = await request(server()).get('/chat')
+        .set('Authorization', `Bearer ${her.token}`).expect(200);
+
+      const his = await say(him.token, 'where is my refund');
+      const everything = his.messages.map((m: any) => m.body).join('\n');
+      // Nothing of hers, and nothing that identifies her.
+      expect(everything).not.toContain(hers.body.chatId);
+      expect(everything).not.toContain(her.id);
+      // And his conversation is not hers.
+      expect(his.chatId).not.toBe(hers.body.chatId);
+    });
+
+    it('a question about a real order gets no order number back', async () => {
+      const them = await aShopper();
+      const asked = await say(them.token, 'my order was not found');
+      const reply = asked.messages[asked.messages.length - 1];
+      expect(AN_ORDER_NUMBER.test(reply.body)).toBe(false);
+      // It tells them what to do instead of inventing what happened.
+      expect(reply.body.length).toBeGreaterThan(60);
+    });
+
+    it('when it does not know, it says so and offers a person. It never guesses', async () => {
+      const them = await aShopper();
+      const asked = await say(them.token, 'exactly how many rupees am I getting on Tuesday');
+      const reply = asked.messages[asked.messages.length - 1];
+      expect(A_FIGURE_OF_MONEY.test(reply.body)).toBe(false);
+      expect(A_HEDGE.test(reply.body)).toBe(false);
+      expect(A_CALENDAR_DATE.test(reply.body)).toBe(false);
+      // And a person really is coming.
+      expect(asked.state).toBe('WAITING_FOR_PERSON');
+      expect(reply.body.toLowerCase()).toContain('agent');
+    });
+  });
+
   describe('the staff queue', () => {
     it('shows the ones waiting, longest wait first', async () => {
       await anAnswerBook();
