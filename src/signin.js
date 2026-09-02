@@ -57,6 +57,7 @@
 // every rule in it without a phone.
 
 import { PLATFORMS } from './platforms.js';
+import { signInTapScript } from './signinTap.js';
 
 /** The host part of a web address, or null when it is not one. */
 function hostOf(url) {
@@ -81,7 +82,10 @@ export function whereTheySignIn(platformKey) {
   const key = String(platformKey || '').toLowerCase();
   const shop = PLATFORMS[key];
   if (!shop) {
-    return { url: null, onItsOwnPage: false, shopName: null, why: 'Fayr does not know this shop.' };
+    return {
+      url: null, onItsOwnPage: false, tapsItsOwnControl: false, shopName: null,
+      why: 'Fayr does not know this shop.',
+    };
   }
 
   const home = typeof shop.startUrl === 'string' ? shop.startUrl : null;
@@ -93,11 +97,20 @@ export function whereTheySignIn(platformKey) {
   // shop's own page, and nothing else in the app changes.
 
   if (page == null) {
+    // A shop with no sign in page of its own. Three of the seven are like that,
+    // and each one's own site is opened and its own sign in control tapped for
+    // them. A shop with neither is the thing the check next door refuses.
+    const taps = signInTapScript(key) != null;
     return {
       url: home,
       onItsOwnPage: false,
+      tapsItsOwnControl: taps,
       shopName: shop.name || key,
-      why: 'We have not established this shop’s own sign in address, so it opens the shop’s own site.',
+      why: taps
+        ? 'This shop has no sign in page with an address of its own, so its own site '
+          + 'opens and its own sign in control is tapped for them.'
+        : 'We have not established how this shop’s sign in is reached, so it opens '
+          + 'the shop’s own site and nothing is guessed.',
     };
   }
 
@@ -108,6 +121,7 @@ export function whereTheySignIn(platformKey) {
       url: home,
       onItsOwnPage: false,
       shopName: shop.name || key,
+      tapsItsOwnControl: signInTapScript(key) != null,
       why: 'That sign in address is on another host, so it is refused and the shop’s own site opens.',
     };
   }
@@ -115,6 +129,8 @@ export function whereTheySignIn(platformKey) {
   return {
     url: page,
     onItsOwnPage: true,
+    // Nothing to hunt for: the address opens the shop's own sign in directly.
+    tapsItsOwnControl: false,
     shopName: shop.name || key,
     why: 'The shop’s own sign in page.',
   };
@@ -239,5 +255,21 @@ export function shopHandedToConnectScreen(platformKey, routeParams) {
   if (!shop) return null;
   const params = routeParams || {};
   if (params.toSignIn !== true) return shop;
-  return shopForSigningIn(key) || shop;
+
+  const going = shopForSigningIn(key) || shop;
+
+  // A SHOP WITH NO SIGN IN PAGE OF ITS OWN gets its own site opened and then a
+  // small script that finds and taps the shop's own sign in control. Three of the
+  // seven are like that, and every label and class name in those scripts was read
+  // off the shop's own page in a real browser. See src/signinTap.js.
+  //
+  // THE SCRAPER'S OWN SCRIPTS ARE NOT TOUCHED. This adds a SECOND script after
+  // the shop's own one, only for a visit somebody makes in order to sign in.
+  // src/platforms.js keeps all twelve of its injected scripts byte for byte, and
+  // the connect screen is not edited either — it is handed a shop, and this is
+  // the shop it is handed.
+  const tap = signInTapScript(key);
+  if (!tap) return going;
+  const own = typeof going.beforeLoadScript === 'string' ? going.beforeLoadScript : '';
+  return { ...going, beforeLoadScript: `${own}\n${tap}` };
 }

@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { PLATFORMS, PLATFORM_LIST } from './platforms.js';
+import { shopsThatTapToSignIn, signInTapScript } from './signinTap.js';
 import {
   everyShopsSignIn, readAccountName, shopForSigningIn, shopHandedToConnectScreen,
   whereTheySignIn,
@@ -197,6 +198,169 @@ t('a name is never longer than a name', () => {
   const name = readAccountName(long);
   ok(name && name.split(' ').length <= 3,
     `a name read off a page is at most three words, got "${name}"`);
+});
+
+// ── 5. EVERY SHOP, BECAUSE THE OWNER ASKED FOR EVERY MARKETPLACE ────────────
+//
+// A shop's sign in is one of two things and never a third: a PAGE with an address
+// of its own, or a PANEL on the shop's own site with no address at all. A shop
+// with neither is a shop somebody cannot connect, and that is what this refuses.
+
+t('every single shop can reach its own sign in, one way or the other', () => {
+  const stuck = [];
+  for (const key of Object.keys(PLATFORMS)) {
+    const where = whereTheySignIn(key);
+    const hasPage = where.onItsOwnPage === true;
+    const taps = signInTapScript(key) != null;
+    if (!hasPage && !taps) stuck.push(key);
+  }
+  assert.deepEqual(stuck, [],
+    'these shops have neither a sign in page of their own nor a script that finds '
+    + 'and taps their own sign in control, so nobody can connect them: '
+    + stuck.join(', '));
+});
+
+t('and it is one or the other, never both, so there is one way per shop', () => {
+  for (const key of Object.keys(PLATFORMS)) {
+    const hasPage = whereTheySignIn(key).onItsOwnPage === true;
+    const taps = signInTapScript(key) != null;
+    ok(hasPage !== taps,
+      `${key}: a shop with a sign in page of its own has nothing to hunt for, and a `
+      + 'shop being hunted has no page. Both at once means two answers to one question');
+  }
+});
+
+t('all seven shops are accounted for, so none was quietly left out', () => {
+  assert.equal(Object.keys(PLATFORMS).length, 7, 'Fayr targets seven shops');
+  assert.equal(PLATFORM_LIST.length, 7, 'and the list the app walks holds all seven');
+  const pages = Object.keys(PLATFORMS).filter((k) => whereTheySignIn(k).onItsOwnPage);
+  const taps = shopsThatTapToSignIn();
+  assert.equal(pages.length + taps.length, 7,
+    `${pages.length} shops have their own page and ${taps.length} are tapped; `
+    + 'together that must be all seven');
+});
+
+// ── 6. THE FIND AND TAP SCRIPT MAY ONLY DO ONE THING ────────────────────────
+
+t('a script is only ever handed to the shop it was written for', () => {
+  for (const key of shopsThatTapToSignIn()) {
+    const script = signInTapScript(key);
+    const host = new URL(PLATFORMS[key].startUrl).host.replace(/^www\./, '');
+    ok(script.includes(host.replace('.', '\\.')),
+      `${key}'s script must check it is on ${host} before it does anything, so a `
+      + 'sign in that hands off to another company is left completely alone');
+  }
+});
+
+t('it never matches part of a word, only a whole label', () => {
+  for (const key of shopsThatTapToSignIn()) {
+    const script = signInTapScript(key);
+    ok(/text !== words\[w\] && aria !== words\[w\]/.test(script),
+      `${key}'s script must compare a control's WHOLE label, so "log out" and `
+      + '"reorder" can never be tapped by accident');
+    ok(/el\.children\.length > 1/.test(script),
+      `${key}'s script must refuse a control holding more than one thing, so a `
+      + 'wrapper around the whole page cannot match the words its children contain');
+    ok(!/indexOf\(|includes\(|\.search\(/.test(script),
+      `${key}'s script must not look for a label INSIDE a longer piece of text`);
+  }
+});
+
+t('it stops for good once the shop’s own sign in is up', () => {
+  for (const key of shopsThatTapToSignIn()) {
+    const script = signInTapScript(key);
+    ok(/if \(done\) return;/.test(script), `${key}: it must be able to stop`);
+    ok(/fayrSignInIsUp\(\)\) \{ done = true; return; \}/.test(script),
+      `${key}: the shop’s own sign in field being on screen must stop it for good`);
+    ok(script.includes('|signin|sign-in|auth')
+      && /\.test\(path\)\) \{ done = true; return; \}/.test(script),
+      `${key}: being on the shop’s own sign in page must stop it too — that is the `
+      + 'signal that works for a shop whose own field carries no words, which is '
+      + 'true of Flipkart');
+    ok(/signInTries >= 3/.test(script), `${key}: it must be bounded as well`);
+  }
+});
+
+t('it never touches a paying flow', () => {
+  for (const key of shopsThatTapToSignIn()) {
+    ok(/checkout\|cart\|payment\|pay/.test(signInTapScript(key)),
+      `${key}: a checkout, a cart and a payment page must be left completely alone`);
+  }
+});
+
+t('it never reads a password, a cookie, a token or anything stored', () => {
+  const FORBIDDEN = [
+    'document.cookie', 'localStorage', 'sessionStorage', 'indexedDB',
+    'XMLHttpRequest', 'fetch(', 'postMessage', 'ReactNativeWebView',
+    '.value', 'password', 'authorization', 'token',
+  ];
+  for (const key of shopsThatTapToSignIn()) {
+    const script = signInTapScript(key);
+    for (const word of FORBIDDEN) {
+      ok(!script.includes(word),
+        `${key}'s script must not contain "${word}". It asks whether a field EXISTS `
+        + 'and never looks at a value, and it sends nothing anywhere. The person '
+        + 'signs in on the shop’s own page and Fayr never sees what they type');
+    }
+  }
+});
+
+t('it draws nothing, so nothing on screen is ever an imitation of the shop', () => {
+  const DRAWING = ['createElement', 'innerHTML', 'appendChild', 'insertAdjacent',
+    'style.cssText', 'document.write'];
+  for (const key of shopsThatTapToSignIn()) {
+    const script = signInTapScript(key);
+    for (const word of DRAWING) {
+      ok(!script.includes(word),
+        `${key}'s script must not contain "${word}". Every pixel the person sees is `
+        + 'the shop’s own: no imitation of a shop’s sign in, no imitation of its '
+        + 'consent page, no imitation of the phone’s own boxes');
+    }
+  }
+});
+
+t('it is silent when it finds nothing, and never shouts at anybody', () => {
+  for (const key of shopsThatTapToSignIn()) {
+    const script = signInTapScript(key);
+    ok(!/alert\(|confirm\(|console\./.test(script),
+      `${key}: if no control matches it must do nothing at all and leave the person `
+      + 'on the shop’s own site exactly as they are today');
+    ok(/catch\(e\)\{\}/.test(script),
+      `${key}: anything going wrong must be swallowed, never thrown at the page`);
+  }
+});
+
+// ── 7. THE SCRAPER'S OWN SCRIPTS ARE UNTOUCHED ──────────────────────────────
+
+t('the shop’s own script is still there, and the new one is added after it', () => {
+  for (const key of shopsThatTapToSignIn()) {
+    const own = PLATFORMS[key].beforeLoadScript;
+    const handed = shopHandedToConnectScreen(key, SIGN_IN_VISIT).beforeLoadScript;
+    if (typeof own === 'string' && own.length > 0) {
+      ok(handed.startsWith(own),
+        `${key}: the scraper’s own script must still be there, first and unchanged`);
+    }
+    ok(handed.includes(signInTapScript(key)),
+      `${key}: and the sign in script must be added after it`);
+  }
+});
+
+t('and a reading visit gets the shop’s own script and nothing added', () => {
+  for (const shop of PLATFORM_LIST) {
+    const handed = shopHandedToConnectScreen(shop.key, undefined);
+    assert.equal(handed.beforeLoadScript, shop.beforeLoadScript,
+      `${shop.key}: a visit made to read somebody’s orders must get exactly the `
+      + 'scraper’s own script, with nothing added to it');
+  }
+});
+
+t('a shop with its own sign in page has nothing added to its script either', () => {
+  for (const key of Object.keys(PLATFORMS)) {
+    if (!whereTheySignIn(key).onItsOwnPage) continue;
+    assert.equal(shopHandedToConnectScreen(key, SIGN_IN_VISIT).beforeLoadScript,
+      PLATFORMS[key].beforeLoadScript,
+      `${key} opens its own sign in page directly, so there is nothing to hunt for`);
+  }
 });
 
 console.log(`  ${passed} checks passed`);

@@ -1885,8 +1885,15 @@ const meesho = {
   // with no navigation: the fetch reads the authenticated orders.json + each
   // rated order's detail endpoint itself.
   startUrl: 'https://www.meesho.com/orders',
-  // NOT ESTABLISHED. Refused with a 403 from this machine. Not guessed.
-  signInUrl: null,
+  // MEESHO'S OWN SIGN IN PAGE, SEEN ON 2 SEPTEMBER 2026. The first attempt at
+  // this said "not established, refused with a 403 from this machine", and the
+  // 403 was a bot wall, not an answer. Opened again in a real WebKit browser with
+  // a real iPhone user agent, https://www.meesho.com/login answers 200 and Meesho
+  // itself sends it to https://www.meesho.com/auth, which is Meesho's own sign in:
+  // "Sign Up", a country picker, "+91", one telephone field, "Continue", and
+  // Meesho's own terms line under it. So the address stored is the one Meesho
+  // settles on. Same host as the shop's own site, which the same host rule needs.
+  signInUrl: 'https://www.meesho.com/auth',
   beforeLoadScript: discoveryHook(),
   hint: 'Log in if asked, then just tap "Fetch my reviews" — no need to open anything.',
   // Meesho's orders live in the Next.js data endpoint
@@ -2115,9 +2122,15 @@ const instamart = {
   // Open on the Swiggy account page - the capture shows the DASH order list
   // (/mapi/order/dash) loads here - so it's captured without the user navigating.
   startUrl: 'https://www.swiggy.com/my-account',
-  // NOT ESTABLISHED. Its sign in is a panel on its own site rather than a page of
-  // its own, so there may be no address to find. Not guessed.
-  signInUrl: null,
+  // SWIGGY'S OWN SIGN IN PAGE, SEEN ON 2 SEPTEMBER 2026. The first attempt at
+  // this guessed it was a panel with no address. It is not. Opened in a real
+  // WebKit browser with a real iPhone user agent, https://www.swiggy.com/auth
+  // answers 200, does not redirect anywhere, and is Swiggy's own sign in:
+  // "LOGIN", "Enter your phone number to continue", a country code field, a
+  // number field, "CONTINUE", and Swiggy's own terms line under it. Instamart is
+  // inside Swiggy and shares that one account, so this is Instamart's sign in.
+  // Same host as the shop's own site, which the same host rule needs.
+  signInUrl: 'https://www.swiggy.com/auth',
   // Keep the interceptor: Swiggy's /mapi/order/* endpoints are session + CSRF
   // guarded and computed by the SPA, so we parse the real authenticated
   // responses the hook captured while you browsed Orders rather than re-fetch.
