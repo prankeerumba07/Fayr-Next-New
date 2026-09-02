@@ -10,7 +10,6 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { StaffTokenService } from '../src/admin/staff-token.service';
 import { AssistantSeedService } from '../src/assistant/assistant-seed.service';
 import {
-  LANGUAGE_OFFER,
   STILL_WAITING,
   SUPPORT_EMAIL,
 } from '../src/chat/chat-words';
@@ -192,95 +191,138 @@ describe('What the assistant says (e2e)', () => {
   });
 
   // ── offering another language ─────────────────────────────────────────────
-  describe('offering to change language', () => {
-    it('offers after two messages in a row in another language', async () => {
+  // ── THE LANGUAGE RULE, REPLACED ON 2 SEPTEMBER 2026 ─────────────────────
+  //
+  // There used to be a block here called "offering to change language". It
+  // proved that somebody who wrote twice in Hindi was offered a menu of three
+  // languages, that picking one was remembered, and that every reply afterwards
+  // came back in it. All five of those tests are gone, because the behaviour they
+  // guarded is withdrawn.
+  //
+  // THE OWNER'S RULE INSTEAD: "If someone is sharing their messages in English, I
+  // want the chat box to reply in English. If someone is sharing their messages
+  // in Hindi, then it should reply in English, not in Hindi. If someone comes
+  // with a different language, we will reply in English and say that we can only
+  // converse in Hinglish or English."
+  //
+  // THIS IS NOT A SMALLER SET OF CHECKS. It went from five tests about a menu to
+  // eight about the rule, and the pure decision behind it has twenty two of its
+  // own in backend/src/assistant/how-to-answer.spec.ts.
+  describe('the answer is always in English, whatever they wrote in', () => {
+    it('English in, English out', async () => {
       const shopper = await aShopper();
-      await say(shopper.token, 'टिकट क्या है');
-      const second = await say(shopper.token, 'मेरा पैसा कब आएगा');
-
-      const reply = lastFayr(second).body;
-      expect(reply).toContain(LANGUAGE_OFFER.en);
-      // And in their language too, or the offer is unreadable by the only person
-      // it is for.
-      expect(reply).toContain(LANGUAGE_OFFER.hi);
+      const chat = await say(shopper.token, 'how do tickets work');
+      const reply = lastFayr(chat);
+      expect(reply.language).toBe('en');
+      expect(reply.body).not.toMatch(/[ऀ-ॿ]/);
     });
 
-    it('does NOT offer after only one', async () => {
+    it('HINDI IN, ENGLISH OUT. Written in Hindi letters', async () => {
       const shopper = await aShopper();
-      const first = await say(shopper.token, 'टिकट क्या है');
-      expect(lastFayr(first).body).not.toContain(LANGUAGE_OFFER.en);
+      for (const said of ['टिकट क्या है', 'मेरा पैसा कब आएगा', 'मेरा ऑर्डर नहीं मिला']) {
+        const chat = await say(shopper.token, said);
+        const reply = lastFayr(chat);
+        expect(reply.language).toBe('en');
+        expect(reply.body).not.toMatch(/[ऀ-ॿ]/);
+      }
     });
 
-    it('offers when somebody says they do not understand', async () => {
+    it('HINDI IN, ENGLISH OUT. Written with English letters', async () => {
       const shopper = await aShopper();
-      await say(shopper.token, 'what are tickets');
-      const said = await say(shopper.token, 'i do not understand');
-      expect(lastFayr(said).body).toContain(LANGUAGE_OFFER.en);
+      for (const said of ['mera refund kab aayega', 'order nahi mila', 'kitna time lagega']) {
+        const chat = await say(shopper.token, said);
+        const reply = lastFayr(chat);
+        expect(reply.language).toBe('en');
+        expect(reply.body).not.toMatch(/[ऀ-ॿ]/);
+      }
     });
 
-    it('offers ONCE, and never again', async () => {
+    it('and NOBODY writing Hindi is told to write differently', async () => {
+      // The thing that would insult a shopper. Hinglish is how most people type.
       const shopper = await aShopper();
-      await say(shopper.token, 'टिकट क्या है');
-      await say(shopper.token, 'मेरा पैसा कब आएगा');
-      await say(shopper.token, 'कुछ समझ नहीं आया');
-      const last = await say(shopper.token, 'मेरा पैसा कब आएगा');
-
-      const offers = last.messages.filter((m: any) =>
-        String(m.body).includes(LANGUAGE_OFFER.en),
-      );
-      expect(offers.length).toBe(1);
+      for (const said of [
+        'mera refund kab aayega', 'refund kab aayega please', 'order nahi mila',
+        'मेरा पैसा कब आएगा', 'haan',
+      ]) {
+        const chat = await say(shopper.token, said);
+        expect(lastFayr(chat).body).not.toContain('We can only talk in English');
+      }
     });
 
-    it('remembers what they chose for the rest of the conversation', async () => {
+    it('another language gets an English answer AND one line about it', async () => {
+      for (const said of ['我的退款在哪里', '¿Dónde está mi reembolso?', 'Где мои деньги']) {
+        const shopper = await aShopper();
+        const chat = await say(shopper.token, said);
+        const reply = lastFayr(chat);
+        expect(reply.language).toBe('en');
+        expect(reply.body).toContain('We are sorry, we could not read that.');
+        expect(reply.body).toContain(
+          'We can only talk in English, or in Hindi written with English letters.',
+        );
+        // AND AN ANSWER, or the hand over. Never the line on its own.
+        expect(reply.body.length).toBeGreaterThan(
+          'We are sorry, we could not read that. We can only talk in English, or '
+          .length + 120,
+        );
+      }
+    });
+
+    it('that line is said ONCE in a conversation, and never again', async () => {
+      // COUNTED ACROSS THE WHOLE CONVERSATION, not read off the last message.
+      // The first version of this test read the newest Fayr message each time and
+      // failed, because a message in another language cannot be answered, so the
+      // conversation hands over to a person and the messages after it get no
+      // reply at all. The newest Fayr message was therefore still the first one.
+      // Counting is the assertion that actually says "once".
       const shopper = await aShopper();
-      await say(shopper.token, 'टिकट क्या है');
-      await say(shopper.token, 'मेरा पैसा कब आएगा');
+      const first = await say(shopper.token, '我的退款在哪里');
+      expect(lastFayr(first).body).toContain('We are sorry, we could not read that.');
 
-      const chose = await say(shopper.token, 'hindi');
-      expect(lastFayr(chose).language).toBe('hi');
+      for (const again of ['我的退款在哪里', 'எனது பணம் எப்போது வரும்', 'Где мои деньги']) {
+        await say(shopper.token, again);
+      }
 
-      const after = await say(shopper.token, 'टिकट क्या है');
-      const reply = lastFayr(after);
-      expect(reply.language).toBe('hi');
-      expect(reply.body).toMatch(/[ऀ-ॿ]/);
+      const whole = await read(shopper.token);
+      const timesSaid = whole.messages.filter((m: any) =>
+        m.body.includes('We are sorry, we could not read that.'),
+      ).length;
+      expect(timesSaid).toBe(1);
 
-      // And it is remembered, not worked out again from what they typed.
-      const stored = await prisma.chat.findFirstOrThrow({
-        where: { userId: shopper.id },
+      // AND THE CONVERSATION REALLY REMEMBERS having said it, stamped once.
+      // Counting the messages alone is not enough: a message in another language
+      // cannot be answered, so the conversation hands over and later messages get
+      // no reply at all. That was hiding whether the rule worked, so this reads
+      // the record instead.
+      const record = await prisma.chat.findUnique({
+        where: { id: whole.chatId },
+        select: { languageOfferedAt: true },
       });
-      expect(stored.chosenLanguage).toBe('hi');
+      expect(record?.languageOfferedAt).not.toBeNull();
     });
 
-    it('reads Hindi in English letters as its own choice', async () => {
-      const shopper = await aShopper();
-      await say(shopper.token, 'टिकट क्या है');
-      await say(shopper.token, 'मेरा पैसा कब आएगा');
-      await say(shopper.token, 'hinglish');
-
-      const stored = await prisma.chat.findFirstOrThrow({
-        where: { userId: shopper.id },
-      });
-      expect(stored.chosenLanguage).toBe('hi-en');
-
-      const after = await say(shopper.token, 'ticket kya hai');
-      expect(lastFayr(after).language).toBe('hi-en');
+    it('and it is never said to somebody writing numbers or emoji', async () => {
+      // Falling the safe way. Somebody who typed "12345" is answered normally.
+      for (const said of ['12345', '😀😀', '???']) {
+        const shopper = await aShopper();
+        const chat = await say(shopper.token, said);
+        expect(lastFayr(chat).body).not.toContain('We can only talk in English');
+      }
     });
 
-    it('carries on as before when they answer with a question instead', async () => {
+    // THE RECORD STILL SAYS WHAT THEY WROTE IN, WHICH STAFF NEED. The reply is
+    // English; the question is filed under the language it was asked in, because
+    // that is what tells the team who is writing to them.
+    it('the record still says what they wrote in', async () => {
       const shopper = await aShopper();
-      await say(shopper.token, 'टिकट क्या है');
-      await say(shopper.token, 'मेरा पैसा कब आएगा');
-      const after = await say(shopper.token, 'टिकट क्या है');
-
-      expect(lastFayr(after).language).toBe('en');
-      const stored = await prisma.chat.findFirstOrThrow({
-        where: { userId: shopper.id },
+      await say(shopper.token, 'mera refund kab aayega');
+      const theirs = await prisma.chatMessage.findFirst({
+        where: { author: 'PERSON', body: 'mera refund kab aayega' },
+        select: { language: true },
       });
-      expect(stored.chosenLanguage).toBeNull();
+      expect(theirs?.language).toBe('hi-en');
     });
   });
 
-  // ── handing over ──────────────────────────────────────────────────────────
   describe('when the assistant does not know', () => {
     it('says what happens next, how long, and what else they can do', async () => {
       const shopper = await aShopper();
@@ -300,17 +342,18 @@ describe('What the assistant says (e2e)', () => {
       expect(chat.state).toBe('WAITING_FOR_PERSON');
     });
 
-    it('says it in the language they chose', async () => {
+    it('says it in ENGLISH even when the question was in Hindi', async () => {
+      // CHANGED ON 2 SEPTEMBER 2026. This used to require the hand over in the
+      // language somebody had chosen. There is no choosing any more: the answer
+      // is always in English, which is the owner's own instruction.
       const shopper = await aShopper();
-      await say(shopper.token, 'टिकट क्या है');
-      await say(shopper.token, 'मेरा पैसा कब आएगा');
-      await say(shopper.token, 'hindi');
-
       const chat = await say(shopper.token, 'क्या आप काठमांडू भेजते हैं');
       const reply = lastFayr(chat);
-      expect(reply.language).toBe('hi');
-      expect(reply.body).toMatch(/[ऀ-ॿ]/);
+      expect(reply.language).toBe('en');
+      expect(reply.body).not.toMatch(/[ऀ-ॿ]/);
       expect(reply.body).toContain(SUPPORT_EMAIL);
+      // And Hindi is not another language, so no line about which we can talk in.
+      expect(reply.body).not.toContain('We can only talk in English');
     });
   });
 
@@ -386,18 +429,19 @@ describe('What the assistant says (e2e)', () => {
       ).toBe(false);
     });
 
-    it('says it in the language they chose', async () => {
+    it('says it in ENGLISH even when the questions were in Hindi', async () => {
+      // CHANGED ON 2 SEPTEMBER 2026, same reason as above.
       const shopper = await aShopper();
-      await say(shopper.token, 'टिकट क्या है');
-      await say(shopper.token, 'मेरा पैसा कब आएगा');
-      await say(shopper.token, 'hindi');
       await say(shopper.token, 'क्या आप काठमांडू भेजते हैं');
       await hasBeenWaiting(shopper.id, 3);
 
       const chat = await read(shopper.token);
       expect(
-        chat.messages.some((m: any) => m.body === STILL_WAITING.hi),
+        chat.messages.some((m: any) => m.body === STILL_WAITING.en),
       ).toBe(true);
+      expect(
+        chat.messages.some((m: any) => m.body === STILL_WAITING.hi),
+      ).toBe(false);
     });
   });
 });

@@ -3,6 +3,12 @@ import type { ChatMessage } from '@prisma/client';
 import { AnswerEngine } from '../assistant/answer-engine.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { detectLanguage } from '../assistant/language';
+import {
+  ONLY_ENGLISH_OR_HINDI,
+  howToAnswer,
+  languageToAnswerIn,
+  shouldSayWhichLanguages,
+} from '../assistant/how-to-answer';
 import { plainLanguageProblems } from '../assistant/plain-language';
 import {
   ChatError,
@@ -27,16 +33,12 @@ import {
 } from './what-to-write-next';
 import { OPENING_QUESTIONS, type OpeningQuestion } from './opening-questions';
 import {
-  LANGUAGE_CHOSEN,
-  LANGUAGE_OFFER,
   STILL_WAITING,
   SUPPORT_EMAIL,
   WAITING_NOTE_AFTER_MS,
   greetingFor,
   handOverWords,
   isOnlyAGreeting,
-  languageChoiceFrom,
-  saysTheyDoNotUnderstand,
 } from './chat-words';
 
 /** What happened when somebody said something. */
@@ -98,13 +100,28 @@ export class ChatService {
     if (!checked.ok) throw new ChatError(checked.reason as string);
 
     const chat = await this.store.openChatFor(userId);
+    // WHAT THEY WROTE IN, for the record staff read. Unchanged, and a different
+    // question from what we answer in.
     const theirLanguage = detectLanguage(checked.body).language;
 
-    // WHICH LANGUAGE WE ANSWER IN. English until this person says otherwise, and
-    // then whatever they said, for the rest of the conversation. A decision, not
-    // a fallback: replying in a language somebody did not ask for reads as a
-    // machine guessing at them, and guessing wrong is worse than asking.
-    const replyIn = chat.chosenLanguage ?? 'en';
+    // WHICH LANGUAGE WE ANSWER IN. ENGLISH, ALWAYS, IN EVERY CASE.
+    //
+    // THE OWNER'S RULE, 2 September 2026: "If someone is sharing their messages
+    // in English, I want the chat box to reply in English. If someone is sharing
+    // their messages in Hindi, then it should reply in English, not in Hindi. If
+    // someone comes with a different language, we will reply in English and say
+    // that we can only converse in Hinglish or English."
+    //
+    // WHAT THIS REPLACED. The conversation used to remember a language somebody
+    // had picked and answer in it for ever after, offering a menu of three when
+    // it thought somebody could not follow. That is gone. One language out makes
+    // the whole thing simpler, which is why it is his rule and not a shortcut:
+    // one set of answers, one language to keep plain, one thing to check.
+    const replyIn = languageToAnswerIn();
+
+    // WHICH OF THREE CASES THIS IS. See how-to-answer.ts, where the whole
+    // decision is pure and checked on real examples of all three.
+    const said = howToAnswer(checked.body);
 
     if (chat.state !== 'ASSISTANT') {
       // A person has it, or is about to. Write it down and leave it for them.
@@ -124,21 +141,29 @@ export class ChatService {
       language: theirLanguage,
     });
 
-    // ── they are picking a language we offered ──────────────────────────────
-    const offered = chat.languageOfferedAt !== null && chat.chosenLanguage === null;
-    if (offered) {
-      const picked = languageChoiceFrom(checked.body);
-      if (picked) {
-        await this.store.rememberLanguage(chat.id, picked);
-        const reply = await this.store.addMessage({
-          chatId: chat.id,
-          author: 'ASSISTANT',
-          body: LANGUAGE_CHOSEN[picked],
-          language: picked,
-        });
-        return { chat: await this.after(chat.id), theirs, reply };
-      }
-    }
+    // ── the one line about which languages we can talk in, ONCE ─────────────
+    //
+    // Said only for a message really in another language, and only the first
+    // time in a conversation. Said ONCE is the owner's own instruction, and it
+    // matters: being told twice that you are writing in the wrong language is
+    // the assistant talking about itself instead of helping.
+    //
+    // IT IS ADDED TO THE ANSWER, NEVER INSTEAD OF IT. They still get an answer,
+    // or the hand over to a person. The line goes on the end.
+    //
+    // WHERE "ONCE" IS REMEMBERED. On languageOfferedAt, which used to mean "we
+    // offered them a menu of languages". There is no menu any more, so the
+    // column now means "we have told them which languages we can talk in". Reused
+    // rather than added, because a new column the night before a demonstration is
+    // a migration nobody needs.
+    const tellThemWhichLanguages = shouldSayWhichLanguages(
+      said,
+      chat.languageOfferedAt !== null,
+    );
+    if (tellThemWhichLanguages) await this.store.markLanguageOffered(chat.id);
+    const languageLine = tellThemWhichLanguages
+      ? `\n\n${ONLY_ENGLISH_OR_HINDI}`
+      : '';
 
     // ── it is only a greeting ───────────────────────────────────────────────
     //
@@ -155,36 +180,10 @@ export class ChatService {
       const reply = await this.store.addMessage({
         chatId: chat.id,
         author: 'ASSISTANT',
-        body: greetingFor(this.now(), offer),
-        language: 'en',
+        body: `${greetingFor(this.now(), offer)}${languageLine}`,
+        language: replyIn,
       });
       return { chat: await this.after(chat.id), theirs, reply };
-    }
-
-    // ── they cannot follow us, so offer to change language. ONCE ────────────
-    if (chat.languageOfferedAt === null && chat.chosenLanguage === null) {
-      const lost = saysTheyDoNotUnderstand(checked.body);
-      const twiceInAnother =
-        theirLanguage !== replyIn &&
-        (await this.wroteInTheSameOtherLanguageBefore(chat.id, theirLanguage));
-      if (lost || twiceInAnother) {
-        await this.store.markLanguageOffered(chat.id);
-        const reply = await this.store.addMessage({
-          chatId: chat.id,
-          author: 'ASSISTANT',
-          // Offered in BOTH: the language we have been using, so it follows on
-          // from what they were reading, and theirs, so it is readable by
-          // somebody who could not follow the last thing we said. Offering it
-          // only in the language they already told us they cannot read would be
-          // the joke this whole rule exists to avoid.
-          body:
-            replyIn === theirLanguage
-              ? LANGUAGE_OFFER[replyIn]
-              : `${LANGUAGE_OFFER[replyIn]}\n\n${LANGUAGE_OFFER[theirLanguage] ?? ''}`.trim(),
-          language: replyIn,
-        });
-        return { chat: await this.after(chat.id), theirs, reply };
-      }
     }
 
     // ── an ordinary question ────────────────────────────────────────────────
@@ -205,8 +204,8 @@ export class ChatService {
       const reply = await this.store.addMessage({
         chatId: chat.id,
         author: 'ASSISTANT',
-        body: asked.answer,
-        language: asked.language,
+        body: `${asked.answer}${languageLine}`,
+        language: replyIn,
         assistantQuestionId: asked.questionId,
       });
       return { chat: await this.after(chat.id), theirs, reply };
@@ -217,7 +216,7 @@ export class ChatService {
     const reply = await this.store.addMessage({
       chatId: chat.id,
       author: 'ASSISTANT',
-      body: handOverWords(replyIn, SUPPORT_EMAIL),
+      body: `${handOverWords(replyIn, SUPPORT_EMAIL)}${languageLine}`,
       language: replyIn,
       assistantQuestionId: asked.questionId,
     });
@@ -225,25 +224,13 @@ export class ChatService {
     return { chat: await this.after(chat.id), theirs, reply };
   }
 
-  /**
-   * Did they already write to us in this language, and get answered in another?
-   *
-   * TWICE IN A ROW, which is what makes it a signal rather than a slip. One
-   * message in Hindi is somebody typing the way they think; two in a row after
-   * being answered in English is somebody who cannot read what we sent back.
-   */
-  private async wroteInTheSameOtherLanguageBefore(
-    chatId: string,
-    language: string,
-  ): Promise<boolean> {
-    const theirs = await this.prisma.chatMessage.findMany({
-      where: { chatId, author: 'PERSON' },
-      orderBy: { sentAt: 'desc' },
-      take: 2,
-      select: { language: true },
-    });
-    return theirs.length === 2 && theirs.every((m) => m.language === language);
-  }
+  // A FUNCTION WAS REMOVED HERE ON 2 SEPTEMBER 2026.
+  //
+  // wroteInTheSameOtherLanguageBefore asked whether somebody had written twice in
+  // a row in a language we were not answering in, which was the signal for
+  // offering them a menu of three languages to switch to. There is no menu any
+  // more: the answer is always in English, and a message really in another
+  // language gets one line saying so. See how-to-answer.ts.
 
   /**
    * The conversation as it now stands, with the one apology for a slow queue
