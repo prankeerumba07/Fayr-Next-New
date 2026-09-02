@@ -54,10 +54,13 @@ import {
 
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
-import { SIGNED_IN, markVisitedShop } from '../journey/shopVisits';
+import { SIGNED_IN, hasVisitedShop, markVisitedShop } from '../journey/shopVisits';
 import { openShopApp } from '../openShop';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from '../ui/theme';
 import { Ghost, Pill, TextBtn, TopBar, hSub, hTitle } from '../ui/brand';
+import SignInSheet from '../connect/SignInSheet';
+import { verifiedCardWords } from '../connect/sheetWords.js';
+import { accountNameFor } from '../connect/accountName.js';
 import { Screen, ShopMark } from '../ui/primitives';
 import { appButtonLabel } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
@@ -96,9 +99,20 @@ export default function LinkAccountScreen({ navigation, route }) {
   const key = campaign ? campaign.marketplace : params.marketplace || 'amazon';
   const shop = PLATFORMS[key] ? PLATFORMS[key].name : String(key);
 
+  // THE VERIFIED CARD'S OWN WORDS. Read from the record of whether this shop was
+  // connected for this claim, so coming back to the screen shows the card rather
+  // than the button again.
+  const [connected, setConnected] = useState(() => hasVisitedShop(campaignId, SIGNED_IN));
+  const card = verifiedCardWords(shop, accountNameFor(key));
+
   // Two steps, as the design draws them. `sent` is true once the person has been
   // sent to the shop, so the second step is what they come back to.
   const [sent, setSent] = useState(false);
+  // THE SHEET THAT COMES UP FIRST. Tapping connect no longer throws somebody
+  // straight at a shop: the sheet says what the sign in is for, links to the two
+  // documents, and carries one button. See src/connect/SignInSheet.js, which is
+  // the design's own TruecallerSheet shape (fayr-design.browser.jsx:631).
+  const [sheetUp, setSheetUp] = useState(false);
 
   // Re-render on the way back from the shop, so the second step is on screen.
   useEffect(() => {
@@ -106,11 +120,15 @@ export default function LinkAccountScreen({ navigation, route }) {
     return navigation.addListener('focus', () => setSent((was) => was));
   }, [navigation]);
 
+  /** Tapping connect. The sheet comes up; nothing opens yet. */
+  const askFirst = useCallback(() => setSheetUp(true), []);
+
   // GOING THERE TO SIGN IN, and saying so in one word. That word is what makes
   // the shop's own sign in page the one that opens instead of its shopping page.
   // See src/signin.js: a visit made to read somebody's orders keeps the page it
   // needs, and only a visit made to sign in is redirected.
   const openShop = useCallback(() => {
+    setSheetUp(false);
     setSent(true);
     navigation.navigate(key, { campaignId, toSignIn: true });
   }, [navigation, key, campaignId]);
@@ -118,6 +136,7 @@ export default function LinkAccountScreen({ navigation, route }) {
   const signedIn = useCallback(() => {
     // Only now does the journey move on. See the note at the top of this file.
     if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
+    setConnected(true);
     // Ask the journey to look again, exactly as returncatch does.
     if (params.onJourneyMoved) params.onJourneyMoved();
     else navigation.navigate('buyinterstitial', { campaignId });
@@ -191,6 +210,35 @@ export default function LinkAccountScreen({ navigation, route }) {
             </Text>
           </View>
         ) : null}
+
+        {/* THE VERIFIED CARD, once the person says they have signed in. It carries
+            the name on the shop account when Fayr has been able to read it off the
+            shop's own page, and when it has not it says the account is connected
+            and shows no name at all. It never invents one and it never leaves an
+            empty space where a name goes. See src/connect/accountName.js, which is
+            also where the reason the name cannot be read yet is written down. */}
+        {connected ? (
+          <View style={styles.verified}>
+            <View style={styles.verifiedTop}>
+              <ShopMark marketplace={key} size={38} />
+              <View style={styles.flex}>
+                <Text style={styles.verifiedTitle}>{card.title}</Text>
+                {card.showsName ? (
+                  <Text style={styles.verifiedName}>{card.name}</Text>
+                ) : null}
+                <Text style={styles.verifiedUnder}>{card.under}</Text>
+              </View>
+              <TouchableOpacity
+                onPress={askFirst}
+                style={styles.manage}
+                accessibilityRole="button"
+                accessibilityLabel={`${card.manage} your ${shop} account`}
+              >
+                <Text style={styles.manageText}>{card.manage}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={styles.foot}>
@@ -205,7 +253,7 @@ export default function LinkAccountScreen({ navigation, route }) {
             <TextBtn onPress={openShop}>Did it not open? Open {shop} again</TextBtn>
           </>
         ) : (
-          <Pill onPress={openShop} color={COLOR.ink}>
+          <Pill onPress={askFirst} color={COLOR.ink}>
             CONNECT MY {shop.toUpperCase()} ACCOUNT →
           </Pill>
         )}
@@ -216,6 +264,17 @@ export default function LinkAccountScreen({ navigation, route }) {
           Connecting your {shop} account is required to continue your purchase.
         </Text>
       </View>
+
+      {/* THE SHEET THAT COMES UP FIRST, the design's own TruecallerSheet shape.
+          Its one button is the only thing that opens the shop. */}
+      <SignInSheet
+        visible={sheetUp}
+        marketplace={key}
+        onContinue={openShop}
+        onClose={() => setSheetUp(false)}
+        onTerms={() => { setSheetUp(false); navigation.navigate('Policy', { doc: 'terms' }); }}
+        onPrivacy={() => { setSheetUp(false); navigation.navigate('Policy', { doc: 'privacy' }); }}
+      />
     </Screen>
   );
 }
@@ -280,6 +339,29 @@ const styles = StyleSheet.create({
   openedBody: {
     fontFamily: FONT.bodyMed, fontSize: 11.5, lineHeight: 18, color: COLOR.sub,
   },
+
+  verified: {
+    marginTop: 14, backgroundColor: COLOR.greenBg, borderWidth: 1,
+    borderColor: '#CDE9BE', borderRadius: RADIUS.lg, paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  verifiedTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  verifiedTitle: {
+    fontFamily: FONT.displaySemi, fontSize: 10.5, letterSpacing: 0.4,
+    color: COLOR.greenDeep,
+  },
+  verifiedName: {
+    fontFamily: FONT.displayXBold, fontSize: 16, color: COLOR.ink2, marginTop: 1,
+  },
+  verifiedUnder: {
+    fontFamily: FONT.bodyMed, fontSize: 11, lineHeight: 16, color: COLOR.sub,
+    marginTop: 2,
+  },
+  manage: {
+    borderWidth: 1, borderColor: '#CDE9BE', borderRadius: RADIUS.round,
+    paddingHorizontal: 11, paddingVertical: 6, backgroundColor: '#fff',
+  },
+  manageText: { fontFamily: FONT.displaySemi, fontSize: 10.5, color: COLOR.greenDeep },
 
   foot: {
     paddingHorizontal: SPACE.xl, paddingTop: 10, paddingBottom: SPACE.xl, gap: 8,
