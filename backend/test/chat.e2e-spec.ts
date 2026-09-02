@@ -479,10 +479,14 @@ describe('Chat conversations (e2e)', () => {
       });
       expect(kept).not.toBeNull();
       expect(kept?.messages.length).toBe(saidBefore);
-      // And it was not quietly closed either. Hiding is not deleting and it is
-      // not closing: the record of what somebody was told about their money has
-      // to survive exactly as it was.
-      expect(kept?.state).toBe('ASSISTANT');
+      // AND IT IS MARKED FINISHED, which is Part 2's other half. This assertion
+      // said the opposite when it was first written, and the owner's own words
+      // settled it: "there is a chat right now that is ongoing and not yet
+      // closed. I want you to close it, and I want to start a new chat tomorrow."
+      // Nothing was closing one, so an abandoned conversation sat open since
+      // 31 August. Closing is not deleting: every message above is still here.
+      expect(kept?.state).toBe('CLOSED');
+      expect(kept?.closedAt).not.toBeNull();
     });
 
     it('the LOOKING never starts one, however many times the screen looks', async () => {
@@ -642,6 +646,120 @@ describe('Chat conversations (e2e)', () => {
         .get(`/admin/chats?userId=${them.id}`)
         .set('Authorization', `Bearer ${them.token}`)
         .expect(401);
+    });
+  });
+
+  // ── a finished conversation takes nothing more ────────────────────────────
+  describe('a closed conversation can never receive another message', () => {
+    beforeEach(async () => {
+      await anAnswerBook();
+    });
+
+    it('a shopper writing again lands in a NEW conversation, never the closed one', async () => {
+      const them = await aShopper();
+      const agent = await anAgent('ADMIN', 'Boss');
+      const mine = await say(them.token, 'where is my refund');
+      await request(server())
+        .post(`/admin/chats/${mine.chatId}/close`)
+        .set('Authorization', `Bearer ${agent.token}`)
+        .expect(200);
+
+      const again = await say(them.token, 'how do tickets work');
+      expect(again.chatId).not.toBe(mine.chatId);
+
+      // And the closed one still holds exactly what it held.
+      const closed = await prisma.chat.findUnique({
+        where: { id: mine.chatId },
+        include: { messages: true },
+      });
+      expect(closed?.state).toBe('CLOSED');
+      expect(closed?.messages.length).toBe(2);
+      expect(closed?.messages.map((m) => m.body)).not.toContain('how do tickets work');
+    });
+
+    it('and nobody at Fayr can reply into a closed one either', async () => {
+      const them = await aShopper();
+      const agent = await anAgent('ADMIN', 'Boss');
+      const mine = await say(them.token, 'where is my refund');
+      await request(server())
+        .post(`/admin/chats/${mine.chatId}/close`)
+        .set('Authorization', `Bearer ${agent.token}`)
+        .expect(200);
+
+      await request(server())
+        .post(`/admin/chats/${mine.chatId}/reply`)
+        .set('Authorization', `Bearer ${agent.token}`)
+        .send({ message: 'one more thing' })
+        .expect(400);
+    });
+
+    it('the conversation the assistant finished is CLOSED when a new one starts', async () => {
+      // THE OWNER'S OWN COMPLAINT, 2 September 2026: "there is a chat right now
+      // that is ongoing and not yet closed." Nothing closed one except a member
+      // of staff pressing a button, so abandoned conversations sat open for ever.
+      const them = await aShopper();
+      const mine = await say(them.token, 'where is my refund');
+      expect(mine.state).toBe('ASSISTANT');
+
+      await request(server())
+        .post('/chat/open')
+        .set('Authorization', `Bearer ${them.token}`)
+        .expect(200);
+
+      const before = await prisma.chat.findUnique({
+        where: { id: mine.chatId },
+        include: { messages: true },
+      });
+      expect(before?.state).toBe('CLOSED');
+      // CLOSING IS NOT DELETING. Every word is still there.
+      expect(before?.messages.length).toBe(2);
+    });
+
+    it('but a conversation a person at Fayr has is NEVER closed behind their back', async () => {
+      // Closing it would throw away the reply that person is about to write.
+      const them = await aShopper();
+      const agent = await anAgent();
+      const mine = await say(them.token, 'something nobody has an answer for');
+      await request(server())
+        .post(`/admin/chats/${mine.chatId}/take`)
+        .set('Authorization', `Bearer ${agent.token}`)
+        .expect(200);
+
+      await request(server())
+        .post('/chat/open')
+        .set('Authorization', `Bearer ${them.token}`)
+        .expect(200);
+
+      const still = await prisma.chat.findUnique({ where: { id: mine.chatId } });
+      expect(still?.state).toBe('TAKEN');
+    });
+
+    it('closing one leaves nothing open on that account', async () => {
+      // What the owner runs to clear his own account before a demonstration.
+      const them = await aShopper();
+      const agent = await anAgent('ADMIN', 'Boss');
+      await say(them.token, 'where is my refund');
+      const open = await prisma.chat.findMany({
+        where: { userId: them.id, state: { not: 'CLOSED' } },
+      });
+      expect(open.length).toBe(1);
+
+      for (const one of open) {
+        await request(server())
+          .post(`/admin/chats/${one.id}/close`)
+          .set('Authorization', `Bearer ${agent.token}`)
+          .expect(200);
+      }
+
+      const left = await prisma.chat.count({
+        where: { userId: them.id, state: { not: 'CLOSED' } },
+      });
+      expect(left).toBe(0);
+      // And every message is still on record.
+      const kept = await prisma.chatMessage.count({
+        where: { chat: { userId: them.id } },
+      });
+      expect(kept).toBe(2);
     });
   });
 

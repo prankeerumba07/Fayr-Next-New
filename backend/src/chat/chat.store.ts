@@ -119,14 +119,40 @@ export class ChatStore {
    * The decision itself is startsANewConversation in chat.rules.ts, where it is
    * pure and checked on its own. This is only the write.
    *
-   * NOTHING IS DELETED AND NOTHING IS CLOSED HERE. The conversation they were in
-   * is left exactly as it is. It simply stops being the newest, and the newest is
-   * the only one the phone can ever be handed.
+   * AND THE ONE IT REPLACES IS FINISHED, IN SO MANY WORDS.
+   *
+   * The owner asked for this on 2 September 2026: "there is a chat right now that
+   * is ongoing and not yet closed. I want you to close it, and I want to start a
+   * new chat tomorrow." Before this, nothing closed a conversation except a member
+   * of staff pressing a button, so one abandoned conversation sat open since
+   * 31 August with two unanswered "Hi" messages at the end of it.
+   *
+   * Only ever the assistant's own, which is the only case where a new one starts
+   * at all. Nobody was going to write a reply into it, so there is nothing to
+   * lose by saying out loud that it is over, and two things to gain: the queue
+   * stops filling with dead conversations, and a finished conversation can never
+   * take another message.
+   *
+   * CLOSING IS NOT DELETING. Every message stays exactly where it is, and staff
+   * read every conversation including the closed ones. A record of what somebody
+   * was told about their money has to survive.
+   *
+   * ONE TRANSACTION, so there is no moment where the old one is closed and the
+   * new one does not exist. Somebody tapping at the wrong instant would otherwise
+   * find themselves with no conversation at all.
    */
   async startScreenFor(userId: string): Promise<Chat> {
     const current = await this.newestFor(userId);
     if (!startsANewConversation(current)) return current as Chat;
-    return this.prisma.chat.create({ data: { userId } });
+    if (!current) return this.prisma.chat.create({ data: { userId } });
+    const [, fresh] = await this.prisma.$transaction([
+      this.prisma.chat.update({
+        where: { id: current.id },
+        data: { state: 'CLOSED', closedAt: new Date() },
+      }),
+      this.prisma.chat.create({ data: { userId } }),
+    ]);
+    return fresh;
   }
 
   /** Write one message down and move the conversation's clock. */

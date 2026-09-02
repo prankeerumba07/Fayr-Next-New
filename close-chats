@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# CLOSE EVERY CHAT THAT IS STILL OPEN.
+#
+#   ./close-chats            close every open chat on every account
+#   ./close-chats FAYR-1234  close every open chat on one account only
+#
+# WHY THIS EXISTS. The owner asked for it on 2 September 2026: "there is a chat
+# right now that is ongoing and not yet closed. I want you to close it, and I want
+# to start a new chat tomorrow." Before a demonstration you want a clean start,
+# and hunting for a conversation in the staff panel is not a clean start.
+#
+# IT USES THE REAL ROUTE, POST /admin/chats/<id>/close, exactly as a member of
+# staff does from the panel. Nothing here touches the database directly, so what
+# it does is what happens when a person presses the button, and it can be run
+# again tomorrow and the day after.
+#
+# NOTHING IS DELETED. Closing a conversation keeps every message in it. Staff
+# still read every one, closed ones included, in the panel's Conversations tab.
+# A record of what somebody was told about their money has to survive.
+#
+# IT PRINTS NO PASSWORD AND NO SIGN-IN. The staff sign-in is read out of
+# backend/.env and never shown.
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
+
+ONLY="${1:-}"
+API="${FAYR_API:-http://localhost:3001}"
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+ok()   { printf '  \033[32m%s\033[0m\n' "$1"; }
+bad()  { printf '  \033[31m%s\033[0m\n' "$1"; }
+
+bold "Closing every chat that is still open."
+echo
+
+if ! curl -sf -o /dev/null "$API/health"; then
+  bad "Fayr's own side is not answering at $API."
+  echo "  Start it first:  ./start"
+  exit 1
+fi
+
+if [ ! -f backend/.env ]; then
+  bad "backend/.env is not there, so there is no staff sign-in to use."
+  exit 1
+fi
+
+# Read the staff sign-in without printing it.
+set -a
+# shellcheck disable=SC1091
+. ./backend/.env
+set +a
+
+if [ -z "${STAFF_BOOTSTRAP_EMAIL:-}" ] || [ -z "${STAFF_BOOTSTRAP_PASSWORD:-}" ]; then
+  bad "backend/.env has no staff sign-in in it."
+  exit 1
+fi
+
+TOKEN="$(
+  curl -s -X POST "$API/admin/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "$(printf '{"email":%s,"password":%s}' \
+          "$(printf '%s' "$STAFF_BOOTSTRAP_EMAIL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" \
+          "$(printf '%s' "$STAFF_BOOTSTRAP_PASSWORD" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin).get("accessToken",""))' 2>/dev/null
+)"
+
+if [ -z "$TOKEN" ]; then
+  bad "Could not sign in as staff. Check the sign-in in backend/.env."
+  exit 1
+fi
+ok "Signed in as staff."
+echo
+
+# Every state that is not closed. Asked one at a time because that is what the
+# route offers, and there are only three.
+FOUND=0
+CLOSED=0
+for STATE in ASSISTANT WAITING_FOR_PERSON TAKEN; do
+  ROWS="$(
+    curl -s "$API/admin/chats?state=$STATE&limit=100" \
+      -H "Authorization: Bearer $TOKEN" \
+    | ONLY="$ONLY" python3 -c '
+import json, os, sys
+only = (os.environ.get("ONLY") or "").strip().upper()
+page = json.load(sys.stdin)
+for c in page.get("chats", []):
+    who = c["user"]["displayId"]
+    if only and who.upper() != only:
+        continue
+    print(c["chatId"], who, c["messageCount"])
+' 2>/dev/null
+  )"
+  [ -z "$ROWS" ] && continue
+  while read -r ID WHO HOWMANY; do
+    [ -z "$ID" ] && continue
+    FOUND=$((FOUND + 1))
+    if curl -sf -o /dev/null -X POST "$API/admin/chats/$ID/close" \
+         -H "Authorization: Bearer $TOKEN"; then
+      CLOSED=$((CLOSED + 1))
+      ok "Closed $WHO — $HOWMANY messages kept — $ID"
+    else
+      bad "Could not close $ID"
+    fi
+  done <<< "$ROWS"
+done
+
+echo
+if [ "$FOUND" -eq 0 ]; then
+  bold "Nothing was open. There is nothing to close."
+else
+  bold "$CLOSED of $FOUND closed. Every message in them is still on record."
+fi
+echo "The next time anybody taps \"Chat with us\" they get a new, empty chat."
