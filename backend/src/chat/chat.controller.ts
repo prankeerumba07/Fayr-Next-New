@@ -41,7 +41,37 @@ import { SayDto } from './dto/say.dto';
 export class ChatController {
   constructor(private readonly chat: ChatService) {}
 
-  /** My conversation, oldest message first. Opens an empty one if I have none. */
+  /**
+   * I TAPPED "CHAT WITH US". Start a new, empty conversation.
+   *
+   * THE OWNER'S RULE, 2 September 2026: nobody is ever shown their own older
+   * conversations. Every time somebody opens the chat screen they start fresh.
+   * Staff see every conversation that person has ever had, in the staff panel.
+   *
+   * NOTHING IS DELETED. The conversation they were in is left exactly as it is,
+   * with every message in it. It simply stops being the newest, and the newest is
+   * the only one this controller can ever hand back.
+   *
+   * ONE EXCEPTION, AND IT IS NOT HISTORY: a conversation a person at Fayr has
+   * taken, or one waiting in the queue for one, is the conversation that person is
+   * about to write a reply into. See startsANewConversation in chat.rules.ts.
+   */
+  @Post('open')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async open(@CurrentUser() user: AuthenticatedUser): Promise<ChatResponse> {
+    const chat = await this.translate(() => this.chat.startScreenFor(user.id));
+    return toChat(chat, await this.chat.helpfulByQuestion(chat.id));
+  }
+
+  /**
+   * The conversation I am in right now, oldest message first.
+   *
+   * THE NEWEST, AND NEVER AN OLDER ONE. This is what the screen polls while it is
+   * open, so it must hand back the same conversation every time rather than
+   * starting one. There is no route here that takes a conversation's name, so
+   * there is no way for a phone to ask for an older conversation even on purpose.
+   */
   @Get()
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   async mine(@CurrentUser() user: AuthenticatedUser): Promise<ChatResponse> {

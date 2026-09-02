@@ -52,7 +52,8 @@ export async function listMyQuestions() {
 
 // ── the conversation ────────────────────────────────────────────────────────
 //
-//   GET  /chat            my conversation, oldest message first
+//   POST /chat/open       I tapped "Chat with us": start a new, empty one
+//   GET  /chat            the conversation I am in, oldest message first
 //   POST /chat/messages   say something in it
 //
 // Both scoped server-side to the person signed in; there is no way to ask for
@@ -63,7 +64,26 @@ export async function listMyQuestions() {
 // to do anything. A kept-alive connection would save a few seconds and would
 // break on a train.
 
-/** GET /chat → { ok, chat } */
+/**
+ * POST /chat/open → { ok, chat }
+ *
+ * Called ONCE, when the chat screen opens. Never by the looking that follows it:
+ * calling this every few seconds would start a new conversation every few
+ * seconds and a shopper's words would disappear as they typed them.
+ *
+ * THE SERVER DECIDES WHAT COMES BACK. It is a new, empty conversation, unless a
+ * person at Fayr has the one they were in, in which case it is that one, because
+ * that person is about to write a reply into it. The phone hides nothing and
+ * chooses nothing.
+ */
+export async function openChat() {
+  const res = await authedFetch('/chat/open', { method: 'POST' });
+  return res.ok
+    ? { ok: true, status: res.status, chat: res.body }
+    : { ok: false, status: res.status, error: errorText(res) };
+}
+
+/** GET /chat → { ok, chat } — the conversation I am in, never an older one. */
 export async function readChat() {
   const res = await authedFetch('/chat', { method: 'GET' });
   return res.ok

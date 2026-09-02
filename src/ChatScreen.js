@@ -18,7 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { goBackOrHome } from './ui/nav';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from './ui/theme';
-import { readChat, sayItHelped, sendChatMessage } from './backend/assistantApi';
+import { openChat, readChat, sayItHelped, sendChatMessage } from './backend/assistantApi';
 import {
   QUESTION_MAX,
   SCREEN_TITLE,
@@ -87,8 +87,34 @@ export default function ChatScreen({ navigation }) {
     setLoading(false);
   }, []);
 
+  // ARRIVING AT THE SCREEN STARTS A NEW CONVERSATION.
+  //
+  // The owner's rule, 2 September 2026: nobody is ever shown their own older
+  // conversations. Every time somebody taps "Chat with us" they start fresh.
+  //
+  // THE SERVER DECIDES IT, NOT THIS SCREEN. Nothing here hides a message. This
+  // says "I have opened the chat screen" once, and the server answers with the
+  // conversation this person is in, which is a new empty one. A rule this screen
+  // enforced would be a rule anybody could turn off.
+  //
+  // ONCE, and never in the looking below: opening again every few seconds would
+  // start a conversation every few seconds and lose what somebody was typing.
   useEffect(() => {
-    void load(false);
+    let stillHere = true;
+    (async () => {
+      const started = await openChat();
+      if (!stillHere) return;
+      if (started.ok) {
+        setChat(started.chat);
+        setLoading(false);
+        return;
+      }
+      // Could not start one. Read whatever conversation we are in rather than
+      // showing an empty screen with an error on it.
+      setError(started.error);
+      await load(true);
+    })();
+    return () => { stillHere = false; };
   }, [load]);
 
   // Look for a reply written by a person, for as long as this screen is open.

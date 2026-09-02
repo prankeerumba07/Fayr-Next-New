@@ -64,6 +64,37 @@ export function isOpen(state: ChatStateName): boolean {
   return state !== 'CLOSED';
 }
 
+/**
+ * SHOULD OPENING THE CHAT SCREEN START A NEW CONVERSATION?
+ *
+ * THE OWNER'S RULE, 2 September 2026: "whenever a user comes to chat, like when
+ * they click on 'Chat with us,' they should not be able to see their previous
+ * conversations. Our agents can see them in the admin, but the user cannot see
+ * anything." So the answer is yes, a new one, almost always.
+ *
+ * ONE EXCEPTION, AND IT IS NOT HISTORY. If a person at Fayr has the conversation,
+ * or it is sitting in the queue waiting for one, that person is about to write a
+ * reply INTO IT. Starting a new conversation would send their reply to a place
+ * the shopper is not looking, and the shopper would sit waiting for an answer
+ * that had already been written. That is not somebody being shown their old
+ * chats. It is somebody being shown the one they are still in.
+ *
+ * SO THE LINE IS: a conversation the ASSISTANT was handling is finished business
+ * the moment they leave the screen, and they get a fresh one. A conversation a
+ * PERSON is handling is live, and they come back to it.
+ *
+ * NOTHING IS EVER DELETED either way. This decides what the phone is shown, and
+ * never what is kept. Every conversation and every message stays exactly as it
+ * is, and staff see all of them.
+ */
+export function startsANewConversation(chat: ChatFacts | null): boolean {
+  if (!chat) return true;
+  if (chat.state === 'CLOSED') return true;
+  // A person has it, or is queued to take it. They come back to that one.
+  if (chat.state === 'TAKEN' || chat.state === 'WAITING_FOR_PERSON') return false;
+  return true;
+}
+
 /** The answer to "may I reply to this", and why not when the answer is no. */
 export interface MayReply {
   allowed: boolean;

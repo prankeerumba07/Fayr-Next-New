@@ -276,9 +276,26 @@ export class ChatService {
     return new Date();
   }
 
-  /** The conversation this person is having, opening an empty one if they have none. */
+  /**
+   * THE CONVERSATION THIS PERSON IS IN RIGHT NOW, and never an older one.
+   *
+   * The newest, always. See ChatStore.openChatFor for why that is enough on its
+   * own to keep somebody's history off their phone.
+   */
   async conversationForOwner(userId: string): Promise<ChatWithMessages> {
     const chat = await this.store.openChatFor(userId);
+    return this.after(chat.id);
+  }
+
+  /**
+   * THEY TAPPED "CHAT WITH US". A NEW, EMPTY CONVERSATION, ALMOST ALWAYS.
+   *
+   * Called once when the screen opens, and never by the polling that follows it.
+   * If the polling called this, a new conversation would be started every few
+   * seconds and a shopper's words would disappear as they typed them.
+   */
+  async startScreenFor(userId: string): Promise<ChatWithMessages> {
+    const chat = await this.store.startScreenFor(userId);
     return this.after(chat.id);
   }
 
@@ -303,6 +320,11 @@ export class ChatService {
   // ── the staff side ────────────────────────────────────────────────────────
 
   async queue(filter: QueueFilter): Promise<QueuePage> {
+    // ONE PERSON'S WHOLE HISTORY, when staff ask for one person. Newest first,
+    // every state including closed, so whoever is helping can read the lot.
+    if (filter.userId) {
+      return this.store.historyFor(filter.userId, filter.limit, filter.offset);
+    }
     return this.store.listQueue(filter);
   }
 

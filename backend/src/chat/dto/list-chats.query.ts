@@ -11,6 +11,17 @@ export class ListChatsQueryDto {
   @IsUUID()
   takenByStaffId?: string;
 
+  /**
+   * ONE PERSON'S WHOLE HISTORY, newest first, every state including closed.
+   *
+   * The other side of the rule that a shopper never sees their own older
+   * conversations: whoever is helping them has to be able to read the lot. This
+   * is a staff route and there is no route a shopper can reach that accepts it.
+   */
+  @IsOptional()
+  @IsUUID()
+  userId?: string;
+
   @IsOptional()
   @Transform(({ value }) => (value === undefined ? undefined : Number(value)))
   @IsInt()

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   MESSAGE_MAX_LENGTH,
   checkMessage,
+  startsANewConversation,
   type ChatAuthorName,
   type ChatStateName,
 } from './chat.rules';
@@ -25,6 +26,11 @@ export type ChatInQueue = Chat & {
 export interface QueueFilter {
   state?: ChatStateName;
   takenByStaffId?: string;
+  /**
+   * One person, when staff want that person's whole history rather than the
+   * queue. Staff only: no route a shopper can reach accepts this.
+   */
+  userId?: string;
   limit: number;
   offset: number;
 }
@@ -80,18 +86,46 @@ export class ChatStore {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * The conversation this person is having, opening one if they have none.
+   * THE CONVERSATION THIS PERSON IS IN RIGHT NOW, and never an older one.
    *
-   * One open conversation per person, deliberately. A shopper with three of them
-   * would have their answer arrive in whichever one they were not looking at, and
-   * a queue with three rows for one confused person is a queue nobody trusts.
+   * THE NEWEST, ALWAYS. Once a newer conversation exists, this can never hand
+   * back the older one again, to anybody. That is what makes the owner's rule a
+   * rule of the server rather than something the phone chooses to honour: there
+   * is no route anywhere that takes a conversation's name from a shopper, so
+   * there is no way to ask for an older one even on purpose.
+   *
+   * One open conversation per person at a time, deliberately. A shopper with
+   * three of them would have their answer arrive in whichever one they were not
+   * looking at, and a queue with three rows for one confused person is a queue
+   * nobody trusts.
    */
   async openChatFor(userId: string): Promise<Chat> {
-    const existing = await this.prisma.chat.findFirst({
+    const existing = await this.newestFor(userId);
+    if (existing) return existing;
+    return this.prisma.chat.create({ data: { userId } });
+  }
+
+  /** The newest conversation that is not finished, or nothing. */
+  async newestFor(userId: string): Promise<Chat | null> {
+    return this.prisma.chat.findFirst({
       where: { userId, state: { not: 'CLOSED' } },
       orderBy: { startedAt: 'desc' },
     });
-    if (existing) return existing;
+  }
+
+  /**
+   * OPENING THE CHAT SCREEN. A NEW, EMPTY CONVERSATION, ALMOST ALWAYS.
+   *
+   * The decision itself is startsANewConversation in chat.rules.ts, where it is
+   * pure and checked on its own. This is only the write.
+   *
+   * NOTHING IS DELETED AND NOTHING IS CLOSED HERE. The conversation they were in
+   * is left exactly as it is. It simply stops being the newest, and the newest is
+   * the only one the phone can ever be handed.
+   */
+  async startScreenFor(userId: string): Promise<Chat> {
+    const current = await this.newestFor(userId);
+    if (!startsANewConversation(current)) return current as Chat;
     return this.prisma.chat.create({ data: { userId } });
   }
 
@@ -268,6 +302,32 @@ export class ChatStore {
       orderBy: { lastMessageAt: 'desc' },
       take: limit,
     });
+  }
+
+  /**
+   * EVERY CONVERSATION ONE PERSON HAS EVER HAD, IN FULL, NEWEST FIRST. FOR STAFF.
+   *
+   * The other side of the owner's rule. The shopper is shown one conversation;
+   * whoever is helping them has to be able to read the lot, including the closed
+   * ones, or they will answer a question that was already answered last week.
+   *
+   * NEWEST FIRST here, and longest wait first in the queue, and both are right
+   * for what they are for. A queue is a list of work and the oldest is the most
+   * urgent. One person's history is a story and you read the latest chapter first.
+   */
+  async historyFor(userId: string, limit: number, offset: number): Promise<QueuePage> {
+    const where: Prisma.ChatWhereInput = { userId };
+    const [total, chats] = await this.prisma.$transaction([
+      this.prisma.chat.count({ where }),
+      this.prisma.chat.findMany({
+        where,
+        include: QUEUE_SUMMARY,
+        orderBy: { lastMessageAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+    ]);
+    return { total, limit, offset, chats };
   }
 
   /** The longest a message may be, for whoever needs to say so on a screen. */

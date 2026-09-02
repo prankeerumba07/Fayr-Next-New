@@ -325,6 +325,12 @@
       chats: {
         loading: false, error: null, items: null, total: 0,
         filter: "WAITING_FOR_PERSON", busy: null, notice: null, actionError: null,
+        // WHOSE WHOLE HISTORY WE ARE READING, when we are reading one person's
+        // rather than the queue. The other side of the rule that a shopper never
+        // sees their own older conversations: whoever is helping them has to be
+        // able to read every one, or they will answer a question that was already
+        // answered last week. `person` is the display name we show at the top.
+        onlyUserId: null, person: null,
         open: null, draft: "", warnings: [],
         email: null, emailNote: null,
         saveTopic: "", savingFrom: null
@@ -1099,10 +1105,23 @@
       else if (!st.items || st.items.length === 0) body = h("div", { class: "empty" }, "No conversations here.");
       else body = h("div", null, st.items.map(ConversationCard));
 
+      // Reading one person's history rather than the queue: say whose, and give
+      // one way back to the queue.
+      var whose = st.onlyUserId
+        ? h("div", { class: "flash flash-info", style: "margin-bottom:12px" },
+            h("div", null, "Every conversation from ", h("b", null, st.person || "this person"),
+              ", newest first. Closed ones included."),
+            h("button", {
+              class: "btn btn-sm", style: "margin-top:8px",
+              onclick: function () { setChatsFilter("WAITING_FOR_PERSON"); }
+            }, "Back to the queue"))
+        : null;
+
       return h("div", null,
         st.notice ? h("div", { class: "flash flash-info" }, st.notice) : null,
         st.actionError ? h("div", { class: "flash flash-err" }, st.actionError) : null,
-        filters,
+        whose,
+        st.onlyUserId ? null : filters,
         h("div", { class: "muted", style: "margin-bottom:10px" }, st.items ? st.total + " in all" : ""),
         body);
     }
@@ -1122,7 +1141,15 @@
               c.latest ? c.latest.body : "Nothing said yet"),
             h("div", { class: "muted mono", style: "margin-top:4px" },
               c.user.displayId, "  ·  ", fmtDate(c.lastMessageAt),
-              "  ·  ", String(c.messageCount) + " messages")),
+              "  ·  ", String(c.messageCount) + " messages"),
+            c.user
+              ? h("button", {
+                  class: "btn btn-sm", style: "margin-top:6px",
+                  onclick: function () {
+                    showEveryConversationFrom(c.user.id, c.user.displayId);
+                  }
+                }, "Every conversation from this person")
+              : null),
           h("div", { class: "row", style: "gap:8px" },
             statePill(c.stateInWords, conversationTone(c.state)),
             h("button", {
@@ -1279,7 +1306,20 @@
         h("div", { class: "row", style: "gap:10px;margin-bottom:12px;align-items:center" },
           h("button", { class: "btn btn-sm", onclick: function () { backToConversations(); } }, "‹ Back"),
           statePill(chat.stateInWords, conversationTone(chat.state)),
-          h("span", { class: "muted mono" }, "started " + fmtDate(chat.startedAt))),
+          h("span", { class: "muted mono" }, "started " + fmtDate(chat.startedAt)),
+          // THE WHOLE STORY, from the place where somebody is actually reading
+          // one chapter of it. The shopper only ever sees the conversation they
+          // are in, so this is the only way to find out what they were told last
+          // week, and it is one tap from the reply box.
+          chat.user
+            ? h("button", {
+                class: "btn btn-sm",
+                style: "margin-left:auto",
+                onclick: function () {
+                  showEveryConversationFrom(chat.user.id, chat.user.displayId);
+                }
+              }, "Every conversation from " + chat.user.displayId)
+            : null),
         st.actionError ? h("div", { class: "flash flash-err" }, st.actionError) : null,
         st.notice ? h("div", { class: "flash flash-info" }, st.notice) : null,
         warnings,
@@ -2750,7 +2790,13 @@
     async function loadChats() {
       state.chats.loading = true; state.chats.error = null; render();
       try {
-        var q = state.chats.filter ? "?state=" + state.chats.filter : "";
+        // ONE PERSON'S WHOLE HISTORY, or the queue. A person's history comes
+        // back newest first and includes the closed ones, which is what reading
+        // somebody's story needs; the queue comes back longest wait first,
+        // which is what picking up work needs.
+        var q = state.chats.onlyUserId
+          ? "?userId=" + encodeURIComponent(state.chats.onlyUserId)
+          : (state.chats.filter ? "?state=" + state.chats.filter : "");
         var page = await api("GET", "/admin/chats" + q);
         state.chats.items = page.chats; state.chats.total = page.total;
       } catch (e) { state.chats.error = e.message; }
@@ -2758,7 +2804,17 @@
     }
 
     function setChatsFilter(st) {
-      state.chats.filter = st; state.chats.items = null; loadChats();
+      state.chats.filter = st; state.chats.onlyUserId = null; state.chats.person = null;
+      state.chats.items = null; loadChats();
+    }
+
+    /** Every conversation this person has ever had, newest first. */
+    function showEveryConversationFrom(userId, displayId) {
+      state.chats.onlyUserId = userId;
+      state.chats.person = displayId;
+      state.chats.open = null;
+      state.chats.items = null;
+      loadChats();
     }
 
     async function openConversation(id) {

@@ -650,6 +650,11 @@ console.log('\n=== 7b. the assistant screens actually render ===');
 
   const oneConvo = (over) => ({
     chatId: 'c1', state: 'WAITING_FOR_PERSON', stateInWords: 'Waiting for a person',
+    // WHOSE CONVERSATION IT IS. The real answer from GET /admin/chats/:id carries
+    // this (backend/src/chat/chat.response.ts) and the fixture did not, so the
+    // "every conversation from this person" button read as a crash the first time
+    // it was drawn. A fixture thinner than the real answer hides real defects.
+    user: { id: 'u1', displayId: 'FAYR-100001' },
     takenBy: null, startedAt: '2026-08-31T05:00:00.000Z',
     lastMessageAt: '2026-08-31T05:01:00.000Z',
     withTheAssistant: false, waitingForAPerson: true, closed: false,
@@ -752,6 +757,16 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     ['the queue, failed', convoState({ items: null, error: 'Could not reach the Fayr server.' })],
     ['the queue, empty', convoState({ items: [], total: 0 })],
     ['a conversation nobody has taken', convoState({ open: oneConvo({}) })],
+    // ONE PERSON'S WHOLE HISTORY, which is what staff see and a shopper never
+    // does. Both shapes: with the person on the conversation, and without —
+    // because the real answer always carries one and a panel that dies on a
+    // missing field shows a blank screen.
+    ['one person\'s whole history', convoState({
+      onlyUserId: 'u1', person: 'FAYR-100001', filter: '',
+    })],
+    ['a conversation with no person on it', convoState({
+      open: oneConvo({ user: undefined }),
+    })],
     ['a conversation I have taken', convoState({
       open: oneConvo({ state: 'TAKEN', stateInWords: 'Taken by Asha', waitingForAPerson: false,
                        takenBy: { id: 's-asha', name: 'Asha' } }) })],
@@ -814,7 +829,41 @@ console.log('\n=== 7b. the assistant screens actually render ===');
   // And no internal name leaks into what a person reads.
   ok(!/ANSWER_BOOK|UNRESOLVED"\s*,\s*"/.test(src) || src.includes('Waiting for approval'),
     'states are shown in words, not as stored names');
+
+  // THE WAY INTO ONE PERSON'S WHOLE HISTORY IS REALLY DRAWN, with their name on
+  // it. The loop above only proves nothing crashed; this proves the button that
+  // lets staff read every conversation somebody has had is actually there.
+  {
+    const drawn = new Function('STATE', 'QUESTIONS', 'STATS', 'ANSWERS', harness)(
+      convoState({ open: oneConvo({}) }), QUESTIONS, STATS, ANSWERS,
+    );
+    const flat = JSON.stringify(drawn.seen, (k, v) => (typeof v === 'function' ? undefined : v));
+    ok(/Every conversation from FAYR-100001/.test(flat),
+      'the way into one person’s whole history is on screen, with their name on it');
+  }
 }
+
+  // ── one person's whole history, which only staff can see ──────────────────
+  //
+  // THE OTHER SIDE OF THE OWNER'S RULE, 2 September 2026. A shopper never sees
+  // their own older conversations. Whoever is helping them has to see every one,
+  // or they will answer a question that was already answered last week.
+  console.log('\n=== 7e. one person\'s whole history, for staff only ===');
+
+  ok(/"\?userId=" \+ encodeURIComponent\(state\.chats\.onlyUserId\)/.test(script),
+    'the panel can ask the server for one person’s conversations');
+  ok(/function showEveryConversationFrom\(userId, displayId\)/.test(script),
+    'and one place switches to reading one person');
+  ok(/Every conversation from/.test(script),
+    'the button that opens somebody’s history says what it does');
+  ok(/newest first\. Closed ones included\./.test(script),
+    'the header says what is in the list, closed ones included');
+  ok(/Back to the queue/.test(script),
+    'and there is one way back to the queue');
+  // A state filter over one person's history would quietly hide most of it,
+  // which is the opposite of what reading somebody's story is for.
+  ok(/st\.onlyUserId \? null : filters/.test(script),
+    'the state filters are left out while one person’s history is on screen');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

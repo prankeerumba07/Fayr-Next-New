@@ -413,6 +413,238 @@ describe('Chat conversations (e2e)', () => {
   });
 
   // ── the queue ─────────────────────────────────────────────────────────────
+  // ── a person never sees an older conversation, and the SERVER decides it ──
+  describe('opening the chat screen starts a new, empty conversation', () => {
+    // THE ANSWER BOOK HAS TO BE THERE FOR THESE.
+    //
+    // Without it the assistant cannot answer anything, so the very first question
+    // hands the conversation to a person, and a conversation a person has is the
+    // one somebody comes back to rather than a new one. That is correct
+    // behaviour, and it made three of these read as failures the first time they
+    // were written. With the book published, the assistant answers and the
+    // conversation is finished business, which is what these are about.
+    beforeEach(async () => {
+      await anAnswerBook();
+    });
+
+    /** I tapped "Chat with us". */
+    async function openTheScreen(token: string): Promise<any> {
+      const res = await request(server())
+        .post('/chat/open')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      return res.body;
+    }
+
+    /** What the screen sees while it is open. */
+    async function readTheScreen(token: string): Promise<any> {
+      const res = await request(server())
+        .get('/chat')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      return res.body;
+    }
+
+    it('shows an empty conversation, with none of what was said before', async () => {
+      const them = await aShopper();
+      await say(them.token, 'where is my refund');
+      await say(them.token, 'and how long does it take');
+      const before = await readTheScreen(them.token);
+      // Two questions, each answered: four messages.
+      expect(before.messages.length).toBe(4);
+
+      const fresh = await openTheScreen(them.token);
+      expect(fresh.messages).toEqual([]);
+      expect(fresh.chatId).not.toBe(before.chatId);
+
+      // And the looking that follows keeps showing the new one, not the old one.
+      const after = await readTheScreen(them.token);
+      expect(after.chatId).toBe(fresh.chatId);
+      expect(after.messages).toEqual([]);
+    });
+
+    it('KEEPS EVERY WORD. Nothing is deleted, ever', async () => {
+      const them = await aShopper();
+      await say(them.token, 'where is my refund');
+      const first = await readTheScreen(them.token);
+      const saidBefore = first.messages.length;
+      expect(saidBefore).toBe(2);
+
+      await openTheScreen(them.token);
+
+      // The old conversation is still there, with every message in it.
+      const kept = await prisma.chat.findUnique({
+        where: { id: first.chatId },
+        include: { messages: true },
+      });
+      expect(kept).not.toBeNull();
+      expect(kept?.messages.length).toBe(saidBefore);
+      // And it was not quietly closed either. Hiding is not deleting and it is
+      // not closing: the record of what somebody was told about their money has
+      // to survive exactly as it was.
+      expect(kept?.state).toBe('ASSISTANT');
+    });
+
+    it('the LOOKING never starts one, however many times the screen looks', async () => {
+      // If reading started a conversation, a shopper's words would disappear as
+      // they typed them, because the screen reads every few seconds.
+      const them = await aShopper();
+      const started = await openTheScreen(them.token);
+      for (let i = 0; i < 4; i += 1) {
+        const seen = await readTheScreen(them.token);
+        expect(seen.chatId).toBe(started.chatId);
+      }
+      const howMany = await prisma.chat.count({ where: { userId: them.id } });
+      expect(howMany).toBe(1);
+    });
+
+    it('a conversation a person at Fayr has taken is the one they come back to', async () => {
+      // NOT HISTORY. Somebody at Fayr is about to write a reply into it, and
+      // starting a new one would send that reply where the shopper is not looking.
+      const them = await aShopper();
+      const agent = await anAgent();
+      const mine = await say(them.token, 'something nobody has an answer for');
+      await request(server())
+        .post(`/admin/chats/${mine.chatId}/take`)
+        .set('Authorization', `Bearer ${agent.token}`)
+        .expect(200);
+
+      const opened = await openTheScreen(them.token);
+      expect(opened.chatId).toBe(mine.chatId);
+      expect(opened.messages.length).toBeGreaterThan(0);
+    });
+
+    it('and so is one waiting in the queue for a person', async () => {
+      const them = await aShopper();
+      const mine = await say(them.token, 'something nobody has an answer for');
+      expect(mine.state).toBe('WAITING_FOR_PERSON');
+      const opened = await openTheScreen(them.token);
+      expect(opened.chatId).toBe(mine.chatId);
+    });
+
+    it('a closed conversation is never handed back, and never reopened', async () => {
+      const them = await aShopper();
+      const agent = await anAgent('ADMIN', 'Boss');
+      const mine = await say(them.token, 'where is my refund');
+      await request(server())
+        .post(`/admin/chats/${mine.chatId}/close`)
+        .set('Authorization', `Bearer ${agent.token}`)
+        .expect(200);
+
+      const opened = await openTheScreen(them.token);
+      expect(opened.chatId).not.toBe(mine.chatId);
+      expect(opened.messages).toEqual([]);
+      expect(opened.closed).toBe(false);
+    });
+
+    it('THERE IS NO WAY TO ASK FOR AN OLDER ONE. No route takes its name', async () => {
+      // The rule is the server's, not the phone's. A phone cannot ask for a
+      // conversation by name because nothing accepts one.
+      const them = await aShopper();
+      const old = await say(them.token, 'where is my refund');
+      expect(old.state).toBe('ASSISTANT');
+      const fresh = await openTheScreen(them.token);
+      expect(fresh.chatId).not.toBe(old.chatId);
+
+      for (const path of [
+        `/chat/${old.chatId}`,
+        `/chat?chatId=${old.chatId}`,
+        `/chat?id=${old.chatId}`,
+      ]) {
+        const res = await request(server())
+          .get(path)
+          .set('Authorization', `Bearer ${them.token}`);
+        if (res.status === 200) {
+          // A query nobody reads is harmless, but it must still hand back the
+          // NEW conversation and never the old one.
+          expect(res.body.chatId).not.toBe(old.chatId);
+          expect(res.body.messages).toEqual([]);
+        } else {
+          expect(res.status).toBe(404);
+        }
+      }
+    });
+
+    it('and one person still never sees another person\'s conversation', async () => {
+      const her = await aShopper();
+      const him = await aShopper();
+      await say(her.token, 'where is my refund');
+      const hers = await readTheScreen(her.token);
+
+      const his = await openTheScreen(him.token);
+      expect(his.chatId).not.toBe(hers.chatId);
+      expect(his.messages).toEqual([]);
+
+      // And he cannot reach hers by name either.
+      const tried = await request(server())
+        .get(`/chat/${hers.chatId}`)
+        .set('Authorization', `Bearer ${him.token}`);
+      if (tried.status === 200) expect(tried.body.chatId).not.toBe(hers.chatId);
+      else expect(tried.status).toBe(404);
+    });
+
+    it('opening it needs somebody signed in', async () => {
+      await request(server()).post('/chat/open').expect(401);
+    });
+  });
+
+  // ── staff see every conversation that person has ever had ────────────────
+  describe('staff see the whole history, newest first', () => {
+    it('lists every conversation one person has had, closed ones included', async () => {
+      const them = await aShopper();
+      const agent = await anAgent('ADMIN', 'Boss');
+
+      await say(them.token, 'where is my refund');
+      const first = (await request(server()).get('/chat')
+        .set('Authorization', `Bearer ${them.token}`).expect(200)).body;
+      await request(server()).post(`/admin/chats/${first.chatId}/close`)
+        .set('Authorization', `Bearer ${agent.token}`).expect(200);
+
+      await request(server()).post('/chat/open')
+        .set('Authorization', `Bearer ${them.token}`).expect(200);
+      await say(them.token, 'how do tickets work');
+      const second = (await request(server()).get('/chat')
+        .set('Authorization', `Bearer ${them.token}`).expect(200)).body;
+
+      const seen = await request(server())
+        .get(`/admin/chats?userId=${them.id}`)
+        .set('Authorization', `Bearer ${agent.token}`)
+        .expect(200);
+
+      expect(seen.body.total).toBe(2);
+      const ids = seen.body.chats.map((c: any) => c.chatId);
+      expect(ids).toContain(first.chatId);
+      expect(ids).toContain(second.chatId);
+      // Newest first, which is how one person's story reads.
+      expect(ids[0]).toBe(second.chatId);
+    });
+
+    it('and each one can be opened in full', async () => {
+      const them = await aShopper();
+      const agent = await anAgent('ADMIN', 'Boss');
+      await say(them.token, 'where is my refund');
+      const first = (await request(server()).get('/chat')
+        .set('Authorization', `Bearer ${them.token}`).expect(200)).body;
+      await request(server()).post('/chat/open')
+        .set('Authorization', `Bearer ${them.token}`).expect(200);
+
+      const full = await request(server())
+        .get(`/admin/chats/${first.chatId}`)
+        .set('Authorization', `Bearer ${agent.token}`)
+        .expect(200);
+      expect(full.body.messages.length).toBeGreaterThanOrEqual(2);
+      expect(full.body.messages[0].body).toBe('where is my refund');
+    });
+
+    it('a shopper cannot ask for anybody\'s history, including their own', async () => {
+      const them = await aShopper();
+      await request(server())
+        .get(`/admin/chats?userId=${them.id}`)
+        .set('Authorization', `Bearer ${them.token}`)
+        .expect(401);
+    });
+  });
+
   describe('the staff queue', () => {
     it('shows the ones waiting, longest wait first', async () => {
       await anAnswerBook();

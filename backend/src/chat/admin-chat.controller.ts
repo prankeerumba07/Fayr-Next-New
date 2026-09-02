@@ -84,6 +84,10 @@ export class AdminChatController {
       this.chat.queue({
         state: query.state,
         takenByStaffId: query.takenByStaffId,
+        // One person's whole history, newest first, when staff ask for one
+        // person. The shopper only ever sees the conversation they are in; this
+        // is how whoever is helping them reads every one they have ever had.
+        userId: query.userId,
         limit: query.limit ?? DEFAULT_LIMIT,
         offset: query.offset ?? 0,
       }),

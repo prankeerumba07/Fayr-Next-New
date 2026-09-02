@@ -7,6 +7,7 @@ import {
   mayReply,
   mayTake,
   plainStateName,
+  startsANewConversation,
   type ChatFacts,
   type StaffFacts,
 } from './chat.rules';
@@ -178,5 +179,53 @@ describe('what a message is labelled', () => {
 
   it('labels the shopper', () => {
     expect(authorLabel('PERSON')).toBe('Them');
+  });
+});
+
+describe('opening the chat screen: a person never sees an older conversation', () => {
+  // THE OWNER'S RULE, 2 September 2026: "whenever a user comes to chat, like when
+  // they click on 'Chat with us,' they should not be able to see their previous
+  // conversations. Our agents can see them in the admin, but the user cannot see
+  // anything."
+  it('somebody with no conversation at all gets a new one', () => {
+    expect(startsANewConversation(null)).toBe(true);
+  });
+
+  it('a conversation the assistant was handling is finished business', () => {
+    expect(
+      startsANewConversation({ state: 'ASSISTANT', takenByStaffId: null }),
+    ).toBe(true);
+  });
+
+  it('a finished conversation is never reopened', () => {
+    expect(
+      startsANewConversation({ state: 'CLOSED', takenByStaffId: null }),
+    ).toBe(true);
+  });
+
+  it('a conversation a person at Fayr has taken is the one they come back to', () => {
+    // NOT AN EXCEPTION TO THE RULE, because this is not history. Somebody at Fayr
+    // is about to write a reply INTO this conversation. Starting a new one would
+    // send that reply somewhere the shopper is not looking, and the shopper would
+    // sit waiting for an answer that had already been written.
+    expect(
+      startsANewConversation({ state: 'TAKEN', takenByStaffId: 'staff-1' }),
+    ).toBe(false);
+  });
+
+  it('and so is one sitting in the queue waiting for a person', () => {
+    expect(
+      startsANewConversation({
+        state: 'WAITING_FOR_PERSON',
+        takenByStaffId: null,
+      }),
+    ).toBe(false);
+  });
+
+  it('every state is decided, so a new state cannot fall through silently', () => {
+    for (const state of CHAT_STATES) {
+      const answer = startsANewConversation({ state, takenByStaffId: null });
+      expect(typeof answer).toBe('boolean');
+    }
   });
 });
