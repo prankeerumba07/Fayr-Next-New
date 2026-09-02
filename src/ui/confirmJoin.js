@@ -73,6 +73,18 @@ export function claimDeadline(opts) {
 }
 
 /**
+ * HOW LONG THE SLOT RESERVED MOMENT STAYS ON SCREEN, in milliseconds.
+ *
+ * The owner asked for about three seconds, with no button: it says the slot is
+ * reserved, shows how long there is to buy, plays the design's own celebration,
+ * and then leaves by itself.
+ *
+ * Here rather than in the screen so the number lives in one place and the test can
+ * read it instead of repeating it.
+ */
+export const SLOT_RESERVED_MS = 3000;
+
+/**
  * HOW LONG IS LEFT TO BUY, as ONE SHORT LINE.
  *
  * The confirmation page carried the claim deadline in a card of its own. The owner

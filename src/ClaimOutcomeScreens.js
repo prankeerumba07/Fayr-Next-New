@@ -31,16 +31,17 @@
 //    the ledger — claiming DEDUCTS and an expiry RETURNS — so the figure is
 //    derived from the user's own open claims, which are exactly the tickets that
 //    would come back. A PURCHASED claim has spent them for good and is excluded.
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, Easing, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { PLATFORMS } from './platforms';
 import * as campaignStore from './backend/campaignStore';
 import { getWallet } from './backend/meApi';
 import { getAuthoritative, getTasks } from './taskStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
 import { Screen, Pill } from './ui/primitives';
-import { countdown, heldTicketCount } from './ui/confirmJoin';
+import { SLOT_RESERVED_MS, countdown, deadlineLine, heldTicketCount } from './ui/confirmJoin';
 import { goHome } from './ui/nav';
+import { useMotion } from './ui/celebration';
 
 /** The design's TextBtn: a quiet centred secondary action. */
 function TextBtn({ children, onPress }) {
@@ -57,13 +58,15 @@ function TextBtn({ children, onPress }) {
  * Out here rather than inline so each sentence is one whole string that a person
  * and a test can both read.
  */
-function subLine({ over, left, mktName, cost }) {
+function subLine({ over, left, mktName, cost, task }) {
   if (over) {
     return `This slot was held until ${left.when}. Your ${cost} tickets are on their way back, and you can take the offer again.`;
   }
-  if (left) {
-    return `This product is yours until ${left.when}. Buy it on ${mktName} before then.`;
-  }
+  // THE DEADLINE, in the same one line the connect page and the before you go page
+  // use, from src/ui/confirmJoin.js. The confirmation page carried it in a card of
+  // its own until the owner took that page off the path.
+  const line = deadlineLine(task, new Date());
+  if (line) return `${line} Buy it on ${mktName}.`;
   return `Buy it on ${mktName} to start your refund.`;
 }
 
@@ -112,37 +115,84 @@ export function ClaimedScreen({ route, navigation }) {
   const mkt = PLATFORMS[campaign?.marketplace] || {};
   const mktName = mkt.name || 'the marketplace';
   const cost = campaign?.ticketCost ?? 5;
+  const task = getAuthoritative(campaignId);
+  const motion = useMotion();
+
+  // THE DESIGN'S OWN ANIMATION FOR THIS MOMENT, and it really has one. The sheet
+  // uses fayr-rise (opacity 0 to 1, fourteen points up to nothing) and the tick
+  // uses fayr-pop (opacity 0 to 1, scale .82 to 1.04 and back to 1), both on
+  // cubic-bezier(.22,.61,.36,1) — fayr-design.browser.jsx:276 and :278, applied at
+  // :2199 and :2201. Reduced motion shows the same words for the same time with
+  // nothing moving, which is what src/ui/celebration.js already asks the phone.
+  const rise = useRef(new Animated.Value(motion ? 0 : 1)).current;
+  const pop = useRef(new Animated.Value(motion ? 0 : 1)).current;
+  useEffect(() => {
+    if (!motion) { rise.setValue(1); pop.setValue(1); return undefined; }
+    const easing = Easing.bezier(0.22, 0.61, 0.36, 1);
+    const run = Animated.parallel([
+      Animated.timing(rise, { toValue: 1, duration: 350, easing, useNativeDriver: true }),
+      Animated.timing(pop, { toValue: 1, duration: 500, easing, useNativeDriver: true }),
+    ]);
+    run.start();
+    return () => run.stop();
+  }, [motion, rise, pop]);
   // OVER IS NOT THE SAME AS UNKNOWN. A task with no readable deadline gives null,
   // and this sheet then simply draws no clock; only a deadline that has really
   // passed puts the screen into its ran-out state.
   const over = left ? left.over === true : false;
 
-  // CONTINUE, NOT "GO TO AMAZON". The owner asked for this on 1 September 2026.
+  // IT LEAVES BY ITSELF, AND IT CANNOT BE GOT STUCK ON.
   //
-  // This button used to open the marketplace's own web view directly, so the very
-  // next thing a person saw after claiming was a shop, with nothing in between
-  // telling them what to buy or reminding them what they had signed up to. It goes
-  // into the claim journey now, which is the sequence that owns all of that.
+  // The owner asked for about three seconds with no button at all. So there is
+  // nothing to tap, and the only way off is this timer — which makes "what if
+  // something goes wrong" the important question. Three answers to it:
   //
-  // WHERE IT LANDS, SAID PLAINLY. The journey works out which step this claim is
-  // on from the claim's own record. For a claim nobody has connected an account
-  // for, that is "Connect your account" today. The owner's flow puts the BUY page
-  // first, with a locked buy button that sends somebody to connect and back — and
-  // that lock is Part Two of his instructions, which is also what makes connecting
-  // reachable from the buy page. Swapping the order before the lock exists would
-  // leave nothing anywhere that opens the connect page, so the order changes in
-  // Part Two, together with the lock, and not here on its own.
-  const carryOn = useCallback(() => {
-    if (!campaignId) return;
-    navigation.replace('Journey', { campaignId });
-  }, [campaignId, navigation]);
+  //  * The timer does not wait for the animation, the record, the network or
+  //    anything else. It is set on arrival and it fires.
+  //  * It replaces this screen in the history rather than pushing on top of it,
+  //    so the back gesture cannot bring somebody back to a screen with no way out.
+  //  * It is cleared when the screen goes away, so nothing navigates afterwards.
+  //
+  // A LAPSED SLOT DOES NOT AUTO-ADVANCE. That is not the success this moment is
+  // for, and the owner asked for only the success screen to become automatic, so
+  // that state keeps its words and its way back.
+  useEffect(() => {
+    if (over || !campaignId) return undefined;
+    const id = setTimeout(() => {
+      // Into the journey, which works out its own step from the claim's record and
+      // lands on connecting the shop, the first step. Naming a step here would be
+      // a second opinion about where somebody is.
+      navigation.replace('Journey', { campaignId });
+    }, SLOT_RESERVED_MS);
+    return () => clearTimeout(id);
+  }, [navigation, campaignId, over]);
+
 
   return (
     <Screen bg={COLOR.homeBg}>
       <View style={styles.sheetWrap}>
-        <View style={styles.sheet}>
+        <Animated.View
+          style={[styles.sheet, {
+            opacity: rise,
+            transform: [{
+              translateY: rise.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }),
+            }],
+          }]}
+        >
           <View style={styles.grabber} />
-          <Text style={styles.bigTick}>{over ? '⏳' : '✔️'}</Text>
+          <Animated.Text
+            style={[styles.bigTick, {
+              opacity: pop,
+              transform: [{
+                // .82 to 1.04 and back to 1, the design's own overshoot.
+                scale: pop.interpolate({
+                  inputRange: [0, 0.6, 1], outputRange: [0.82, 1.04, 1],
+                }),
+              }],
+            }]}
+          >
+            {over ? '⏳' : '✔️'}
+          </Animated.Text>
           {/* THE OWNER'S WORDS. The design's own sticky bar calls this state
               "Slot Reserved", and he asked for that here rather than "Product
               Claimed!", because reserving a slot for thirty minutes is what has
@@ -154,7 +204,7 @@ export function ClaimedScreen({ route, navigation }) {
               sentence across a join to fit the line width makes it impossible to
               search for, and a sentence nothing can search for is a sentence
               nothing can check. */}
-          <Text style={styles.claimedSub}>{subLine({ over, left, mktName, cost })}</Text>
+          <Text style={styles.claimedSub}>{subLine({ over, left, mktName, cost, task })}</Text>
           {!over ? (
             <View style={styles.ticketChip}>
               <Text style={styles.ticketChipText}>
@@ -172,6 +222,10 @@ export function ClaimedScreen({ route, navigation }) {
               button live would send somebody to the shop for a purchase the
               order-window rule is going to refuse, and leaving the sheet at
               "0m : 00s" with a live button would be worse still. */}
+          {/* NO BUTTON ON THE SUCCESS SIDE. The owner asked for this moment to
+              pass by itself, so there is nothing to tap and nothing to decide.
+              A lapsed slot keeps its two ways out, because that is not a success
+              and it does not move on by itself. */}
           {over ? (
             <>
               <View style={{ marginTop: 18 }}>
@@ -189,19 +243,8 @@ export function ClaimedScreen({ route, navigation }) {
                 Back to offers
               </TextBtn>
             </>
-          ) : (
-            <>
-              <View style={{ marginTop: 18 }}>
-                <Pill onPress={carryOn} color={COLOR.greenDeep}>
-                  Continue →
-                </Pill>
-              </View>
-              <TextBtn onPress={() => navigation.replace('Task', { campaignId })}>
-                I'll buy in a bit
-              </TextBtn>
-            </>
-          )}
-        </View>
+          ) : null}
+        </Animated.View>
       </View>
     </Screen>
   );

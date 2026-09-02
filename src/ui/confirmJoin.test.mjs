@@ -15,6 +15,7 @@ import {
   refundLines,
   heldTicketCount,
   countdown,
+  SLOT_RESERVED_MS,
 } from './confirmJoin.js';
 
 let passed = 0;
@@ -382,20 +383,63 @@ console.log('the claimed sheet draws the slot, and says when it is gone');
     assert.ok(/over \?/.test(flat), 'the sheet does not change with the ran-out state');
   });
 
-  t('the button says Continue, and does not open a shop', () => {
-    // It used to open the marketplace's own web view, so the very next thing after
-    // claiming was a shop, with nothing in between saying what to buy. The owner
-    // asked for "Continue", into the journey that owns all of that.
-    assert.ok(/Continue →/.test(flat), 'the button does not say Continue');
+  t('THERE IS NO BUTTON on the success side any more', () => {
+    // CHANGED ON 2 SEPTEMBER 2026. This used to check the button said "Continue".
+    // The owner then asked for this moment to pass by itself in about three
+    // seconds, so there is nothing to tap at all. The check that matters now is
+    // that no button crept back, and that it still never opens a shop.
+    assert.ok(!/Continue →/.test(flat), 'a Continue button is back');
     assert.ok(!/Go to \$\{mktName\} →/.test(flat), 'the button still names a shop');
     assert.ok(
       !/navigation\.replace\(campaign\.marketplace/.test(flat),
       'the sheet still opens the marketplace web view directly',
     );
+  });
+
+  t('it leaves by itself, after the one timing that lives in one place', () => {
+    assert.ok(/SLOT_RESERVED_MS/.test(flat), 'the timing is not the shared constant');
+    assert.equal(SLOT_RESERVED_MS, 3000, 'the owner asked for about three seconds');
     assert.ok(
-      /navigation\.replace\('Journey', \{ campaignId \}\)/.test(flat),
-      'the button does not open the claim journey',
+      /setTimeout\(/.test(flat) && /navigation\.replace\('Journey', \{ campaignId \}\)/.test(flat),
+      'nothing moves the person on by itself',
     );
+  });
+
+  t('and it cannot be come back to, or fire after it has gone', () => {
+    // REPLACE, not navigate: pushing would leave a screen with no button behind
+    // the back gesture, which is a screen somebody is stuck on.
+    assert.ok(
+      /navigation\.replace\('Journey'/.test(flat),
+      'it pushes instead of replacing, so back returns to a screen with no way out',
+    );
+    // And the timer is cleared when the screen goes away, so no navigation
+    // happens after unmount.
+    const block = (flat.match(/if \(over \|\| !campaignId\) return undefined;[\s\S]{0,320}/) || [''])[0];
+    assert.ok(/clearTimeout\(id\)/.test(block), 'the timer is never cleared');
+  });
+
+  t('a lapsed slot keeps its way out, because that is not a success', () => {
+    assert.ok(/if \(over \|\| !campaignId\) return undefined;/.test(flat),
+      'a lapsed slot is moved on automatically too');
+    assert.ok(/See the offer again/.test(flat), 'a lapsed slot has no way out');
+  });
+
+  t('it plays the design’s own animation for this moment', () => {
+    // The design really has one, so nothing was invented: fayr-rise on the sheet
+    // and fayr-pop on the tick, at fayr-design.browser.jsx:276 and :278.
+    assert.ok(/Animated\.parallel/.test(flat), 'nothing is animated');
+    assert.ok(/Easing\.bezier\(0\.22, 0\.61, 0\.36, 1\)/.test(flat),
+      'not the design’s own easing');
+    assert.ok(/outputRange: \[14, 0\]/.test(flat), 'not the design’s own rise');
+    assert.ok(/outputRange: \[0\.82, 1\.04, 1\]/.test(flat), 'not the design’s own pop');
+  });
+
+  t('and it asks the phone about reduced motion rather than assuming', () => {
+    assert.ok(/useMotion\(\)/.test(flat), 'reduced motion is ignored');
+    // The same words for the same time, with nothing moving. The timer does not
+    // depend on the animation at all, so it fires either way.
+    assert.ok(/if \(!motion\) \{ rise\.setValue\(1\); pop\.setValue\(1\)/.test(flat),
+      'reduced motion leaves the screen invisible');
   });
 
   t('the tickets are described honestly in both states', () => {
