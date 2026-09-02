@@ -55,7 +55,13 @@ export const SCREENS = [
   { key: 'detail', at: 'folded', inside: 'src/DetailScreen.js' },
   { key: 'claimedsheet', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },
   { key: 'redirect', at: 'missing' },
-  { key: 'confirm', at: 'own' },
+  // OFF THE PATH since 2 September 2026, and NOT deleted. The owner took the
+  // confirmation page out of the journey: the claim happens on the product page
+  // now, where the terms tick box is, so this page was one tap that added nothing.
+  // The rule in this project is that no design screen is deleted, so it keeps its
+  // own file, keeps its key, and is still counted here. `offPath` records the fact
+  // rather than leaving somebody to discover it by reading journey.js.
+  { key: 'confirm', at: 'own', offPath: true },
   { key: 'insufficient', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },
   { key: 'linkaccount', at: 'own' },
   { key: 'seatlost', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },

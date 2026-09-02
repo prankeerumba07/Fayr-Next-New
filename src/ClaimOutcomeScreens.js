@@ -280,12 +280,17 @@ export function JoinFailedScreen({ route, navigation }) {
             "Campaign is full", which no retry will fix. */}
         {error ? <Text style={styles.reason}>{error}</Text> : null}
       </View>
+      {/* TRY AGAIN GOES BACK TO THE PRODUCT PAGE, because that is where a claim
+          is made now. It used to reopen the confirmation page, which the owner took
+          out of the path on 2 September 2026 — and reopening it would have shown a
+          page with a dead button, since the terms tick box lives on the product
+          page and the acceptance travels from there. */}
       <View style={styles.footer}>
-        <Pill onPress={() => navigation.replace('confirm', { campaignId })}>
+        <Pill onPress={() => navigation.replace('Detail', { campaignId })}>
           TRY AGAIN
         </Pill>
-        <TextBtn onPress={() => navigation.replace('Detail', { campaignId })}>
-          Back to campaign
+        <TextBtn onPress={() => goHome(navigation)}>
+          Back to offers
         </TextBtn>
       </View>
     </Screen>

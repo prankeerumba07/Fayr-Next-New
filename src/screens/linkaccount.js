@@ -61,6 +61,8 @@ import { Ghost, Pill, TextBtn, TopBar, hSub, hTitle } from '../ui/brand';
 import { Screen, ShopMark } from '../ui/primitives';
 import { appButtonLabel } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
+import { deadlineLine } from '../ui/confirmJoin';
+import { getAuthoritative } from '../taskStore';
 
 /** The three lines in the design's blue "what we never do" card. */
 function neverDo(shop) {
@@ -87,6 +89,9 @@ function reasons(shop) {
 export default function LinkAccountScreen({ navigation, route }) {
   const params = (route && route.params) || {};
   const campaignId = params.campaignId || null;
+  // HOW LONG IS LEFT TO BUY, read from the claim's own record on the server and
+  // never from a number written into this screen.
+  const deadline = deadlineLine(getAuthoritative(campaignId), new Date());
   const campaign = campaignId ? campaignStore.getById(campaignId) : null;
   const key = campaign ? campaign.marketplace : params.marketplace || 'amazon';
   const shop = PLATFORMS[key] ? PLATFORMS[key].name : String(key);
@@ -132,6 +137,15 @@ export default function LinkAccountScreen({ navigation, route }) {
         <View style={styles.required}>
           <Text style={styles.requiredText}>🔒 Required before you can buy</Text>
         </View>
+
+        {/* HOW LONG IS LEFT TO BUY, in one short line. The confirmation page
+            carried the claim deadline in a card of its own; the owner took that
+            page off the path on 2 September 2026, so the deadline says itself here
+            instead, and on the before you go page, and at the slot reserved
+            moment. All three use the same sentence from src/ui/confirmJoin.js so
+            they cannot drift apart. Nothing is drawn when there is no deadline to
+            state. */}
+        {deadline ? <Text style={styles.deadline}>⏰ {deadline}</Text> : null}
 
         <Text style={[hSub, styles.lead]}>
           Before you shop on {shop}, connect the account you will buy from — the one
@@ -214,6 +228,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start', marginTop: 12, backgroundColor: '#FFF3D6',
     borderWidth: 1, borderColor: '#EAD79A', borderRadius: RADIUS.round,
     paddingHorizontal: 12, paddingVertical: 5,
+  },
+  deadline: {
+    fontFamily: FONT.bodyBold, fontSize: 12.5, color: COLOR.red, marginTop: 10,
   },
   requiredText: { fontFamily: FONT.displaySemi, fontSize: 11.5, color: '#8A6D10' },
 

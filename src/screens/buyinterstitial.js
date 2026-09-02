@@ -45,6 +45,8 @@ import { CardBox, Ghost, Pill, TopBar } from '../ui/brand';
 import { Screen, ProductImage } from '../ui/primitives';
 import { appButtonLabel, copyLine, whichDoorLine } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
+import { deadlineLine } from '../ui/confirmJoin';
+import { getAuthoritative } from '../taskStore';
 
 /** The design's three lines about how to buy, in its order and its words. */
 function howToBuy(shop) {
@@ -59,6 +61,10 @@ export default function BuyInterstitialScreen({ navigation, route }) {
   const params = (route && route.params) || {};
   const campaignId = params.campaignId || null;
   const campaign = campaignId ? campaignStore.getById(campaignId) : null;
+  // HOW LONG IS LEFT TO BUY, in the same one line the connect page and the slot
+  // reserved moment use. The confirmation page carried this in a card of its own
+  // until the owner took that page off the path on 2 September 2026.
+  const deadline = deadlineLine(getAuthoritative(campaignId), new Date());
   const key = campaign ? campaign.marketplace : params.marketplace || 'amazon';
   const platform = PLATFORMS[key];
   const shop = platform ? platform.name : String(key);
@@ -92,6 +98,8 @@ export default function BuyInterstitialScreen({ navigation, route }) {
     <Screen bg={COLOR.cream}>
       <TopBar title="Before you go" onBack={() => goBackOrHome(navigation)} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
+        {deadline ? <Text style={styles.deadline}>⏰ {deadline}</Text> : null}
+
         <CardBox>
           <Text style={styles.cardTitle}>Buy exactly this</Text>
           <View style={styles.productRow}>
@@ -150,6 +158,9 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: SPACE.xl, paddingTop: 4, paddingBottom: SPACE.xl },
   spaced: { marginTop: 12 },
 
+  deadline: {
+    fontFamily: FONT.bodyBold, fontSize: 12.5, color: COLOR.red, marginBottom: 10,
+  },
   cardTitle: {
     fontFamily: FONT.bodyBold, fontSize: 15, color: COLOR.ink2, marginBottom: 10,
   },

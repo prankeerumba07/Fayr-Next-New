@@ -16,7 +16,9 @@
 //   the last section used to grep ONE file for thirteen things. The drawing lives
 //   in eleven files now, so each of those thirteen is checked against the file that
 //   actually carries it, and the router is checked for NOT carrying them.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { STATES } from '../taskflow.js';
 import {
   DESIGN_KEYS,
@@ -40,9 +42,13 @@ function ok(cond, label) {
 
 console.log('=== 1. twelve steps, in the order the journey runs in ===');
 {
-  ok(OF === 12, `twelve steps, found ${OF}`);
+  // ELEVEN, NOT TWELVE, since 2 September 2026: the owner took the confirmation
+  // page out of the path, because the claim now happens on the product page where
+  // the terms tick box is. The screen still exists and is still counted in
+  // src/screens/keys.js; it is simply not a step.
+  ok(OF === 11, `eleven steps, found ${OF}`);
   ok(JSON.stringify(JOURNEY_KEYS) === JSON.stringify([
-    'join', 'connect', 'buy', 'returncatch', 'purchase-shot', 'checking',
+    'connect', 'buy', 'returncatch', 'purchase-shot', 'checking',
     'order-details', 'delivered', 'review', 'review-shot', 'window', 'refund',
   ]), 'in exactly the order asked for');
   ok(new Set(JOURNEY_KEYS).size === OF, 'no step twice');
@@ -101,15 +107,22 @@ console.log('\n=== 2. every page says where you are and what comes next ===');
     ok(stepNumber(key) === i + 1, `${key} is step ${i + 1}`);
   }
   ok(stepNumber('not-a-page') === 0, 'a name we do not know is not a step');
-  ok(page('join') !== null && page('nope') === null, 'pages are looked up by name');
+  // 'join' is no longer a step, so it looks up to nothing, exactly like a name
+  // that was never a step at all.
+  ok(page('connect') !== null && page('nope') === null, 'pages are looked up by name');
+  ok(page('join') === null, 'the confirmation page is not a step any more');
 }
 
 console.log('\n=== 3. which page, from the server’s record ===');
 {
   const at = (state) => journeyStepFor(state);
 
-  ok(at({ task: null }) === 'join', 'no task at all means they have not joined');
-  ok(at({}) === 'join', 'and neither does nothing at all');
+  // WITH NO RECORD, the first step is connecting the shop. It used to be the
+  // confirmation page, because the claim happened there; the claim happens on the
+  // product page now, so by the time anybody is inside the journey there is a
+  // task, and if there somehow is not, the first step is still the first step.
+  ok(at({ task: null }) === 'connect', 'no record at all lands on the first step');
+  ok(at({}) === 'connect', 'and so does nothing at all');
 
   ok(at({ task: { state: STATES.CLAIMED }, connected: false }) === 'connect',
     'joined but not connected: connect');
@@ -243,7 +256,7 @@ console.log('\n=== 5. COMING BACK LANDS WHERE THEY WERE ===');
     const afterComingBack = journeyStepFor(JSON.parse(JSON.stringify(state)));
     ok(before === afterComingBack,
       `${state.task.state}: comes back to ${before}, not to the beginning`);
-    ok(afterComingBack !== 'join' || state.task === null,
+    ok(afterComingBack !== JOURNEY[0].key || state.task === null,
       `${state.task.state}: never lands back at the first page`);
   }
 }
@@ -256,10 +269,12 @@ console.log('\n=== 6. the whole page, as data ===');
   });
   ok(view.key === 'review', 'it knows which step');
   ok(view.designKey === 'reviewguide', 'and which design screen draws it');
-  ok(view.where === 'Step 9 of 12', 'and says where you are');
-  ok(view.stepNumber === 9 && view.of === 12, 'with the numbers to draw it');
-  ok(view.track.length === 12, 'one segment per step');
-  ok(view.track.filter((t) => t.state === 'done').length === 8, 'eight behind');
+  // Each number is one lower than it was: the confirmation page used to be step
+  // one, so every step after it moved down by one, and the total went 12 to 11.
+  ok(view.where === 'Step 8 of 11', 'and says where you are');
+  ok(view.stepNumber === 8 && view.of === 11, 'with the numbers to draw it');
+  ok(view.track.length === 11, 'one segment per step');
+  ok(view.track.filter((t) => t.state === 'done').length === 7, 'seven behind');
   ok(view.track.filter((t) => t.state === 'here').length === 1, 'one here');
   ok(view.track.filter((t) => t.state === 'todo').length === 3, 'three to come');
   ok(view.product === 'Prestige cooktop', 'it carries the product');
@@ -320,7 +335,8 @@ console.log('\n=== 8. nothing missing reaches the screen ===');
     ok(!flat.includes('undefined'), `${label}: nothing "undefined" reaches the screen`);
     ok(!flat.includes('[object Object]'), `${label}: no raw object reaches the screen`);
     ok(typeof view.next === 'string' && view.next !== '', `${label}: and what comes next`);
-    ok(/^Step \d+ of 12$/.test(view.where), `${label}: and where you are`);
+    // "of 11" for the same reason: one fewer step in the journey.
+    ok(/^Step \d+ of 11$/.test(view.where), `${label}: and where you are`);
     ok(typeof view.designKey === 'string' && view.designKey !== '',
       `${label}: and which screen draws it`);
   }
@@ -507,6 +523,42 @@ console.log('\n=== 11. EACH OF THE THIRTEEN CHECKS MOVED TO THE FILE THAT OWNS I
     ok(!/setTimeout/.test(src),
       `${key} runs no pretend timer, which is how the design fakes it`);
   }
+}
+
+console.log('\n=== 12. NOTHING IN THE APP OPENS THE CONFIRMATION PAGE ANY MORE ===');
+{
+  // The owner took it off the path. The file stays and the route stays registered,
+  // so the staff walk through can still open it, but no screen a shopper can reach
+  // may lead there. The last one that did was the "claim did not go through" sheet,
+  // whose TRY AGAIN reopened it — and that page's button is dead now anyway,
+  // because the terms tick box lives on the product page and the acceptance
+  // travels from there.
+  const dir = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const files = [];
+  const walk = (d) => {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const full = join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js')) files.push(full);
+    }
+  };
+  walk(dir);
+  ok(files.length > 40, `walked ${files.length} files under src`);
+
+  const guilty = [];
+  for (const f of files) {
+    // The screen itself is allowed to mention its own name, and so is the register.
+    if (f.endsWith('/screens/confirm.js')) continue;
+    if (f.endsWith('/screens/keys.js')) continue;
+    const src = readFileSync(f, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    // navigate('confirm') / replace('confirm') / push('confirm'), any quoting.
+    if (/\b(navigate|replace|push)\(\s*['"`]confirm['"`]/.test(src)) {
+      guilty.push(f.slice(dir.length + 1));
+    }
+  }
+  ok(guilty.length === 0, `these still open the confirmation page: ${guilty.join(', ')}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

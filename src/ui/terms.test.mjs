@@ -109,19 +109,32 @@ console.log('\nthe product page really carries it');
     assert.match(prose, /claimBlockedLine/, 'the screen shows no reason');
   });
 
-  t('the acceptance is handed forward to the claim, not dropped here', () => {
-    // The tick is on this screen; the claim happens two screens later. If it were
-    // not passed on, the tick would light up a button and change nothing else,
-    // which is exactly what the owner said not to do.
+  t('THE CLAIM HAPPENS HERE, and it carries the value that was ticked', () => {
+    // CHANGED ON 2 SEPTEMBER 2026. This used to check that the product page handed
+    // the acceptance FORWARD to the confirmation page, because the claim happened
+    // there. The owner took that page off the path, so the claim happens on this
+    // page and the acceptance goes straight to the server.
+    //
+    // The value that was ticked, never a literal yes: writing `true` would keep
+    // working if the guard above it were ever removed, and would then put an
+    // acceptance nobody gave on the record.
     assert.match(
-      prose, /acceptedTerms:\s*true/,
-      'the product page does not pass the acceptance on to the journey',
+      prose, /claimTask\(campaignId, accepted\)/,
+      'the product page does not claim, or does not send the acceptance',
+    );
+    assert.doesNotMatch(
+      prose, /claimTask\([^)]*,\s*true\s*\)/,
+      'the product page sends a hardcoded yes',
     );
   });
 }
 
-console.log('\nthe confirmation page sends it to the server');
+console.log('\nthe confirmation page is off the path, and still correct if opened');
 {
+  // OFF THE PATH SINCE 2 SEPTEMBER 2026, and not deleted: the project's rule is
+  // that no design screen is deleted, so the staff walk through can still open it.
+  // These checks stay because a screen that can still be opened must still be
+  // right, and because they are what would catch somebody quietly reviving it.
   const confirm = strip(read('../screens/confirm.js'));
 
   t('it reads the acceptance it was handed', () => {
@@ -218,6 +231,67 @@ console.log('\nthe honesty promise moved, and did not disappear');
     // is drawn straight into the page: no open state, no toggle around it.
     const noteBlock = (guide.match(/styles\.promise[\s\S]{0,400}/) || [''])[0];
     assert.doesNotMatch(noteBlock, /open|Toggle|expand/i, 'the promise can be collapsed');
+  });
+}
+
+console.log('\nnothing the confirmation page carried was lost with it');
+{
+  // FOUR NUMBERS LIVED ON THAT PAGE: what the claim costs in tickets, how many
+  // tickets are left afterwards, the refund, and the deadline to buy. Taking a
+  // screen off the path is only safe if what it carried lands somewhere a person
+  // still walks past. Each of the four is checked on a screen that is still live.
+  const detail = strip(read('../DetailScreen.js'));
+  const connect = strip(read('../screens/linkaccount.js'));
+  const beforeYouGo = strip(read('../screens/buyinterstitial.js'));
+  const slot = strip(read('../ClaimOutcomeScreens.js'));
+
+  t('what the claim costs in tickets is on the product page', () => {
+    assert.match(detail, /tickets\.cost/, 'the ticket cost is nowhere');
+    assert.match(detail, /This claim/, 'the ticket cost has no label');
+  });
+
+  t('how many tickets are left afterwards is on the product page', () => {
+    assert.match(detail, /tickets\.after/, 'the balance after claiming is nowhere');
+    assert.match(detail, /left after this/, 'the balance after has no words');
+  });
+
+  t('the refund is on the product page, and only ever as "up to"', () => {
+    assert.match(detail, /refund\.maxLine/, 'the refund figure is nowhere');
+    assert.match(detail, /up to /, 'the refund is not stated as an upper limit');
+    // NEVER AN EXACT FIGURE FOR ONE PURCHASE. The real amount depends on what is
+    // actually charged and is not known until the order is read.
+    assert.doesNotMatch(
+      detail, /You will get ₹|Your refund is ₹|refund of ₹/,
+      'the product page states an exact refund for one purchase',
+    );
+  });
+
+  t('the deadline to buy is on all three screens that come after a claim', () => {
+    for (const [name, src] of [['the connect page', connect],
+                               ['the before you go page', beforeYouGo],
+                               ['the slot reserved moment', slot]]) {
+      assert.match(src, /deadlineLine|countdown\(/, `${name} does not state the deadline`);
+    }
+  });
+
+  t('and all three say it in the SAME words, from one place', () => {
+    // Three screens writing their own version of "how long is left" is three
+    // sentences that drift. Two of them read deadlineLine; the slot reserved
+    // moment draws the live clock from the same countdown underneath it.
+    assert.match(connect, /deadlineLine\(/);
+    assert.match(beforeYouGo, /deadlineLine\(/);
+    assert.match(slot, /countdown\(/);
+    const helper = strip(read('./confirmJoin.js'));
+    assert.match(helper, /export function deadlineLine/, 'the shared sentence is gone');
+  });
+
+  t('none of the four is on the page that was taken off the path only', () => {
+    // The point of the check above: if the only screen carrying a number were the
+    // one nobody can reach, the number would be as good as deleted.
+    const live = detail + connect + beforeYouGo + slot;
+    for (const needle of ['tickets.cost', 'tickets.after', 'refund.maxLine', 'deadlineLine']) {
+      assert.ok(live.includes(needle), `${needle} survives only on the off-path page`);
+    }
   });
 }
 

@@ -56,6 +56,39 @@ test('the count is the design count, and every key appears once', () => {
   assert.equal(new Set(KEYS).size, HOW_MANY, 'a key is listed twice');
 });
 
+test('a screen taken off the journey path keeps its file and its key', () => {
+  // THE RULE: no design screen is deleted. The confirmation page was taken out of
+  // the journey on 2 September 2026 because the claim moved to the product page,
+  // and it still has to exist, still have its own file, and still be counted.
+  const confirm = screenFor('confirm');
+  assert.ok(confirm, 'the confirmation page has been removed from the register');
+  assert.equal(confirm.at, 'own', 'the confirmation page lost its own file');
+  assert.equal(confirm.offPath, true, 'it is not recorded as off the path');
+  assert.ok(
+    OWN.includes('confirm'),
+    'the confirmation page is no longer counted as having its own file',
+  );
+  // And it is STILL registered in the navigator, so the screen can be opened by
+  // the staff walk through even though no journey step leads to it.
+  assert.ok(
+    new RegExp('name="confirm"').test(appJs),
+    'the confirmation page is no longer registered at all',
+  );
+});
+
+test('being off the path is recorded on the row, not guessed from journey.js', () => {
+  // Only screens really off the path may carry the flag, so the register cannot
+  // drift into marking live screens as dead.
+  const journey = readFileSync(join(root, 'src', 'ui', 'journey.js'), 'utf8');
+  for (const s of SCREENS) {
+    if (s.offPath !== true) continue;
+    assert.ok(
+      !new RegExp(`designKey: '${s.key}'`).test(journey),
+      `${s.key} is marked off the path and journey.js still routes to it`,
+    );
+  }
+});
+
 test('every row says where it is, and nothing else', () => {
   for (const s of SCREENS) {
     assert.ok(['own', 'folded', 'missing'].includes(s.at), `${s.key}: bad state ${s.at}`);

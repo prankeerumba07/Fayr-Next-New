@@ -22,6 +22,8 @@ import * as campaignStore from './backend/campaignStore';
 import {
   claim as claimTask, getAuthoritative, hasTask, subscribe,
 } from './taskStore';
+import { getWallet } from './backend/meApi';
+import { refundLines, ticketPlan } from './ui/confirmJoin';
 import { formatPaise } from './money';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW, estMaxRefundRupees } from './ui/theme';
 import { seatsLine, joinedLine, isFullCampaign } from './ui/seats';
@@ -126,6 +128,13 @@ export default function DetailScreen({ navigation, route }) {
   // that waited.
   const [revealed, setRevealed] = useState(false);
   const [viewport, setViewport] = useState(0);
+  // THE TICKET NUMBERS THE CONFIRMATION PAGE USED TO CARRY. That page is off the
+  // path, so the balance is read here instead. An unknown balance stays unknown:
+  // ticketPlan answers "we do not know" rather than guessing, and the row shows a
+  // dash. This is the screen where 5 tickets are actually spent, so a guessed
+  // number here would be a guess about somebody's money.
+  const [wallet, setWallet] = useState(null);
+  const [claiming, setClaiming] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -145,6 +154,12 @@ export default function DetailScreen({ navigation, route }) {
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    let live = true;
+    getWallet().then((w) => { if (live && w.ok) setWallet(w); });
+    return () => { live = false; };
+  }, []);
+
   // The claim no longer happens here. 5 tickets commit on the next screen, where
   // the design puts the cost, the refund, the deadline and the honesty
   // acknowledgement in front of the user first — this button used to spend them
@@ -154,11 +169,6 @@ export default function DetailScreen({ navigation, route }) {
   // the confirmation. The journey is the spine: everything from here to the
   // refund is one sequence, and starting inside it means the step counter is
   // right from the very first screen instead of appearing halfway through.
-  //
-  // IT CARRIES THE ACCEPTANCE. The tick box is here; the claim happens two screens
-  // later, on the confirmation page. Passing it forward is what makes the tick a
-  // record rather than a light on a button — the confirmation page sends it with
-  // the claim and the server refuses a claim without it.
   const onScrolled = useCallback((e) => {
     const n = e.nativeEvent;
     if (reachedBottom({
@@ -170,10 +180,36 @@ export default function DetailScreen({ navigation, route }) {
     }
   }, []);
 
-  const doClaim = useCallback(() => {
-    if (!acceptedTerms(accepted)) return;
-    navigation.navigate('Journey', { campaignId, acceptedTerms: true });
-  }, [navigation, campaignId, accepted]);
+  // THE CLAIM HAPPENS HERE NOW.
+  //
+  // It used to open the confirmation page and claim from there. The owner took that
+  // page off the path on 2 September 2026: the tick box is on this page, so a page
+  // asking somebody to confirm what they had just confirmed was one tap that added
+  // nothing.
+  //
+  // IT SENDS THE VALUE THAT WAS TICKED, not a literal yes. Writing `true` here
+  // would keep working if the guard above it were ever removed, and would then put
+  // an acceptance nobody gave on the record. The server refuses a claim that does
+  // not carry it, and stamps when it was accepted and what was accepted.
+  //
+  // The three answers the server can give each go to the screen the design drew
+  // for them, exactly as the confirmation page used to route them.
+  const doClaim = useCallback(async () => {
+    if (!acceptedTerms(accepted) || !campaignId || claiming) return;
+    setClaiming(true);
+    const res = await claimTask(campaignId, accepted);
+    setClaiming(false);
+    if (!res.ok) {
+      const msg = String(res.error || '');
+      if (/not enough tickets/i.test(msg)) {
+        navigation.navigate('NotEnoughTickets', { campaignId });
+        return;
+      }
+      navigation.navigate('JoinFailed', { campaignId, error: msg });
+      return;
+    }
+    navigation.navigate('Claimed', { campaignId });
+  }, [navigation, campaignId, accepted, claiming]);
 
   if (!campaign) {
     return (
@@ -211,6 +247,14 @@ export default function DetailScreen({ navigation, route }) {
     ? Date.parse(authoritative.claimExpiresAt)
     : null;
   const reserveLeft = remaining(Number.isNaN(expiresAt) ? null : expiresAt, now);
+
+  // THE THREE NUMBERS THE CONFIRMATION PAGE CARRIED. Same two helpers it used, so
+  // there is one definition of each figure rather than a second copy here.
+  const tickets = ticketPlan({
+    balance: wallet ? wallet.ticketBalance : null,
+    cost: campaign.ticketCost,
+  });
+  const refund = refundLines(campaign);
 
   const terms = campaign.terms
     ? campaign.terms.split('\n').map((l) => l.trim()).filter(Boolean)
@@ -472,6 +516,50 @@ export default function DetailScreen({ navigation, route }) {
           </TouchableOpacity>
         ) : null}
 
+          {/* WHAT THIS CLAIM COSTS AND PAYS, directly above the tick box.
+              These three numbers lived on the confirmation page until the owner
+              took it off the path on 2 September 2026, and losing them would have
+              been the real cost of removing that screen: this is the moment 5
+              tickets are actually spent.
+
+              DRAWN THE WAY THE DESIGN DRAWS NUMBERS ON THIS SCREEN — the pair of
+              white stat cards it uses at the top of the sheet for "Slots
+              Remaining" and "Time Remaining" (fayr-design.browser.jsx:2068). The
+              design has no ticket figures on this page at all, because in the
+              design they are on the confirmation page.
+
+              THE REFUND IS ALWAYS "UP TO". The exact figure depends on what is
+              actually charged and is not known until the order is read, so no
+              screen states an exact refund for one purchase. */}
+          {!claimed ? (
+            <View style={styles.numbers}>
+              <View style={styles.numberCard}>
+                <Text style={styles.numberLabel}>This claim{'\n'}uses</Text>
+                <View style={[styles.numberPill, styles.numberPillTickets]}>
+                  <Text style={styles.numberPillTicketsText}>
+                    🎟 {tickets.cost} tickets
+                  </Text>
+                </View>
+                <Text style={styles.numberFoot}>
+                  {tickets.after == null
+                    ? 'They come back if the claim runs out before you buy.'
+                    : `${tickets.after} left after this. They come back if the claim runs out before you buy.`}
+                </Text>
+              </View>
+              <View style={styles.numberCard}>
+                <Text style={styles.numberLabel}>You get{'\n'}back</Text>
+                <View style={[styles.numberPill, styles.numberPillRefund]}>
+                  <Text style={styles.numberPillRefundText}>
+                    {refund.maxLine ? `up to ${refund.maxLine}` : refund.percentLine}
+                  </Text>
+                </View>
+                <Text style={styles.numberFoot}>
+                  {refund.percentLine} of what you actually pay.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
         {/* THE TERMS TICK BOX, above the claim button, on the owner's
             instruction of 1 September 2026. Only before the claim: once the
             campaign is claimed the acceptance is already on the record and asking
@@ -617,6 +705,29 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLOR.line,
   },
+  // The design's own pair of white stat cards, the shape it uses for numbers on
+  // this screen (fayr-design.browser.jsx:2068): two equal cards, a small grey
+  // two-line label, then a rounded tinted pill holding the figure.
+  numbers: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  numberCard: {
+    flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 14,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.05)',
+  },
+  numberLabel: {
+    fontFamily: FONT.displaySemi, fontSize: 12, color: '#8a8574', lineHeight: 15,
+  },
+  numberPill: {
+    marginTop: 9, alignSelf: 'flex-start', borderRadius: 20,
+    paddingVertical: 4, paddingHorizontal: 10,
+  },
+  numberPillTickets: { backgroundColor: '#FFF3D6' },
+  numberPillTicketsText: { fontFamily: FONT.bodyBold, fontSize: 12, color: '#8a6d10' },
+  numberPillRefund: { backgroundColor: COLOR.greenBg },
+  numberPillRefundText: { fontFamily: FONT.bodyBold, fontSize: 12, color: COLOR.greenDeep },
+  numberFoot: {
+    fontFamily: FONT.body, fontSize: 10.5, lineHeight: 14, color: COLOR.sub, marginTop: 8,
+  },
+
   reservedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 },
   reservedTag: { backgroundColor: COLOR.ink, borderRadius: 5, paddingVertical: 2, paddingHorizontal: 8 },
   reservedTagText: { fontFamily: FONT.displaySemi, fontSize: 12, color: '#fff' },

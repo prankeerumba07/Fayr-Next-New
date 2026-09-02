@@ -72,6 +72,37 @@ export function claimDeadline(opts) {
   };
 }
 
+/**
+ * HOW LONG IS LEFT TO BUY, as ONE SHORT LINE.
+ *
+ * The confirmation page carried the claim deadline in a card of its own. The owner
+ * took that page off the path on 2 September 2026, so the deadline moved to the
+ * three screens that come after a claim: the slot reserved moment, the connect
+ * page and the before you go page. All three say it in these exact words, from
+ * here, so they cannot drift apart.
+ *
+ * Returns null when there is no usable deadline, so a screen says nothing rather
+ * than something it cannot back up.
+ */
+export function deadlineLine(task, now) {
+  const c = countdown(task, now);
+  if (!c) return null;
+  if (c.over) return 'Your time to buy has run out.';
+
+  // BUILT FROM THE NUMBERS, not from the clock's own text. My first version took
+  // the "20m : 00s" clock apart with string replacements and produced "20 minute
+  // seconds and 00s", which is the kind of thing that reaches a screen.
+  //
+  // The seconds are dropped rather than rounded up, so the line can only ever
+  // understate the time left, never overstate it. That is the safe direction for a
+  // deadline. Under a minute it says so in words instead of "0 minutes".
+  const minutes = c.minutes;
+  if (typeof minutes !== 'number' || minutes < 1) {
+    return 'Buy it in the next minute.';
+  }
+  return `Buy it within ${lengthInWords(minutes)}.`;
+}
+
 /** "1 Sep, 4:00 PM" — the design's format, in the device's locale rules for IN. */
 function formatDeadline(d) {
   const day = d.getDate();

@@ -887,6 +887,37 @@ describe('Task loop (e2e)', () => {
       expect(claimEvent.payload).toMatchObject({ acceptedOfferTerms: true });
     });
 
+    it('is recorded the same when the claim comes from the product page', async () => {
+      // THE PATH MOVED ON 2 SEPTEMBER 2026. The app used to claim from a separate
+      // "Confirm participation" page; the owner took that page off the path and the
+      // product page claims directly now, from the tick box that sits on it.
+      //
+      // The CONTRACT did not move, and this is the check that says so: the same
+      // body, the same two columns filled, the same frozen text. The server has no
+      // idea which screen called it, which is exactly the point — the record does
+      // not depend on the app's own layout.
+      const { id: userId, token } = await newUser();
+      await ticketsSvc.grantSignup(userId);
+      const terms = 'Buy the exact product.\nKeep it, do not return it.';
+      const campaign = await makeCampaign({ terms });
+
+      const claim = await request(server())
+        .post('/tasks')
+        .set('Authorization', bearer(token))
+        .send({ campaignId: campaign.id, acceptedTerms: true })
+        .expect(201);
+
+      const row = await prisma.task.findUniqueOrThrow({
+        where: { id: claim.body.id },
+      });
+      expect(row.offerTermsAcceptedAt).not.toBeNull();
+      expect(row.offerTermsText).toBe(terms);
+      expect(row.state).toBe('CLAIMED');
+      // And the tickets really moved, because a claim that records consent and
+      // spends nothing is not a claim.
+      expect(await ticketsSvc.getBalance(userId)).toBe(10);
+    });
+
     it('never takes the acceptance from what the client sent', async () => {
       // A client could send any instant or any wording it liked. Neither is
       // allowed anywhere near the record: the server stamps its own clock and

@@ -51,14 +51,24 @@ import { STATES } from '../taskflow.js'; // explicit extension: also run under n
  * eleven screens on 1 September 2026. A heading in this file and a heading on the
  * screen would be two copies of one sentence, and they would drift.
  */
+// THE JOIN STEP IS GONE, AND THE SCREEN IS NOT.
+//
+// The owner took "Confirm participation" out of the path on 2 September 2026. The
+// claim now happens on the product page itself, where the terms tick box is, so a
+// separate page asking somebody to confirm the thing they just confirmed was one
+// tap for no new information.
+//
+// src/screens/confirm.js still exists, still has its own file, and is still
+// counted in src/screens/keys.js, because the rule in this project is that no
+// design screen is deleted. It simply is not a step any more. Exactly what was
+// done for nothing else yet: the buy page is still on the path.
+//
+// WHAT THAT PAGE WAS CARRYING DID NOT VANISH. It showed the ticket cost, the
+// tickets left afterwards, the refund, and the claim deadline. The first three
+// moved to the product page, in the block directly above the tick box. The
+// deadline moved to the slot reserved moment, the connect page and the before you
+// go page. There is a test for each of the four.
 export const JOURNEY = [
-  {
-    key: 'join',
-    designKey: 'confirm',
-    from: 'ConfirmJoin',
-    short: 'Join the offer',
-    next: 'You will connect your shop account, so we can see your order.',
-  },
   {
     key: 'connect',
     designKey: 'linkaccount',
@@ -236,7 +246,12 @@ export function needsAPicture(task) {
 export function journeyStepFor(state) {
   const s = state && typeof state === 'object' ? state : {};
   const task = s.task && typeof s.task === 'object' ? s.task : null;
-  if (!task) return 'join';
+  // NO RECORD AT ALL lands on the first step, which is connecting the shop.
+  // It used to land on 'join', the confirmation page, because the claim happened
+  // there. The claim happens on the product page now, so by the time anybody is
+  // inside the journey there is a task; if there somehow is not, the first thing
+  // to do is still the first step.
+  if (!task) return JOURNEY[0].key;
 
   const st = task.state || STATES.CLAIMED;
 
