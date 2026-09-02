@@ -28,6 +28,7 @@ import { seatsLine, joinedLine, isFullCampaign } from './ui/seats';
 import { Card, RefundBadge, MarketplaceTag, ProductImage } from './ui/primitives';
 import { copyToClipboard } from './ui/clipboard';
 import { TERMS_SENTENCE, acceptedTerms, claimBlockedLine } from './ui/terms';
+import { reachedBottom } from './ui/detailReveal';
 import { goBackOrHome } from './ui/nav';
 
 // Soft per-campaign hero tint (deterministic from the id) — the fayr palette's
@@ -119,6 +120,12 @@ export default function DetailScreen({ navigation, route }) {
   // terms is something a person does when they are about to claim, and a tick that
   // survived from a week ago is not an acceptance made now.
   const [accepted, setAccepted] = useState(false);
+  // HAS THE READER GOT TO THE END OF THE PAGE? The claim block is see-through and
+  // untappable until they have. It never goes back: scrolling up again does not
+  // unread the page, and a claim button that came and went would be worse than one
+  // that waited.
+  const [revealed, setRevealed] = useState(false);
+  const [viewport, setViewport] = useState(0);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -152,6 +159,17 @@ export default function DetailScreen({ navigation, route }) {
   // later, on the confirmation page. Passing it forward is what makes the tick a
   // record rather than a light on a button — the confirmation page sends it with
   // the claim and the server refuses a claim without it.
+  const onScrolled = useCallback((e) => {
+    const n = e.nativeEvent;
+    if (reachedBottom({
+      offsetY: n.contentOffset.y,
+      viewportHeight: n.layoutMeasurement.height,
+      contentHeight: n.contentSize.height,
+    })) {
+      setRevealed(true);
+    }
+  }, []);
+
   const doClaim = useCallback(() => {
     if (!acceptedTerms(accepted)) return;
     navigation.navigate('Journey', { campaignId, acceptedTerms: true });
@@ -230,8 +248,27 @@ export default function DetailScreen({ navigation, route }) {
   return (
     <View style={styles.root}>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 150 }}
+        // The design's sheet ends with 150 points of empty space to keep its
+        // pinned button off the content (fayr-design.browser.jsx:2064). Nothing is
+        // pinned here any more, so this is only the ordinary room at the end of a
+        // page plus whatever the phone's own bottom edge needs.
+        contentContainerStyle={{ paddingBottom: insets.bottom + SPACE.xl }}
         showsVerticalScrollIndicator={false}
+        // 16 is one frame at sixty a second, which is what the owner asked for:
+        // often enough that the block wakes the moment the end comes into view,
+        // and not so often that work happens between frames nobody sees.
+        scrollEventThrottle={16}
+        onScroll={onScrolled}
+        onLayout={(e) => setViewport(e.nativeEvent.layout.height)}
+        onContentSizeChange={(w, h) => {
+          // A PAGE THAT DOES NOT SCROLL STILL HAS TO BE CLAIMABLE. A campaign with
+          // very little text never fires a scroll event at all, so without this the
+          // block would stay see-through with nothing left to scroll and no way on
+          // earth to claim it.
+          setRevealed((was) => was || reachedBottom({
+            offsetY: 0, viewportHeight: viewport, contentHeight: h,
+          }));
+        }}
       >
         {/* hero — real product photo on a soft gradient stage */}
         <LinearGradient
@@ -379,13 +416,31 @@ export default function DetailScreen({ navigation, route }) {
             )}
           </View>
         </View>
-      </ScrollView>
+        {/* THE CLAIM BLOCK — the last thing on the page, and it SCROLLS.
+            It used to sit in a bar pinned to the bottom of the screen, painting
+            over the campaign text behind it, which is what the owner reported on
+            2 September 2026. Nothing here is pinned any more.
 
-      {/* sticky CTA */}
-      <LinearGradient
-        colors={['rgba(251,251,239,0)', COLOR.homeBg]}
-        style={[styles.footer, { paddingBottom: insets.bottom + 14 }]}
-      >
+            IT WAKES UP ONLY WHEN SOMEBODY HAS SCROLLED TO IT, decided by position
+            and never by a timer. See src/ui/detailReveal.js. That is the whole
+            point of the tick box: it says "I have read everything above", and a
+            box you can tick without scrolling says nothing.
+
+            IT STAYS MOUNTED while it is hidden and only turns see-through. Adding
+            it to the page when the scroll arrives would grow the page under the
+            reader's own thumb.
+
+            WHAT THE DESIGN DOES INSTEAD, written down because this differs from
+            it. The design pins this button to the bottom of the screen
+            (fayr-design.browser.jsx:2168, "z8 — sticky claim") and stops it
+            covering anything by reserving 150 points of empty space at the end of
+            the scrolling sheet. The design has no tick box at all. The owner asked
+            for this arrangement instead, and a tick box has to sit with the button
+            it controls, so this follows the owner. */}
+        <View
+          style={[styles.claimBlock, { opacity: revealed ? 1 : 0 }]}
+          pointerEvents={revealed ? 'auto' : 'none'}
+        >
         {claimed ? (
           <View style={styles.reservedRow}>
             <View style={styles.reservedTag}>
@@ -478,7 +533,9 @@ export default function DetailScreen({ navigation, route }) {
             {claimBlockedLine(accepted) || 'Claiming reserves this product for you'}
           </Text>
         )}
-      </LinearGradient>
+        </View>
+        {/* END OF THE CLAIM BLOCK */}
+      </ScrollView>
     </View>
   );
 }
@@ -551,7 +608,15 @@ const styles = StyleSheet.create({
   },
   trustText: { fontFamily: FONT.bodySemi, fontSize: 11.5, color: '#6b6555', marginTop: 6, textAlign: 'center', lineHeight: 15 },
 
-  footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: SPACE.lg, paddingTop: SPACE.xl },
+  claimBlock: {
+    // IN THE PAGE, NOT OVER IT. No position, no bottom, nothing that lifts this out
+    // of the flow. That is the whole fix. The rule and the space above it make it
+    // read as the last block of the page rather than a bar that happens to be there.
+    marginTop: SPACE.xl,
+    paddingTop: SPACE.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLOR.line,
+  },
   reservedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 },
   reservedTag: { backgroundColor: COLOR.ink, borderRadius: 5, paddingVertical: 2, paddingHorizontal: 8 },
   reservedTagText: { fontFamily: FONT.displaySemi, fontSize: 12, color: '#fff' },
