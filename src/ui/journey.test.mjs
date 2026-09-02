@@ -481,7 +481,7 @@ console.log('\n=== 11. EACH OF THE THIRTEEN CHECKS MOVED TO THE FILE THAT OWNS I
   // ONE SCREEN OWNS THE ORDER GATE. Two screens firing CONFIRM_ORDER is exactly
   // what the split was meant to end: the delivery screen used to fire it under the
   // words "Yes, it is delivered", which is a different fact.
-  const firing = ['confirm', 'linkaccount', 'buyinterstitial', 'returncatch',
+  const firing = ['linkaccount', 'buyinterstitial', 'returncatch',
     'proofprimer', 'ocrconfirm', 'underreview', 'delivery', 'reviewguide',
     'reviewproof', 'returnwindow', 'reward', 'emailconnect', 'emailcode',
     'orderverified', 'imagesuploaded']
@@ -494,7 +494,11 @@ console.log('\n=== 11. EACH OF THE THIRTEEN CHECKS MOVED TO THE FILE THAT OWNS I
     ['returnwindow', /\b5\s*DAYS\b|\b11 Jul\b/i, 'the design’s "5 DAYS" and "11 Jul"'],
     ['ocrconfirm', /1269146612|2 Jul 2026/, 'the design’s order number and order date'],
     ['proofprimer', /402-3925017-7784521/, 'the design’s sample order number'],
-    ['confirm', /48\s*hours/i, 'the design’s "48 hours"'],
+    // THE "48 hours" ROW WAS HERE AND IT WENT WITH THE PAGE on 2 September 2026.
+    // It guarded src/screens/confirm.js, which the owner ordered deleted. The same
+    // phantom is still guarded, on the screen the claim happens on now: see
+    // src/ui/confirmJoin.test.mjs, "no screen hardcodes a deadline the backend
+    // never stated", which reads src/DetailScreen.js and src/ClaimOutcomeScreens.js.
   ];
   for (const [key, bad, what] of wrote) {
     ok(!bad.test(strip(read(key))), `${key} does not copy ${what}`);
@@ -525,14 +529,16 @@ console.log('\n=== 11. EACH OF THE THIRTEEN CHECKS MOVED TO THE FILE THAT OWNS I
   }
 }
 
-console.log('\n=== 12. NOTHING IN THE APP OPENS THE CONFIRMATION PAGE ANY MORE ===');
+console.log('\n=== 12. THE CONFIRMATION PAGE IS GONE, AND NOTHING POINTS AT IT ===');
 {
-  // The owner took it off the path. The file stays and the route stays registered,
-  // so the staff walk through can still open it, but no screen a shopper can reach
-  // may lead there. The last one that did was the "claim did not go through" sheet,
-  // whose TRY AGAIN reopened it — and that page's button is dead now anyway,
-  // because the terms tick box lives on the product page and the acceptance
-  // travels from there.
+  // IT USED TO BE OFF THE PATH. IT IS NOW DELETED. The owner asked twice for it to
+  // go and twice it was taken off the path and left in place, which is what he was
+  // objecting to: "WHEN HE SAYS REMOVE, YOU DELETE. Not hide, not mark, not leave
+  // off a path. Delete the file, the key and the route."
+  //
+  // So this block is stricter than the one it replaces. It used to allow the file
+  // and the route to exist as long as no shopper screen led there. Now the file,
+  // the key and the route must all be absent, and nothing anywhere may name it.
   const dir = join(dirname(fileURLToPath(import.meta.url)), '..');
   const files = [];
   const walk = (d) => {
@@ -545,20 +551,27 @@ console.log('\n=== 12. NOTHING IN THE APP OPENS THE CONFIRMATION PAGE ANY MORE =
   walk(dir);
   ok(files.length > 40, `walked ${files.length} files under src`);
 
+  ok(!files.some((f) => f.endsWith('/screens/confirm.js')),
+    'src/screens/confirm.js still exists. Removed means deleted, not left in place');
+
   const guilty = [];
   for (const f of files) {
-    // The screen itself is allowed to mention its own name, and so is the register.
-    if (f.endsWith('/screens/confirm.js')) continue;
+    // The register is allowed to name it: its whole job is to record that the
+    // design has sixty one screens and the app has sixty, and which one is gone.
     if (f.endsWith('/screens/keys.js')) continue;
     const src = readFileSync(f, 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
     // navigate('confirm') / replace('confirm') / push('confirm'), any quoting.
     if (/\b(navigate|replace|push)\(\s*['"`]confirm['"`]/.test(src)) {
-      guilty.push(f.slice(dir.length + 1));
+      guilty.push(`${f.slice(dir.length + 1)} opens it`);
+    }
+    // and nothing may import the file that is gone.
+    if (/from '[^']*screens\/confirm'|require\('[^']*screens\/confirm'\)/.test(src)) {
+      guilty.push(`${f.slice(dir.length + 1)} imports it`);
     }
   }
-  ok(guilty.length === 0, `these still open the confirmation page: ${guilty.join(', ')}`);
+  ok(guilty.length === 0, `these still point at the confirmation page: ${guilty.join(', ')}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

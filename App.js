@@ -293,10 +293,15 @@ function AppInner() {
             component={DetailScreen}
             options={{ headerShown: false }}
           />
-          {/* The claim path: confirm what it costs, then one of three outcomes.
-              Each owns its own chrome, exactly as the design draws them.
-              "confirm" is the design's own key for it — see src/screens/keys.js. */}
-          <Stack.Screen name="confirm" component={DESIGN_SCREENS.confirm} options={{ headerShown: false }} />
+          {/* One of three outcomes after a claim. Each owns its own chrome, exactly
+              as the design draws them.
+
+              THE CONFIRMATION PAGE THAT USED TO OPEN BEFORE THESE IS GONE. The
+              owner ordered it removed on 2 September 2026: the claim happens on
+              the product page now, where the terms tick box is, so a page asking
+              somebody to confirm what they had just confirmed was one tap that
+              added nothing. The file, the key and this route were all deleted.
+              See src/screens/keys.js, where the removal is recorded by name. */}
           <Stack.Screen name="Claimed" component={ClaimedScreen} options={{ headerShown: false }} />
           <Stack.Screen name="NotEnoughTickets" component={NotEnoughTicketsScreen} options={{ headerShown: false }} />
           <Stack.Screen name="JoinFailed" component={JoinFailedScreen} options={{ headerShown: false }} />

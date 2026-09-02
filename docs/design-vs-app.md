@@ -88,7 +88,7 @@ Key to the fourth column:
 | 21 | `detail` | One offer in full: price, refund, seats, rules, and the claim button. | `src/DetailScreen.js` | DIFFERENT | Both are long screens and both carry the design's language. The design's version has a three dimensional hero model and a frequently asked questions block; the app's does not. Not compared item by item. | `GET /campaigns/:id` | yes |
 | 22 | `claimedsheet` | Product claimed, now go and buy it. | `src/ClaimOutcomeScreens.js` → `ClaimedScreen` | DIFFERENT | Not its own file. The same component also serves screen 29. | `POST /tasks` | yes |
 | 23 | `redirect` | A pause naming the shop while it hands you over. | NOT BUILT | MISSING | Whole screen absent. The app goes straight to the shop. | none | not needed |
-| 24 | `confirm` | Confirming what a claim costs before spending tickets. | `src/ConfirmJoinScreen.js` | DIFFERENT | Exists as its own file, which is right. The journey screen ALSO has a join page doing the same job, so this screen now has two implementations. | `GET /campaigns/:id`, `GET /me/wallet` | yes |
+| 24 | `confirm` | Confirming what a claim costs before spending tickets. | **REMOVED FROM THE APP** | REMOVED | **The owner ordered this screen removed on 2 September 2026.** His words: "WHEN HE SAYS REMOVE, YOU DELETE. Not hide, not mark, not leave off a path. Delete the file, the key and the route. This replaces the earlier rule in this project that no design screen is ever deleted. That rule is withdrawn." **Why:** the claim happens on the product page now, where the box you tick to accept the terms is, so a separate page asking somebody to confirm the thing they had just confirmed was one tap that added no new information. **What it carried did not vanish:** the ticket cost, the tickets left afterwards and the refund are on the product page directly above the tick box, and how long there is to buy is said at the slot reserved moment, on the connect page and on the before you go page. There is a check for each of the four. `src/screens/confirm.js`, its key in `src/screens/keys.js` and its route in `App.js` were all deleted, and every check that read that file went with it. The register still knows the design has sixty one screens and now says the app has sixty, with this one named as the difference. | none any more | not needed |
 | 25 | `insufficient` | You need more tickets than you have. | `src/ClaimOutcomeScreens.js` → `NotEnoughTicketsScreen` | DIFFERENT | Not its own file. | `GET /me/wallet` | yes |
 | 26 | `linkaccount` | Connect your marketplace account, with what Fayr can and cannot see. | `src/journey/JourneyScreen.js` (a page) | DIFFERENT | **This is the screen the master prompt is most specific about.** It is one page inside the journey screen. It does not open the marketplace's own login page, does not return you to Fayr on success, does not offer Go to Amazon Now, and does not check that the connected account matches the one signed in on the phone. | the marketplace login WebView in `src/ConnectScreen.js` and `src/platforms.js`; an account identity to store and compare | WebView **yes**; account identity and match check **no** |
 | 27 | `seatlost` | Somebody took the last place. | `src/ClaimOutcomeScreens.js` → `JoinFailedScreen` | DIFFERENT | Not its own screen. Shown as the generic failure with the server's reason printed. The design's Join the waitlist button has nothing behind it. | `POST /tasks` refusing with a reason | yes |
@@ -188,6 +188,10 @@ separate, so every row here is Phase B work.
 | React Native file | design screens folded into it | how many |
 |---|---|---|
 | `src/journey/JourneyScreen.js` | `confirm`, `linkaccount`, `buyinterstitial`, `proofprimer`, `ocrconfirm`, `underreview`, `delivery`, `reviewguide`, `reviewproof`, `returnwindow`, `reward` | **11** |
+
+> **Since then:** all eleven were split out into their own files on 1 September
+> 2026, and `confirm` was then removed from the app altogether on 2 September
+> 2026 by the owner's order. See row 24. This table is the state before that work.
 | `src/setup/SetupFlow.js` | `setupintro`, `setup`, `namelast`, `buildfeed`, `howfayr` | 5 |
 | `src/ClaimOutcomeScreens.js` | `claimedsheet`, `enrollsuccess`, `insufficient`, `enrollfailed`, `seatlost` | 5 |
 | `src/firstrun/OtpScreen.js` | `otp`, `otplocked`, `blocked` | 3 |
@@ -209,6 +213,10 @@ because the journey screen duplicated a screen that already existed:
 
 This is the defect class where one thing is produced by two different routes.
 Splitting the journey removes both duplicates.
+
+> **Since then:** both duplicates are gone. `reward` has one implementation. And
+> `confirm` has none: the owner ordered that screen removed on 2 September 2026,
+> so neither copy exists. See row 24.
 
 ### 4. What the design needs that the backend does not have
 

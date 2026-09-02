@@ -510,11 +510,35 @@ export const SCREENS = {
       + 'unbuilt here, this is the one a real person is most likely to need.',
     reads: READS.none,
   },
+  // REMOVED FROM THE APP ON 2 SEPTEMBER 2026, BY THE OWNER'S ORDER, and this is
+  // the only screen that has ever been removed.
+  //
+  // It stays in the walk through because the walk through's job is to show every
+  // screen THE DESIGN has, and the design still has sixty one. It no longer opens
+  // anything, because there is nothing to open: the file, the key and the route
+  // were all deleted. So it is listed the same way as a design screen Fayr never
+  // built — the design's own words, and why Fayr does not have it.
   confirm: {
     group: EDGES,
     title: 'Confirming what a claim costs',
-    opens: { screen: 'Confirm' },
-    reads: READS.oneCampaign,
+    designWords: {
+      heading: 'Confirm participation',
+      body:
+        'The ticket cost, the tickets left afterwards, the refund, and how long '
+        + 'there is to buy — on a page of its own, between the offer and '
+        + 'connecting the shop.',
+      buttons: ['Confirm & Claim'],
+    },
+    whyNot:
+      'The owner ordered this page removed on 2 September 2026. The claim happens '
+      + 'on the product page now, where the box you tick to accept the terms is, so '
+      + 'a page asking somebody to confirm the thing they had just confirmed was '
+      + 'one tap that added nothing. What it carried did not vanish: the ticket '
+      + 'cost, the tickets left and the refund are on the product page directly '
+      + 'above the tick box, and how long there is to buy is said at the slot '
+      + 'reserved moment, on the connect page and on the before you go page.',
+    // Nothing to read: there is no screen behind this any more.
+    reads: [],
   },
   enrollsuccess: {
     group: EDGES,

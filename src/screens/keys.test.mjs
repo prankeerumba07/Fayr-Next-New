@@ -5,12 +5,12 @@
 // own order, every key that claims a file really has one on disk, and the app
 // really registers them. A claim nothing checks is a comment.
 import { strict as assert } from 'node:assert';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
-  BEFORE_SIGN_IN, HOW_MANY, IN_THE_NAVIGATOR, KEYS, OWN, SCREENS,
-  STILL_TO_SPLIT_CEILING, screenFor, stillToSplit,
+  BEFORE_SIGN_IN, HOW_MANY, IN_THE_APP, IN_THE_NAVIGATOR, KEYS, OWN, REMOVED,
+  SCREENS, STILL_TO_SPLIT_CEILING, screenFor, stillToSplit,
 } from './keys.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -18,6 +18,17 @@ const root = join(here, '..', '..');
 const design = readFileSync(join(root, 'fayr-design.browser.jsx'), 'utf8');
 const appJs = readFileSync(join(root, 'App.js'), 'utf8');
 const indexJs = readFileSync(join(here, 'index.js'), 'utf8');
+
+/** Every JavaScript file the app itself is built from. */
+function everyAppFile(dir, out = []) {
+  for (const entry of readdirSync(dir)) {
+    if (entry === 'node_modules') continue;
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) everyAppFile(full, out);
+    else if (entry.endsWith('.js')) out.push(full);
+  }
+  return out;
+}
 
 let ran = 0;
 const test = (name, fn) => {
@@ -56,42 +67,74 @@ test('the count is the design count, and every key appears once', () => {
   assert.equal(new Set(KEYS).size, HOW_MANY, 'a key is listed twice');
 });
 
-test('a screen taken off the journey path keeps its file and its key', () => {
-  // THE RULE: no design screen is deleted. The confirmation page was taken out of
-  // the journey on 2 September 2026 because the claim moved to the product page,
-  // and it still has to exist, still have its own file, and still be counted.
+test('sixty one in the design, sixty in the app, and the one gone is named', () => {
+  // THE RULE CHANGED ON 2 SEPTEMBER 2026. It used to be that no design screen is
+  // ever deleted, and this check enforced it. The owner withdrew that rule in
+  // writing — "WHEN HE SAYS REMOVE, YOU DELETE. Not hide, not mark, not leave off
+  // a path. Delete the file, the key and the route." — and ordered the
+  // confirmation page removed.
+  //
+  // THIS IS NOT A WEAKER CHECK. It does not pass on a count. It says the design
+  // has sixty one, the app has sixty, and the ONE screen the app is missing is
+  // this one BY NAME. A second screen going missing fails here, and so does this
+  // one coming back without the register being changed to say so.
+  assert.equal(HOW_MANY, 61, 'the design has sixty one screens');
+  assert.equal(IN_THE_APP, 60, 'and the app accounts for sixty of them');
+  assert.deepEqual(REMOVED, ['confirm'],
+    'exactly one screen has been removed by order, and it is the confirmation '
+    + 'page. Any other screen appearing here is a screen that went missing without '
+    + 'anybody deciding to remove it');
+
   const confirm = screenFor('confirm');
-  assert.ok(confirm, 'the confirmation page has been removed from the register');
-  assert.equal(confirm.at, 'own', 'the confirmation page lost its own file');
-  assert.equal(confirm.offPath, true, 'it is not recorded as off the path');
-  assert.ok(
-    OWN.includes('confirm'),
-    'the confirmation page is no longer counted as having its own file',
-  );
-  // And it is STILL registered in the navigator, so the screen can be opened by
-  // the staff walk through even though no journey step leads to it.
-  assert.ok(
-    new RegExp('name="confirm"').test(appJs),
-    'the confirmation page is no longer registered at all',
-  );
+  assert.ok(confirm, 'the row must stay, so the register is still the design’s own list');
+  assert.equal(confirm.removedOn, '2026-09-02', 'the day it was removed is recorded');
+  assert.ok(/owner ordered it removed/.test(confirm.why),
+    'and the row says the owner ordered it, in words');
+  assert.ok(/product page/.test(confirm.why), 'and says why');
 });
 
-test('being off the path is recorded on the row, not guessed from journey.js', () => {
-  // Only screens really off the path may carry the flag, so the register cannot
-  // drift into marking live screens as dead.
-  const journey = readFileSync(join(root, 'src', 'ui', 'journey.js'), 'utf8');
-  for (const s of SCREENS) {
-    if (s.offPath !== true) continue;
-    assert.ok(
-      !new RegExp(`designKey: '${s.key}'`).test(journey),
-      `${s.key} is marked off the path and journey.js still routes to it`,
-    );
+test('nothing anywhere still points at a removed screen', () => {
+  for (const key of REMOVED) {
+    // (a) the file is gone
+    assert.ok(!existsSync(join(here, `${key}.js`)),
+      `src/screens/${key}.js still exists. Removed means deleted, not left in place`);
+    // (b) it is not in the registry
+    assert.ok(!OWN.includes(key), `${key} is still counted as having its own file`);
+    assert.ok(!IN_THE_NAVIGATOR.includes(key), `${key} is still in the navigator list`);
+    assert.ok(!indexJs.includes(`from './${key}'`),
+      `src/screens/index.js still imports ${key}`);
+    assert.ok(!new RegExp(`\\b${key}[,:]`).test(
+      indexJs.slice(indexJs.indexOf('export const SCREENS = {'))),
+    `src/screens/index.js still maps ${key}`);
+    // (c) it has no route
+    assert.ok(!new RegExp(`name="${key}"`).test(appJs),
+      `App.js still registers a screen called "${key}"`);
+    assert.ok(!new RegExp(`DESIGN_SCREENS\\.${key}\\b`).test(appJs),
+      `App.js still reaches for DESIGN_SCREENS.${key}`);
+    // (d) nothing navigates to it, and nothing imports it
+    const pointing = [];
+    for (const file of everyAppFile(join(root, 'src'))) {
+      const src = readFileSync(file, 'utf8').replace(/\/\/[^\n]*/g, '');
+      if (new RegExp(`(navigate|replace|push)\\(\\s*['"\`]${key}['"\`]`).test(src)) {
+        pointing.push(`${file} navigates to it`);
+      }
+      if (new RegExp(`from '[^']*screens/${key}'`).test(src)
+        || new RegExp(`require\\('[^']*screens/${key}'\\)`).test(src)) {
+        pointing.push(`${file} imports it`);
+      }
+    }
+    assert.deepEqual(pointing, [], `\n  ${pointing.join('\n  ')}`);
+    // (e) and the journey does not route to it
+    const journey = readFileSync(join(root, 'src', 'ui', 'journey.js'), 'utf8');
+    assert.ok(!new RegExp(`designKey: '${key}'`).test(journey),
+      `${key} is removed and journey.js still routes to it`);
   }
 });
 
 test('every row says where it is, and nothing else', () => {
   for (const s of SCREENS) {
-    assert.ok(['own', 'folded', 'missing'].includes(s.at), `${s.key}: bad state ${s.at}`);
+    assert.ok(['own', 'folded', 'missing', 'removed'].includes(s.at),
+      `${s.key}: bad state ${s.at}`);
     if (s.at === 'folded') {
       assert.ok(s.inside, `${s.key} is folded and does not say into what`);
       assert.ok(
@@ -100,6 +143,16 @@ test('every row says where it is, and nothing else', () => {
       );
     } else {
       assert.equal(s.inside, undefined, `${s.key} is not folded but names a file`);
+    }
+    if (s.at === 'removed') {
+      // A removal is a decision somebody made on a day, for a reason. Without all
+      // three, "removed" would be a way to make a missing screen stop failing.
+      assert.match(String(s.removedOn), /^\d{4}-\d{2}-\d{2}$/,
+        `${s.key} is removed and does not say on what day`);
+      assert.ok(typeof s.why === 'string' && s.why.length > 30,
+        `${s.key} is removed and does not say why, in words`);
+    } else {
+      assert.equal(s.removedOn, undefined, `${s.key} is not removed but names a day`);
     }
   }
 });
@@ -232,8 +285,14 @@ test('every screen not yet its own file is accounted for, one way or the other',
     const s = screenFor(key);
     assert.ok(s, `${key} is not in the register at all`);
     assert.notEqual(s.at, 'own');
+    assert.notEqual(s.at, 'removed', `${key} is removed, so it is not work left to do`);
   }
-  assert.equal(left.length + OWN.length, HOW_MANY);
+  // Every one of the design's screens is in exactly one of three piles: it has its
+  // own file, it is still to build, or it was removed by order. Nothing falls
+  // between them.
+  assert.equal(left.length + OWN.length + REMOVED.length, HOW_MANY,
+    `${OWN.length} have their own file, ${left.length} are still to do and `
+    + `${REMOVED.length} were removed, which must add up to the design's ${HOW_MANY}`);
 });
 
 test('an unknown key is answered with nothing rather than a guess', () => {

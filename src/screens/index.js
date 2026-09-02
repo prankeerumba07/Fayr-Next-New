@@ -25,7 +25,6 @@ import newdevice from './newdevice';
 // journey's router resolves them from this map by the design's own key; App.js
 // registers each of them under the same key so it is also a destination in its
 // own right. See src/ui/journey.js for which step maps to which key.
-import confirm from './confirm';
 import linkaccount from './linkaccount';
 import buyinterstitial from './buyinterstitial';
 import proofprimer from './proofprimer';
@@ -58,7 +57,6 @@ export const SCREENS = {
   otplocked,
   blocked,
   newdevice,
-  confirm,
   linkaccount,
   buyinterstitial,
   proofprimer,

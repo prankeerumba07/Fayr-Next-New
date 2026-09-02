@@ -129,36 +129,21 @@ console.log('\nthe product page really carries it');
   });
 }
 
-console.log('\nthe confirmation page is off the path, and still correct if opened');
-{
-  // OFF THE PATH SINCE 2 SEPTEMBER 2026, and not deleted: the project's rule is
-  // that no design screen is deleted, so the staff walk through can still open it.
-  // These checks stay because a screen that can still be opened must still be
-  // right, and because they are what would catch somebody quietly reviving it.
-  const confirm = strip(read('../screens/confirm.js'));
-
-  t('it reads the acceptance it was handed', () => {
-    assert.match(confirm, /acceptedTerms/, 'the confirmation page ignores it');
-  });
-
-  t('it refuses to claim without it, and says where to go', () => {
-    assert.match(confirm, /needsTermsLine/, 'it does not say what is missing');
-  });
-
-  t('and the claim call carries the value that arrived, not a literal yes', () => {
-    // `claimTask(campaignId, true)` would keep working if the guard above it were
-    // ever removed, and would then send an acceptance nobody gave. What is sent
-    // has to be the thing that came in.
-    assert.match(
-      confirm, /claimTask\(campaignId, cameWithTerms\)/,
-      'the claim is sent without the acceptance, or with a hardcoded yes',
-    );
-    assert.doesNotMatch(
-      confirm, /claimTask\([^)]*,\s*true\s*\)/,
-      'the claim sends a hardcoded yes',
-    );
-  });
-}
+// THE CONFIRMATION PAGE'S OWN CHECKS WENT WITH THE PAGE, on 2 September 2026.
+//
+// There used to be a block here reading src/screens/confirm.js and proving that
+// it read the acceptance it was handed, refused to claim without it, said what
+// was missing, and sent the value that arrived rather than a literal yes. The
+// owner ordered that page deleted — "Delete the file, the key and the route" —
+// and told us every check that reads that file goes with it.
+//
+// NOT ONE PROTECTION WAS LOST, and that is why this is safe. The claim happens on
+// the product page now, and the block above, "the product page really carries
+// it", already checks the same four things on that page: it uses the one shared
+// sentence, the button refuses until the box is ticked, it says why it is dead
+// rather than merely being dead, and the claim carries the value that was ticked
+// with a check that a hardcoded yes fails. That last one names this change on its
+// own line.
 
 console.log('\nthe claim call carries it all the way to the server');
 {
@@ -188,26 +173,18 @@ console.log('\nthe honesty promise moved, and did not disappear');
   //
   // Both halves are checked. Removing it from the claim and forgetting to check the
   // other screen would have quietly deleted the promise from the whole product.
-  const confirm = strip(read('../screens/confirm.js'));
   // FLATTENED. Screen text is wrapped across lines by the code formatter, so
   // "a low rating and a\n high one are paid the same" is one sentence to a reader
   // and two lines to a regular expression. The first version of these checks failed
   // on exactly that and would have read as a missing promise.
   const guide = strip(read('../screens/reviewguide.js')).replace(/\s+/g, ' ');
 
-  t('the claim screen no longer asks anybody to promise an honest review', () => {
-    assert.doesNotMatch(confirm, /honest/i, 'the claim screen still mentions honesty');
-    assert.doesNotMatch(
-      confirm, /rating never affects/i,
-      'the claim screen still carries the rating promise',
-    );
-  });
-
-  t('and it has no tick box left at all', () => {
-    // The terms tick box is on the PRODUCT page. Two tick boxes two screens apart,
-    // both needed before one claim, is a gate a person walks into twice.
-    assert.doesNotMatch(confirm, /setAck|styles\.ackRow|ackText/, 'a tick box remains');
-  });
+  // TWO CHECKS HERE READ src/screens/confirm.js AND WENT WITH IT on 2 September
+  // 2026, when the owner ordered that page deleted. They asked that the claim
+  // screen no longer mention honesty and no longer carry a tick box of its own. A
+  // page that does not exist carries neither, so there is nothing left to guard.
+  // What mattered was the OTHER half — that the promise really is somewhere — and
+  // that half is right below, unchanged.
 
   t('the review guide carries the promise, and carries it twice over', () => {
     // Once in the words under the heading, once in the locked note. Neither is

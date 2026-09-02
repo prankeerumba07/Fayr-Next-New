@@ -52,10 +52,13 @@ import TruecallerScreen from '../screens/truecaller';
 import NewDeviceScreen from '../screens/newdevice';
 import OtpLockedScreen from '../screens/otplocked';
 import BlockedScreen from '../screens/blocked';
-// The claim journey, eleven screens since 1 September 2026. Before that they were
-// eleven pages inside one file, addressed here by the journey's own page names.
-// Each is its own component now, so each is its own entry.
-import ConfirmScreen from '../screens/confirm';
+// The claim journey since 1 September 2026. Before that they were pages inside
+// one file, addressed here by the journey's own page names. Each is its own
+// component now, so each is its own entry.
+//
+// THERE WERE ELEVEN AND THERE ARE TEN. The confirmation page was removed on
+// 2 September 2026 by the owner's order, so there is nothing to walk through any
+// more. See src/screens/keys.js, where the removal is recorded by name.
 import LinkAccountScreen from '../screens/linkaccount';
 import BuyInterstitialScreen from '../screens/buyinterstitial';
 import ProofPrimerScreen from '../screens/proofprimer';
@@ -137,9 +140,6 @@ const KNOWN = {
   Home: ({ nav }) => <HomeScreen navigation={nav} />,
   Detail: ({ nav, sample }) => (
     <DetailScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
-  ),
-  Confirm: ({ nav, sample }) => (
-    <ConfirmScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />
   ),
   Claimed: ({ nav, sample }) => (
     <ClaimedScreen navigation={nav} route={{ params: { campaignId: sample.campaignId } }} />

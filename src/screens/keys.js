@@ -55,13 +55,38 @@ export const SCREENS = [
   { key: 'detail', at: 'folded', inside: 'src/DetailScreen.js' },
   { key: 'claimedsheet', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },
   { key: 'redirect', at: 'missing' },
-  // OFF THE PATH since 2 September 2026, and NOT deleted. The owner took the
-  // confirmation page out of the journey: the claim happens on the product page
-  // now, where the terms tick box is, so this page was one tap that added nothing.
-  // The rule in this project is that no design screen is deleted, so it keeps its
-  // own file, keeps its key, and is still counted here. `offPath` records the fact
-  // rather than leaving somebody to discover it by reading journey.js.
-  { key: 'confirm', at: 'own', offPath: true },
+  // REMOVED ON 2 SEPTEMBER 2026, BY THE OWNER'S ORDER, and this is the only screen
+  // that has ever been removed.
+  //
+  // HIS WORDS: "WHEN HE SAYS REMOVE, YOU DELETE. Not hide, not mark, not leave off
+  // a path. Delete the file, the key and the route. This replaces the earlier rule
+  // in this project that no design screen is ever deleted. That rule is
+  // withdrawn." He had asked twice before and it had been taken off the path and
+  // left in place both times, which is what he was objecting to.
+  //
+  // WHY: the claim happens on the product page now, where the terms tick box is,
+  // so a separate page asking somebody to confirm the thing they had just
+  // confirmed was one tap that added no new information.
+  //
+  // WHAT IT CARRIED DID NOT VANISH. It showed the ticket cost, the tickets left
+  // afterwards, the refund and the claim deadline. The first three moved to the
+  // product page, in the block directly above the tick box. The deadline moved to
+  // the slot reserved moment, the connect page and the before you go page. There
+  // is a check for each of the four.
+  //
+  // THE ROW STAYS, AND THAT IS DELIBERATE. The register's whole job is to be the
+  // design's own list, and the design still has sixty one screens. Keeping the row
+  // is what lets the check say the design has sixty one, the app has sixty, and
+  // the one difference is THIS screen and nothing else. Deleting the row would
+  // leave the register quietly disagreeing with the design and the check with
+  // nothing to compare.
+  {
+    key: 'confirm',
+    at: 'removed',
+    removedOn: '2026-09-02',
+    why: 'The owner ordered it removed. The claim happens on the product page now, '
+      + 'where the terms tick box is, so this page was one tap that added nothing.',
+  },
   { key: 'insufficient', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },
   { key: 'linkaccount', at: 'own' },
   { key: 'seatlost', at: 'folded', inside: 'src/ClaimOutcomeScreens.js' },
@@ -130,9 +155,30 @@ export const IN_THE_NAVIGATOR = SCREENS
   .filter((s) => s.at === 'own' && !s.pre)
   .map((s) => s.key);
 
-/** What is left to do, in the design's order. The ratchet counts these. */
+/**
+ * THE SCREENS THE OWNER ORDERED REMOVED, in the design's order.
+ *
+ * A removed screen has no file, no key in the registry and no route. The row is
+ * kept here so the design's own list stays complete and the check can name
+ * exactly which screen the app is missing, rather than passing on a count.
+ */
+export const REMOVED = SCREENS.filter((s) => s.at === 'removed').map((s) => s.key);
+
+/**
+ * HOW MANY SCREENS THE APP ACCOUNTS FOR. Sixty one in the design, less the ones
+ * removed by order. Sixty today.
+ */
+export const IN_THE_APP = HOW_MANY - REMOVED.length;
+
+/**
+ * What is left to do, in the design's order. The ratchet counts these.
+ *
+ * A REMOVED SCREEN IS NOT WORK. It is not folded into another file and it is not
+ * missing: it is gone on purpose, so counting it as something still to build
+ * would make the ratchet lie about how much is left.
+ */
 export function stillToSplit() {
-  return SCREENS.filter((s) => s.at !== 'own').map((s) => s.key);
+  return SCREENS.filter((s) => s.at !== 'own' && s.at !== 'removed').map((s) => s.key);
 }
 
 /**

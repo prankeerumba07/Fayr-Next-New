@@ -304,13 +304,18 @@ t('the claimed sheet DOES name the instant, from the task', () => {
 
 console.log('no phantom deadline in the screens');
 {
-  // src/ConfirmJoinScreen.js became src/screens/confirm.js on 1 September 2026,
-  // when every design screen was given its own file under the design's own key.
-  // Same screen, same rules about it.
-  const src = ['../screens/confirm.js', '../ClaimOutcomeScreens.js']
+  // WHICH SCREENS THESE GUARD, AND WHY THAT CHANGED ON 2 SEPTEMBER 2026.
+  //
+  // The list used to be src/screens/confirm.js and src/ClaimOutcomeScreens.js.
+  // The owner ordered the confirmation page deleted, so that file is gone and its
+  // place in this list is taken by the screen the claim happens on now: the
+  // product page. This is not a smaller guard, it is the same guard pointed at
+  // the live screen, and the product page was read before it was added here to be
+  // sure it was already clean.
+  const src = ['../DetailScreen.js', '../ClaimOutcomeScreens.js']
     .map((f) => readFileSync(new URL(f, import.meta.url), 'utf8'));
 
-  t('neither screen hardcodes a deadline the backend never stated', () => {
+  t('no screen hardcodes a deadline the backend never stated', () => {
     // The design's three phantom numbers: "48 hours" on the confirmation screen,
     // "2 hours" on the claimed sheet, and a countdown seeded at 25*60+35. All
     // three are prototype fiction; the real window is the operator's setting.
@@ -324,12 +329,26 @@ console.log('no phantom deadline in the screens');
     }
   });
 
-  t('the claim screen states no variant, because campaigns have none', () => {
-    // The design shows "exact variant: {c.variant}" here and a "Variant / size"
-    // row on the redirect screen. Campaigns carry no variant field at all, and
-    // filling it with the product name would tell the user a size was checked.
-    const prose = src[0].replace(/^\s*\/\/.*$/gm, '');
-    assert.doesNotMatch(prose, /variant/i);
+  t('no screen states a variant, because campaigns have none', () => {
+    // The design shows "exact variant: {c.variant}" on the confirmation page and
+    // a "Variant / size" row on the redirect screen. Campaigns carry no variant
+    // field at all, and filling one in would tell somebody a size had been
+    // checked when nothing checked one.
+    //
+    // NARROWED FROM THE WORD TO THE FIELD, deliberately. The old check refused the
+    // WORD "variant" anywhere in the confirmation page, which was safe there
+    // because that page never mentioned it. The product page does mention it, in a
+    // warning that says "a different product, variant or seller can't be
+    // verified" — which is a true thing to tell somebody and the opposite of
+    // claiming a variant was checked. So the guard is now on reading a variant
+    // FIELD, which is the thing that would put an invented size on a screen.
+    for (const code of src) {
+      const prose = code.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      assert.doesNotMatch(prose, /\.variant\b/,
+        'a screen is reading a variant field, and a campaign has none');
+      assert.doesNotMatch(prose, /exact variant/i,
+        'a screen states an exact variant, which nothing checked');
+    }
   });
 }
 

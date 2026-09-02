@@ -51,17 +51,21 @@ import { STATES } from '../taskflow.js'; // explicit extension: also run under n
  * eleven screens on 1 September 2026. A heading in this file and a heading on the
  * screen would be two copies of one sentence, and they would drift.
  */
-// THE JOIN STEP IS GONE, AND THE SCREEN IS NOT.
+// THE JOIN STEP IS GONE, AND SO IS THE SCREEN.
 //
 // The owner took "Confirm participation" out of the path on 2 September 2026. The
 // claim now happens on the product page itself, where the terms tick box is, so a
 // separate page asking somebody to confirm the thing they just confirmed was one
 // tap for no new information.
 //
-// src/screens/confirm.js still exists, still has its own file, and is still
-// counted in src/screens/keys.js, because the rule in this project is that no
-// design screen is deleted. It simply is not a step any more. Exactly what was
-// done for nothing else yet: the buy page is still on the path.
+// AND THEN HE ASKED FOR IT TO BE DELETED, because taking it off the path twice
+// and leaving the file in place was not what he had asked for: "WHEN HE SAYS
+// REMOVE, YOU DELETE. Not hide, not mark, not leave off a path. Delete the file,
+// the key and the route. This replaces the earlier rule in this project that no
+// design screen is ever deleted. That rule is withdrawn." So src/screens/confirm.js
+// is gone, its key is out of the registry and its route is out of App.js. The
+// removal is recorded by name in src/screens/keys.js, which still knows the design
+// has sixty one screens and now says the app has sixty.
 //
 // WHAT THAT PAGE WAS CARRYING DID NOT VANISH. It showed the ticket cost, the
 // tickets left afterwards, the refund, and the claim deadline. The first three
