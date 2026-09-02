@@ -1,13 +1,23 @@
 // ONE PLACE OWNS THE SPACE ABOVE A JOURNEY SCREEN'S BODY.
 //
 // The owner reported an empty band between the "Step N of 11" strip and the screen
-// under it. It was three lots of padding stacked and none of them wrong on its own.
-// See src/ui/journeySpacing.js for the measurements and where they come from.
+// under it, TWICE. The first diagnosis was three small paddings adding to 18
+// points; that was real but it was not the band. The band was 71 points, and 59 of
+// them were the phone's notch being stepped over a second time by the Screen
+// wrapper. See src/ui/journeySpacing.js for the whole walk and the library
+// evidence for why the first fix could not reach it.
+//
+// THESE CHECKS MEASURE. The band is added up from every part, so a part that comes
+// back is caught wherever it comes back from — not a check that some one padding
+// is still zero somewhere.
 import { strict as assert } from 'node:assert';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { BODY_TOP, TOP_BAR_TOP, topPaddingInside } from './journeySpacing.js';
+import {
+  BODY_TOP, MOST_ALLOWED_BAND, NOTCH, STRIP_BOTTOM, TOP_BAR_TOP,
+  bandAbove, edgesInsideJourney, topPaddingInside,
+} from './journeySpacing.js';
 
 let passed = 0;
 const t = (name, fn) => {
@@ -136,6 +146,89 @@ t('every screen’s outermost box carries no top padding or margin', () => {
     }
   }
   assert.deepEqual(guilty, [], `these pad their own outermost box: ${guilty.join(', ')}`);
+});
+
+console.log('\nthe band itself, added up');
+
+t('the band before the fix was 71 points, which is what he photographed', () => {
+  // The walk, on his own phone: the strip's own gap, then the notch a second
+  // time, then the title bar (already zero), then the design's body padding.
+  const before = bandAbove({
+    stripBottom: STRIP_BOTTOM,
+    screenTop: NOTCH,
+    topBarTop: topPaddingInside(TOP_BAR_TOP, true),
+    bodyTop: BODY_TOP,
+  });
+  assert.equal(before, 71, `the walk adds up to ${before}, not 71`);
+  // And it is mostly one thing, not a scattering of small ones.
+  assert.ok(NOTCH / before > 0.8, 'the notch is not the overwhelming part of it');
+});
+
+t('and after the fix it is the strip’s own gap and the design’s own padding', () => {
+  const after = bandAbove({
+    stripBottom: STRIP_BOTTOM,
+    screenTop: edgesInsideJourney(['top', 'bottom'], true).includes('top') ? NOTCH : 0,
+    topBarTop: topPaddingInside(TOP_BAR_TOP, true),
+    bodyTop: BODY_TOP,
+  });
+  assert.equal(after, MOST_ALLOWED_BAND, `the band is ${after}, allowed ${MOST_ALLOWED_BAND}`);
+  assert.ok(after <= 12, 'the band is bigger than the design’s own small gap');
+});
+
+t('a screen on its own still steps over the notch', () => {
+  // The same screen opened by itself is exactly what the design draws, notch and
+  // all. Fixing the journey must not break that.
+  assert.deepEqual(edgesInsideJourney(['top', 'bottom'], false), ['top', 'bottom']);
+  assert.deepEqual(edgesInsideJourney(['top', 'bottom'], true), ['bottom']);
+  assert.deepEqual(edgesInsideJourney(['top'], true), []);
+  assert.deepEqual(edgesInsideJourney(['bottom'], true), ['bottom']);
+  // Anything that is not a firm yes means "not inside".
+  for (const notInside of [undefined, null, 0, '', 'true', 1]) {
+    assert.deepEqual(edgesInsideJourney(['top', 'bottom'], notInside), ['top', 'bottom']);
+  }
+  // And junk edges do not crash a screen.
+  assert.deepEqual(edgesInsideJourney(null, true), ['bottom']);
+  assert.deepEqual(edgesInsideJourney(undefined, false), ['top', 'bottom']);
+});
+
+t('the sum ignores anything it cannot use rather than becoming NaN', () => {
+  assert.equal(bandAbove({}), 0);
+  assert.equal(bandAbove(null), 0);
+  assert.equal(bandAbove({ stripBottom: NaN, screenTop: 'tall', bodyTop: -3 }), 0);
+  assert.equal(bandAbove({ stripBottom: 8, bodyTop: 4 }), 12);
+});
+
+console.log('\nthe Screen wrapper is the one place it is fixed');
+
+t('Screen asks whether it is inside the journey, and drops its top edge', () => {
+  const prim = strip(read('src/ui/primitives.js'));
+  assert.ok(/useInsideJourney\(\)/.test(prim), 'Screen never asks');
+  assert.ok(/edgesInsideJourney\(edges, inside\)/.test(prim),
+    'Screen does not use the one place that decides its edges');
+  assert.ok(/edges=\{stepOver\}/.test(prim),
+    'Screen still hands SafeAreaView the edges it was asked for');
+  assert.ok(!/edges=\{edges\}/.test(prim),
+    'Screen still passes its raw edges straight through');
+});
+
+t('and the library really does ignore the context, which is why', () => {
+  // THE EVIDENCE FOR THE DIAGNOSIS, kept in the check so it cannot rot quietly.
+  // If a later version of the library starts reading the context, this fails and
+  // whoever sees it can simplify with confidence instead of guessing.
+  const lib = read('node_modules/react-native-safe-area-context/src/SafeAreaView.tsx');
+  assert.ok(/NativeSafeAreaView/.test(lib), 'SafeAreaView no longer renders the native view');
+  assert.ok(!/SafeAreaInsetsContext/.test(lib),
+    'SafeAreaView now reads the insets context, so the simpler fix would work');
+});
+
+t('every journey screen goes through Screen, so one place covers them all', () => {
+  const steps = [
+    'linkaccount', 'buyinterstitial', 'returncatch', 'proofprimer', 'underreview',
+    'ocrconfirm', 'delivery', 'reviewguide', 'reviewproof', 'returnwindow', 'reward',
+  ];
+  const missing = steps.filter((k) => !/<Screen\b/.test(read(`src/screens/${k}.js`)));
+  assert.deepEqual(missing, [], `these do not use Screen: ${missing.join(', ')}`);
+  assert.equal(steps.length, 11, 'the journey is eleven steps');
 });
 
 console.log(`\n${passed} passed, ${process.exitCode ? 'some' : '0'} failed`);

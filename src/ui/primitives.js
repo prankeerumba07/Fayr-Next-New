@@ -14,11 +14,27 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './theme';
 import { PLATFORMS } from '../platforms';
 import { resolveApiBase } from '../backend/config';
+import { useInsideJourney } from '../journey/insideJourney';
+import { edgesInsideJourney } from './journeySpacing.js';
 
 // ── Screen ──────────────────────────────────────────────────────────────────
+//
+// THE ONE PLACE THE EMPTY BAND AT THE TOP OF EVERY JOURNEY SCREEN IS FIXED.
+//
+// Inside the journey the strip above has already stepped over the notch, so this
+// must not step over it again. It asks, and drops its top edge when it is inside.
+//
+// IT HAS TO BE ASKED HERE AND CANNOT BE HANDED DOWN. SafeAreaView reads no React
+// context: in react-native-safe-area-context 5.6.2 it renders NativeSafeAreaView
+// and passes only its edges, and the insets are applied natively, per view. An
+// earlier attempt handed a zeroed inset down through SafeAreaInsetsContext, which
+// everything calling useSafeAreaInsets() honoured and this view ignored — so the
+// band stayed. See src/ui/journeySpacing.js for the whole measurement.
 export function Screen({ children, bg = COLOR.homeBg, edges = ['top', 'bottom'], style }) {
+  const inside = useInsideJourney();
+  const stepOver = edgesInsideJourney(edges, inside);
   return (
-    <SafeAreaView style={[{ flex: 1, backgroundColor: bg }, style]} edges={edges}>
+    <SafeAreaView style={[{ flex: 1, backgroundColor: bg }, style]} edges={stepOver}>
       {children}
     </SafeAreaView>
   );
