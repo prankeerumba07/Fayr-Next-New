@@ -492,12 +492,23 @@ console.log('\n9. the home page really draws it, and draws it the design’s way
     assert.ok(/<WaitingBox/.test(afterScroll), 'the box is inside the scrolling list');
   });
 
-  t('it clears the tab bar by asking how tall it is', () => {
-    // Not a number typed in. The bar's height depends on the phone's own bottom
-    // inset, so a written-in guess sits on top of the bar on some phones and
-    // floats above it on others.
+  // CHANGED 2 September 2026. This used to be happy with "the tab bar's height
+  // plus ten", which was the bug: the card's own box already stops at the top of
+  // the tab bar, so adding the bar's height again lifted it a whole bar too high
+  // and put it in the middle of the screen, which is what the owner photographed.
+  // The design's own number and the measurement are in src/ui/waitingPlace.js and
+  // the check that reads them out of the design file is waitingPlace.test.mjs.
+  t('it clears the tab bar by asking how tall it is, and by the design’s number', () => {
+    // Still asks the phone how tall the bar is: the bar's height depends on the
+    // phone's own bottom inset, so a written-in guess sits on top of the bar on
+    // some phones and floats above it on others.
     assert.ok(/useBottomTabBarHeight/.test(box), 'the box guesses the tab bar height');
+    // And the design's 70 is not typed in here either — it is named.
     assert.ok(!/bottom: 70/.test(box), 'the box hardcodes the design’s pixel value');
+    assert.ok(/bottomAboveBar\(tabBarHeight\)/.test(flat),
+      'the box does not use the design’s own distance');
+    assert.ok(!/tabBarHeight \+ 10/.test(flat),
+      'the box still adds a whole tab bar on top of a tab bar');
   });
 
   t('every word it shows comes from the one place that decides them', () => {
@@ -508,13 +519,23 @@ console.log('\n9. the home page really draws it, and draws it the design’s way
     }
   });
 
-  t('the cross is there, and it closes ONE message', () => {
+  // CHANGED 2 September 2026, ON THE OWNER'S INSTRUCTION, and this is the reason.
+  // His words: "when there is a cross button in the notification box, when I click
+  // on it, it should vanish. The box should vanish. It should not show me the next
+  // notification. It should clearly vanish."
+  //
+  // This check used to require the opposite — that the cross filed a dismissal
+  // under the one MESSAGE, so closing one showed the next. That was a deliberate
+  // decision at the time and he has overruled it. The design agrees with him: its
+  // own Home holds one reminderDismissed flag and onDismiss sets it once (:1699).
+  t('the cross is there, and it closes THE WHOLE BOX', () => {
     assert.ok(/accessibilityLabel="Close this reminder"/.test(flat), 'there is no cross');
-    assert.ok(/closed\.add\(dismissKeyFor\(current\)\)/.test(flat),
-      'the cross does not file the dismissal under the message');
-    // Not per claim. A dismissal filed under the claim would switch off every
-    // future reminder for it, including the one saying the money is ready.
-    assert.ok(!/closed\.add\(current\.taskId\)/.test(flat), 'it dismisses the whole claim');
+    assert.ok(/boxClosed = true/.test(flat), 'the cross does not close the box');
+    assert.ok(!/closed\.add\(/.test(flat), 'the cross still files one message away');
+    // And nothing takes its place: with the box closed there are no reminders at
+    // all, so there is nothing left for the card to move on to.
+    assert.ok(/gone \? \[\] : waitingBoxes\(/.test(flat),
+      'something could still be drawn after the cross');
   });
 
   t('the dismissal is not written to the phone', () => {

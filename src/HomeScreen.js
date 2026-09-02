@@ -74,6 +74,10 @@ export default function HomeScreen({ navigation }) {
   const [loaded, setLoaded] = useState(campaignStore.isLoaded());
   const [wallet, setWallet] = useState(null); // { ticketBalance, walletBalancePaise }
   const [bi, setBi] = useState(0);
+  // How much empty room the end of the list needs so the floating reminder card
+  // never buries the last campaign. The card itself says how much, because only
+  // it knows whether it is drawn. See src/ui/waitingPlace.js.
+  const [roomForCard, setRoomForCard] = useState(0);
 
   const refreshWallet = useCallback(async () => {
     const w = await getWallet();
@@ -140,7 +144,10 @@ export default function HomeScreen({ navigation }) {
         style={styles.scroll}
         // The tab bar now sits over the bottom of this screen; its own safe-area
         // padding is already applied there, so the list only needs to clear it.
-        contentContainerStyle={{ padding: SPACE.lg, paddingBottom: SPACE.xxl }}
+        contentContainerStyle={{
+          padding: SPACE.lg,
+          paddingBottom: SPACE.xxl + roomForCard,
+        }}
       >
         <SectionTitle>Products for you</SectionTitle>
         {!loaded ? (
@@ -200,12 +207,13 @@ export default function HomeScreen({ navigation }) {
         ) : null}
       </ScrollView>
 
-      {/* THE WAITING BOX — fayr-design.browser.jsx:1702, where the design puts it.
+      {/* THE WAITING BOX — fayr-design.browser.jsx:1699, where the design puts it.
           Outside the ScrollView on purpose: the design pins it just above the tab
           bar so it cannot be scrolled away, which is the whole point of it being
-          on Home rather than in My Products. It draws nothing when nothing is
-          waiting, so there is no empty space to account for here. */}
-      <WaitingBox navigation={navigation} />
+          on Home rather than in My Products.
+          It tells this screen how much room to leave at the end of the list, so
+          that the last campaign is never buried under it for good. */}
+      <WaitingBox navigation={navigation} onRoomNeeded={setRoomForCard} />
     </View>
   );
 }

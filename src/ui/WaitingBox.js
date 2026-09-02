@@ -30,6 +30,25 @@
 // out its own step from the same record, which is the resume it already does. A
 // second opinion here about which step somebody is on is exactly the defect this
 // project keeps finding.
+//
+// TWO THINGS THE OWNER CORRECTED ON 2 SEPTEMBER 2026.
+//
+//  * WHERE IT SITS. It was drawing itself a whole tab bar too high, so it landed
+//    in the middle of the screen instead of just above the bar. The design's own
+//    numbers and the measurement are written out in src/ui/waitingPlace.js.
+//  * WHAT THE CROSS DOES. His words: "when there is a cross button in the
+//    notification box, when I click on it, it should vanish. The box should
+//    vanish. It should not show me the next notification. It should clearly
+//    vanish." It used to close one MESSAGE, keyed by dismissKeyFor, so closing one
+//    showed the next. It now closes the whole box for this run of the app, which
+//    is also what the design does: Home holds one `reminderDismissed` flag and
+//    `onDismiss` sets it once (:1699).
+//
+// AND THE EXTRA WORDS ARE GONE. The design's card shows four things: the picture,
+// the product's name, the status with its clock, and the button. It has no room
+// for a sentence under the status and none for a note about the shop's page, so
+// both are dropped from the drawing. The words themselves stay in
+// src/ui/waiting.js, where the journey still uses them.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated, Pressable, StyleSheet, Text, TouchableOpacity, View,
@@ -42,29 +61,40 @@ import { COLOR, FONT, RADIUS, SHADOW } from './theme';
 import { ProductImage } from './primitives';
 import { toneOf } from './stagebits';
 import { dismissKeyFor, waitingBoxes } from './waiting.js';
+import {
+  DESIGN_LAYER, DESIGN_SIDE, bottomAboveBar, roomToReserve,
+} from './waitingPlace.js';
 
-/** How long each claim is shown before the card slides to the next one. */
+/**
+ * How long each claim is shown before the card slides to the next one.
+ *
+ * THE DESIGN'S OWN NUMBER, read off RotatingStatusCard at
+ * fayr-design.browser.jsx:3733, where the interval is 3500 milliseconds. The
+ * owner asked for "every 2 to 3 seconds"; the design says three and a half, and
+ * the design wins on a visual decision, so 3500 it is.
+ */
 const ROTATE_MS = 3500;
 
 /**
- * WHICH MESSAGES HAVE BEEN CLOSED, for this run of the app.
+ * WHETHER THE BOX HAS BEEN CLOSED, for this run of the app.
+ *
+ * ONE FLAG FOR THE WHOLE BOX, not one per message, and that is the owner's own
+ * correction. It used to be a set keyed by dismissKeyFor, so closing "go and buy
+ * it" simply showed the next reminder. He said plainly that is wrong: the cross
+ * must make the box vanish.
  *
  * MODULE LEVEL, NOT SAVED TO THE PHONE, and both halves of that are deliberate.
  *
  * Module level, so closing the box and moving between tabs keeps it closed. The
- * design holds the same thing in its own app state, which behaves the same way.
+ * design holds the same thing in its own app state — one `reminderDismissed`
+ * flag on Home — which behaves the same way.
  *
  * Not saved, because the owner's requirement is that the box IS THERE when he
- * comes back — after thirty four minutes or any time at all. A dismissal saved to
- * the phone would mean a reminder about somebody's money could be switched off for
- * good by one tap, and a reminder that comes back after a restart is the far
- * kinder mistake of the two.
- *
- * KEYED PER MESSAGE, NOT PER CLAIM. See dismissKeyFor in waiting.js: closing "go
- * and buy it" silences that sentence about that claim and nothing else, so the
- * same claim reaching "show us your review" draws a new box.
+ * comes back. A dismissal saved to the phone would mean a reminder about
+ * somebody's money could be switched off for good by one tap, and a reminder that
+ * comes back after a restart is the far kinder mistake of the two.
  */
-const closed = new Set();
+let boxClosed = false;
 
 /** Read every claim the store knows about, newest first, from the record. */
 function readTasks() {
@@ -73,15 +103,15 @@ function readTasks() {
     .filter(Boolean);
 }
 
-export default function WaitingBox({ navigation }) {
+export default function WaitingBox({ navigation, onRoomNeeded }) {
   const tabBarHeight = useBottomTabBarHeight();
   const [tasks, setTasks] = useState(readTasks);
   const [campaigns, setCampaigns] = useState(() => campaignStore.getAll());
   const [now, setNow] = useState(() => Date.now());
   const [idx, setIdx] = useState(0);
-  // Not the Set itself: mutating a Set in place does not tell React anything, so
-  // a counter is bumped when something is closed and the render reads the Set.
-  const [closedCount, setClosedCount] = useState(closed.size);
+  // The flag lives at module level so it survives moving between tabs; this
+  // copy is what makes React redraw when it changes.
+  const [gone, setGone] = useState(boxClosed);
   const [paused, setPaused] = useState(false);
   const resumeAt = useRef(null);
   const fade = useRef(new Animated.Value(1)).current;
@@ -101,9 +131,9 @@ export default function WaitingBox({ navigation }) {
     return () => { unsub(); unCampaigns(); unfocus(); };
   }, [navigation]);
 
-  const boxes = waitingBoxes({ tasks, campaigns, now })
-    .filter((b) => !closed.has(dismissKeyFor(b)));
-  void closedCount; // read so React redraws when something is closed
+  // EVERY WAITING CLAIM, or none at all once the cross has been used. There is no
+  // filtering by message any more: the cross closes the box, not one reminder.
+  const boxes = gone ? [] : waitingBoxes({ tasks, campaigns, now });
 
   const count = boxes.length;
   const current = count > 0 ? boxes[idx % count] : null;
@@ -155,12 +185,11 @@ export default function WaitingBox({ navigation }) {
     if (resumeAt.current) clearTimeout(resumeAt.current);
   }, []);
 
+  // THE CROSS. It closes the whole box and nothing takes its place.
   const dismiss = useCallback(() => {
-    if (!current) return;
-    closed.add(dismissKeyFor(current));
-    setClosedCount(closed.size);
-    setIdx(0);
-  }, [current]);
+    boxClosed = true;
+    setGone(true);
+  }, []);
 
   const act = useCallback(() => {
     if (!current || !current.campaignId) return;
@@ -169,6 +198,17 @@ export default function WaitingBox({ navigation }) {
     navigation.navigate('Journey', { campaignId: current.campaignId });
   }, [current, navigation]);
 
+  // HOW MUCH ROOM THE LIST BEHIND HAS TO LEAVE, told to whoever is drawing it.
+  //
+  // NOTHING IS EVER PERMANENTLY HIDDEN. The card floats over the list, which is
+  // what the design does, so without this the last campaign would be buried for
+  // good. The page it sits on adds this much empty room at the end of its list
+  // and scrolling to the bottom always brings the last campaign out from under.
+  const showing = !!current;
+  useEffect(() => {
+    if (typeof onRoomNeeded === 'function') onRoomNeeded(roomToReserve(showing));
+  }, [onRoomNeeded, showing]);
+
   // NOTHING WAITING, NOTHING DRAWN. An empty box is noise.
   if (!current) return null;
 
@@ -176,10 +216,50 @@ export default function WaitingBox({ navigation }) {
 
   return (
     <View
-      style={[styles.holder, { bottom: tabBarHeight + 10 }]}
+      // THE DESIGN'S OWN PLACE. See src/ui/waitingPlace.js for the numbers and
+      // the measurement of what was wrong before.
+      style={[styles.holder, { bottom: bottomAboveBar(tabBarHeight) }]}
+      // "box-none", NOT "none", AND THE DIFFERENCE IS THE WHOLE CARD WORKING.
+      //
+      // This said "none" for a few hours on 2 September 2026 and the owner found
+      // it at once: the cross did nothing, and neither did tapping the card. It
+      // was a web idiom copied straight across — on a web page "pointer-events:
+      // none" on a box with "pointer-events: all" on the child does give you two
+      // layers. React Native does not work that way.
+      //
+      // WHAT THE PHONE ACTUALLY DOES, read out of React Native 0.81.5 itself:
+      //
+      //   React/Views/RCTView.m:172
+      //     self.userInteractionEnabled = (pointerEvents != RCTPointerEventsNone);
+      //   React/Views/RCTView.m:180
+      //     if (!canReceiveTouchEvents) { return nil; }
+      //
+      // With "none" the phone switches touches off for this view AND everything
+      // drawn inside it, before it ever looks at a child. A child asking for
+      // "auto" is never reached, so it cannot undo it. The same file's own
+      // description of the modes (Libraries/Components/View/ViewPropTypes.d.ts,
+      // around :180) says the two are different values on purpose:
+      //
+      //   none        the box and everything in it take no touches
+      //   box-none    the BOX takes no touches, the things inside it do
+      //
+      // and RCTView.m:220 is that in one line: "case RCTPointerEventsBoxNone:
+      // return hitSubview" — walk the children, hand back the child that was hit,
+      // never hand back this box. That IS the design's two layers, so this is the
+      // right translation of them and "none" never was.
+      //
+      // WHAT THIS BUYS, and it is the reason the wrapper exists at all: the card
+      // is 12 points in from each edge and the strip it sits in runs the full
+      // width. The empty space either side belongs to the campaign list behind,
+      // and with box-none a tap there still reaches the campaign.
       pointerEvents="box-none"
     >
-      <View style={styles.card}>
+      {/* THE DESIGN'S OWN TWO LAYERS, :1699 to :1701: a strip that takes no taps
+          of its own and a card inside it that does. The "auto" here is the
+          design's own second layer written out. In React Native it is also what a
+          view does when nothing is said, so it changes nothing on the phone and is
+          kept because it states the intent beside the strip that refuses taps. */}
+      <View style={styles.card} pointerEvents="auto">
         {/* TOP ROW: which one of how many, and the cross on the RIGHT. */}
         <View style={styles.topRow}>
           <View style={styles.dotsRow}>
@@ -227,6 +307,7 @@ export default function WaitingBox({ navigation }) {
             `${current.productName || 'Your claim'}. ${current.status}.`
             + `${current.timer ? ` ${current.timer} left.` : ''} ${current.cta || ''}`
           }
+          accessibilityHint={current.line || undefined}
         >
           <Animated.View style={[styles.row, { opacity: fade }]}>
             <ProductImage
@@ -247,16 +328,11 @@ export default function WaitingBox({ navigation }) {
                   <Text style={styles.timer}>⏰ {current.timer} left</Text>
                 ) : null}
               </View>
-              <Text style={styles.line} numberOfLines={2}>{current.line}</Text>
-              {/* THE CAMPAIGN'S OWN STATUS, only when there is something to say.
-                  See campaignLineFor: a dead shop page matters to somebody about
-                  to go and buy; a full offer does not, because they have their
-                  place already. */}
-              {current.campaignLine ? (
-                <Text style={styles.campaignLine} numberOfLines={2}>
-                  {current.campaignLine}
-                </Text>
-              ) : null}
+              {/* NO SENTENCE UNDER THE STATUS, AND NO NOTE ABOUT THE SHOP'S
+                  PAGE. The design's card carries four things and neither of those
+                  is one of them. Both sets of words still exist in
+                  src/ui/waiting.js and the journey still shows them; this card is
+                  the design's card. */}
             </View>
             {current.cta ? (
               <TouchableOpacity
@@ -277,28 +353,37 @@ export default function WaitingBox({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  holder: { position: 'absolute', left: 0, right: 0, paddingHorizontal: 12, zIndex: 60 },
+  holder: {
+    position: 'absolute', left: 0, right: 0,
+    paddingHorizontal: DESIGN_SIDE, zIndex: DESIGN_LAYER,
+  },
   card: {
+    // The design's own card, :3760: a frosted white at 86 in a hundred, an 18
+    // point corner, a half point line, and 10 above and below with 12 at the
+    // sides. The design also blurs what is behind it; that needs a native piece
+    // this app does not carry, so the white is a little more solid instead, which
+    // is the closest honest thing without adding one.
     backgroundColor: 'rgba(255,255,255,0.94)',
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(0,0,0,0.06)',
+    borderColor: 'rgba(0,0,0,0.05)',
     paddingHorizontal: 12,
-    paddingTop: 8,
+    paddingTop: 10,
     paddingBottom: 10,
     ...SHADOW.card,
   },
 
   topRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    minHeight: 14, marginBottom: 4,
+    minHeight: 12, marginBottom: 6,
   },
   dotsRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   counter: { fontFamily: FONT.displaySemi, fontSize: 10, color: '#9a9b8c' },
   dots: { flexDirection: 'row', gap: 3, alignItems: 'center' },
   dot: { width: 5, height: 5, borderRadius: 5, backgroundColor: '#D6D7C8' },
+  // The design's cross: 18 across, round, a faint grey behind it, on the RIGHT.
   cross: {
-    width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.06)',
+    width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.06)',
     alignItems: 'center', justifyContent: 'center',
   },
   crossText: { fontSize: 10, color: '#8a8b7f', lineHeight: 12 },
@@ -309,16 +394,9 @@ const styles = StyleSheet.create({
   product: {
     fontFamily: FONT.displaySemi, fontSize: 11.5, color: '#8a8b7f', lineHeight: 14,
   },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 1 },
-  status: { fontFamily: FONT.displayXBold, fontSize: 14, lineHeight: 18, flexShrink: 1 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 2 },
+  status: { fontFamily: FONT.displayXBold, fontSize: 14, lineHeight: 17, flexShrink: 1 },
   timer: { fontFamily: FONT.displaySemi, fontSize: 10.5, color: COLOR.red },
-  line: {
-    fontFamily: FONT.body, fontSize: 10.5, lineHeight: 14, color: COLOR.sub, marginTop: 1,
-  },
-  campaignLine: {
-    fontFamily: FONT.bodySemi, fontSize: 10.5, lineHeight: 14, color: '#B4271B',
-    marginTop: 3,
-  },
 
   button: {
     borderRadius: 9, paddingHorizontal: 12, paddingVertical: 7, maxWidth: 118,
@@ -328,7 +406,7 @@ const styles = StyleSheet.create({
   },
 });
 
-/** Test seam: forget every dismissal. Not used by the app. */
+/** Test seam: open the box again. Not used by the app. */
 export function forgetDismissals() {
-  closed.clear();
+  boxClosed = false;
 }
