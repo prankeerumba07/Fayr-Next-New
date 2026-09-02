@@ -1,5 +1,11 @@
 import { IST_OFFSET_MINUTES } from '../assistant/journey';
 import { LANGUAGES } from '../assistant/language';
+import {
+  GREETING_PICK_ONE,
+  OPENING_QUESTIONS,
+  greetingWords,
+  type OpeningQuestion,
+} from './opening-questions';
 
 /**
  * EVERYTHING THE ASSISTANT SAYS THAT IS NOT AN ANSWER.
@@ -74,13 +80,16 @@ const TIME_GREETING: Record<string, Record<TimeOfDay, string>> = {
   },
 };
 
-/** What follows the greeting. */
-const GREETING_TAIL: Record<string, string> = {
-  en: 'Thank you for contacting Fayr customer support. How can I assist you today?',
-  hi: 'फेयर ग्राहक सेवा से संपर्क करने के लिए धन्यवाद। मैं आपकी क्या मदद कर सकता हूँ?',
-  'hi-en':
-    'Fayr grahak seva se sampark karne ke liye dhanyavaad. Main aapki kya madad kar sakta hoon?',
-};
+// WHAT FOLLOWS THE GREETING MOVED OUT OF THIS FILE ON 2 SEPTEMBER 2026.
+//
+// It used to be one sentence in three languages: "Thank you for contacting Fayr
+// customer support. How can I assist you today?" The owner asked for something
+// better: "whenever I say 'hi,' it should reply with basic questions and
+// answers." Asking somebody what they want is putting the whole problem back on
+// a person who came to the chat because they did not know what to ask.
+//
+// So the greeting now offers four real questions, and they are looked up in the
+// answer bank before they are offered. See opening-questions.ts.
 
 /**
  * WORDS THAT ARE ONLY A GREETING.
@@ -141,12 +150,33 @@ export function isOnlyAGreeting(text: string): boolean {
   return greetings > 0;
 }
 
-/** The greeting, in one language, for the time it is in India right now. */
-export function greetingFor(language: string, now: Date): string {
-  const lang = TIME_GREETING[language] ? language : 'en';
-  const head = TIME_GREETING[lang][timeOfDayInIndia(now)];
-  return `${head}. ${GREETING_TAIL[lang]}`;
+/**
+ * THE GREETING, WITH REAL QUESTIONS UNDER IT.
+ *
+ * `offer` are the questions that were found in the answer bank. Handed in rather
+ * than read here, because reading the bank is not this file's job and because a
+ * pure function is what lets a test hold the clock still.
+ *
+ * ENGLISH, ALWAYS, and that is the owner's own instruction: "If someone is
+ * sharing their messages in Hindi, then it should reply in English, not in
+ * Hindi." One set of answers, one language out.
+ */
+export function greetingFor(
+  now: Date,
+  offer: readonly OpeningQuestion[] = OPENING_QUESTIONS,
+): string {
+  return greetingWords(TIME_GREETING.en[timeOfDayInIndia(now)], offer);
 }
+
+/**
+ * THE ONE LINE THAT MARKS A MESSAGE AS THE GREETING.
+ *
+ * The phone draws the four questions as things you can tap, so it has to know
+ * which reply is the one they belong to. This line is that marker: it is in every
+ * greeting and in nothing else. A marker rather than a new column on the message,
+ * because the greeting is words and the words already say it.
+ */
+export const GREETING_MARKER = GREETING_PICK_ONE;
 
 /**
  * SAYING SO WHEN WE DO NOT KNOW, AND HANDING OVER.
@@ -279,7 +309,6 @@ export function languagesWeHaveWordsFor(): string[] {
   return LANGUAGES.filter(
     (l) =>
       TIME_GREETING[l] &&
-      GREETING_TAIL[l] &&
       HAND_OVER[l] &&
       STILL_WAITING[l] &&
       LANGUAGE_OFFER[l] &&

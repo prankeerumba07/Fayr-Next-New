@@ -172,6 +172,20 @@ export function chatView(state) {
     break;
   }
 
+  // QUESTIONS SOMEBODY CAN TAP INSTEAD OF TYPING.
+  //
+  // THE SERVER DECIDES WHETHER THERE ARE ANY, and this screen only draws what it
+  // is handed. It sends them after the greeting and at no other moment, and only
+  // questions the answer bank can really answer. Nothing is invented here and no
+  // list is written here: a second list on the phone could offer a question the
+  // answer bank has never heard of.
+  //
+  // TAPPING ONE SENDS THOSE WORDS AS AN ORDINARY MESSAGE. There is no special
+  // path: a tapped question and a typed one are answered by the same thing.
+  const suggestions = Array.isArray(chat && chat.suggestions)
+    ? chat.suggestions.filter((one) => typeof one === 'string' && one.trim() !== '')
+    : [];
+
   const check = validateQuestion(draft);
   return {
     title: SCREEN_TITLE,
@@ -179,6 +193,8 @@ export function chatView(state) {
     loading,
     empty: messages.length === 0 && !loading,
     messages,
+    // Never while something is going out, and never on a finished conversation.
+    suggestions: busy || closed ? [] : suggestions,
     status: statusLine(chat),
     feedback: askAbout
       ? {

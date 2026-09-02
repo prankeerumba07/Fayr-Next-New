@@ -1,3 +1,5 @@
+import { GREETING_MARKER } from './chat-words';
+import { OPENING_QUESTIONS } from './opening-questions';
 import { authorLabel, plainStateName, type ChatAuthorName, type ChatStateName } from './chat.rules';
 import type { ChatInQueue, ChatWithMessages } from './chat.store';
 
@@ -39,6 +41,18 @@ export interface ChatResponse {
   /** True once it has been handed over and nobody has taken it. */
   waitingForAPerson: boolean;
   closed: boolean;
+  /**
+   * QUESTIONS SOMEBODY CAN TAP INSTEAD OF TYPING.
+   *
+   * Only ever after the greeting, and only ever questions the answer bank can
+   * really answer. Tapping one sends those exact words back as an ordinary
+   * message: there is no route that answers a tapped question differently from a
+   * typed one, so there is nothing here a phone could use to get a different
+   * answer from anybody else.
+   *
+   * Empty at every other moment, which is what stops the screen becoming a menu.
+   */
+  suggestions: string[];
 }
 
 /** One row of the staff queue. */
@@ -99,7 +113,37 @@ export function toChat(
     withTheAssistant: chat.state === 'ASSISTANT',
     waitingForAPerson: chat.state === 'WAITING_FOR_PERSON',
     closed: chat.state === 'CLOSED',
+    suggestions: questionsToOffer(chat),
   };
+}
+
+/**
+ * THE QUESTIONS TO PUT UNDER THE GREETING, or none.
+ *
+ * Only when the newest thing said is the assistant's greeting. Anywhere else
+ * they would be a menu appearing in the middle of a conversation, and somebody
+ * who has just been given a real answer does not want four buttons under it.
+ *
+ * KNOWN BY THE GREETING'S OWN LINE, not by a column on the message. The greeting
+ * says "Here are the things people ask us most" and nothing else the assistant
+ * ever says does. See GREETING_MARKER.
+ *
+ * AND ONLY WHILE THE ASSISTANT HAS IT. Once a person at Fayr is involved, four
+ * buttons offering to search the answer bank would be talking over them.
+ */
+function questionsToOffer(chat: {
+  state: ChatStateName;
+  messages: { author: ChatAuthorName; body: string }[];
+}): string[] {
+  if (chat.state !== 'ASSISTANT') return [];
+  const newest = chat.messages[chat.messages.length - 1];
+  if (!newest || newest.author !== 'ASSISTANT') return [];
+  if (!newest.body.includes(GREETING_MARKER)) return [];
+  // The words offered are the words the greeting itself listed, so the two can
+  // never disagree about what is on screen.
+  return OPENING_QUESTIONS.filter((q) => newest.body.includes(q.ask)).map(
+    (q) => q.ask,
+  );
 }
 
 /**

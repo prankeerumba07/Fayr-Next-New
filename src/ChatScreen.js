@@ -130,8 +130,12 @@ export default function ChatScreen({ navigation }) {
 
   const view = chatView({ chat, draft, busy, loading, error });
 
-  const send = useCallback(async () => {
-    const check = validateQuestion(draft);
+  // ONE PLACE SENDS WORDS, whether somebody typed them or tapped one of the
+  // questions the greeting offered. A tapped question is not a different kind of
+  // thing: it is a message, and it is answered by the same thing that answers a
+  // typed one.
+  const sendWords = useCallback(async (words) => {
+    const check = validateQuestion(words);
     if (!check.ok || busy) return;
     setBusy(true);
     sending.current = true;
@@ -147,7 +151,9 @@ export default function ChatScreen({ navigation }) {
     }
     setDraft('');
     setChat(res.chat);
-  }, [draft, busy]);
+  }, [busy]);
+
+  const send = useCallback(() => sendWords(draft), [sendWords, draft]);
 
   const answerFeedback = useCallback(
     async (questionId, helpful) => {
@@ -240,6 +246,32 @@ export default function ChatScreen({ navigation }) {
                   <Text style={styles.feedbackNoText}>{view.feedback.no}</Text>
                 </TouchableOpacity>
               </View>
+            </View>
+          ) : null}
+
+          {/* QUESTIONS SOMEBODY CAN TAP INSTEAD OF TYPING.
+              The owner asked for this: saying hello now gets a greeting and the
+              things people actually ask, rather than "how can I assist you
+              today", which puts the whole problem back on somebody who came here
+              because they did not know what to ask.
+
+              THE SERVER SAYS WHETHER THERE ARE ANY and what they are. Nothing is
+              written into this screen: a list here could offer a question the
+              answer bank has never heard of. */}
+          {view.suggestions.length > 0 ? (
+            <View style={styles.asks}>
+              {view.suggestions.map((one) => (
+                <TouchableOpacity
+                  key={one}
+                  style={styles.ask}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={one}
+                  onPress={() => sendWords(one)}
+                >
+                  <Text style={styles.askText}>{one}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
           ) : null}
 
@@ -365,6 +397,21 @@ const styles = StyleSheet.create({
   feedbackYes: { backgroundColor: COLOR.refundBg, borderColor: '#9FDB86' },
   feedbackYesText: { fontFamily: FONT.bodySemi, fontSize: 14, color: COLOR.refundInk },
   feedbackNoText: { fontFamily: FONT.bodySemi, fontSize: 14, color: COLOR.sub },
+
+  // The tappable questions. Quiet, so they read as an offer and not as the only
+  // way forward: the box underneath is still there and still says so.
+  asks: { gap: 8, marginTop: 4, marginBottom: 4 },
+  ask: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: COLOR.line,
+    borderRadius: RADIUS.round,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    ...SHADOW.chip,
+  },
+  askText: { fontFamily: FONT.bodySemi, fontSize: 13, color: COLOR.ink2 },
 
   error: {
     marginTop: SPACE.md,

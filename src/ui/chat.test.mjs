@@ -5,6 +5,7 @@
 // written by a real person at Fayr has to be tellable from one the answer book
 // produced, by somebody glancing at their phone.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   FEEDBACK_NO,
   FEEDBACK_PROMPT,
@@ -232,6 +233,89 @@ console.log('\n=== 8. nothing missing reaches the screen ===');
       ok(m.who === 'you' || m.who === 'fayr', `${label}: every message has a side`);
     }
   }
+}
+
+const try_ = (label, fn) => { try { fn(); ok(true, label); } catch (e) { ok(false, label + ' — ' + e.message); } };
+
+// ── the questions somebody can tap instead of typing ────────────────────────
+//
+// THE OWNER ASKED FOR THIS on 2 September 2026: "whenever I say 'hi,' it should
+// reply with basic questions and answers." The screen draws whatever the server
+// hands it and writes no list of its own: a list here could offer a question the
+// answer bank has never heard of.
+console.log('\nthe questions somebody can tap');
+{
+  const withThem = (over) => chatView({
+    chat: {
+      chatId: 'c1', state: 'ASSISTANT', closed: false, waitingForAPerson: false,
+      takenBy: null, messages: [], suggestions: [
+        'Where is my refund', 'How long does a refund take',
+        'My order was not found', 'How do tickets work',
+      ],
+      ...over,
+    },
+    draft: '', busy: false, loading: false, error: null,
+  });
+
+  try_('it draws the ones the server sent, in the order it sent them', () => {
+    const v = withThem({});
+    assert.deepEqual(v.suggestions, [
+      'Where is my refund', 'How long does a refund take',
+      'My order was not found', 'How do tickets work',
+    ]);
+  });
+
+  try_('none at all when the server sent none', () => {
+    assert.deepEqual(withThem({ suggestions: [] }).suggestions, []);
+    assert.deepEqual(withThem({ suggestions: undefined }).suggestions, []);
+  });
+
+  try_('and it never invents one when the server sends something odd', () => {
+    // A screen that guesses a question could offer one nothing can answer.
+    assert.deepEqual(withThem({ suggestions: null }).suggestions, []);
+    assert.deepEqual(withThem({ suggestions: 'Where is my refund' }).suggestions, []);
+    assert.deepEqual(withThem({ suggestions: [1, 2, 3] }).suggestions, []);
+    assert.deepEqual(withThem({ suggestions: ['', '   '] }).suggestions, []);
+  });
+
+  try_('they go away while a message is going out', () => {
+    const v = chatView({
+      chat: {
+        chatId: 'c1', state: 'ASSISTANT', closed: false, messages: [],
+        suggestions: ['Where is my refund'],
+      },
+      draft: '', busy: true, loading: false, error: null,
+    });
+    assert.deepEqual(v.suggestions, [],
+      'tapping twice while the first tap is still going would ask twice');
+  });
+
+  try_('and never appear on a finished conversation', () => {
+    const v = chatView({
+      chat: {
+        chatId: 'c1', state: 'CLOSED', closed: true, messages: [],
+        suggestions: ['Where is my refund'],
+      },
+      draft: '', busy: false, loading: false, error: null,
+    });
+    assert.deepEqual(v.suggestions, []);
+    assert.equal(v.input.canSend, false, 'and nothing can be sent into it either');
+  });
+
+  try_('a screen with no conversation yet offers none', () => {
+    assert.deepEqual(chatView({}).suggestions, []);
+  });
+
+  try_('the screen really draws them, and tapping one sends those words', () => {
+    const screen = readFileSync(new URL('../ChatScreen.js', import.meta.url), 'utf8');
+    ok(/view\.suggestions\.length > 0/.test(screen),
+      'the screen must draw the questions the server sent');
+    ok(/onPress=\{\(\) => sendWords\(one\)\}/.test(screen),
+      'and tapping one must send those exact words');
+    ok(/const send = useCallback\(\(\) => sendWords\(draft\)/.test(screen),
+      'and typing must go through the same one place, so a tapped question and a '
+      + 'typed one are answered by the same thing');
+  });
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -110,33 +110,43 @@ describe('What the assistant says (e2e)', () => {
 
   // ── the greeting ──────────────────────────────────────────────────────────
   describe('a greeting is answered as a greeting', () => {
-    it('says good morning, afternoon or evening, then the same sentence', async () => {
+    // CHANGED ON 2 SEPTEMBER 2026. This used to require the sentence "Thank you
+    // for contacting Fayr customer support. How can I assist you today?" The
+    // owner asked for something better: "whenever I say 'hi,' it should reply
+    // with basic questions and answers." Asking somebody what they want puts the
+    // whole problem back on a person who came to the chat because they did not
+    // know what to ask. It is NOT a weaker check: it went from asking for one
+    // sentence to asking for a greeting, a line about what we help with, and
+    // four questions that are proved to work in chat.e2e-spec.ts.
+    it('says good morning, afternoon or evening, then what we can help with', async () => {
       const shopper = await aShopper();
       const chat = await say(shopper.token, 'hi');
       const reply = lastFayr(chat).body;
 
       expect(reply).toMatch(/^Good (morning|afternoon|evening)\. /);
+      expect(reply).toContain('Thank you for writing to Fayr.');
       expect(reply).toContain(
-        'Thank you for contacting Fayr customer support. '
-        + 'How can I assist you today?',
+        'We can help with your money, your offers, your review and your tickets.',
       );
+      expect(reply).toContain('Here are the things people ask us most.');
+      expect(reply).toContain('Tap one, or just type your own question.');
     });
 
     it('answers every way of saying hello the same way', async () => {
       for (const hello of ['hello', 'hey', 'namaste', 'नमस्ते', 'good morning']) {
         const shopper = await aShopper();
         const chat = await say(shopper.token, hello);
-        expect(lastFayr(chat).body).toContain('How can I assist you today?');
+        expect(lastFayr(chat).body).toContain('Here are the things people ask us most.');
       }
     });
 
     it('DOES NOT greet somebody who already asked a question', async () => {
-      // The failure that matters. Answering "hi where is my refund" with "how
-      // can I help you" is the assistant ignoring somebody who already said.
+      // The failure that matters. Answering "hi where is my refund" with a menu
+      // is the assistant ignoring somebody who already said what they wanted.
       const shopper = await aShopper();
       const chat = await say(shopper.token, 'hi what are tickets');
       const reply = lastFayr(chat).body;
-      expect(reply).not.toContain('How can I assist you today?');
+      expect(reply).not.toContain('Here are the things people ask us most.');
       expect(reply.toLowerCase()).toContain('ticket');
     });
 

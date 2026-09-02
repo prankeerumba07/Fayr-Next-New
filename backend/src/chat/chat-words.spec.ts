@@ -1,6 +1,8 @@
 import { LANGUAGES } from '../assistant/language';
 import { plainLanguageProblems } from '../assistant/plain-language';
+import { OPENING_QUESTIONS } from './opening-questions';
 import {
+  GREETING_MARKER,
   LANGUAGE_CHOSEN,
   LANGUAGE_OFFER,
   STILL_WAITING,
@@ -57,27 +59,73 @@ describe('what time of day it is in India', () => {
 });
 
 describe('the greeting', () => {
-  it('uses the time of day, then the same sentence every time', () => {
-    expect(greetingFor('en', inIndia(9))).toBe(
-      'Good morning. Thank you for contacting Fayr customer support. '
-      + 'How can I assist you today?',
+  // CHANGED ON 2 SEPTEMBER 2026, AND THE OLD TEST WAS TESTING THE WRONG THING.
+  //
+  // It used to require the exact sentence "Thank you for contacting Fayr customer
+  // support. How can I assist you today?" in all three languages. The owner asked
+  // for something better: "whenever I say 'hi,' it should reply with basic
+  // questions and answers." Asking somebody what they want puts the whole problem
+  // back on a person who came to the chat because they did not know what to ask.
+  //
+  // And it is ENGLISH ONLY now, which is also his instruction: "If someone is
+  // sharing their messages in Hindi, then it should reply in English, not in
+  // Hindi." One set of answers, one language out.
+  it('says the time of day, then what we can help with', () => {
+    expect(greetingFor(inIndia(9))).toContain('Good morning.');
+    expect(greetingFor(inIndia(14))).toContain('Good afternoon.');
+    expect(greetingFor(inIndia(19))).toContain('Good evening.');
+    expect(greetingFor(inIndia(9))).toContain('Thank you for writing to Fayr.');
+    expect(greetingFor(inIndia(9))).toContain(
+      'We can help with your money, your offers, your review and your tickets.',
     );
-    expect(greetingFor('en', inIndia(14))).toContain('Good afternoon.');
-    expect(greetingFor('en', inIndia(19))).toContain('Good evening.');
   });
 
-  it('exists in all three languages', () => {
-    for (const language of LANGUAGES) {
-      const said = greetingFor(language, inIndia(9));
-      expect(said.length).toBeGreaterThan(20);
+  it('OFFERS FOUR REAL QUESTIONS, which is what was asked for', () => {
+    const said = greetingFor(inIndia(9));
+    expect(said).toContain('Where is my refund');
+    expect(said).toContain('How long does a refund take');
+    expect(said).toContain('My order was not found');
+    expect(said).toContain('How do tickets work');
+    // Three or four, never one and never ten.
+    expect(OPENING_QUESTIONS.length).toBeGreaterThanOrEqual(3);
+    expect(OPENING_QUESTIONS.length).toBeLessThanOrEqual(4);
+  });
+
+  it('and says they can be tapped, or ignored', () => {
+    expect(greetingFor(inIndia(9))).toContain(
+      'Tap one, or just type your own question.',
+    );
+  });
+
+  it('IT NEVER SAYS NOTHING, even with no questions to offer', () => {
+    // If the answer bank has none of them published, the greeting still asks.
+    const bare = greetingFor(inIndia(9), []);
+    expect(bare).toContain('Good morning.');
+    expect(bare).toContain('Tell us what you need and we will help.');
+    expect(bare).not.toContain('•');
+  });
+
+  it('carries the one line the phone knows the greeting by', () => {
+    // The phone draws the four as things you can tap, so it has to know which
+    // reply they belong to.
+    expect(greetingFor(inIndia(9))).toContain(GREETING_MARKER);
+    expect(greetingFor(inIndia(9), [])).not.toContain(GREETING_MARKER);
+    // And nothing else the assistant says carries it.
+    expect(handOverWords('en', SUPPORT_EMAIL)).not.toContain(GREETING_MARKER);
+    expect(STILL_WAITING.en).not.toContain(GREETING_MARKER);
+  });
+
+  it('names an answer in the bank for every question it offers', () => {
+    // Whether the bank really answers them is proved against the real bank in
+    // backend/test/chat-words.e2e-spec.ts. Here: none of them is nameless.
+    for (const one of OPENING_QUESTIONS) {
+      expect(one.key.length).toBeGreaterThan(3);
+      expect(one.ask.length).toBeGreaterThan(8);
     }
-    // And they are actually different words, not English three times.
-    const all = LANGUAGES.map((l) => greetingFor(l, inIndia(9)));
-    expect(new Set(all).size).toBe(LANGUAGES.length);
-  });
-
-  it('falls back to English for a language we have no words for', () => {
-    expect(greetingFor('ta', inIndia(9))).toContain('Good morning');
+    // And no two offer the same answer.
+    expect(new Set(OPENING_QUESTIONS.map((q) => q.key)).size).toBe(
+      OPENING_QUESTIONS.length,
+    );
   });
 });
 
@@ -233,10 +281,12 @@ describe('EVERY LINE READS PLAINLY, IN ITS OWN LANGUAGE', () => {
   // this test is the only thing standing between them and a real shopper.
   const everyLine = (): [string, string, string][] => {
     const out: [string, string, string][] = [];
+    // THE GREETING IS ENGLISH ONLY, so it is walked once and not three times.
+    out.push(['greeting, morning', 'en', greetingFor(inIndia(9))]);
+    out.push(['greeting, afternoon', 'en', greetingFor(inIndia(14))]);
+    out.push(['greeting, evening', 'en', greetingFor(inIndia(19))]);
+    out.push(['greeting, nothing to offer', 'en', greetingFor(inIndia(9), [])]);
     for (const language of LANGUAGES) {
-      out.push([`greeting, morning`, language, greetingFor(language, inIndia(9))]);
-      out.push([`greeting, afternoon`, language, greetingFor(language, inIndia(14))]);
-      out.push([`greeting, evening`, language, greetingFor(language, inIndia(19))]);
       out.push([`hand over`, language, handOverWords(language, SUPPORT_EMAIL)]);
       out.push([`still waiting`, language, STILL_WAITING[language]]);
       out.push([`language offer`, language, LANGUAGE_OFFER[language]]);

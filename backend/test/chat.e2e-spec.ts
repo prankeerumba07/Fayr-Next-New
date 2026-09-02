@@ -11,6 +11,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { StaffTokenService } from '../src/admin/staff-token.service';
 import { AssistantSeedService } from '../src/assistant/assistant-seed.service';
 import { resetDatabase } from './reset-db';
+import { OPENING_QUESTIONS } from '../src/chat/opening-questions';
 
 /**
  * A CONVERSATION, WITH BOTH SIDES ABLE TO SPEAK.
@@ -760,6 +761,153 @@ describe('Chat conversations (e2e)', () => {
         where: { chat: { userId: them.id } },
       });
       expect(kept).toBe(2);
+    });
+  });
+
+  // ── saying hello gets a real reply, with real questions under it ─────────
+  describe('saying hi gets a greeting and questions that work', () => {
+    beforeEach(async () => {
+      await anAnswerBook();
+    });
+
+    it('every way of saying hello gets the same warm opening', async () => {
+      for (const hello of ['hi', 'hello', 'hey', 'hi there', 'namaste', 'hii', 'helo']) {
+        const them = await aShopper();
+        const said = await say(them.token, hello);
+        const reply = said.messages[said.messages.length - 1];
+        expect(reply.author).toBe('ASSISTANT');
+        // A greeting.
+        expect(reply.body).toMatch(/Good (morning|afternoon|evening)\./);
+        expect(reply.body).toContain('Thank you for writing to Fayr.');
+        // One line about what we can help with.
+        expect(reply.body).toContain(
+          'We can help with your money, your offers, your review and your tickets.',
+        );
+        // And the questions.
+        expect(reply.body).toContain('Where is my refund');
+        expect(said.suggestions.length).toBeGreaterThanOrEqual(3);
+        expect(said.suggestions.length).toBeLessThanOrEqual(4);
+      }
+    });
+
+    it('and the reply is in ENGLISH even when the hello was not', async () => {
+      for (const hello of ['namaste', 'नमस्ते', 'namaskar']) {
+        const them = await aShopper();
+        const said = await say(them.token, hello);
+        const reply = said.messages[said.messages.length - 1];
+        expect(reply.language).toBe('en');
+        expect(reply.body).toContain('Thank you for writing to Fayr.');
+      }
+    });
+
+    it('ALL FOUR of the named questions really are in the bank', async () => {
+      // The greeting drops a question whose answer is not published, which is
+      // right: it must never offer something that dead ends. But that safety net
+      // would also quietly hide a typing mistake in one of the names, and the
+      // owner would see three questions where he asked for four. So the names
+      // themselves are checked against the bank.
+      const published = await prisma.answerEntry.findMany({
+        where: { key: { in: OPENING_QUESTIONS.map((q) => q.key) }, language: 'en',
+                 status: 'PUBLISHED' },
+        select: { key: true },
+      });
+      const found = new Set(published.map((r) => r.key));
+      const missing = OPENING_QUESTIONS.filter((q) => !found.has(q.key)).map((q) => q.key);
+      expect(missing).toEqual([]);
+      expect(found.size).toBe(OPENING_QUESTIONS.length);
+
+      const them = await aShopper();
+      const hello = await say(them.token, 'hi');
+      expect(hello.suggestions.length).toBe(OPENING_QUESTIONS.length);
+    });
+
+    it('EVERY QUESTION IT OFFERS REALLY GETS AN ANSWER, not another menu', async () => {
+      // The whole point. A greeting that offers four questions and then cannot
+      // answer one of them is worse than a greeting that offers none.
+      const them = await aShopper();
+      const hello = await say(them.token, 'hi');
+      expect(hello.suggestions.length).toBeGreaterThanOrEqual(3);
+
+      for (const question of hello.suggestions) {
+        const asked = await say(them.token, question);
+        const reply = asked.messages[asked.messages.length - 1];
+        expect(reply.author).toBe('ASSISTANT');
+        // A real answer: long enough to be one, and not the greeting again.
+        expect(reply.body.length).toBeGreaterThan(60);
+        expect(reply.body).not.toContain('Here are the things people ask us most');
+        expect(reply.body).not.toContain('Thank you for writing to Fayr.');
+        // Not the "we do not know" reply either.
+        expect(reply.body).not.toContain('transferring this chat');
+        // Answered means the conversation stayed with the assistant.
+        expect(asked.state).toBe('ASSISTANT');
+        // And it came from the answer bank, which is the only place answers live.
+        const from = await prisma.assistantQuestion.findFirst({
+          where: { chatId: asked.chatId, rawText: question },
+          orderBy: { askedAt: 'desc' },
+          select: { answerOrigin: true, answerEntryId: true },
+        });
+        expect(from?.answerOrigin).toBe('ANSWER_BOOK');
+        expect(from?.answerEntryId).not.toBeNull();
+      }
+    });
+
+    it('typing one of them by hand works exactly the same', async () => {
+      const them = await aShopper();
+      await say(them.token, 'hi');
+      const typed = await say(them.token, 'where is my refund');
+      const reply = typed.messages[typed.messages.length - 1];
+      expect(reply.body.length).toBeGreaterThan(60);
+      expect(typed.state).toBe('ASSISTANT');
+    });
+
+    it('the questions are offered after the greeting and at NO other moment', async () => {
+      const them = await aShopper();
+      const hello = await say(them.token, 'hi');
+      expect(hello.suggestions.length).toBeGreaterThan(0);
+
+      const answered = await say(them.token, hello.suggestions[0]);
+      expect(answered.suggestions).toEqual([]);
+    });
+
+    it('and none once a person at Fayr is involved', async () => {
+      const them = await aShopper();
+      await say(them.token, 'hi');
+      const handed = await say(them.token, 'something nobody has an answer for');
+      expect(handed.state).toBe('WAITING_FOR_PERSON');
+      expect(handed.suggestions).toEqual([]);
+    });
+
+    it('IT NEVER SAYS NOTHING. With no answers at all it still asks', async () => {
+      // Every answer retired: the greeting must still greet and still ask.
+      await prisma.answerEntry.updateMany({ data: { status: 'RETIRED' } });
+      const them = await aShopper();
+      const said = await say(them.token, 'hi');
+      const reply = said.messages[said.messages.length - 1];
+      expect(reply.body).toMatch(/Good (morning|afternoon|evening)\./);
+      expect(reply.body).toContain('Tell us what you need and we will help.');
+      expect(said.suggestions).toEqual([]);
+      expect(reply.body).not.toContain('•');
+    });
+
+    it('and a question it cannot answer is passed to a person, really', async () => {
+      const them = await aShopper();
+      const lost = await say(them.token, 'is there a Fayr shop in Bhubaneswar');
+      const reply = lost.messages[lost.messages.length - 1];
+      expect(reply.body.length).toBeGreaterThan(40);
+      expect(lost.state).toBe('WAITING_FOR_PERSON');
+      // REALLY passed: it is in the staff queue, not just described as passed.
+      const agent = await anAgent();
+      const queue = await request(server())
+        .get('/admin/chats?state=WAITING_FOR_PERSON')
+        .set('Authorization', `Bearer ${agent.token}`)
+        .expect(200);
+      expect(queue.body.chats.map((c: any) => c.chatId)).toContain(lost.chatId);
+      // And the question was written down, so somebody can write an answer.
+      const written = await prisma.assistantQuestion.findFirst({
+        where: { chatId: lost.chatId },
+        select: { rawText: true },
+      });
+      expect(written?.rawText).toBe('is there a Fayr shop in Bhubaneswar');
     });
   });
 

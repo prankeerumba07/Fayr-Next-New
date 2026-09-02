@@ -25,6 +25,7 @@ import {
   whatToWriteNext,
   type ToWrite,
 } from './what-to-write-next';
+import { OPENING_QUESTIONS, type OpeningQuestion } from './opening-questions';
 import {
   LANGUAGE_CHOSEN,
   LANGUAGE_OFFER,
@@ -143,12 +144,19 @@ export class ChatService {
     //
     // Not written down as a question. "hi" in the queue of things nobody could
     // answer would bury the questions that really do need writing an answer for.
+    //
+    // AND IT ANSWERS WITH REAL QUESTIONS, which the owner asked for by name:
+    // "whenever I say 'hi,' it should reply with basic questions and answers."
+    // The four are looked up in the answer bank FIRST, and one the bank cannot
+    // answer is not offered. Four questions where one dead ends is worse than
+    // three that all work.
     if (isOnlyAGreeting(checked.body)) {
+      const offer = await this.questionsTheBankCanAnswer();
       const reply = await this.store.addMessage({
         chatId: chat.id,
         author: 'ASSISTANT',
-        body: greetingFor(replyIn, this.now()),
-        language: replyIn,
+        body: greetingFor(this.now(), offer),
+        language: 'en',
       });
       return { chat: await this.after(chat.id), theirs, reply };
     }
@@ -269,6 +277,34 @@ export class ChatService {
       body: STILL_WAITING[language] ?? STILL_WAITING.en,
       language,
     });
+  }
+
+  /**
+   * WHICH OF THE OPENING QUESTIONS THE ANSWER BANK CAN REALLY ANSWER.
+   *
+   * Asked before the greeting is written, so nothing is offered that dead ends.
+   * A question whose answer is not published in the bank is simply left out.
+   *
+   * THERE IS NO SECOND SET OF ANSWERS. This reads the bank; it does not carry
+   * words of its own. Tapping one of these sends its words back as an ordinary
+   * message and the ordinary path answers it, with the same search and the same
+   * record of what was asked.
+   */
+  private async questionsTheBankCanAnswer(): Promise<OpeningQuestion[]> {
+    try {
+      const found = await this.book.wordingsFor(
+        OPENING_QUESTIONS.map((q) => q.key),
+        'en',
+      );
+      return OPENING_QUESTIONS.filter((q) => found.has(q.key));
+    } catch (err) {
+      // The bank being unreachable must not stop somebody being greeted. They
+      // get the greeting with no questions under it, which still asks them what
+      // they need. See greetingWords.
+      const why = err instanceof Error ? err.message : String(err);
+      this.log.warn(`could not read the opening questions: ${why}`);
+      return [];
+    }
   }
 
   /** The clock, in one place, so a test can hold it still. */
