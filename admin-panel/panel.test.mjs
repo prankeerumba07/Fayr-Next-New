@@ -764,6 +764,10 @@ console.log('\n=== 7b. the assistant screens actually render ===');
     ['one person\'s whole history', convoState({
       onlyUserId: 'u1', person: 'FAYR-100001', filter: '',
     })],
+    // A conversation with no person on it must still draw rather than showing a
+    // blank screen. It is not a shape the real server sends: GET /admin/chats/:id
+    // always carries the person now, and the check below requires the button that
+    // needs it. This is only here so a missing field is never a blank screen.
     ['a conversation with no person on it', convoState({
       open: oneConvo({ user: undefined }),
     })],

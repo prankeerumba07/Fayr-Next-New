@@ -259,12 +259,45 @@ describe('What the assistant says (e2e)', () => {
         expect(reply.body).toContain(
           'We can only talk in English, or in Hindi written with English letters.',
         );
-        // AND AN ANSWER, or the hand over. Never the line on its own.
-        expect(reply.body.length).toBeGreaterThan(
-          'We are sorry, we could not read that. We can only talk in English, or '
-          .length + 120,
-        );
+        // THE LINE ON ITS OWN, AND THAT IS RIGHT.
+        //
+        // This asserted the opposite when it was first written: that the line was
+        // added to an answer or to the hand over, never sent alone. Holding a real
+        // conversation showed why that was wrong. Nothing in the answer bank
+        // matches a message nobody can read, so the conversation was handed to a
+        // person, and the assistant goes quiet once a person has it. Somebody who
+        // did exactly what the line asked and retyped in English got nothing back
+        // at all.
+        expect(reply.body).not.toContain('transferring this chat');
+        // AND THE CONVERSATION IS STILL OURS, so they can try again in English.
+        expect(chat.state).toBe('ASSISTANT');
       }
+    });
+
+    it('and they can then ask again in English and really be answered', async () => {
+      // The whole point of the change above. The line tells somebody to write in
+      // English, so writing in English has to work.
+      const shopper = await aShopper();
+      const first = await say(shopper.token, '我的退款在哪里');
+      expect(lastFayr(first).body).toContain('We are sorry, we could not read that.');
+
+      const again = await say(shopper.token, 'where is my refund');
+      const answer = lastFayr(again);
+      expect(answer.body.length).toBeGreaterThan(60);
+      expect(answer.body).not.toContain('We are sorry, we could not read that.');
+      expect(again.state).toBe('ASSISTANT');
+    });
+
+    it('and the team still sees that somebody wrote to us in another language', async () => {
+      // Not handing over is not the same as ignoring it. The question is written
+      // down, so whoever reads the queue of questions knows it happened.
+      const shopper = await aShopper();
+      await say(shopper.token, 'எனது பணம் எப்போது வரும்');
+      const written = await prisma.assistantQuestion.findFirst({
+        where: { userId: shopper.id },
+        select: { rawText: true },
+      });
+      expect(written?.rawText).toBe('எனது பணம் எப்போது வரும்');
     });
 
     it('that line is said ONCE in a conversation, and never again', async () => {
@@ -278,7 +311,16 @@ describe('What the assistant says (e2e)', () => {
       const first = await say(shopper.token, '我的退款在哪里');
       expect(lastFayr(first).body).toContain('We are sorry, we could not read that.');
 
-      for (const again of ['我的退款在哪里', 'எனது பணம் எப்போது வரும்', 'Где мои деньги']) {
+      // Written to again in another language: NOT the same line a second time.
+      // Handed to a person instead, who can at least use a translator.
+      const second = await say(shopper.token, 'எனது பணம் எப்போது வரும்');
+      expect(lastFayr(second).body).not.toContain('We are sorry, we could not read that.');
+      expect(lastFayr(second).body).toContain('customer support agent');
+      expect(second.state).toBe('WAITING_FOR_PERSON');
+      // And it never says nothing: there is a real reply both times.
+      expect(lastFayr(second).body.length).toBeGreaterThan(60);
+
+      for (const again of ['我的退款在哪里', 'Где мои деньги']) {
         await say(shopper.token, again);
       }
 

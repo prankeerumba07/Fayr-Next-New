@@ -186,6 +186,61 @@ export class ChatService {
       return { chat: await this.after(chat.id), theirs, reply };
     }
 
+    // ── a message we cannot read ────────────────────────────────────────────
+    //
+    // FOUND BY HOLDING A REAL CONVERSATION on 3 September 2026, and it would have
+    // been seen in front of a room. A message in another language went through the
+    // ordinary path: nothing in the answer bank matched it, so the conversation
+    // was handed to a person AND the line saying "please write in English or
+    // Hinglish, and we will help" was added underneath.
+    //
+    // WHICH MADE THE INSTRUCTION IMPOSSIBLE TO FOLLOW. The assistant goes quiet
+    // once a conversation is waiting for a person, so somebody who did exactly
+    // what they were asked and retyped their question in English got nothing back
+    // at all. And handing a message nobody at Fayr can read to a person who also
+    // cannot read it helps nobody.
+    //
+    // SO IT STAYS WITH THE ASSISTANT and answers with the line on its own. That is
+    // the whole reply, and it is the right one: we cannot read what they wrote, we
+    // say so, we say what to do, and we are still here when they do it.
+    //
+    // THE QUESTION IS STILL WRITTEN DOWN, so the team can see that somebody wrote
+    // to us in Tamil and decide what to do about that. It is only the handing over
+    // that is skipped.
+    if (said.how === 'another-language') {
+      const noted = await this.book.recordQuestion({
+        userId,
+        rawText: checked.body,
+      });
+      await this.prisma.assistantQuestion
+        .update({ where: { id: noted.id }, data: { chatId: chat.id } })
+        .catch(() => undefined);
+      await this.prisma.chatMessage.update({
+        where: { id: theirs.id },
+        data: { assistantQuestionId: noted.id },
+      });
+
+      // ONCE, AND THEN A PERSON. The owner's rule is that the line is said once
+      // and never repeated. So the second time somebody writes in a language we
+      // cannot read, they are not told the same thing again: they are handed to a
+      // person, who can at least use a translator.
+      //
+      // WHICH ALSO MEANS IT NEVER SAYS NOTHING. Both times there is a real reply
+      // and the conversation moves forward. Saying the line twice would be the
+      // assistant talking about itself; saying nothing would be worse.
+      const reply = await this.store.addMessage({
+        chatId: chat.id,
+        author: 'ASSISTANT',
+        body: tellThemWhichLanguages
+          ? ONLY_ENGLISH_OR_HINDI
+          : handOverWords(replyIn, SUPPORT_EMAIL),
+        language: replyIn,
+        assistantQuestionId: noted.id,
+      });
+      if (!tellThemWhichLanguages) await this.store.handOver(chat.id);
+      return { chat: await this.after(chat.id), theirs, reply };
+    }
+
     // ── an ordinary question ────────────────────────────────────────────────
     const asked = await this.engine.ask(userId, checked.body, { replyIn });
 

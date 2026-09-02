@@ -13,6 +13,19 @@ import {
 export type ChatWithMessages = Chat & {
   messages: (ChatMessage & { staffUser: Pick<StaffUser, 'id' | 'name'> | null })[];
   takenBy: Pick<StaffUser, 'id' | 'name'> | null;
+  /**
+   * WHOSE CONVERSATION IT IS.
+   *
+   * Added 3 September 2026. Staff need it to open every conversation that person
+   * has ever had, which is the other half of the rule that a shopper never sees
+   * their own older ones. Without it the button that does that was drawn against
+   * an undefined field and silently never appeared, which is how it was found.
+   *
+   * THE DISPLAY NAME ONLY, never the phone number. The number is on the one
+   * screen that has always carried it, and opening that screen is the act that
+   * gets recorded.
+   */
+  user: { id: string; displayId: string };
 };
 
 /** One row of the queue: enough to decide whether to open it. */
@@ -193,6 +206,7 @@ export class ChatStore {
       where: { id: chatId },
       include: {
         takenBy: { select: { id: true, name: true } },
+        user: { select: { id: true, displayId: true } },
         messages: {
           orderBy: { sentAt: 'asc' },
           include: { staffUser: { select: { id: true, name: true } } },

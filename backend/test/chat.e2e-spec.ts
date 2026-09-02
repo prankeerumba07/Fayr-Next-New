@@ -624,6 +624,35 @@ describe('Chat conversations (e2e)', () => {
       expect(ids[0]).toBe(second.chatId);
     });
 
+    it('an open conversation says WHOSE it is, so its history is one tap away', async () => {
+      // FOUND ON 3 SEPTEMBER 2026 by opening the real route. The panel's button
+      // that opens somebody's whole history was drawn against a field the answer
+      // did not carry, so it silently never appeared. This is the check that
+      // would have caught it.
+      const them = await aShopper();
+      const agent = await anAgent('ADMIN', 'Boss');
+      const mine = await say(them.token, 'where is my refund');
+
+      const opened = await request(server())
+        .get(`/admin/chats/${mine.chatId}`)
+        .set('Authorization', `Bearer ${agent.token}`)
+        .expect(200);
+      expect(opened.body.user).toBeDefined();
+      expect(opened.body.user.id).toBe(them.id);
+      expect(opened.body.user.displayId).toMatch(/^FAYR-/);
+      // The name staff search on, and never the phone number.
+      expect(JSON.stringify(opened.body)).not.toContain('+9193');
+    });
+
+    it('and a shopper reading their own gets their own name and no number', async () => {
+      const them = await aShopper();
+      await say(them.token, 'where is my refund');
+      const mine = await request(server()).get('/chat')
+        .set('Authorization', `Bearer ${them.token}`).expect(200);
+      expect(mine.body.user.id).toBe(them.id);
+      expect(JSON.stringify(mine.body)).not.toContain('+9193');
+    });
+
     it('and each one can be opened in full', async () => {
       const them = await aShopper();
       const agent = await anAgent('ADMIN', 'Boss');

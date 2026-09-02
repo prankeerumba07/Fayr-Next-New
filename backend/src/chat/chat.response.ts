@@ -33,6 +33,14 @@ export interface ChatResponse {
   stateInWords: string;
   /** Who has it, when somebody does. */
   takenBy: { id: string; name: string } | null;
+  /**
+   * WHOSE CONVERSATION IT IS, by the name staff can search on.
+   *
+   * Staff need it to open that person's whole history. A shopper reading their
+   * own conversation gets their own name back, which is theirs to see, and never
+   * a phone number.
+   */
+  user: { id: string; displayId: string };
   startedAt: string;
   lastMessageAt: string;
   messages: ChatMessageResponse[];
@@ -107,6 +115,7 @@ export function toChat(
     state: chat.state,
     stateInWords: plainStateName(chat.state, chat.takenBy?.name ?? null),
     takenBy: chat.takenBy ? { id: chat.takenBy.id, name: chat.takenBy.name } : null,
+    user: { id: chat.user.id, displayId: chat.user.displayId },
     startedAt: chat.startedAt.toISOString(),
     lastMessageAt: chat.lastMessageAt.toISOString(),
     messages: chat.messages.map((m) => toMessage(m, helpfulByQuestion)),
