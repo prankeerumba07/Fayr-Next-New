@@ -17,6 +17,7 @@ import {
   seedDemo,
   DEMO_MOBILE_DEFAULT,
   DEMO_PAYOUT_UTR,
+  PRACTICE_TICKETS,
   RESERVED_FOR_LIVE_CLAIM,
   assertCandidatesNotReserved,
 } from '../prisma/demo-seed';
@@ -276,16 +277,77 @@ describe('Demo seed (e2e)', () => {
       }
     });
 
-    it('is left with exactly enough tickets for ONE live claim on the day', async () => {
-      // The demo claims an offer live. A seeded account spent down to zero cannot,
-      // and topping it up by hand would hide the ticket rules the demo is meant to
-      // show. 5 is one claim: earned back through a completed withdrawal, not
-      // granted.
+    it('is left with the practice float, so a whole journey can be walked', async () => {
+      // THIS USED TO ASSERT THE OPPOSITE, and the change is deliberate.
+      //
+      // It read "at least 5 and fewer than 15", with a comment calling anything
+      // more a suspicious pile that would mean somebody had granted tickets
+      // outside the rules. That was right while the account only had to make one
+      // live claim. The owner ran out of tickets on 1 September 2026 — his last
+      // claim took him to zero — and with no tickets there is no claim, and with
+      // no claim there is nothing on the home page to test.
+      //
+      // So a practice account now carries a float of exactly fifty. It is not a
+      // rule change: TICKETS.SIGNUP_GRANT is still fifteen, and the check below
+      // proves it. It is a fixture, on a practice database only.
       const balance = await tickets.getBalance(userId);
-      expect(balance).toBeGreaterThanOrEqual(5);
-      // And not a suspicious pile — that would mean someone granted tickets
-      // outside the rules.
-      expect(balance).toBeLessThan(15);
+      expect(balance).toBe(PRACTICE_TICKETS);
+      expect(PRACTICE_TICKETS).toBe(50);
+    });
+
+    it('and that float is a real sum of real ledger entries', async () => {
+      // NOT A NUMBER WRITTEN INTO A COLUMN. There is no balance column: a balance
+      // is SUM(delta) over an append-only ledger, and this proves the fifty is
+      // that sum and not something set aside from it.
+      const rows = await prisma.ticketEntry.findMany({ where: { userId } });
+      expect(rows.length).toBeGreaterThan(1);
+      const sum = rows.reduce((n, r) => n + r.delta, 0);
+      expect(sum).toBe(PRACTICE_TICKETS);
+      // The signup grant is in there, at its real value, alongside the claims it
+      // paid for. The float did not replace the economy, it sits on top of it.
+      const signup = rows.filter((r) => r.reason === 'SIGNUP_GRANT');
+      expect(signup).toHaveLength(1);
+      expect(signup[0].delta).toBe(TICKETS.SIGNUP_GRANT);
+      expect(rows.some((r) => r.reason === 'CLAIM' && r.delta < 0)).toBe(true);
+    });
+
+    it('leaves the product’s own signup grant alone', async () => {
+      // The easy way to give the owner tickets was to raise the signup grant, and
+      // that would have silently rewritten the ticket economy for every real
+      // person. Fifteen is the product's rule. Guarded here so a later edit that
+      // reaches for it fails a test instead of shipping.
+      expect(TICKETS.SIGNUP_GRANT).toBe(15);
+      const src = readFileSync(
+        join(__dirname, '..', 'src', 'tickets', 'ticket.constants.ts'),
+        'utf8',
+      );
+      expect(src).toMatch(/SIGNUP_GRANT: 15/);
+    });
+
+    it('tops the float back up after tickets are spent, and never doubles it', async () => {
+      // The float has to survive being used, which is the whole point of it, and
+      // it must not stack. Spend some, re-seed, and it is fifty again — not a
+      // hundred, and not fifty plus what was spent.
+      const campaign = await prisma.campaign.findFirstOrThrow({
+        where: { status: 'ACTIVE', title: { contains: RESERVED_FOR_LIVE_CLAIM } },
+      });
+      await tasks.claim(userId, campaign.id, { terms: true });
+      expect(await tickets.getBalance(userId)).toBe(PRACTICE_TICKETS - 5);
+
+      await seedDemo(app, { quiet: true });
+      expect(await tickets.getBalance(userId)).toBe(PRACTICE_TICKETS);
+
+      // And a second run on top of a full account adds nothing at all.
+      const before = await prisma.ticketEntry.count({ where: { userId } });
+      await seedDemo(app, { quiet: true });
+      expect(await tickets.getBalance(userId)).toBe(PRACTICE_TICKETS);
+      expect(await prisma.ticketEntry.count({ where: { userId } })).toBe(before);
+    });
+
+    it('says the float out loud, so nobody has to go looking for it', async () => {
+      const report = await seedDemo(app, { quiet: true });
+      const said = [...report.journeys, ...report.skipped].join(' | ');
+      expect(said).toMatch(/50 tickets/);
     });
   });
 
@@ -568,11 +630,11 @@ describe('Demo seed (e2e)', () => {
         'REFUNDED',
       ]);
 
-      // EXACTLY one claim's worth left — not "at least". That is the "never more
-      // than the shortfall" property stated as an outcome: every correction is
-      // sized to what is missing, so however many runs it took, the account lands
-      // on the one claim the demo has to make and not a ticket over.
-      expect(await tickets.getBalance(user.id)).toBe(TICKETS.DEFAULT_CLAIM_COST);
+      // EXACTLY the practice float — not "at least". That is the "never more than
+      // the shortfall" property stated as an outcome: every correction is sized to
+      // what is missing, so however many runs it took, and from a balance of zero,
+      // the account lands on the float and not a ticket over.
+      expect(await tickets.getBalance(user.id)).toBe(PRACTICE_TICKETS);
 
       // And the repair happened as append-only corrections, not a written balance.
       const corrections = await prisma.ticketEntry.findMany({
@@ -601,9 +663,13 @@ describe('Demo seed (e2e)', () => {
       // A fresh account cannot fund this seed from its signup grant alone: five
       // journeys plus the live claim is thirty tickets, and the grants come to
       // twenty-five. So a correction of exactly five is arithmetic, not a
-      // convenience — and the ONLY property worth pinning is that it is exactly
-      // the shortfall and the account still lands on one claim's worth, because
-      // the live claim is the one thing the demo cannot do without.
+      // convenience — and the property worth pinning is that it is exactly the
+      // shortfall, because the seed's own claims are the thing that must not fail.
+      //
+      // TWO KINDS OF CORRECTION NOW, TOLD APART BY THEIR KEY. The baseline
+      // correction funds the seed's own work; the practice float is what the owner
+      // is left holding afterwards. Counting all ADJUSTMENT rows together stopped
+      // saying anything about either, so each is checked on its own.
       await seedDemo(app, { quiet: true });
       const user = await prisma.user.findUniqueOrThrow({
         where: { mobile: DEMO_MOBILE_DEFAULT },
@@ -611,9 +677,26 @@ describe('Demo seed (e2e)', () => {
       const corrections = await prisma.ticketEntry.findMany({
         where: { userId: user.id, reason: 'ADJUSTMENT' },
       });
-      expect(corrections).toHaveLength(1);
-      expect(corrections[0].delta).toBe(TICKETS.DEFAULT_CLAIM_COST);
-      expect(await tickets.getBalance(user.id)).toBe(TICKETS.DEFAULT_CLAIM_COST);
+      const baseline = corrections.filter((c) =>
+        (c.idempotencyKey ?? '').startsWith('demo-seed:ticket-baseline:'),
+      );
+      expect(baseline).toHaveLength(1);
+      expect(baseline[0].delta).toBe(TICKETS.DEFAULT_CLAIM_COST);
+
+      // And the float is one entry too, for exactly what was missing — never a
+      // flat fifty on top of whatever was already there.
+      const float = corrections.filter((c) =>
+        (c.idempotencyKey ?? '').startsWith('demo-seed:practice-float:'),
+      );
+      expect(float).toHaveLength(1);
+      expect(await tickets.getBalance(user.id)).toBe(PRACTICE_TICKETS);
+      // TOPPED UP TO THE FLOAT, NOT BY IT. The row carries the balance it left
+      // behind, so this is checkable on the row itself: what it added is exactly
+      // the gap between what was there and the float, and it lands on the float.
+      expect(float[0].balanceAfter).toBe(PRACTICE_TICKETS);
+      expect(float[0].balanceAfter - float[0].delta).toBeLessThan(
+        PRACTICE_TICKETS,
+      );
     });
 
     it('and no other suite reads that setting either', () => {
@@ -801,7 +884,13 @@ describe('Demo seed (e2e)', () => {
       const second = await seedDemo(app, { quiet: true });
       expect(second.skipped.length).toBeGreaterThan(0);
       for (const line of second.skipped) {
-        expect(line).toMatch(/offer already has a task \((CLAIMED|PURCHASED|DELIVERED|REVIEWED|HOLDING|REFUNDED)(, closed)?\)/);
+        // Two shapes of skip line, and both name what was FOUND rather than what
+        // was assumed: an offer's real state, or the real ticket balance. Listed
+        // rather than loosened into one vague pattern, so a future skip line that
+        // says nothing still fails this.
+        expect(line).toMatch(
+          /offer already has a task \((CLAIMED|PURCHASED|DELIVERED|REVIEWED|HOLDING|REFUNDED)(, closed)?\)|practice float already there \(\d+ of \d+ tickets\)|claimed, still to buy/,
+        );
       }
     });
 

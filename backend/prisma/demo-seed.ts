@@ -136,6 +136,26 @@ const HOUR = 3_600_000;
 const MINUTE = 60_000;
 
 /**
+ * THE PRACTICE FLOAT: how many tickets a practice account is left holding.
+ *
+ * The owner ran out on 1 September 2026 — his last claim took him to zero — and
+ * with no tickets there is no claim, and with no claim there is nothing on the
+ * home page to test. Fifty is ten claims, which is enough to walk the journey
+ * again and again without stopping to think about it.
+ *
+ * THIS IS NOT A RULE CHANGE. TICKETS.SIGNUP_GRANT is still fifteen, which is the
+ * product's own rule in CLAUDE.md, and raising it was the easy wrong answer: it
+ * would have silently rewritten the ticket economy for every real person. This is
+ * a fixture, it only ever runs inside this seed, and this seed refuses to run on
+ * anything but a practice database — see assertSafeDatabase, called once at the
+ * top of seedDemo, which is why there is no second check down here.
+ *
+ * It is posted through the real ledger, so the balance stays a genuine sum of
+ * genuine entries rather than a number somebody wrote into a column.
+ */
+export const PRACTICE_TICKETS = 50;
+
+/**
  * The one offer the catalogue was missing.
  *
  * fayr_dev already carried Amazon, Flipkart and all three quick-commerce
@@ -620,6 +640,11 @@ export async function seedDemo(
     'Rate a Cotton Kurta Set',
   ]);
 
+  // LAST, once every journey above has spent what it needs to spend. Topping up
+  // earlier would just be spent again by the claims below it and leave the account
+  // short of the float it is supposed to end on.
+  await ensurePracticeFloat(demo.id);
+
   // ── 5. the two staff-decision queues ──────────────────────────────────────
 
   // 5a. Review checks. A star on file and NOTHING that outranks a person having
@@ -844,6 +869,52 @@ export async function seedDemo(
         + `${needed} for ${claimsToMake} claim(s) plus one live one`,
     );
     report.journeys.push(`restored the ticket baseline (+${short})`);
+  }
+
+  /**
+   * TOP THE PRACTICE ACCOUNT UP TO ITS FLOAT, through the real ledger.
+   *
+   * ensureTicketsForJourneys above works out the MINIMUM the seed needs to build
+   * its journeys and adds only that. This is a different job: it leaves enough
+   * behind afterwards for a person to actually use the app — claim, walk the
+   * journey, let it lapse, claim again — without running dry after two goes.
+   *
+   * THREE THINGS KEEP IT HONEST:
+   *
+   *  * It tops UP TO the float, never BY it. A second run on a full account adds
+   *    nothing, so running the seed twice cannot give a hundred.
+   *  * The key carries the round, the same way the baseline correction does.
+   *    Keyed on the account alone it could repair a balance exactly once ever, and
+   *    the first spend afterwards would silently get no top-up because the key was
+   *    already used.
+   *  * It posts a real ledger entry. There is no balance column to write to; a
+   *    balance is the sum of the entries, and this is one of them.
+   */
+  async function ensurePracticeFloat(userId: string): Promise<void> {
+    const balance = await tickets.getBalance(userId);
+    if (balance >= PRACTICE_TICKETS) {
+      report.skipped.push(
+        `practice float already there (${balance} of ${PRACTICE_TICKETS} tickets)`,
+      );
+      return;
+    }
+
+    const short = PRACTICE_TICKETS - balance;
+    const round = await prisma.ticketEntry.count({
+      where: { userId, reason: 'ADJUSTMENT' },
+    });
+    await tickets.adjust(
+      userId,
+      short,
+      `demo-seed:practice-float:${userId}:${round}`,
+    );
+    say(
+      `  tickets    +${short} practice float — the account had ${balance} and now `
+        + `has ${PRACTICE_TICKETS} tickets, which is ten claims`,
+    );
+    report.journeys.push(
+      `topped the practice account up to ${PRACTICE_TICKETS} tickets (+${short})`,
+    );
   }
 
   async function ensureUnboughtClaim(
