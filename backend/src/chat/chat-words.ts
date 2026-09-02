@@ -206,19 +206,35 @@ const HAND_OVER: Record<string, string> = {
     + 'jawab mil jaayega.',
 };
 
-/** The one apology for a slow queue. Sent once, never repeatedly. */
+/**
+ * The one apology for a slow queue. Sent once, never repeatedly.
+ *
+ * REWRITTEN ON 2 SEPTEMBER 2026, and the old wording is worth recording because
+ * of what was wrong with it. It read: "It is taking a little longer than usual.
+ * Because of a high number of questions right now, it is taking time for a person
+ * to be free. Thank you for waiting."
+ *
+ * Every rule about shape passed. It contains no abbreviation, no jargon and no
+ * long sentence. And it never once says "we". "It is taking", "a high number of
+ * questions", "a person to be free" is a notice on a wall, and it is sent at the
+ * exact moment somebody has been kept waiting and most needs to hear a person.
+ * The owner's rule for how the assistant talks caught it: "It sounds like a
+ * person. It says 'we', it apologises when something has gone wrong."
+ *
+ * So it apologises now, and it says who is sorry.
+ */
 export const STILL_WAITING: Record<string, string> = {
   en:
-    'It is taking a little longer than usual. Because of a high number of '
-    + 'questions right now, it is taking time for a person to be free. Thank you '
-    + 'for waiting.',
+    'We are sorry, this is taking longer than usual. A lot of people are writing '
+    + 'to us right now, so it is taking us time to get to you. Thank you for '
+    + 'waiting.',
   hi:
-    'इसमें आम दिनों से थोड़ा ज्यादा समय लग रहा है। अभी सवाल बहुत आ रहे हैं, इसलिए '
-    + 'किसी व्यक्ति के खाली होने में समय लग रहा है। रुकने के लिए धन्यवाद।',
+    'हमें खेद है, इसमें आम दिनों से ज्यादा समय लग रहा है। अभी बहुत लोग हमें लिख '
+    + 'रहे हैं, इसलिए हमें आप तक पहुँचने में समय लग रहा है। रुकने के लिए धन्यवाद।',
   'hi-en':
-    'Isme aam dinon se thoda zyada samay lag raha hai. Abhi sawaal bahut aa rahe '
-    + 'hain, isliye kisi vyakti ke khali hone mein samay lag raha hai. Rukne ke '
-    + 'liye dhanyavaad.',
+    'Humein khed hai, isme aam dinon se zyada samay lag raha hai. Abhi bahut log '
+    + 'humein likh rahe hain, isliye humein aap tak pahunchne mein samay lag raha '
+    + 'hai. Rukne ke liye dhanyavaad.',
 };
 
 /** The offer to change language. Made once. */
