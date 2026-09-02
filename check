@@ -107,8 +107,15 @@ printf '
   THREE, a check cannot find something it made a moment earlier, and says:
     expected 201 "Created", got 404 "Not Found"
     expected 200 "OK", got 404 "Not Found"
-  This one is being looked into. It has only ever happened when the whole area is
-  run in a shuffled order, never on its own, and never twice in the same place.
+  This one is being looked into. It never happens when the suite is run on its
+  own, and never twice in the same place.
+
+  CORRECTED ON 2 SEPTEMBER 2026. This used to say it had only ever happened in a
+  SHUFFLED run. That stopped being true: it appeared on a plain ./check, on the
+  claim in "holds the second refund on the same order". That suite then passed 35
+  of 35 on its own, and ./check passed twice more plus a shuffled run. So the
+  shuffle is not the cause, and anybody reading this note to decide whether their
+  own failure is real should not rule it out because they did not shuffle.
 
   FOUR, a check gets an answer Fayr could not have written. The log shows a
   refusal whose body looks like this:
