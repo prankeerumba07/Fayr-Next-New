@@ -8,6 +8,7 @@ import { PLATFORM_LIST, PLATFORMS } from './platforms';
 import * as campaignStore from './backend/campaignStore';
 import { getWallet } from './backend/meApi';
 import { hasTask } from './taskStore';
+import WaitingBox from './ui/WaitingBox';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW, rupeesFromPaise, estMaxRefundRupees } from './ui/theme';
 import { seatsLine, joinedLine, isFullCampaign } from './ui/seats';
 import { cardState } from './livecheck.js';
@@ -198,6 +199,13 @@ export default function HomeScreen({ navigation }) {
           </>
         ) : null}
       </ScrollView>
+
+      {/* THE WAITING BOX — fayr-design.browser.jsx:1702, where the design puts it.
+          Outside the ScrollView on purpose: the design pins it just above the tab
+          bar so it cannot be scrolled away, which is the whole point of it being
+          on Home rather than in My Products. It draws nothing when nothing is
+          waiting, so there is no empty space to account for here. */}
+      <WaitingBox navigation={navigation} />
     </View>
   );
 }
