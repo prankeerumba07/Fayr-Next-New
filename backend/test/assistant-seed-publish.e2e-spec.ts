@@ -9,6 +9,16 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { AssistantSeedService } from '../src/assistant/assistant-seed.service';
 import { AssistantStore } from '../src/assistant/assistant.store';
 import { ANSWER_DRAFTS, DRAFT_LANGUAGES } from '../src/assistant/answer-drafts';
+
+/**
+ * How many answers the book really holds.
+ *
+ * Every draft in answer-drafts.ts PLUS ONE: the answer that carries the support
+ * number is built from a setting rather than written into the file, so it is not
+ * in ANSWER_DRAFTS and it is still an answer, in all three languages, waiting for
+ * a person exactly like the rest.
+ */
+const EVERY_ANSWER = ANSWER_DRAFTS.length + 1;
 import { CANNOT_ANSWER_YET } from '../src/assistant/answer-engine.rules';
 import { seedDemo } from '../prisma/demo-seed';
 import { resetDatabase } from './reset-db';
@@ -110,7 +120,7 @@ describe('Publishing the drafted answers (e2e)', () => {
   describe('a real deployment still waits for a person', () => {
     it('puts every drafted answer in as a draft, in all three languages', async () => {
       await seed.seedDrafts();
-      const expected = ANSWER_DRAFTS.length * DRAFT_LANGUAGES.length;
+      const expected = EVERY_ANSWER * DRAFT_LANGUAGES.length;
       expect(await prisma.answerEntry.count()).toBe(expected);
       expect(
         await prisma.answerEntry.count({ where: { status: 'DRAFT' } }),
@@ -148,7 +158,7 @@ describe('Publishing the drafted answers (e2e)', () => {
   describe('a practice database answers straight away', () => {
     it('publishes every drafted answer, in all three languages', async () => {
       await seedDemo(app, { quiet: true });
-      const expected = ANSWER_DRAFTS.length * DRAFT_LANGUAGES.length;
+      const expected = EVERY_ANSWER * DRAFT_LANGUAGES.length;
       expect(
         await prisma.answerEntry.count({ where: { status: 'PUBLISHED' } }),
       ).toBe(expected);
@@ -157,7 +167,7 @@ describe('Publishing the drafted answers (e2e)', () => {
           await prisma.answerEntry.count({
             where: { language, status: 'PUBLISHED' },
           }),
-        ).toBe(ANSWER_DRAFTS.length);
+        ).toBe(EVERY_ANSWER);
       }
     });
 
@@ -177,9 +187,7 @@ describe('Publishing the drafted answers (e2e)', () => {
 
     it('says how many it published, so the seed log is honest', async () => {
       const report = await seedDemo(app, { quiet: true });
-      expect(report.answersPublished).toBe(
-        ANSWER_DRAFTS.length * DRAFT_LANGUAGES.length,
-      );
+      expect(report.answersPublished).toBe(EVERY_ANSWER * DRAFT_LANGUAGES.length);
     });
 
     it('leaves a person’s decision alone on a second run', async () => {

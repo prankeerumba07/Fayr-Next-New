@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { ContactModule } from '../contact/contact.module';
 import { TicketModule } from '../tickets/ticket.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { MeController } from './me.controller';
@@ -10,7 +11,7 @@ import { MeController } from './me.controller';
  * own beyond the controller.
  */
 @Module({
-  imports: [AuthModule, TicketModule, WalletModule],
+  imports: [AuthModule, TicketModule, WalletModule, ContactModule],
   controllers: [MeController],
 })
 export class MeModule {}

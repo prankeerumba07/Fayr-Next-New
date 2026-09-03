@@ -20,27 +20,31 @@ console.log('=== 1. the journey order (design §1–3) ===');
   ok(new Set(STEPS).size === STEPS.length, 'no duplicated step');
 }
 
+// THE NUMBERS HERE ARE MADE UP, AND THAT IS DELIBERATE. This file used to check
+// the validator against a real personal handset, which put somebody's mobile
+// number into a committed file. A made-up number starting 7 proves exactly the
+// same rule. Do not paste a real one back in.
 console.log('\n=== 2. mobile validation — the gate on the only way in ===');
 {
-  ok(isValidMobile('7980952792') === true, 'a real 10-digit number starting 7 is valid');
+  ok(isValidMobile('7000000001') === true, 'a real 10-digit number starting 7 is valid');
   for (const good of ['6000000000', '9999999999', '8123456789']) {
     ok(isValidMobile(good) === true, `${good.slice(0, 1)}xxxxxxxxx accepted`);
   }
   for (const bad of ['5123456789', '0123456789', '1234567890']) {
     ok(isValidMobile(bad) === false, `${bad.slice(0, 1)}xxxxxxxxx rejected — Indian mobiles start 6-9`);
   }
-  ok(isValidMobile('798095279') === false, 'nine digits rejected');
-  ok(isValidMobile('79809527921') === false, 'eleven digits rejected');
+  ok(isValidMobile('700000000') === false, 'nine digits rejected');
+  ok(isValidMobile('70000000011') === false, 'eleven digits rejected');
   ok(isValidMobile('') === false, 'empty rejected');
   ok(isValidMobile(null) === false, 'null rejected, not thrown');
-  ok(isValidMobile('79809 52792') === false, 'a spaced value is not valid raw input');
+  ok(isValidMobile('70000 00001') === false, 'a spaced value is not valid raw input');
 }
 
 console.log('\n=== 3. display grouping ===');
 {
-  ok(groupMobile('7980952792') === '79809 52792', 'ten digits group 5+5');
-  ok(groupMobile('79809') === '79809', 'exactly five stay ungrouped');
-  ok(groupMobile('798095') === '79809 5', 'the space appears at six');
+  ok(groupMobile('7000000001') === '70000 00001', 'ten digits group 5+5');
+  ok(groupMobile('70000') === '70000', 'exactly five stay ungrouped');
+  ok(groupMobile('700000') === '70000 0', 'the space appears at six');
   ok(groupMobile('') === '', 'empty stays empty');
   ok(groupMobile(null) === '', 'null renders as empty, not "null"');
 }

@@ -11,6 +11,16 @@ import { AssistantSeedService } from '../src/assistant/assistant-seed.service';
 import { AssistantStore } from '../src/assistant/assistant.store';
 import { CANNOT_ANSWER_YET } from '../src/assistant/answer-engine.rules';
 import { ANSWER_DRAFTS } from '../src/assistant/answer-drafts';
+
+/**
+ * How many rows filling in the answer book really writes.
+ *
+ * Every draft in answer-drafts.ts, in three languages, PLUS ONE MORE SET: the
+ * answer that carries the support number is built from a setting rather than
+ * written into the file, so it is not in ANSWER_DRAFTS and it is still an answer.
+ * Said as a sum rather than a number, so adding a draft still needs no edit here.
+ */
+const EVERY_ANSWER_ROW = (ANSWER_DRAFTS.length + 1) * 3;
 import { checkPlainLanguage } from '../src/assistant/plain-language';
 import { resetDatabase } from './reset-db';
 
@@ -92,10 +102,10 @@ describe('Answer engine (e2e)', () => {
     it('puts every one in, as a draft, marked as written by the assistant', async () => {
       const report = await seed.seedDrafts();
       expect(report.refused).toEqual([]);
-      expect(report.created).toBe(ANSWER_DRAFTS.length * 3);
+      expect(report.created).toBe(EVERY_ANSWER_ROW);
 
       const all = await prisma.answerEntry.findMany();
-      expect(all).toHaveLength(ANSWER_DRAFTS.length * 3);
+      expect(all).toHaveLength(EVERY_ANSWER_ROW);
       for (const entry of all) {
         // NEVER published from the seed. A person has to approve each one.
         expect(entry.status).toBe('DRAFT');
@@ -106,15 +116,15 @@ describe('Answer engine (e2e)', () => {
     it('stores the ways of asking alongside them', async () => {
       await seed.seedDrafts();
       const phrases = await prisma.answerPhrase.count();
-      expect(phrases).toBeGreaterThan(ANSWER_DRAFTS.length * 3);
+      expect(phrases).toBeGreaterThan(EVERY_ANSWER_ROW);
     });
 
     it('running it twice changes nothing', async () => {
       await seed.seedDrafts();
       const again = await seed.seedDrafts();
       expect(again.created).toBe(0);
-      expect(again.updated).toBe(ANSWER_DRAFTS.length * 3);
-      expect(await prisma.answerEntry.count()).toBe(ANSWER_DRAFTS.length * 3);
+      expect(again.updated).toBe(EVERY_ANSWER_ROW);
+      expect(await prisma.answerEntry.count()).toBe(EVERY_ANSWER_ROW);
     });
 
     it('never undoes a correction a person made', async () => {

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AdminModule } from '../admin/admin.module';
 import { AuthModule } from '../auth/auth.module';
+import { ContactModule } from '../contact/contact.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { TicketModule } from '../tickets/ticket.module';
 import { WalletModule } from '../wallet/wallet.module';
@@ -27,7 +28,7 @@ import { AssistantSeedService } from './assistant-seed.service';
  * AdminModule does not import this, so there is no cycle.
  */
 @Module({
-  imports: [PrismaModule, TicketModule, WalletModule, AdminModule, AuthModule],
+  imports: [PrismaModule, TicketModule, WalletModule, AdminModule, AuthModule, ContactModule],
   controllers: [AdminAssistantController, AssistantController],
   providers: [
     AssistantStore,

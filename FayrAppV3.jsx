@@ -455,7 +455,7 @@ function TruecallerSheet({ go, setName, setPhone, setTcName }) {
         <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 20, color: C.ink2 }}>Prakash Tamang</div>
         <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13, color: C.sub, marginTop: 2 }}>+91 79••• ••792</div>
         <div style={{ marginTop: 18 }}>
-          <Pill color="#0087FF" onClick={() => { setName("Prakash"); setTcName && setTcName("Prakash Tamang"); setPhone("7980952792"); go("setupintro"); }}>Continue</Pill>{/* first name for greetings; full name pre-fills onboarding */}
+          <Pill color="#0087FF" onClick={() => { setName("Prakash"); setTcName && setTcName("Prakash Tamang"); setPhone("7000000001"); go("setupintro"); }}>Continue</Pill>{/* first name for greetings; full name pre-fills onboarding */}
         </div>
         <TextBtn onClick={() => go("phone")}>Use another method</TextBtn>
         <p style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: "#a3a49a", marginTop: 4 }}>Truecaller shares your verified name & number with fayr.</p>
@@ -521,7 +521,7 @@ function Otp({ go, phone, onVerified }) {
   const [shake, setShake] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const shown = "+91 " + (phone || "7980952792").replace(/(\d{5})(\d{5})/, "$1 $2");
+  const shown = "+91 " + (phone || "7000000001").replace(/(\d{5})(\d{5})/, "$1 $2");
   useEffect(() => {
     refs.current[0].current && refs.current[0].current.focus();
     const t = setInterval(() => setSecs((s) => (s > 0 ? s - 1 : 0)), 1000);
@@ -3076,7 +3076,7 @@ function Profile({ go, name, phone, gmail, emailVerified, openEmailConnect }) {
           <div style={{ width: 52, height: 52, borderRadius: "50%", background: C.purpleBg, display: "grid", placeItems: "center", fontSize: 24 }}>👤</div>
           <div>
             <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 20, color: C.ink2 }}>{name || "Prakash"}</div>
-            <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12, color: C.sub }}>+91 {(phone || "7980952792").replace(/(\d{5})(\d{5})/, "$1 $2")}</div>
+            <div style={{ fontFamily: FONT_BODY, fontWeight: 600, fontSize: 12, color: C.sub }}>+91 {(phone || "7000000001").replace(/(\d{5})(\d{5})/, "$1 $2")}</div>
           </div>
         </div>
       </div>

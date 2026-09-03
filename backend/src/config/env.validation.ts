@@ -180,6 +180,31 @@ export const envSchema = z.object({
     .min(12, 'STAFF_BOOTSTRAP_PASSWORD must be at least 12 characters')
     .optional(),
 
+  // --- How a person reaches Fayr --------------------------------------------
+  // The number a person can ring. Read from here and written nowhere else, so
+  // there is exactly one place it lives and one place it changes.
+  //
+  // AN EMPTY VALUE IS ALLOWED AND MEANS "WE HAVE NO NUMBER YET". Every screen and
+  // every answer that would have shown it then offers no number at all, and says
+  // to write in the app instead. That is the case chat-words.ts asks for beside
+  // SUPPORT_EMAIL: a setting WITH a safe answer, never a setting that can leave a
+  // gap in the middle of a sentence somebody reads.
+  //
+  // A HALF-WRITTEN NUMBER IS NOT ALLOWED. Empty is a decision; '+91 79' is a
+  // mistake, and a phone that cannot dial it is worse than no number on the
+  // screen. So anything that is neither empty nor a full international number
+  // stops the boot here with the shape it wanted.
+  FAYR_SUPPORT_PHONE: z
+    .string()
+    .trim()
+    .regex(
+      /^$|^\+[1-9]\d{7,14}$/,
+      'FAYR_SUPPORT_PHONE must be a full international number starting with a plus '
+        + 'sign and its country code, with no spaces, or left empty if Fayr has no '
+        + 'number yet',
+    )
+    .default(''),
+
   // --- One-time-code delivery (SMS) -----------------------------------------
   // Which sender delivers the login code.
   //

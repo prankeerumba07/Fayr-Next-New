@@ -11,7 +11,7 @@
 // unwinding a stack the user did not knowingly push.
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet,
+  ActivityIndicator, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,6 +23,8 @@ import { COLOR, FONT, RADIUS, SHADOW, SPACE } from './ui/theme';
 import {
   askQuestion, getQuestion, listQuestions, replyToQuestion,
 } from './backend/supportApi';
+import { howToReachUs } from './backend/contactApi';
+import { callRow } from './ui/callUs';
 import {
   BODY_MAX, SUBJECT_MAX, TOPICS, sortThreads, statusMeta, threadMessages,
   validateQuestion, validateReply,
@@ -73,6 +75,9 @@ export default function SupportScreen({ navigation, route }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [reply, setReply] = useState('');
+  // How to reach Fayr, asked for every time this screen opens. The app keeps no
+  // copy of the number: what is on the screen is what our side just said.
+  const [reachUs, setReachUs] = useState(null);
 
   // A blocked task can hand us its own subject line, so the user does not have to
   // describe a problem the app already knows about.
@@ -84,10 +89,18 @@ export default function SupportScreen({ navigation, route }) {
     setLoading(false);
   }, []);
 
+  // Asked for separately, and never allowed to stop the questions loading. If this
+  // fails there is simply no call row, which is the same as having no number.
+  const loadReachUs = useCallback(async () => {
+    const res = await howToReachUs();
+    setReachUs(res.ok ? callRow(res.contact) : null);
+  }, []);
+
   useEffect(() => {
     load();
+    loadReachUs();
     if (seeded) { setSubject(seeded); setView('ask'); }
-  }, [load, seeded]);
+  }, [load, loadReachUs, seeded]);
 
   const openThread = useCallback(async (id) => {
     setBusy(true);
@@ -161,6 +174,29 @@ export default function SupportScreen({ navigation, route }) {
           {/* ── list ── */}
           {view === 'list' ? (
             <>
+              {/* HOW TO REACH FAYR. Every word here came from our side. When there
+                  is no number to ring, the same card shows the same sentence with
+                  no button and no number on it at all. */}
+              {reachUs && reachUs.words ? (
+                <Card style={styles.reach}>
+                  {reachUs.title ? <Text style={styles.reachTitle}>{reachUs.title}</Text> : null}
+                  <Text style={styles.reachWords}>{reachUs.words}</Text>
+                  {reachUs.canCall ? (
+                    <TouchableOpacity
+                      style={styles.callBtn}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      onPress={() => Linking.openURL(reachUs.dialLink).catch(() => {
+                        setError('This phone cannot start a call. Write to us here instead.');
+                      })}
+                    >
+                      <Text style={styles.callIcon}>📞</Text>
+                      <Text style={styles.callText}>{reachUs.button}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </Card>
+              ) : null}
+
               <TapedNote>
                 Stuck on a refund, an order or a withdrawal? Ask us here and a real person answers.
               </TapedNote>
@@ -314,6 +350,21 @@ const styles = StyleSheet.create({
 
   error: { backgroundColor: COLOR.redBg, borderRadius: RADIUS.md, padding: SPACE.md, marginBottom: SPACE.md },
   errorText: { fontFamily: FONT.bodySemi, fontSize: 13.5, color: COLOR.red },
+
+  // how to reach Fayr
+  reach: { padding: SPACE.lg, marginBottom: SPACE.md },
+  reachTitle: { fontFamily: FONT.display, fontSize: 17, color: COLOR.ink },
+  reachWords: {
+    fontFamily: FONT.body, fontSize: 13.5, lineHeight: 20,
+    color: COLOR.sub, marginTop: 6,
+  },
+  callBtn: {
+    marginTop: SPACE.md, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8, paddingVertical: 13,
+    borderRadius: RADIUS.md, backgroundColor: COLOR.ink,
+  },
+  callIcon: { fontSize: 15 },
+  callText: { fontFamily: FONT.bodySemi, fontSize: 14.5, color: '#fff' },
 
   // the design's taped note
   note: {

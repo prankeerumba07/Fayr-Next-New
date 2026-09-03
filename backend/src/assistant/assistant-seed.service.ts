@@ -1,7 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import type { AnswerDraftSet } from './answer-drafts';
 import { AssistantStore } from './assistant.store';
 import { PrismaService } from '../prisma/prisma.service';
-import { ANSWER_DRAFTS, DRAFT_LANGUAGES } from './answer-drafts';
+import { ANSWER_DRAFTS, DRAFT_LANGUAGES, howToReachUsDraft } from './answer-drafts';
+import { ContactService } from '../contact/contact.service';
 import { checkPlainLanguage } from './plain-language';
 
 export interface SeedDraftsReport {
@@ -43,7 +45,20 @@ export class AssistantSeedService implements OnModuleInit {
   constructor(
     private readonly store: AssistantStore,
     private readonly prisma: PrismaService,
+    private readonly contact: ContactService,
   ) {}
+
+  /**
+   * Every answer that goes in the book, including the one that carries the
+   * support number.
+   *
+   * The number is a setting, so its answer is built here rather than written into
+   * answer-drafts.ts. It goes through the same plain-language check, the same
+   * "leave a person's work alone" rule and the same row as all the others.
+   */
+  private allDrafts(): AnswerDraftSet[] {
+    return [...ANSWER_DRAFTS, howToReachUsDraft(this.contact.phoneNumber())];
+  }
 
   async onModuleInit(): Promise<void> {
     // Not under test: the e2e suite decides for itself when the answer book has
@@ -69,7 +84,7 @@ export class AssistantSeedService implements OnModuleInit {
       refused: [],
     };
 
-    for (const draft of ANSWER_DRAFTS) {
+    for (const draft of this.allDrafts()) {
       for (const language of DRAFT_LANGUAGES) {
         const wording = draft.wordings[language];
         const where = { key: draft.key, language };

@@ -25,6 +25,14 @@
  * and the staff screen says so on every one.
  */
 
+import {
+  HOW_TO_REACH_US_KEY,
+  HOW_TO_REACH_US_PHRASES,
+  callUsWords,
+  howToReachUsTitle,
+  writeToUsWords,
+} from '../contact/contact.words';
+
 export type DraftLanguage = 'en' | 'hi' | 'hi-en';
 
 export interface DraftWording {
@@ -1131,7 +1139,7 @@ export const ANSWER_DRAFTS: AnswerDraftSet[] = [
     topic: 'about',
     needsARealAnswer: true,
     drawnFrom:
-      'The Help screen exists in src/SupportScreen.js. Opening hours, a phone number and how quickly somebody replies are not written down anywhere.',
+      'The Help screen exists in src/SupportScreen.js. The number is a setting and is answered by how-to-reach-us. Opening hours and how quickly somebody replies are still not written down anywhere.',
     wordings: {
       en: {
         title: 'Talking to a real person',
@@ -1140,10 +1148,13 @@ export const ANSWER_DRAFTS: AnswerDraftSet[] = [
           'it. What hours we are here, and how quickly somebody replies, is not ' +
           'written down yet. ' +
           OVER_TO_A_PERSON.en,
+        // 'is there a phone number' USED TO BE HERE and it is not any more.
+        // There is a number now, and it is answered by 'how-to-reach-us'. Two
+        // answers claiming the same question is a coin toss, and the losing side
+        // of that toss told somebody a number was not written down.
         phrases: [
           'i want to talk to a person',
           'how do i contact support',
-          'is there a phone number',
           'when will someone reply',
         ],
       },
@@ -1153,7 +1164,7 @@ export const ANSWER_DRAFTS: AnswerDraftSet[] = [
           'आप हेल्प के पेज से हमें लिख सकते हैं, और फेयर का कोई व्यक्ति उसे पढ़ता है। ' +
           'हम किस समय उपलब्ध हैं, और जवाब कितनी जल्दी आता है, यह अभी लिखा नहीं है। ' +
           OVER_TO_A_PERSON.hi,
-        phrases: ['किसी से बात करनी है', 'फोन नंबर है क्या'],
+        phrases: ['किसी से बात करनी है'],
       },
       'hi-en': {
         title: 'Kisi vyakti se baat karna',
@@ -1162,11 +1173,58 @@ export const ANSWER_DRAFTS: AnswerDraftSet[] = [
           'padhta hai. Hum kis samay uplabdh hain, aur jawab kitni jaldi aata hai, ' +
           'yeh abhi likha nahi hai. ' +
           OVER_TO_A_PERSON['hi-en'],
-        phrases: ['kisi se baat karni hai', 'phone number hai kya'],
+        phrases: ['kisi se baat karni hai'],
       },
     },
   },
 ];
+
+/**
+ * THE ANSWER THAT CARRIES THE SUPPORT NUMBER.
+ *
+ * A function and not an entry in the list above, because the number is a setting
+ * and a setting cannot be written into a committed file. It is built when the
+ * answer book is filled in, out of ContactService, so the number reaches the
+ * answer through exactly one route.
+ *
+ * IT IS AN ORDINARY ANSWER IN EVERY OTHER WAY. Same shape, same three languages,
+ * same phrases so the same search finds it, same plain-language check on the way
+ * in, same row in the answer book, and the same person has to approve it. Nothing
+ * about a phone number is special-cased in the chat.
+ *
+ * WHEN THERE IS NO NUMBER it still exists and still answers the question. It just
+ * offers the app instead, and says so, and is marked as needing a real answer so
+ * it comes out in the list of things nobody has written down yet.
+ *
+ * THE COST OF FILLING IT IN HERE, written down because it is real: the number is
+ * baked into the stored words when the book is filled in. The filling-in never
+ * overwrites an answer a person has approved or edited, which is the right rule
+ * and the one this depends on. So if the number changes AFTER somebody has
+ * approved this answer, the stored copy keeps the old number until a person edits
+ * it. The Help screen has no such problem: it reads the setting every time.
+ */
+export function howToReachUsDraft(phone: string | null): AnswerDraftSet {
+  const words = (language: DraftLanguage): string =>
+    phone == null ? writeToUsWords(language) : callUsWords(phone, language);
+  const wording = (language: DraftLanguage): DraftWording => ({
+    title: howToReachUsTitle(language),
+    body: words(language),
+    phrases: HOW_TO_REACH_US_PHRASES[language] ?? [],
+  });
+  return {
+    key: HOW_TO_REACH_US_KEY,
+    topic: 'about',
+    drawnFrom:
+      'The setting FAYR_SUPPORT_PHONE in backend/.env. The words are in src/contact/contact.words.ts.',
+    // With no number set, the honest answer really is that we have not got one.
+    ...(phone == null ? { needsARealAnswer: true } : {}),
+    wordings: {
+      en: wording('en'),
+      hi: wording('hi'),
+      'hi-en': wording('hi-en'),
+    },
+  };
+}
 
 /** Every language each draft is written in. */
 export const DRAFT_LANGUAGES: DraftLanguage[] = ['en', 'hi', 'hi-en'];

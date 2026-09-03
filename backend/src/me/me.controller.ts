@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { ContactService } from '../contact/contact.service';
+import type { HowToReachUs } from '../contact/contact.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { TicketService } from '../tickets/ticket.service';
@@ -56,7 +58,28 @@ export class MeController {
     private readonly tickets: TicketService,
     private readonly wallet: WalletService,
     private readonly prisma: PrismaService,
+    private readonly contact: ContactService,
   ) {}
+
+  /**
+   * How to reach Fayr: the number to ring, and the sentence to show.
+   *
+   * THE APP CARRIES NO COPY OF THE NUMBER. It asks, every time the Help screen
+   * opens, and shows exactly what comes back. So changing backend/.env and
+   * restarting is the whole procedure, with no build and no app update.
+   *
+   * `words` is always a full sentence. When there is no number, `phone` is
+   * nothing and the sentence offers the app instead, so a screen that shows
+   * `words` can never show a gap or half a number.
+   *
+   * Behind the sign-in guard like the rest of /me. Not because the number is a
+   * secret, but because the only screen that asks for it is one a signed-in
+   * person is already looking at, and an open route is a route to watch.
+   */
+  @Get('how-to-reach-us')
+  howToReachUs(): HowToReachUs {
+    return this.contact.howToReachUs();
+  }
 
   @Get('wallet')
   async wallet_(
