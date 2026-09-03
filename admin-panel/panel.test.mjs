@@ -50,17 +50,26 @@ console.log('\n=== 2. every section is wired all the way through ===');
 
 console.log('\n=== 2b. the four teams, and nothing lost on the way to them ===');
 {
-  // THE RISK THIS SECTION EXISTS FOR. Nine sections were regrouped into four
-  // teams by hand. The way that goes wrong is silently: a section left out of the
-  // new structure is still routed, still permitted, still loads — and simply
-  // cannot be reached by anybody. Nothing errors.
+  // THE RISK THIS SECTION EXISTS FOR. Nine sections were regrouped into teams by
+  // hand. The way that goes wrong is silently: a section left out of the new
+  // structure is still routed, still permitted, still loads — and simply cannot
+  // be reached by anybody. Nothing errors.
+  //
+  // The count was four until 3 September 2026, when "How Fayr is running" was
+  // added. It belongs to no single team: it is the answer to "is Fayr working",
+  // and every role can open it. So it gets a group of its own, FIRST, and this
+  // check counts five. The count is not the point of the check; the ownership
+  // table and the orphan hunt below are.
   const teamsBlock = (script.match(/var TEAMS = \[([\s\S]*?)\n    \];/) || [])[1] || '';
   const teams = [...teamsBlock.matchAll(/\n      \["([a-z]+)",\s*"([^"]+)"/g)].map((m) => [m[1], m[2]]);
-  ok(teams.length === 4, `four teams, found ${teams.length}: ${teams.map((t) => t[1]).join(', ')}`);
+  ok(teams.length === 5, `five teams, found ${teams.length}: ${teams.map((t) => t[1]).join(', ')}`);
+  ok(teams[0] && teams[0][0] === 'everyone',
+    'the page everybody reads is the first thing in the sidebar');
 
   // Who owns what, as decided. Not a guess — the ownership was named, and if it
   // moves, it moves here first.
   const OWNERSHIP = {
+    everyone: ['running'],
     finance: ['withdrawals', 'reports'],
     support: ['queue', 'chats', 'chat', 'answers', 'verifications', 'reviews'],
     operations: ['amounts', 'staff', 'search'],
@@ -868,6 +877,389 @@ console.log('\n=== 7b. the assistant screens actually render ===');
   // which is the opposite of what reading somebody's story is for.
   ok(/st\.onlyUserId \? null : filters/.test(script),
     'the state filters are left out while one person’s history is on screen');
+
+
+console.log('\n=== 7f. the page that measures Fayr itself ===');
+{
+  // ── WHY THIS SECTION EXISTS ────────────────────────────────────────────────
+  //
+  // This is the page a room of directors reads. It has exactly one way of being
+  // wrong that matters, and it is not a crash: A NOUGHT PRINTED WHERE NOTHING IS
+  // BEING WATCHED. So the screen is lifted out and really drawn, and the checks
+  // below require the words rather than the absence of an error.
+  const from = script.indexOf('// ── how it is running: begin');
+  const to = script.indexOf('// ── how it is running: end');
+  const src = from >= 0 && to > from ? script.slice(from, to) : '';
+  ok(src.includes('function RunningScreen'), 'the screen was found');
+
+  // Wiring, all the way through.
+  ok(teamsFor('everyone').includes('running'),
+    'it is its own group in the sidebar, belonging to no single team');
+  ok(/running:\s*\["SUPPORT", "FINANCE", "OPERATIONS", "ADMIN"\]/.test(script),
+    'every role can open it, which is what the owner decided');
+  ok(script.includes('"GET", "/admin/how-it-is-running"'), 'it reads the one route');
+
+  // IT READS ON OPEN, WITH NO FORM. That is the whole difference from Reports.
+  ok(/id === "running" && state\.running\.data === null/.test(script),
+    'it loads the first time the tab is shown');
+  ok(!/loadRunning\([^)]*from|loadRunning\([^)]*range|loadRunning\([^)]*granularity/.test(script),
+    'it takes no date range, no granularity and no form of any kind');
+  ok(!/how-it-is-running\?/.test(script), 'and it sends no query string');
+
+  // NOTHING ON IT CHANGES ANYTHING. A button here would be a button on a page
+  // nobody is watching for side effects.
+  const writes = src.match(/api\("(POST|PATCH|PUT|DELETE)"/g) || [];
+  ok(writes.length === 0, `the screen makes no write of any kind (found ${writes.length})`);
+
+  // THE SCREEN WRITES NO WORDS OF ITS OWN. Every sentence comes down with the
+  // data, out of running.words.ts, where a check walks it through the real
+  // plain-language rule. A sentence written here would reach a director unread.
+  const spoken = (src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+    .match(/"[^"\n]{25,}"/g) || [])
+    .filter((s) => !/^"[a-z-]+:[^"]*"$/.test(s))     // inline styles
+    .filter((s) => !/[{};]|margin|padding|font|color|border|width|align|solid|var\(/.test(s))
+    // A fragment of code caught between two quotes is not a sentence.
+    .filter((s) => !/ \+ |===|!==/.test(s));
+  ok(spoken.length === 0,
+    `the screen writes NO sentence of its own (found ${spoken.length}: ${spoken.join(' | ')})`);
+
+  // AND IT DOES NO ARITHMETIC ON MONEY. Whole paise in a string, grouped into
+  // rupees by cutting the string. Four money defects so far came from a figure
+  // reached by a second route, and a float division would be the fifth.
+  const formatter = (script.match(/function paiseToRupees\(paise\)[\s\S]*?\n    }\n/) || [])[0] || '';
+  ok(formatter.length > 200, 'the money formatter was found');
+  ok(!/\/\s*100\b/.test(formatter), 'it never divides by a hundred');
+  ok(!/Number\(|parseFloat|parseInt|toLocaleString/.test(formatter),
+    'and it never turns an amount into a Number at all');
+
+  const RUNNING = {
+    title: 'How Fayr is running',
+    lead: 'Every number on this page is read out of our own records.',
+    leadTwo: 'Nothing here is worked out from a guess.',
+    leadThree: 'Nothing on this page changes anything, and nothing refreshes by itself.',
+    readAt: 'Read at 9:14 in the morning on 3 September.',
+    readAtIso: '2026-09-03T03:44:00.000Z',
+    says: { nothingYet: 'nothing yet', notWatching: 'we are not watching this yet' },
+    journey: {
+      title: 'The journey, step by step',
+      lead: 'The two columns answer different questions, so they are kept apart.',
+      everythingSoFarLabel: 'Everything so far',
+      everythingSoFarMeaning: 'Every place anybody has ever taken on an offer.',
+      lastThirtyDaysLabel: 'The last 30 days',
+      lastThirtyDaysMeaning: 'Only the places taken in the last 30 days.',
+      bothMatchToday: null,
+      whereTheyAreNow: 'This journey counts where people are now.',
+      canGoBackwards: 'A review taken down sends somebody back a step.',
+      stepHeading: 'The step',
+      dropHeading: 'Did not get this far',
+      agreesWithActivityReport: true,
+      disagreesWithTheReports: null,
+      steps: [
+        { step: 'Took a place on an offer', meaning: 'Somebody spent their tickets.', whatItWouldTake: null,
+          everythingSoFar: { kind: 'counted', count: 17 }, lastThirtyDays: { kind: 'counted', count: 17 },
+          onThePath: true, dropSoFar: null, dropLastThirtyDays: null, disagreement: null },
+        { step: 'Went to the shop', meaning: 'Opening a shop happens inside the phone.',
+          whatItWouldTake: 'The phone would have to tell our side.',
+          everythingSoFar: { kind: 'not-watching', whatItWouldTake: 'The phone would have to tell our side.' },
+          lastThirtyDays: { kind: 'not-watching', whatItWouldTake: 'The phone would have to tell our side.' },
+          onThePath: true,
+          dropSoFar: { kind: 'cannot-tell', why: 'The step above this one is not recorded.' },
+          dropLastThirtyDays: { kind: 'cannot-tell', why: 'The step above this one is not recorded.' },
+          disagreement: null },
+        { step: 'Gave us their order', meaning: 'Somebody told Fayr which order is theirs.', whatItWouldTake: null,
+          everythingSoFar: { kind: 'counted', count: 0 }, lastThirtyDays: { kind: 'counted', count: 0 },
+          onThePath: false,
+          dropSoFar: { kind: 'not-a-step', why: 'Not everybody is asked this.' },
+          dropLastThirtyDays: { kind: 'not-a-step', why: 'Not everybody is asked this.' },
+          disagreement: null },
+        { step: 'Review found live on the product page', meaning: 'The review can be read on the shop.',
+          whatItWouldTake: null,
+          everythingSoFar: { kind: 'counted', count: 7 }, lastThirtyDays: { kind: 'counted', count: 7 },
+          onThePath: true,
+          dropSoFar: { kind: 'dropped', count: 3 }, dropLastThirtyDays: { kind: 'dropped', count: 3 },
+          disagreement: 'Counting the places moved on to the review step counts 1 fewer place than this.' },
+        { step: 'Money taken out to their own account', meaning: 'This counts payouts and not places.',
+          whatItWouldTake: null,
+          everythingSoFar: { kind: 'counted', count: 2 }, lastThirtyDays: { kind: 'counted', count: 2 },
+          onThePath: true,
+          dropSoFar: { kind: 'does-not-line-up', by: 1, why: 'This counts 1 more place than the step above it.' },
+          dropLastThirtyDays: { kind: 'does-not-line-up', by: 1, why: 'This counts 1 more place than the step above it.' },
+          disagreement: null },
+      ],
+      expired: { step: 'Places that ran out of time', meaning: 'These are counted inside the top row too.',
+        everythingSoFar: { kind: 'counted', count: 3 }, lastThirtyDays: { kind: 'counted', count: 3 } },
+    },
+    howOrders: {
+      title: 'How each order was established',
+      lead: 'Is Fayr reading orders by itself, or is somebody doing it by hand?',
+      groups: [
+        { heading: 'Read automatically off the shop', meaning: 'A machine read it.',
+          names: ['dkim', 'order-details', 'order-history'], count: { kind: 'counted', count: 10 } },
+        { heading: 'Read from a picture', meaning: 'Somebody sent a picture.',
+          names: ['ocr', 'invoice'], count: { kind: 'counted', count: 0 } },
+        { heading: 'Typed in by hand', meaning: 'A number was typed in.',
+          names: ['manual'], count: { kind: 'counted', count: 0 } },
+      ],
+      doNotKnow: { heading: 'We do not know', meaning: 'It says something nobody has grouped yet.',
+        names: [], count: { kind: 'counted', count: 0 } },
+      established: { kind: 'counted', count: 10 },
+      addsUp: true,
+      addsUpConfirmed: 'These add up to the number of orders established above.',
+      addsUpProblem: null,
+      establishedLabel: 'Orders established',
+      countHeading: 'Orders',
+      namesHeading: 'What our own records call it',
+      unmappedHeading: 'Names nobody has grouped yet',
+      unmappedNames: [],
+      candidatesNote: 'Our own records carry a list of three ways an order arrives.',
+    },
+    money: {
+      title: 'Money',
+      lead: 'Every figure here is counted exactly and shown in rupees.',
+      lines: [
+        { label: 'Refunds released into wallets, in all', meaning: 'What the money book has put into wallets.',
+          amount: { kind: 'counted', paise: '899820' } },
+        { label: 'Money sitting in wallets, not yet taken out', meaning: 'What people hold.',
+          amount: { kind: 'counted', paise: '859820' } },
+        { label: 'Money in the payout holding account, waiting to go out', meaning: 'Money that has left a wallet.',
+          amount: { kind: 'counted', paise: '40000' } },
+      ],
+      hasLeftFayr: { label: 'Money that has actually left Fayr', amount: { kind: 'counted', paise: '0' },
+        words: '2 payouts are marked paid. Fayr cannot send money yet.' },
+      waiting: {
+        title: "Refunds waiting for the shop's return time",
+        lead: 'This is normal and nothing is wrong.',
+        countLabel: 'Refunds waiting', count: { kind: 'counted', count: 4 },
+        wouldPayLabel: 'What these would pay if they were all released today',
+        wouldPayMeaning: 'This is not money anybody is owed yet.',
+        workedOutBy: 'computeRefundPaise, in tasks/engine/money.ts',
+        wouldPay: { kind: 'counted', paise: '373830' },
+        cannotWorkOutLabel: 'Waiting refunds whose amount cannot be worked out yet',
+        cannotWorkOutMeaning: 'These are in the held list below as well.',
+        cannotWorkOut: { kind: 'counted', count: 2 },
+      },
+      held: {
+        title: 'Money held and not released',
+        leadOne: 'Held is not the same as waiting. Waiting is normal. Held is a decision.',
+        leadTwo: 'No amount is shown against these.',
+        theRule: 'Money is held when Fayr is not sure. Fayr would rather make somebody wait for a person than send the wrong amount.',
+        allSix: 'All six reasons are listed.',
+        reasonHeading: 'Why it is held', countHeading: 'Refunds held',
+        reasons: [
+          { explanation: 'No price could be read for this item.', reason: 'amount-unknown',
+            count: { kind: 'counted', count: 2 }, nobodyCanClearIt: false , nobodyCanClearThisOne: null },
+          { explanation: 'The order does not say how many units were bought.', reason: 'quantity-unknown',
+            count: { kind: 'counted', count: 1 }, nobodyCanClearIt: false , nobodyCanClearThisOne: null },
+          { explanation: 'The item price sits above the order total.', reason: 'item-price-above-total-and-ambiguous',
+            count: { kind: 'counted', count: 1 }, nobodyCanClearIt: true,
+            nobodyCanClearThisOne: 'Nobody has a control that can clear this one.' },
+          { explanation: 'The amount does not divide evenly.', reason: 'quantity-not-divisible',
+            count: { kind: 'counted', count: 0 }, nobodyCanClearIt: false , nobodyCanClearThisOne: null },
+          { explanation: 'The unit count on file cannot be right.', reason: 'quantity-implausible',
+            count: { kind: 'counted', count: 0 }, nobodyCanClearIt: false , nobodyCanClearThisOne: null },
+          { explanation: 'The item price and the order total are too far apart.', reason: 'amount-gap-implausible',
+            count: { kind: 'counted', count: 0 }, nobodyCanClearIt: true , nobodyCanClearThisOne: null },
+        ],
+        total: { kind: 'counted', count: 4 },
+        alsoWaiting: '2 of these are in the waiting list above as well.',
+        nobodyCanClearWarning: 'One of these reasons has no control anybody can use.',
+      },
+    },
+    machine: {
+      title: 'Is the machine still working',
+      lead: 'Some of these are counted and some are not watched at all.',
+      rows: [
+        { label: 'Places sitting past their own deadline', meaning: 'A place has a deadline.',
+          reading: { kind: 'counted', count: 0 } },
+        { label: "Refunds sitting past the shop's return time", meaning: 'The money has not moved.',
+          reading: { kind: 'counted', count: 2 } },
+        { label: 'Conversations waiting for a person too long', meaning: 'Fayr promises a minute or two.',
+          reading: { kind: 'counted', count: 0 } },
+        { label: 'Payouts that failed', meaning: 'A nought here is a real nought.',
+          reading: { kind: 'counted', count: 0 } },
+        { label: 'Offer pages that could not be read', meaning: 'Whether each offer still opens.',
+          reading: { kind: 'not-watching', whatItWouldTake: 'Somebody has to open each offer on a phone.' } },
+        { label: 'Shops whose order list has stopped working', meaning: 'Whether Fayr can still read orders.',
+          reading: { kind: 'not-watching', whatItWouldTake: 'Nothing adds it up across everybody.' } },
+        { label: 'Messages we tried to send and could not', meaning: 'Whether a code reached a phone.',
+          reading: { kind: 'not-watching', whatItWouldTake: 'Nothing records a send at all.' } },
+      ],
+    },
+    offers: {
+      title: 'The offers themselves',
+      lead: 'Two checks already exist.',
+      runs: [
+        { label: 'The nightly offer check', meaning: 'Every live offer, once a night.',
+          lastLooked: 'Last looked on 26 August, which was 8 days ago.', neverRun: null,
+          howItStarted: 'Somebody ran this by hand.',
+          counts: [
+            { label: 'Offers looked at', reading: { kind: 'counted', count: 13 } },
+            { label: 'Wrong enough to stop a shopper', reading: { kind: 'counted', count: 1 } },
+            { label: 'Worth somebody looking', reading: { kind: 'counted', count: 13 } },
+            { label: 'Could not be checked at all', reading: { kind: 'counted', count: 21 } },
+          ] },
+        { label: 'The real shop page check', meaning: 'Somebody opens each page on a phone.',
+          lastLooked: null, neverRun: 'No offer page has ever been checked.', howItStarted: null,
+          counts: [
+            { label: 'Offers looked at', reading: { kind: 'nothing-yet' } },
+            { label: 'Could not be checked at all', reading: { kind: 'nothing-yet' } },
+          ] },
+      ],
+    },
+    notRealYet: {
+      title: 'What is not real yet',
+      lead: 'This list is meant to be uncomfortable.',
+      items: ['Fayr cannot send money to a bank yet.', 'Nobody is ever told anything.'],
+    },
+  };
+
+  const runHarness = `
+    var seen = [];
+    function h(tag, attrs) {
+      var kids = Array.prototype.slice.call(arguments, 2);
+      var node = { tag: tag, attrs: attrs || {}, kids: kids, appendChild: function (k) { this.kids.push(k); } };
+      seen.push(node);
+      return node;
+    }
+    function Stat(v, l, tone) { return h("div", { class: "kv" }, h("div", { class: "v stat" }, String(v)), h("div", { class: "k" }, l)); }
+    function api() { throw new Error("the page must not call the server while drawing"); }
+    function render() {}
+    var state = STATE;
+    ${src}
+    return { page: RunningScreen(), seen: seen };
+  `;
+
+  const runState = (over) => ({ running: { loading: false, error: null, data: RUNNING, ...over } });
+  const cases = [
+    ['the page', runState({})],
+    ['the page, reading', runState({ loading: true, data: null })],
+    ['the page, could not be read', runState({ data: null, error: 'Could not reach the Fayr server.' })],
+    ['the page with nothing on it at all', runState({
+      data: {
+        ...RUNNING,
+        journey: { ...RUNNING.journey, bothMatchToday: 'Both columns match today.',
+          steps: RUNNING.journey.steps.slice(0, 1) },
+        money: { ...RUNNING.money,
+          lines: [{ label: 'Refunds released into wallets, in all', meaning: 'Nothing has moved.',
+                    amount: { kind: 'nothing-yet' } }],
+          waiting: { ...RUNNING.money.waiting, count: { kind: 'counted', count: 0 },
+                     wouldPay: { kind: 'nothing-yet' } },
+          held: { ...RUNNING.money.held, nobodyCanClearWarning: null,
+                  reasons: RUNNING.money.held.reasons.map((r) => ({ ...r, count: { kind: 'counted', count: 0 } })) } },
+      },
+    })],
+    ['the page when the parts do not add up', runState({
+      data: { ...RUNNING, howOrders: { ...RUNNING.howOrders, addsUp: false,
+        addsUpProblem: 'These do not add up, and that is a fault.',
+        unmappedNames: ['shiny-new-reader'] } },
+    })],
+    ['the page when it disagrees with the reports', runState({
+      data: { ...RUNNING, journey: { ...RUNNING.journey, agreesWithActivityReport: false,
+        disagreesWithTheReports: 'These numbers do not match the Reports tab, and that is a fault.' } },
+    })],
+  ];
+
+  let drawn = null;
+  for (const [label, st] of cases) {
+    let threw = null, out = null;
+    try { out = new Function('STATE', runHarness)(st); } catch (e) { threw = e.message; }
+    ok(!threw, `renders ${label}` + (threw ? ` — threw: ${threw}` : ''));
+    if (threw) continue;
+    if (label === 'the page') drawn = out;
+    const flat = JSON.stringify(out.seen, (k, v) => (typeof v === 'function' ? undefined : v));
+    ok(!flat.includes('undefined'), `${label}: nothing "undefined" reaches the screen`);
+    ok(!flat.includes('NaN'), `${label}: no "NaN" reaches the screen`);
+    ok(!flat.includes('[object Object]'), `${label}: no raw object reaches the screen`);
+  }
+
+  if (drawn) {
+    const flat = JSON.stringify(drawn.seen, (k, v) => (typeof v === 'function' ? undefined : v));
+
+    // THE MOMENT IT WAS READ. A number with no time against it is a number
+    // nobody can trust.
+    ok(flat.includes('Read at 9:14 in the morning on 3 September.'),
+      'the moment it was read is on the page, in words');
+
+    // ── THE ONE THING THIS PAGE MUST NEVER DO ────────────────────────────────
+    // A step nothing records shows the WORDS, never a nought.
+    ok(flat.includes('we are not watching this yet'),
+      'a step nothing records says so, in words');
+    ok(flat.includes('The phone would have to tell our side'),
+      'and says what it would take to start watching it');
+    ok(flat.includes('nothing yet'),
+      'and a thing with no data yet says "nothing yet", which is a different sentence');
+
+    // A counted nought really is drawn as a number, because it is a real nought.
+    ok(/"0"/.test(flat), 'a real nought is drawn as a number, not as an excuse');
+
+    // The two steps nobody records must not be printed with a count beside them.
+    const notWatchingNodes = drawn.seen.filter(
+      (n) => JSON.stringify(n.kids || []).includes('we are not watching this yet'));
+    ok(notWatchingNodes.length > 0, 'the unwatched wording is really rendered');
+
+    // THE DROP, in all four of its shapes.
+    ok(flat.includes('Did not get this far: 3'), 'the drop between two steps is shown');
+    ok(flat.includes('The step above this one is not recorded'),
+      'a drop across an unwatched step says it cannot be told');
+    ok(flat.includes('Not everybody is asked this'),
+      'a step that is not on the way says so instead of showing a drop');
+    ok(flat.includes('This counts 1 more place than the step above it.'),
+      'and two rows that do not line up are called out, never shown as a negative');
+
+    // WHERE TWO COLUMNS DISAGREE, SAY SO.
+    ok(flat.includes('counts 1 fewer place than this'),
+      'a disagreement between two ways of counting is on the page');
+
+    // EXPIRED IS OUTSIDE THE JOURNEY, and says it is already counted above.
+    ok(flat.includes('counted inside the top row'),
+      'the expired row says it is already inside the top row');
+
+    // MONEY, formatted exactly, and no money has left Fayr.
+    ok(flat.includes('₹8,998.20'), 'refunds released are grouped the Indian way, to the paise');
+    ok(flat.includes('₹8,598.20'), 'and so is what is sitting in wallets');
+    ok(flat.includes('₹400'), 'a whole-rupee amount shows no fraction');
+    ok(flat.includes('₹0'), 'and money that has left Fayr is nought');
+    ok(flat.includes('Fayr cannot send money yet'), 'with the reason said out loud');
+
+    // WAITING AND HELD, KEPT APART.
+    ok(flat.includes('Held is not the same as waiting'), 'held and waiting are told apart in words');
+    ok(flat.includes('₹3,738.30'), 'what the waiting refunds would pay is shown');
+    ok(flat.includes('computeRefundPaise'), 'and the code that worked it out is named');
+    ok(flat.includes('Money is held when Fayr is not sure. Fayr would rather make somebody wait for a person than send the wrong amount.'),
+      'the strongest sentence on the page is drawn whole');
+    ok(flat.includes('No amount is shown against these'),
+      'and no rupee figure is put against a held refund');
+    // All six reasons, including the ones with nothing against them.
+    ok(flat.includes('quantity-not-divisible') || flat.includes('does not divide evenly'),
+      'a reason with nothing against it is still listed');
+    ok(flat.includes('no control anybody can use'),
+      'a hold nobody can clear is called out');
+
+    // THE OFFER CHECKS. An old date beats a fresh looking nought.
+    ok(flat.includes('Last looked on 26 August, which was 8 days ago.'),
+      'the last run says how long ago it was, in words');
+    ok(flat.includes('No offer page has ever been checked.'),
+      'and a check nobody has ever run says exactly that');
+
+    // WHAT IS NOT REAL YET.
+    ok(flat.includes('Fayr cannot send money to a bank yet'),
+      'the uncomfortable list is on the page');
+
+    // The grouping table is on the screen, so nobody has to trust it.
+    ok(flat.includes('order-details'), 'the stored source names are shown beside their group');
+  }
+
+  // And when it disagrees with the reports, it says so rather than staying quiet.
+  {
+    const bad = new Function('STATE', runHarness)(runState({
+      data: { ...RUNNING, journey: { ...RUNNING.journey, agreesWithActivityReport: false,
+        disagreesWithTheReports: 'These numbers do not match the Reports tab, and that is a fault.' } },
+    }));
+    const flat = JSON.stringify(bad.seen, (k, v) => (typeof v === 'function' ? undefined : v));
+    ok(flat.includes('do not match the Reports tab'),
+      'a page that disagrees with the Reports tab says so, and calls it a fault');
+  }
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

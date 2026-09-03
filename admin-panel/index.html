@@ -335,6 +335,10 @@
         email: null, emailNote: null,
         saveTopic: "", savingFrom: null
       },
+      // HOW FAYR IS RUNNING. One read on open, no form, nothing to change. Every
+      // sentence on it comes down with the data, so the screen writes none of its
+      // own words.
+      running: { loading: false, error: null, data: null },
       // This morning's look at every offer's real shop page. Read-only here: the
       // looking itself can only happen on a phone with a signed-in shop session.
       livepages: { loading: false, error: null, data: null },
@@ -385,6 +389,10 @@
     // single functional area. This MIRRORS the backend RBAC (RolesGuard) — the
     // server is the real gate, this just hides what a role can't use.
     var TAB_ROLES = {
+      // Every role. Nothing on it belongs to one team: no name, no mobile number,
+      // no order, no personal detail at all, only counts and totals. Decided by
+      // the owner on 3 September 2026, and the server's own guard says the same.
+      running: ["SUPPORT", "FINANCE", "OPERATIONS", "ADMIN"],
       withdrawals: ["FINANCE", "ADMIN"],
       queue: ["SUPPORT", "ADMIN"],
       verifications: ["SUPPORT", "ADMIN"],
@@ -406,7 +414,7 @@
     }
     // The tab a role lands on after login: the first one it's allowed to see.
     function defaultScreen() {
-      var order = ["withdrawals", "queue", "chats", "chat", "answers", "verifications", "amounts", "reviews", "offers", "livepages", "campaigns", "reports", "search", "staff"];
+      var order = ["withdrawals", "queue", "chats", "chat", "answers", "verifications", "amounts", "reviews", "offers", "livepages", "campaigns", "reports", "search", "staff", "running"];
       for (var i = 0; i < order.length; i++) if (roleCanSee(order[i])) return order[i];
       return "search";
     }
@@ -425,6 +433,7 @@
       else if (id === "chat" && state.chat.items === null && !state.chat.loading) loadChatQuestions();
       else if (id === "answers" && state.answers.items === null && !state.answers.loading) { loadAnswerBook(); loadWhatToWriteNext(); }
       else if (id === "livepages" && state.livepages.data === null && !state.livepages.loading) loadLivePages();
+      else if (id === "running" && state.running.data === null && !state.running.loading) loadRunning();
     }
     function saveSession() {
       if (state.token) sessionStorage.setItem(SS + "token", state.token);
@@ -759,6 +768,11 @@
     //
     // Shape: [key, team name, glyph, [[section id, label, glyph], ...]]
     var TEAMS = [
+      // FIRST, ON PURPOSE. It is the answer to the one question a director always
+      // asks, and it belongs to no single team: everybody who runs Fayr needs it.
+      ["everyone", "Everyone", "◎", [
+        ["running", "How Fayr is running", "◎"],
+      ]],
       ["finance", "Finance", "₹", [
         ["withdrawals", "Withdrawals", "↗"],
         ["reports", "Reports", "◱"],
@@ -894,6 +908,7 @@
     }
 
     var SCREEN_TITLE = {
+      running: ["How Fayr is running", "Read out of our own records, on open. No form, and nothing here changes anything."],
       withdrawals: ["Withdrawals", "Money leaving Fayr. Approve, reject, then mark paid once the transfer is out."],
       queue: ["Questions", "Users waiting on an answer. Oldest first."],
       verifications: ["Screenshot verifications", "Tier-3 supporting evidence. Nothing here approves itself."],
@@ -1566,6 +1581,349 @@
             h("button", { class: "btn", onclick: checkAnswerWords }, "Check the words"),
             h("button", { class: "btn", onclick: cancelAnswerEdit }, "Cancel"))));
     }
+    // ── how it is running: begin ──────────────────────────────────────────────
+    // (the markers let panel.test.mjs lift these functions out and really draw
+    //  them against realistic data. A parse check cannot catch a call to a helper
+    //  that does not exist, and this page is the one directors read.)
+    //
+    // ── How Fayr is running ───────────────────────────────────────────────────
+    //
+    // ONE READ ON OPEN, NO FORM, AND NOTHING ON IT CHANGES ANYTHING.
+    //
+    // That is the whole difference from the Reports tab beside it. A report is a
+    // thing you ask a question of, so it takes a range and a granularity. This is
+    // the answer to "how do you know it is working", and a director does not fill
+    // in a form to find out whether the product works.
+    //
+    // ── THIS SCREEN WRITES NO WORDS OF ITS OWN ───────────────────────────────
+    //
+    // Every sentence, heading and phrase comes down with the data, out of
+    // backend/src/running/running.words.ts, where a check walks all of it through
+    // the real plain-language rule. A sentence written here would reach a director
+    // without anything having read it. The panel's own check enforces that.
+    //
+    // ── AND IT DOES NO ARITHMETIC ON MONEY ───────────────────────────────────
+    //
+    // Amounts arrive as whole paise in a string and are grouped into rupees by
+    // splitting the string, never by dividing a Number. Four money defects so far
+    // have come from a figure reached by a second route.
+    async function loadRunning() {
+      state.running.loading = true; state.running.error = null; render();
+      try {
+        state.running.data = await api("GET", "/admin/how-it-is-running");
+      } catch (e) {
+        state.running.error = e.message;
+      } finally {
+        state.running.loading = false; render();
+      }
+    }
+
+    // Whole paise in a string to rupees, by cutting the string. Mirrors rupeesOf in
+    // backend/src/common/rupees.ts, including hiding a nought fraction.
+    function paiseToRupees(paise) {
+      if (paise == null) return "—";
+      var digits = String(paise);
+      var negative = digits.charAt(0) === "-";
+      if (negative) digits = digits.slice(1);
+      if (!/^[0-9]+$/.test(digits)) return "—";
+      while (digits.length < 3) digits = "0" + digits;
+      var whole = digits.slice(0, -2), fraction = digits.slice(-2);
+      var last3 = whole.slice(-3), rest = whole.slice(0, -3), groups = [];
+      while (rest.length > 2) { groups.unshift(rest.slice(-2)); rest = rest.slice(0, -2); }
+      if (rest.length) groups.unshift(rest);
+      var grouped = groups.length ? groups.join(",") + "," + last3 : last3;
+      var body = "₹" + grouped + (fraction === "00" ? "" : "." + fraction);
+      return negative ? "-" + body : body;
+    }
+
+    // THE THREE ANSWERS, AND THEY NEVER LOOK THE SAME.
+    //
+    // A counted nought is a real nought and is shown as a number. The other two are
+    // shown as the words the server sent, because a nought standing in for "we do
+    // not look" is the one lie this page must never tell.
+    function Reading(reading, says, tone) {
+      if (!reading) return h("span", { class: "muted" }, "—");
+      if (reading.kind === "counted") {
+        return h("span", { class: "stat" + (tone ? " stat-" + tone : "") }, String(reading.count));
+      }
+      var words = reading.kind === "nothing-yet" ? says.nothingYet : says.notWatching;
+      return h("span", { class: "muted", style: "font-size:13px" }, words);
+    }
+
+    function MoneyReading(amount, says, tone) {
+      if (!amount) return h("span", { class: "muted" }, "—");
+      if (amount.kind === "counted") {
+        return h("span", { class: "stat" + (tone ? " stat-" + tone : "") }, paiseToRupees(amount.paise));
+      }
+      if (amount.kind === "cannot-be-known") {
+        return h("span", { class: "muted", style: "font-size:13px" }, amount.why);
+      }
+      return h("span", { class: "muted", style: "font-size:13px" }, says.nothingYet);
+    }
+
+    // The drop, in its four shapes. Never a negative number and never a nought
+    // standing in for "nobody knows".
+    function Drop(drop, dropHeading) {
+      if (!drop) return null;
+      if (drop.kind === "dropped") {
+        return h("div", { class: "muted", style: "font-size:12px;margin-top:2px" },
+          dropHeading + ": " + String(drop.count));
+      }
+      if (drop.kind === "does-not-line-up") {
+        return h("div", { class: "muted", style: "font-size:12px;margin-top:2px;color:var(--warn)" }, drop.why);
+      }
+      // All three of the other shapes carry their own sentence, written on our
+      // side where the plain-language check reads it.
+      return h("div", { class: "muted", style: "font-size:12px;margin-top:2px" }, drop.why);
+    }
+
+    function RunningScreen() {
+      var st = state.running;
+      if (st.loading && !st.data) return h("div", { class: "muted" }, h("span", { class: "spin" }), " Reading…");
+      if (st.error) return h("div", { class: "flash flash-err" }, st.error);
+      if (!st.data) return h("div", { class: "empty" }, "Nothing yet.");
+      var d = st.data, says = d.says;
+
+      return h("div", null,
+        // THE MOMENT IT WAS READ, FIRST. A number with no time against it is a
+        // number nobody can trust.
+        h("div", { class: "card" },
+          h("div", { style: "font-weight:700;font-size:15px" }, d.readAt),
+          h("div", { class: "muted", style: "margin-top:6px" }, d.lead),
+          h("div", { class: "muted" }, d.leadTwo),
+          h("div", { class: "muted" }, d.leadThree)),
+
+        RunningJourney(d.journey, says),
+        RunningHowOrders(d.howOrders, says),
+        RunningMoney(d.money, says),
+        RunningMachine(d.machine, says),
+        RunningOffers(d.offers, says),
+        RunningNotRealYet(d.notRealYet));
+    }
+
+    function RunningJourney(j, says) {
+      var head = h("thead", null, h("tr", null,
+        h("th", null, j.stepHeading),
+        h("th", null, j.everythingSoFarLabel),
+        h("th", null, j.lastThirtyDaysLabel)));
+
+      var rows = j.steps.map(function (step) {
+        return h("tr", null,
+          h("td", { style: "min-width:260px" },
+            h("div", { style: "font-weight:700" }, step.step),
+            h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px" }, step.meaning),
+            step.whatItWouldTake
+              ? h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px;font-style:italic" },
+                  step.whatItWouldTake)
+              : null,
+            // WHERE TWO COLUMNS DISAGREE, SAY SO. One number is shown, the other
+            // is named, and the difference is stated.
+            step.disagreement
+              ? h("div", { style: "font-size:12.5px;margin-top:5px;color:var(--warn)" }, step.disagreement)
+              : null),
+          h("td", { class: "num", style: "vertical-align:top" },
+            Reading(step.everythingSoFar, says),
+            Drop(step.dropSoFar, j.dropHeading)),
+          h("td", { class: "num", style: "vertical-align:top" },
+            Reading(step.lastThirtyDays, says),
+            Drop(step.dropLastThirtyDays, j.dropHeading)));
+      });
+
+      // GIVEN UP FOR RUNNING OUT OF TIME, kept OUTSIDE the journey. It keeps the
+      // state CLAIMED, so it is already inside the top row: two numbers a reader
+      // would add together, and the sentence says so.
+      rows.push(h("tr", null,
+        h("td", { style: "border-top:2px solid var(--border)" },
+          h("div", { style: "font-weight:700" }, j.expired.step),
+          h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px" }, j.expired.meaning)),
+        h("td", { class: "num", style: "border-top:2px solid var(--border);vertical-align:top" },
+          Reading(j.expired.everythingSoFar, says, "neutral")),
+        h("td", { class: "num", style: "border-top:2px solid var(--border);vertical-align:top" },
+          Reading(j.expired.lastThirtyDays, says, "neutral"))));
+
+      return h("div", { class: "card" },
+        h("h3", null, j.title),
+        h("div", { class: "muted", style: "margin-bottom:6px" }, j.lead),
+        h("div", { class: "muted", style: "font-size:12.5px" },
+          j.everythingSoFarLabel + ". " + j.everythingSoFarMeaning),
+        h("div", { class: "muted", style: "font-size:12.5px;margin-bottom:10px" },
+          j.lastThirtyDaysLabel + ". " + j.lastThirtyDaysMeaning),
+        j.bothMatchToday ? h("div", { class: "flash flash-info" }, j.bothMatchToday) : null,
+        j.disagreesWithTheReports
+          ? h("div", { class: "flash flash-err" }, j.disagreesWithTheReports)
+          : null,
+        h("div", { class: "table-wrap" }, h("table", { class: "ledger" }, head, h("tbody", null, rows))),
+        h("div", { class: "muted", style: "font-size:12.5px;margin-top:10px" }, j.whereTheyAreNow),
+        h("div", { class: "muted", style: "font-size:12.5px" }, j.canGoBackwards));
+    }
+
+    function RunningHowOrders(o, says) {
+      var all = o.groups.concat([o.doNotKnow]);
+      var rows = all.map(function (g) {
+        return h("tr", null,
+          h("td", null,
+            h("div", { style: "font-weight:700" }, g.heading),
+            h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px" }, g.meaning)),
+          // The stored names, shown so nobody has to trust the grouping. These are
+          // values in our records, not writing, which is why they are not walked by
+          // the plain-language check.
+          h("td", { class: "mono", style: "font-size:12px;color:var(--muted)" },
+            g.names && g.names.length ? g.names.join("  ") : "—"),
+          h("td", { class: "num" }, Reading(g.count, says)));
+      });
+
+      return h("div", { class: "card" },
+        h("h3", null, o.title),
+        h("div", { class: "muted", style: "margin-bottom:10px" }, o.lead),
+        h("div", { class: "table-wrap" }, h("table", { class: "ledger" },
+          h("thead", null, h("tr", null,
+            h("th", null, " "),
+            h("th", null, o.namesHeading),
+            h("th", null, o.countHeading))),
+          h("tbody", null, rows))),
+        h("div", { class: "stat-row", style: "margin-top:14px" },
+          Stat(o.established.kind === "counted" ? String(o.established.count) : says.nothingYet,
+            o.establishedLabel, "")),
+        // THE ADDING UP, SAID EITHER WAY. When the parts come to the whole the
+        // reader is told so, because "it checked" is worth reading. When they do
+        // not, it is called a fault rather than the parts being shown and hoped for.
+        o.addsUp
+          ? h("div", { class: "muted", style: "font-size:12.5px" }, o.addsUpConfirmed)
+          : h("div", { class: "flash flash-err" }, o.addsUpProblem),
+        o.unmappedNames.length
+          ? h("div", { class: "flash flash-warn" },
+              o.unmappedHeading + ": " + o.unmappedNames.join(", "))
+          : null,
+        h("div", { class: "muted", style: "font-size:12.5px;margin-top:10px" }, o.candidatesNote));
+    }
+
+    function RunningMoney(m, says) {
+      var lines = m.lines.map(function (line) {
+        return h("tr", null,
+          h("td", null,
+            h("div", { style: "font-weight:700" }, line.label),
+            h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px" }, line.meaning)),
+          h("td", { class: "num" }, MoneyReading(line.amount, says)));
+      });
+
+      var heldRows = m.held.reasons.map(function (r) {
+        var none = r.count.kind === "counted" && r.count.count === 0;
+        return h("tr", null,
+          h("td", null,
+            h("div", { style: none ? "color:var(--muted)" : "font-weight:600" }, r.explanation),
+            r.nobodyCanClearThisOne
+              ? h("div", { style: "font-size:12px;margin-top:3px;color:var(--warn)" },
+                  r.nobodyCanClearThisOne)
+              : null),
+          h("td", { class: "num" }, Reading(r.count, says, none ? "neutral" : "warn")));
+      });
+
+      return h("div", { class: "card" },
+        h("h3", null, m.title),
+        h("div", { class: "muted", style: "margin-bottom:10px" }, m.lead),
+        h("div", { class: "table-wrap" }, h("table", { class: "ledger" }, h("tbody", null, lines))),
+
+        // MONEY THAT HAS ACTUALLY LEFT FAYR. The honest figure is nought, and the
+        // reason is a paragraph rather than a dash, because the money book being
+        // empty here is CORRECT: Fayr cannot send money yet.
+        h("div", { style: "margin-top:18px;border-top:1px solid var(--border);padding-top:14px" },
+          h("div", { class: "row", style: "gap:14px;align-items:baseline;flex-wrap:wrap" },
+            h("div", { style: "font-weight:700" }, m.hasLeftFayr.label),
+            MoneyReading(m.hasLeftFayr.amount, says, "bad")),
+          h("div", { class: "flash flash-warn", style: "margin-top:10px" }, m.hasLeftFayr.words)),
+
+        // WAITING. Normal, and said to be normal.
+        h("div", { style: "margin-top:18px;border-top:1px solid var(--border);padding-top:14px" },
+          h("div", { style: "font-weight:700" }, m.waiting.title),
+          h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px" }, m.waiting.lead),
+          h("div", { class: "stat-row", style: "margin-top:12px" },
+            h("div", { class: "kv" },
+              h("div", { class: "v" }, Reading(m.waiting.count, says)),
+              h("div", { class: "k" }, m.waiting.countLabel)),
+            h("div", { class: "kv" },
+              h("div", { class: "v" }, MoneyReading(m.waiting.wouldPay, says)),
+              h("div", { class: "k" }, m.waiting.wouldPayLabel)),
+            h("div", { class: "kv" },
+              h("div", { class: "v" }, Reading(m.waiting.cannotWorkOut, says, "warn")),
+              h("div", { class: "k" }, m.waiting.cannotWorkOutLabel))),
+          h("div", { class: "muted", style: "font-size:12.5px;margin-top:8px" }, m.waiting.wouldPayMeaning),
+          h("div", { class: "mono", style: "font-size:11.5px;color:var(--muted)" }, m.waiting.workedOutBy),
+          h("div", { class: "muted", style: "font-size:12.5px" }, m.waiting.cannotWorkOutMeaning)),
+
+        // HELD. A decision, not a delay, and it carries no figure on purpose.
+        h("div", { style: "margin-top:18px;border-top:1px solid var(--border);padding-top:14px" },
+          h("div", { style: "font-weight:700" }, m.held.title),
+          h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px" }, m.held.leadOne),
+          h("div", { class: "muted", style: "font-size:12.5px" }, m.held.leadTwo),
+          h("div", { class: "table-wrap", style: "margin-top:12px" }, h("table", { class: "ledger" },
+            h("thead", null, h("tr", null,
+              h("th", null, m.held.reasonHeading),
+              h("th", null, m.held.countHeading))),
+            h("tbody", null, heldRows))),
+          h("div", { class: "muted", style: "font-size:12.5px;margin-top:8px" }, m.held.allSix),
+          h("div", { class: "muted", style: "font-size:12.5px" }, m.held.alsoWaiting),
+          m.held.nobodyCanClearWarning
+            ? h("div", { class: "flash flash-warn" }, m.held.nobodyCanClearWarning)
+            : null,
+          // THE STRONGEST SENTENCE ON THE PAGE, and it is given its own space.
+          h("div", { class: "flash flash-info", style: "margin-top:12px;font-weight:600" }, m.held.theRule)));
+    }
+
+    function RunningMachine(mc, says) {
+      var rows = mc.rows.map(function (r) {
+        var watched = r.reading.kind === "counted";
+        var tone = watched && r.reading.count > 0 ? "warn" : watched ? "ok" : "";
+        return h("tr", null,
+          h("td", null,
+            h("div", { style: "font-weight:700" }, r.label),
+            h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px" }, r.meaning),
+            // A row nothing records says what it would take. Never a nought.
+            !watched
+              ? h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px;font-style:italic" },
+                  r.reading.whatItWouldTake)
+              : null),
+          h("td", { class: "num" }, Reading(r.reading, says, tone)));
+      });
+      return h("div", { class: "card" },
+        h("h3", null, mc.title),
+        h("div", { class: "muted", style: "margin-bottom:10px" }, mc.lead),
+        h("div", { class: "table-wrap" }, h("table", { class: "ledger" }, h("tbody", null, rows))));
+    }
+
+    function RunningOffers(o, says) {
+      var runs = o.runs.map(function (run) {
+        return h("div", { class: "task" },
+          h("div", { class: "head" }, h("div", { class: "title" }, run.label)),
+          h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px" }, run.meaning),
+          // AN OLD DATE IS MORE USEFUL THAN A FRESH LOOKING NOUGHT.
+          run.lastLooked
+            ? h("div", { style: "margin-top:8px;font-weight:600" }, run.lastLooked)
+            : h("div", { class: "flash flash-warn", style: "margin-top:8px" }, run.neverRun),
+          run.howItStarted
+            ? h("div", { class: "muted", style: "font-size:12.5px" }, run.howItStarted)
+            : null,
+          h("div", { class: "stat-row", style: "margin-top:10px" }, run.counts.map(function (c) {
+            return h("div", { class: "kv" },
+              h("div", { class: "v" }, Reading(c.reading, says)),
+              h("div", { class: "k" }, c.label));
+          })));
+      });
+      return h("div", { class: "card" },
+        h("h3", null, o.title),
+        h("div", { class: "muted", style: "margin-bottom:10px" }, o.lead),
+        runs);
+    }
+
+    function RunningNotRealYet(n) {
+      return h("div", { class: "card" },
+        h("h3", null, n.title),
+        h("div", { class: "muted", style: "margin-bottom:10px" }, n.lead),
+        h("ul", { class: "group-list" }, n.items.map(function (item) {
+          return h("li", null, item);
+        })));
+    }
+    // ── how it is running: end ────────────────────────────────────────────────
+
     function LivePagesScreen() {
       var st = state.livepages;
       if (st.loading && !st.data) return h("div", { class: "muted" }, h("span", { class: "spin" }), " Loading…");
@@ -3612,7 +3970,8 @@
       // redirected to its default; the server still enforces the real gate.
       if (state.screen !== "user" && !roleCanSee(state.screen)) state.screen = defaultScreen();
       var content;
-      if (state.screen === "withdrawals") content = WithdrawalsScreen();
+      if (state.screen === "running") content = RunningScreen();
+      else if (state.screen === "withdrawals") content = WithdrawalsScreen();
       else if (state.screen === "queue") content = QueueScreen();
       else if (state.screen === "verifications") content = VerificationsScreen();
       else if (state.screen === "amounts") content = AmountsScreen();
