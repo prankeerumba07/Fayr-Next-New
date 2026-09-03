@@ -74,11 +74,13 @@ const STAFF_HOLD_MESSAGES: Record<string, string> = {
     'No price could be read for this item, so there is nothing to take a '
     + 'percentage of. The unit count alone will not release this one.',
   'item-price-above-total-and-ambiguous':
-    'The item price sits above the order total and the reader found more than one '
-    + 'amount in the row, so neither figure can be trusted.',
+    'The item price sits above the order total. '
+    + 'The reader also found more than one amount in the row. '
+    + 'So neither figure can be trusted.',
   'amount-gap-implausible':
-    'The item price and the order total are too far apart to be a discount — most '
-    + 'likely several products share one total, or promotional credit was used.',
+    'The item price and the order total are too far apart to be a discount. '
+    + 'Most likely several products share one total. '
+    + 'Shop credit may also have been used.',
 };
 
 const STAFF_FALLBACK =
