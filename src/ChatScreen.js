@@ -62,6 +62,13 @@ function Message({ message }) {
         <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>
           {message.text}
         </Text>
+        {/* WHEN IT WAS SENT, in the words our side sent. Nothing is worked out
+            here from a stored moment: the phone's clock could be a day out. */}
+        {message.when ? (
+          <Text style={styles.bubbleWhen}>
+            {message.when}
+          </Text>
+        ) : null}
       </View>
     </View>
   );
@@ -366,6 +373,10 @@ const styles = StyleSheet.create({
     marginBottom: SPACE.md,
   },
   statusText: { fontFamily: FONT.bodyMed, fontSize: 13, color: COLOR.refundInk },
+
+  bubbleWhen: {
+    fontFamily: FONT.body, fontSize: 11, color: COLOR.sub, marginTop: 6,
+  },
 
   labelChip: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACE.xs },
   labelDot: {

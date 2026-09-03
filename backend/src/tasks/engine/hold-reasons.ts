@@ -13,10 +13,10 @@
  * only what the human sees.
  */
 
-const HOLD_MESSAGES: Record<string, string> = {
+export const HOLD_MESSAGES: Record<string, string> = {
   'quantity-unknown':
     'We need to check this one by hand before paying it. The order does not say how '
-    + 'many units you bought, and your refund is for one — so a person at Fayr will '
+    + 'many units you bought, and your refund is for one. So a person at Fayr will '
     + 'confirm the amount. Nothing is lost and you do not need to do anything.',
   'quantity-not-divisible':
     'We need to check this one by hand before paying it. The amount does not divide '
@@ -30,16 +30,16 @@ const HOLD_MESSAGES: Record<string, string> = {
     'We could not read the price you paid, so a person at Fayr will confirm it before '
     + 'your refund is paid. Nothing is lost and you do not need to do anything.',
   'item-price-above-total-and-ambiguous':
-    'The prices on this order do not line up, so a person at Fayr will confirm what '
+    'The prices on this order do not line up. A person at Fayr will confirm what '
     + 'you paid before your refund is paid. Nothing is lost and you do not need to do '
     + 'anything.',
   'amount-gap-implausible':
-    'The prices on this order do not line up, so a person at Fayr will confirm what '
+    'The prices on this order do not line up. A person at Fayr will confirm what '
     + 'you paid before your refund is paid. Nothing is lost and you do not need to do '
     + 'anything.',
 };
 
-const FALLBACK =
+export const FALLBACK =
   'We need to check this one by hand before paying it. A person at Fayr will look at '
   + 'it and your refund follows. Nothing is lost and you do not need to do anything.';
 
@@ -60,7 +60,7 @@ export function explainHold(reason: string | null | undefined): string {
  * Still plain words, never an enum: a reviewer reads these out to users on the
  * phone.
  */
-const STAFF_HOLD_MESSAGES: Record<string, string> = {
+export const STAFF_HOLD_MESSAGES: Record<string, string> = {
   'quantity-unknown':
     'The order does not say how many units were bought, and a refund is for one '
     + 'unit. Open the order page, count the units on this product, and enter it.',
@@ -83,7 +83,7 @@ const STAFF_HOLD_MESSAGES: Record<string, string> = {
     + 'Shop credit may also have been used.',
 };
 
-const STAFF_FALLBACK =
+export const STAFF_FALLBACK =
   'This refund is held and needs a person to decide it. The reason was not '
   + 'recognised, which is itself worth looking at.';
 
@@ -92,3 +92,16 @@ export function explainHoldForStaff(reason: string | null | undefined): string {
   if (reason == null) return STAFF_FALLBACK;
   return STAFF_HOLD_MESSAGES[reason] ?? STAFF_FALLBACK;
 }
+
+/**
+ * Every wording in this file, for the walk that checks them.
+ *
+ * Exported so hold-and-refusal-words.spec.ts can count what it walked against
+ * what exists, rather than trusting that somebody remembered to add a new one.
+ */
+export const EVERY_HELD_WORDING: readonly string[] = [
+  ...Object.values(HOLD_MESSAGES),
+  FALLBACK,
+  ...Object.values(STAFF_HOLD_MESSAGES),
+  STAFF_FALLBACK,
+];

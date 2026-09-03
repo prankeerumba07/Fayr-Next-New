@@ -378,10 +378,18 @@ describe('how the assistant talks', () => {
     // Both kinds are named, because the point of this check is that the list
     // cannot fall behind. A new file of words fails here and gets named, and
     // whoever adds it then has to decide which kind it is.
+    //
+    // AND ONE THAT IS WALKED SOMEWHERE ELSE:
+    //   when-words.ts   when a message was sent, and Fayr's hours. Its sentences
+    //                   are built from a moment and a setting rather than sitting
+    //                   there as constants this file could read, so it has its own
+    //                   walk in chat/when-words.spec.ts. Named here so it is not a
+    //                   file nothing is walking.
     expect([...holdsWords].sort()).toEqual(
       [
         'chat-words.ts', 'email-draft.ts', 'opening-questions.ts',
         'chat.rules.ts', 'chat.service.ts', 'chat.store.ts',
+        'when-words.ts',
       ].sort(),
     );
   });

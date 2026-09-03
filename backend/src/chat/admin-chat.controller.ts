@@ -129,7 +129,7 @@ export class AdminChatController {
         messages: chat.messages.length,
       },
     });
-    return toChat(chat);
+    return toChat(chat, undefined, this.chat.now());
   }
 
   /** Take it. Puts this person's name on it and stops anybody else replying. */
@@ -148,7 +148,7 @@ export class AdminChatController {
       targetUserId: chat.userId,
       metadata: { chatId: chat.id },
     });
-    return toChat(chat);
+    return toChat(chat, undefined, this.chat.now());
   }
 
   /**
@@ -179,7 +179,7 @@ export class AdminChatController {
         plainLanguageProblems: done.warnings.problems.length,
       },
     });
-    return { chat: toChat(done.chat), plainLanguage: done.warnings };
+    return { chat: toChat(done.chat, undefined, this.chat.now()), plainLanguage: done.warnings };
   }
 
   /**
@@ -267,7 +267,7 @@ export class AdminChatController {
       targetUserId: chat.userId,
       metadata: { chatId: chat.id },
     });
-    return toChat(chat);
+    return toChat(chat, undefined, this.chat.now());
   }
 
   private async translate<T>(run: () => Promise<T>): Promise<T> {

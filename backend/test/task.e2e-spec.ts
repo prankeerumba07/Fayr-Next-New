@@ -10,6 +10,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TaskService } from '../src/tasks/task.service';
+import { AMOUNT_DOES_NOT_MATCH } from '../src/tasks/engine/refusal-words';
 import { TicketService } from '../src/tickets/ticket.service';
 import { WalletService } from '../src/wallet/wallet.service';
 import { resetDatabase } from './reset-db';
@@ -350,7 +351,9 @@ describe('Task loop (e2e)', () => {
       .set('Authorization', bearer(token))
       .expect(409)
       .expect((r) =>
-        expect(String(r.body.message)).toContain("the amount you paid doesn't match this offer"),
+        // The sentence itself, imported rather than retyped. It changed once
+        // already, when it turned out to have a long dash in it.
+        expect(String(r.body.message)).toContain(AMOUNT_DOES_NOT_MATCH),
       );
     expect(await walletSvc.getUserBalance(userId)).toBe(0n);
 

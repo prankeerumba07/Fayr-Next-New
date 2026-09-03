@@ -61,7 +61,7 @@ export class ChatController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async open(@CurrentUser() user: AuthenticatedUser): Promise<ChatResponse> {
     const chat = await this.translate(() => this.chat.startScreenFor(user.id));
-    return toChat(chat, await this.chat.helpfulByQuestion(chat.id));
+    return toChat(chat, await this.chat.helpfulByQuestion(chat.id), this.chat.now());
   }
 
   /**
@@ -78,7 +78,7 @@ export class ChatController {
     const chat = await this.translate(() =>
       this.chat.conversationForOwner(user.id),
     );
-    return toChat(chat, await this.chat.helpfulByQuestion(chat.id));
+    return toChat(chat, await this.chat.helpfulByQuestion(chat.id), this.chat.now());
   }
 
   /** Say something. Returns the whole conversation, reply included. */
@@ -90,7 +90,7 @@ export class ChatController {
     @Body() dto: SayDto,
   ): Promise<ChatResponse> {
     const said = await this.translate(() => this.chat.say(user.id, dto.message));
-    return toChat(said.chat, await this.chat.helpfulByQuestion(said.chat.id));
+    return toChat(said.chat, await this.chat.helpfulByQuestion(said.chat.id), this.chat.now());
   }
 
   /**

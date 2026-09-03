@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StaffTokenService } from '../src/admin/staff-token.service';
+import { ChatService } from '../src/chat/chat.service';
 import { AssistantSeedService } from '../src/assistant/assistant-seed.service';
 import {
   STILL_WAITING,
@@ -401,13 +402,48 @@ describe('What the assistant says (e2e)', () => {
 
   // ── the one apology for a slow queue ──────────────────────────────────────
   describe('when nobody has taken it after two minutes', () => {
-    /** Push a conversation's hand-over back in time, as if it had been waiting. */
+    /**
+     * THE CLOCK IS HELD STILL HERE, AND THAT IS NEW.
+     *
+     * This note is now held back while Fayr is shut, because it says a lot of
+     * people are writing to us right now and at eleven at night that is untrue.
+     * Which means these checks depend on what time it is: run after six in the
+     * evening they would fail, and run at eleven in the morning they would pass,
+     * with nothing about the code having changed. So the clock is pinned inside
+     * our hours, and the waiting is measured from that same pinned moment.
+     *
+     * Half past six in the morning universal is noon in India.
+     */
+    const NOON_IN_INDIA = new Date('2026-09-05T06:30:00.000Z');
+    let clock: jest.SpyInstance<Date, []>;
+
+    beforeEach(() => {
+      // Installed here but NOT yet pinned. Pinning it before the conversation
+      // exists would put Fayr's clock in front of the database's, and the note
+      // would come due the instant somebody wrote to us.
+      clock = jest.spyOn(app.get(ChatService) as unknown as { now(): Date }, 'now');
+    });
+
+    afterEach(() => {
+      clock.mockRestore();
+    });
+
+    /**
+     * Make it look as though this conversation has been waiting, and move Fayr's
+     * clock to a moment inside our hours.
+     *
+     * BOTH AT ONCE, ON PURPOSE. The waiting is measured from Fayr's clock, so the
+     * two have to be set together or they disagree about how long somebody has
+     * been sitting there. And it happens AFTER they have written, so nothing is
+     * due at the moment they write.
+     */
     async function hasBeenWaiting(userId: string, minutes: number): Promise<string> {
       const chat = await prisma.chat.findFirstOrThrow({ where: { userId } });
       await prisma.chat.update({
         where: { id: chat.id },
-        data: { handedOverAt: new Date(Date.now() - minutes * 60_000) },
+        data: { handedOverAt: new Date(NOON_IN_INDIA.getTime() - minutes * 60_000) },
       });
+      clock.mockReturnValue(NOON_IN_INDIA);
       return chat.id;
     }
 

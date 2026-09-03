@@ -24,6 +24,8 @@ import {
   mayTake,
   type StaffFacts,
 } from './chat.rules';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../config/env.validation';
 import { AssistantStore } from '../assistant/assistant.store';
 import { draftEmail, type Draft } from './email-draft';
 import {
@@ -40,6 +42,12 @@ import {
   handOverWords,
   isOnlyAGreeting,
 } from './chat-words';
+import {
+  isOpenInIndia,
+  openHoursFrom,
+  outsideHoursWords,
+  type OpeningHours,
+} from './when-words';
 
 /** What happened when somebody said something. */
 export interface SaidResult {
@@ -84,7 +92,40 @@ export class ChatService {
     private readonly engine: AnswerEngine,
     private readonly prisma: PrismaService,
     private readonly book: AssistantStore,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /** Fayr's hours, read from the one setting every time they are needed. */
+  private hours(): OpeningHours {
+    return openHoursFrom(this.config.get('FAYR_OPEN_HOURS_IST', { infer: true }));
+  }
+
+  /**
+   * Is Fayr open right now?
+   *
+   * ONLY EVER ASKED ABOUT HANDING OVER. The assistant answers at every hour of
+   * the day, and a person at Fayr can reply at every hour of the day. What waits
+   * is a question going into a queue nobody is watching, and the only difference
+   * is that we say so.
+   */
+  private openNow(): boolean {
+    return isOpenInIndia(this.now(), this.hours());
+  }
+
+  /**
+   * The handing-over sentence, with the note about our hours after it when we are
+   * shut.
+   *
+   * ONE SENTENCE ADDED, NEVER A SECOND APOLOGY. The queue's own "this is taking
+   * longer than usual" note is held back while we are shut, because telling
+   * somebody at eleven at night that a lot of people are writing to us is both
+   * untrue and a contradiction of the line directly above it.
+   */
+  private handingOver(language: string): string {
+    const said = handOverWords(language, SUPPORT_EMAIL);
+    if (this.openNow()) return said;
+    return `${said} ${outsideHoursWords(this.hours(), language)}`;
+  }
 
   /**
    * A shopper says something.
@@ -233,7 +274,7 @@ export class ChatService {
         author: 'ASSISTANT',
         body: tellThemWhichLanguages
           ? ONLY_ENGLISH_OR_HINDI
-          : handOverWords(replyIn, SUPPORT_EMAIL),
+          : this.handingOver(replyIn),
         language: replyIn,
         assistantQuestionId: noted.id,
       });
@@ -271,7 +312,7 @@ export class ChatService {
     const reply = await this.store.addMessage({
       chatId: chat.id,
       author: 'ASSISTANT',
-      body: `${handOverWords(replyIn, SUPPORT_EMAIL)}${languageLine}`,
+      body: `${this.handingOver(replyIn)}${languageLine}`,
       language: replyIn,
       assistantQuestionId: asked.questionId,
     });
@@ -308,6 +349,15 @@ export class ChatService {
    * A queue that keeps apologising is worse than a quiet one.
    */
   private async sayItIsTakingLongerIfDue(chatId: string): Promise<void> {
+    // HELD BACK WHILE WE ARE SHUT. The handing-over sentence has already said we
+    // are closed and that somebody will read it when we open. This note would
+    // land on top of that saying a lot of people are writing to us right now,
+    // which at eleven at night is untrue and contradicts the line above it.
+    //
+    // NOT LOST, ONLY WAITING. Claiming the note is a single conditional write, so
+    // not claiming it leaves it unsent: if they are still waiting once we open,
+    // it goes then, which is the moment it is true.
+    if (!this.openNow()) return;
     const notBefore = new Date(this.now().getTime() - WAITING_NOTE_AFTER_MS);
     const mine = await this.store.claimWaitingNote(chatId, notBefore);
     if (!mine) return;
@@ -349,8 +399,17 @@ export class ChatService {
     }
   }
 
-  /** The clock, in one place, so a test can hold it still. */
-  protected now(): Date {
+  /**
+   * The clock, in one place, so a test can hold it still.
+   *
+   * PUBLIC, AND THAT WAS A FIX. The response builder used to call new Date() of
+   * its own to work out "Today at 3:20 in the afternoon", so one request had two
+   * clocks in it: this one deciding whether Fayr was open, and another one
+   * deciding what day it was. A check holding this one still caught it. The
+   * controllers now read the time from here, so there is one clock and one
+   * answer.
+   */
+  now(): Date {
     return new Date();
   }
 

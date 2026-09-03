@@ -318,5 +318,61 @@ console.log('\nthe questions somebody can tap');
   });
 }
 
+console.log('\n=== 10. when it was sent ===');
+{
+  // NOBODY READS A BARE TIMESTAMP, and the app must not turn one into words
+  // itself: the phone's clock could be a day out, and a sentence written in the
+  // app is a sentence the plain language check never reads. So the words arrive
+  // from our side and this only carries them.
+  const out = messagesFrom({
+    messages: [
+      { id: 'a', author: 'PERSON', body: 'hello',
+        sentAt: '2026-09-05T09:50:00.000Z',
+        sentAtInWords: 'Today at 3:20 in the afternoon' },
+      { id: 'b', author: 'ASSISTANT', body: 'here you are',
+        sentAt: '2026-09-05T09:51:00.000Z',
+        sentAtInWords: 'Today at 3:21 in the afternoon' },
+      { id: 'c', author: 'AGENT', from: 'Asha', body: 'looked at it',
+        sentAtInWords: 'Yesterday at 9:05 in the morning' },
+      { id: 'd', author: 'SYSTEM', body: 'sorry about the wait',
+        sentAtInWords: '26 August at 3:20 in the afternoon' },
+    ],
+  });
+  ok(out[0].when === 'Today at 3:20 in the afternoon', 'their own message carries its time');
+  ok(out[1].when === 'Today at 3:21 in the afternoon', 'an answer carries its time');
+  ok(out[2].when === 'Yesterday at 9:05 in the morning', 'a real person’s reply carries its time');
+  ok(out[3].when === '26 August at 3:20 in the afternoon', 'a note carries its time');
+  ok(out.every((m) => !/\d{4}-\d{2}-\d{2}/.test(m.when || '')),
+    'and not one of them is a stored moment');
+}
+
+{
+  // Nothing came back, or something odd came back. The line must carry no time
+  // rather than a guess, and the message must still be readable.
+  const nothing = messagesFrom({
+    messages: [
+      { id: 'a', author: 'PERSON', body: 'hello' },
+      { id: 'b', author: 'PERSON', body: 'again', sentAtInWords: '   ' },
+      { id: 'c', author: 'PERSON', body: 'and again', sentAtInWords: 42 },
+      { id: 'd', author: 'PERSON', body: 'once more', sentAtInWords: null },
+    ],
+  });
+  for (const m of nothing) {
+    ok(m.when === null, `no time sent means no time shown (${m.id})`);
+    ok(m.text !== '', `  and the message itself still reads (${m.id})`);
+  }
+}
+
+{
+  // The app must never work a time out for itself.
+  const helper = readFileSync(new URL('./chat.js', import.meta.url), 'utf8');
+  const code = helper.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  for (const forbidden of ['new Date', 'toLocaleTimeString', 'toLocaleDateString', 'getHours', 'Date.parse']) {
+    ok(!code.includes(forbidden), `the helper never calls ${forbidden}`);
+  }
+  const screen = readFileSync(new URL('../ChatScreen.js', import.meta.url), 'utf8');
+  ok(/\{message\.when\}/.test(screen), 'and the screen really draws the time it was sent');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

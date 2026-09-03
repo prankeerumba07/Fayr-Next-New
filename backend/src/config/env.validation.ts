@@ -180,6 +180,26 @@ export const envSchema = z.object({
     .min(12, 'STAFF_BOOTSTRAP_PASSWORD must be at least 12 characters')
     .optional(),
 
+  // WHEN FAYR IS OPEN, India's time, as one setting and not two numbers.
+  //
+  // Two hours on a twenty-four hour clock, the smaller one first: 9-18 is nine in
+  // the morning to six in the evening, which is the default and is written down in
+  // exactly one place (OPEN_HOURS_BY_DEFAULT in src/chat/when-words.ts).
+  //
+  // IT DECIDES A SENTENCE, NOT A PAYMENT. Outside these hours the chat says so
+  // when it hands a question to a person, and says nothing about how long. It
+  // never blocks a person's own reply, and it never stops the assistant
+  // answering: it is the handing over that waits, not the answer.
+  FAYR_OPEN_HOURS_IST: z
+    .string()
+    .trim()
+    .regex(
+      /^([01]?\d|2[0-3])-([01]?\d|2[0-3])$/,
+      'FAYR_OPEN_HOURS_IST must be two hours on a twenty-four hour clock with a '
+        + 'dash between them, the earlier one first, for example 9-18',
+    )
+    .default('9-18'),
+
   // --- How a person reaches Fayr --------------------------------------------
   // The number a person can ring. Read from here and written nowhere else, so
   // there is exactly one place it lives and one place it changes.

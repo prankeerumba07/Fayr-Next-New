@@ -69,27 +69,32 @@ function messageFrom(m, index) {
   const id = text(m && m.id) || `message-${index}`;
   const body = text(m && m.body);
   const author = text(m && m.author);
+  // WHEN IT WAS SENT, IN WORDS, EXACTLY AS OUR SIDE SENT IT. Never worked out
+  // here: the phone's own clock could be a day out, and a sentence written in the
+  // app is a sentence the plain language check never reads. Null when our side
+  // sent nothing, and then the line simply carries no time rather than a guess.
+  const when = text(m && m.sentAtInWords).trim() || null;
 
   if (author === 'PERSON') {
-    return { id, who: 'you', text: body, tone: 'question', label: null,
+    return { id, who: 'you', text: body, tone: 'question', label: null, when,
              questionId: text(m && m.questionId) || null,
              helpful: m && typeof m.helpful === 'boolean' ? m.helpful : null };
   }
   if (author === 'AGENT') {
-    return { id, who: 'fayr', text: body, tone: 'person',
+    return { id, who: 'fayr', text: body, tone: 'person', when,
              // The name goes on the message, not in a heading somewhere else.
              label: text(m && m.from) || 'Fayr',
              questionId: text(m && m.questionId) || null,
              helpful: m && typeof m.helpful === 'boolean' ? m.helpful : null };
   }
   if (author === 'SYSTEM') {
-    return { id, who: 'fayr', text: body, tone: 'note', label: null,
+    return { id, who: 'fayr', text: body, tone: 'note', label: null, when,
              questionId: null, helpful: null };
   }
   // The assistant. Whether it knew the answer decides how it reads.
   const answered = !(m && m.waitingForAPerson === true);
   return {
-    id, who: 'fayr', text: body,
+    id, who: 'fayr', text: body, when,
     tone: answered ? 'answer' : 'waiting',
     label: answered ? null : WAITING_LABEL,
     questionId: text(m && m.questionId) || null,

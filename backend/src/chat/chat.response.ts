@@ -1,4 +1,5 @@
 import { GREETING_MARKER } from './chat-words';
+import { whenItWasSent } from './when-words';
 import { OPENING_QUESTIONS } from './opening-questions';
 import { authorLabel, plainStateName, type ChatAuthorName, type ChatStateName } from './chat.rules';
 import type { ChatInQueue, ChatWithMessages } from './chat.store';
@@ -12,6 +13,16 @@ export interface ChatMessageResponse {
   body: string;
   language: string;
   sentAt: string;
+  /**
+   * WHEN IT WAS SENT, IN PLAIN WORDS, IN INDIA'S TIME.
+   *
+   * "Today at 3:20 in the afternoon". Worked out on our side, out of the moment
+   * stored against the message, and sent down ready to read. The app never turns
+   * a stored moment into words itself: the phone's clock could be wrong, and a
+   * sentence written in the app is a sentence the plain language check never
+   * reads.
+   */
+  sentAtInWords: string;
   /** True when a person at Fayr wrote it, so the app can say so. */
   fromAPerson: boolean;
   /**
@@ -89,6 +100,7 @@ export function toMessage(
     staffUser: { id: string; name: string } | null;
   },
   helpfulByQuestion?: Map<string, boolean | null>,
+  now: Date = new Date(),
 ): ChatMessageResponse {
   return {
     id: m.id,
@@ -97,6 +109,9 @@ export function toMessage(
     body: m.body,
     language: m.language,
     sentAt: m.sentAt.toISOString(),
+    // In the language the message itself was written in, which is the language
+    // the person reading that line is reading.
+    sentAtInWords: whenItWasSent(m.sentAt, now, m.language),
     fromAPerson: m.author === 'AGENT',
     questionId: m.assistantQuestionId,
     helpful:
@@ -109,6 +124,7 @@ export function toMessage(
 export function toChat(
   chat: ChatWithMessages,
   helpfulByQuestion?: Map<string, boolean | null>,
+  now: Date = new Date(),
 ): ChatResponse {
   return {
     chatId: chat.id,
@@ -118,7 +134,10 @@ export function toChat(
     user: { id: chat.user.id, displayId: chat.user.displayId },
     startedAt: chat.startedAt.toISOString(),
     lastMessageAt: chat.lastMessageAt.toISOString(),
-    messages: chat.messages.map((m) => toMessage(m, helpfulByQuestion)),
+    // ONE MOMENT FOR THE WHOLE CONVERSATION. Read once and handed to every line,
+    // so a read that straddles midnight cannot say "today" on one message and
+    // "yesterday" on the one above it.
+    messages: chat.messages.map((m) => toMessage(m, helpfulByQuestion, now)),
     withTheAssistant: chat.state === 'ASSISTANT',
     waitingForAPerson: chat.state === 'WAITING_FOR_PERSON',
     closed: chat.state === 'CLOSED',

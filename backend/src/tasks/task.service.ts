@@ -20,6 +20,13 @@ import {
 } from './engine/charged-amount';
 import { checkPlausibility } from './engine/evidence-plausibility';
 import { explainHold } from './engine/hold-reasons';
+import {
+  AMOUNT_DOES_NOT_MATCH,
+  MORE_THAN_ONE_ORDER_MATCHED,
+  NOT_ALLOWED_YET,
+  SAME_ITEM_ALREADY_REFUNDED,
+  SAME_ORDER_ALREADY_REFUNDED,
+} from './engine/refusal-words';
 import { orderWindow, screenEvidenceByWindow } from './engine/order-window';
 import type {
   AmountEvidenceSource,
@@ -968,9 +975,7 @@ export class TaskService {
             // Two different investigations, so two different sentences. "The same
             // item was already paid" is a likely duplicate; "we cannot tell which
             // line this is" is a reading problem on a possibly-honest basket.
-            sameLine
-              ? 'this exact item has already been refunded on another offer — a Fayr reviewer needs to check it'
-              : 'this order has already been refunded on another offer — a Fayr reviewer needs to check it',
+            sameLine ? SAME_ITEM_ALREADY_REFUNDED : SAME_ORDER_ALREADY_REFUNDED,
           ],
         };
       }
@@ -987,8 +992,8 @@ export class TaskService {
         status: 'ineligible',
         reasons: [
           match?.ambiguous === true
-            ? 'more than one order matched this product — confirm which one is yours'
-            : "the amount you paid doesn't match this offer — confirm this is your order",
+            ? MORE_THAN_ONE_ORDER_MATCHED
+            : AMOUNT_DOES_NOT_MATCH,
         ],
       };
     }
@@ -1009,7 +1014,9 @@ export class TaskService {
     if (result.rejected) {
       return {
         status: 'ineligible',
-        reasons: [result.reason ?? 'not eligible'],
+        // The engine's own reason when it has one, which is a diagnostic and not a
+        // sentence. When it has none, a sentence.
+        reasons: [result.reason ?? NOT_ALLOWED_YET],
       };
     }
 
