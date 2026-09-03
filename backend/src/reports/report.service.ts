@@ -52,6 +52,38 @@ const bigToStr = (b: bigint | null | undefined): string => (b ?? 0n).toString();
 const pct = (num: number, den: number): number =>
   den > 0 ? Math.round((num / den) * 100) : 0;
 
+/** The least a row needs for the funnel below. */
+export interface FunnelRow {
+  state: TaskState;
+  closeReason: string | null;
+}
+
+/**
+ * THE FUNNEL, IN ONE FUNCTION, COUNTED BY CURRENT STATE.
+ *
+ * Pulled out of activity() so the staff page showing the same journey CALLS THIS
+ * rather than counting the same thing a second time. Two functions counting one
+ * thing disagree within a month, and a page disagreeing with the spreadsheet in
+ * front of a director is worse than either being wrong on its own.
+ *
+ * It counts where a place IS NOW, using the reached-sets, so a refund that went
+ * backwards leaves the holding row. That is a deliberate reading, and the page
+ * that shows it says so in words.
+ */
+export function funnelOf(rows: readonly FunnelRow[]): ActivityReport['funnel'] {
+  const reached = (state: TaskState, set: TaskState[]): boolean =>
+    set.includes(state);
+  return {
+    claimed: rows.length,
+    purchased: rows.filter((t) => reached(t.state, PURCHASED_SET)).length,
+    delivered: rows.filter((t) => reached(t.state, DELIVERED_SET)).length,
+    reviewed: rows.filter((t) => reached(t.state, REVIEWED_SET)).length,
+    holding: rows.filter((t) => reached(t.state, HOLDING_SET)).length,
+    refunded: rows.filter((t) => t.state === 'REFUNDED').length,
+    expired: rows.filter((t) => t.closeReason === 'expired').length,
+  };
+}
+
 /**
  * Read-only analytics over the domain tables (tasks, campaigns, withdrawals,
  * wallet + ticket ledgers, users). Every method takes the raw query, resolves
@@ -298,17 +330,7 @@ export class ReportService {
       }),
     ]);
 
-    const reached = (state: TaskState, set: TaskState[]): boolean =>
-      set.includes(state);
-    const funnel = {
-      claimed: created.length,
-      purchased: created.filter((t) => reached(t.state, PURCHASED_SET)).length,
-      delivered: created.filter((t) => reached(t.state, DELIVERED_SET)).length,
-      reviewed: created.filter((t) => reached(t.state, REVIEWED_SET)).length,
-      holding: created.filter((t) => reached(t.state, HOLDING_SET)).length,
-      refunded: created.filter((t) => t.state === 'REFUNDED').length,
-      expired: created.filter((t) => t.closeReason === 'expired').length,
-    };
+    const funnel = funnelOf(created);
 
     const claimsBucket = new Map<string, number>(keys.map((k) => [k, 0]));
     for (const t of created) {

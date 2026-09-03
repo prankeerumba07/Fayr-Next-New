@@ -13,5 +13,8 @@ import { ReportService } from './report.service';
   imports: [AdminModule],
   controllers: [AdminReportController],
   providers: [ReportService],
+  // Exported for the page that measures Fayr itself, which counts the journey by
+  // calling this rather than counting it again.
+  exports: [ReportService],
 })
 export class ReportModule {}
