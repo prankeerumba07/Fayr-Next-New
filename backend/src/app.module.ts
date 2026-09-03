@@ -18,6 +18,7 @@ import { MeModule } from './me/me.module';
 import { OcrModule } from './ocr/ocr.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReportModule } from './reports/report.module';
+import { RunningModule } from './running/running.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { CampaignHealthModule } from './campaign-health/campaign-health.module';
 import { SupportModule } from './support/support.module';
@@ -77,6 +78,7 @@ import { WithdrawalModule } from './withdrawals/withdrawal.module';
     MeModule,
     WithdrawalModule,
     ReportModule,
+    RunningModule,
     OcrModule,
   ],
   providers: [
