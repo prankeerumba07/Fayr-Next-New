@@ -18,6 +18,18 @@ import { dispatch } from './taskStore';
 // WebView itself for the props that must not be touched.
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
 import { MarketplaceTag } from './ui/primitives';
+// THE GATE OVER THE SHOP'S PAGE, added because the shop's own home page, its
+// captcha and the web view library's own untranslated "Error loading page" were
+// all reaching a person who had tapped "connect my account". Every decision about
+// what is on screen is in src/connect/gate.js, which is pure and checked under
+// node, including the failures a phone cannot be made to do on demand.
+import {
+  FAILED, OPENING_UP, SHOP_HAS_THIS_LONG_MS, SIGNED_IN_NOW, SIGNED_IN_SHOWS_FOR_MS,
+  isForTheGate, shopMayBeSeen, whatIsOnScreen, whatTheShopSaid, whatWeSay,
+} from './connect/gate';
+import { watchSignInScript } from './connect/watchSignIn';
+import { rememberAccountName } from './connect/accountName';
+import { reportShopSignIn } from './backend/shopApi';
 
 // Platforms whose fetch payload feeds the task flow. Amazon reads a review's
 // order (HTML scrape); Flipkart/Myntra are order-first (their JSON order API),
@@ -120,7 +132,7 @@ const DISCOVERY_PLATFORMS = ['meesho'];
 // know which product it is allowed to surface, so it fails closed rather than
 // returning every order on the account (see platforms.js). Nothing passes a
 // campaign yet - that arrives with the campaign model.
-export default function ConnectScreen({ platform, campaign, navigation }) {
+export default function ConnectScreen({ platform, campaign, navigation, route }) {
   const webRef = useRef(null);
   const [mode, setMode] = useState('web'); // 'web' | 'results'
   const [busy, setBusy] = useState(false);
@@ -132,6 +144,46 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
   // DEV-ONLY: bypass the campaign filter for the next fetch. Starts OFF, so the
   // filtered production path is always the default. Inert unless DEV_TOOLS.
   const [devShowAll, setDevShowAll] = useState(false);
+  // ── THE GATE, and it only ever runs on a visit made to sign in ────────────
+  //
+  // `toSignIn` is the one word the screen that sends somebody here says (see
+  // src/signin.js). A visit made to READ somebody's own orders is not gated at
+  // all: that path works today and covering its page would break it.
+  const toSignIn = !!(route && route.params && route.params.toSignIn);
+  // Four things and no fifth: opening, shop, failed, signedIn. See gate.js.
+  const [signInIsUp, setSignInIsUp] = useState(false);
+  const [theyAreIn, setTheyAreIn] = useState(false);
+  const [itWillNotOpen, setItWillNotOpen] = useState(false);
+  // WHEN THE SHOP WAS ASKED TO OPEN. Held in state and not a ref, because the
+  // clock below has to be able to make the screen draw again.
+  const [askedAt, setAskedAt] = useState(() => Date.now());
+  const [nowIs, setNowIs] = useState(() => Date.now());
+
+  // THE ONE CLOCK THAT MAKES THE WAIT REAL. Without it a shop that never answers
+  // leaves the loading screen up for ever, because nothing would ever ask again
+  // whether the fifteen seconds had passed.
+  useEffect(() => {
+    if (!toSignIn) return undefined;
+    if (signInIsUp || theyAreIn || itWillNotOpen) return undefined;
+    const t = setTimeout(() => setNowIs(Date.now()), SHOP_HAS_THIS_LONG_MS + 50);
+    return () => clearTimeout(t);
+  }, [toSignIn, askedAt, signInIsUp, theyAreIn, itWillNotOpen]);
+
+  const gate = toSignIn
+    ? whatIsOnScreen({ signInIsUp, theyAreIn, itWillNotOpen, startedAt: askedAt, now: nowIs })
+    : null;
+
+  /** Ask the shop again, from the beginning. The one control on the failure. */
+  const tryAgain = useCallback(() => {
+    setSignInIsUp(false);
+    setTheyAreIn(false);
+    setItWillNotOpen(false);
+    const at = Date.now();
+    setAskedAt(at);
+    setNowIs(at);
+    try { webRef.current?.reload(); } catch (e) { /* a dead view cannot reload */ }
+  }, []);
+
   // Restore any saved login cookies BEFORE the WebView creates its store, so a
   // returning user is already signed in. Persist again when leaving.
   const [sessionReady, setSessionReady] = useState(false);
@@ -171,8 +223,37 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
   const onLoadEnd = useCallback((e) => {
     const u = e && e.nativeEvent && e.nativeEvent.url;
     if (u) currentUrlRef.current = u;
+    // A FAILED LOAD MUST NOT SAVE A SIGNED OUT SNAPSHOT OVER A GOOD ONE.
+    //
+    // The web view library calls this on an ERROR as well as on a real load, so a
+    // shop that would not open was writing an empty snapshot on top of the saved
+    // sign in every single time. Somebody whose network dropped once came back to
+    // a shop they were no longer signed in to, and nothing said why.
+    //
+    // Only skipped once we KNOW it failed, so the ordinary path is untouched.
+    if (itWillNotOpen) return;
     saveSession();
-  }, [saveSession]);
+  }, [saveSession, itWillNotOpen]);
+
+  /**
+   * THE SHOP SAID IT COULD NOT OPEN.
+   *
+   * The web view library calls this for a network failure and, separately, for a
+   * page the shop answered with an error. Before today NEITHER was handled, so
+   * the person was left looking at the library's own untranslated panel: "Error
+   * loading page / Domain: NSURLErrorDomain / Error Code: -1009", with Fayr's
+   * own hint bar above it still telling them to log in.
+   *
+   * IT ONLY EVER MEANS ANYTHING ON A SIGN IN VISIT. A reading visit is not gated,
+   * and its own error handling is unchanged.
+   */
+  const shopWillNotOpen = useCallback(() => {
+    if (!toSignIn) return;
+    // Already in, or the sign in already up: a later stray failure from some
+    // small thing on the page must not throw away a person who is signed in.
+    if (theyAreIn || signInIsUp) return;
+    setItWillNotOpen(true);
+  }, [toSignIn, theyAreIn, signInIsUp]);
 
   // When a target product is set, show only its review(s) - this is the
   // "fetch only the correct product" behaviour the background flow needs.
@@ -194,15 +275,45 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
   }, [raw]);
 
   const onMessage = useCallback((event) => {
-    setBusy(false);
     let msg;
     try {
       msg = JSON.parse(event.nativeEvent.data);
     } catch (e) {
+      setBusy(false);
       setError('Could not parse response from page.');
       setMode('results');
       return;
     }
+
+    // ── THE GATE'S OWN MESSAGES, BEFORE ANYTHING ELSE LOOKS AT THEM ─────────
+    //
+    // THIS EARLY EXIT IS THE ONE src/connect/accountName.js HAS BEEN ASKING FOR
+    // IN WRITING since the day the connected card was built. Without it a message
+    // carrying a sign in signal falls into the reader's own handler below, which
+    // treats anything without `ok` as a failed read, and the person is shown the
+    // words "Fetch failed" on a screen where nothing has failed.
+    //
+    // AND setBusy IS NOT TOUCHED HERE. It belongs to the reader's Fetch button,
+    // and a gate message is not an answer to a fetch. Clearing it would let a
+    // shop's page unstick that button by saying something we did not ask for.
+    if (isForTheGate(msg)) {
+      const said = whatTheShopSaid(msg);
+      if (said == null) return;
+      // FROM WHAT THE PAGE REALLY SAID, never a flat true. Being in and having a
+      // sign in on screen are different things, and the cover must stay on for a
+      // page that is neither.
+      if (said.signInIsUp) setSignInIsUp(true);
+      if (said.theyAreIn) {
+        setTheyAreIn(true);
+        // The name the shop itself printed, when it printed one. Never invented,
+        // and the card says the account is connected with no name when there is
+        // none. See src/connect/accountName.js.
+        if (said.accountName) rememberAccountName(platform.key, said.accountName);
+      }
+      return;
+    }
+
+    setBusy(false);
     // DEV: a session-clear probe reporting what localStorage held (e.g. Myntra
     // urt/uidx) before it was wiped. Not a fetch result - report and stop.
     if (msg && msg.__fayrClear) {
@@ -397,15 +508,62 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
     }
   }, [raw, platform]);
 
+  // ── WRITTEN DOWN, ONCE, AT THE MOMENT IT HAPPENS ──────────────────────────
+  //
+  // One row on our side: which person, which shop, when. It is one of the two
+  // steps in the whole journey that nothing recorded, so until now Fayr could not
+  // tell somebody who never went to the shop from somebody who went and gave up.
+  //
+  // OUR SIDE REFUSES A SECOND ROW, so this can be safe to call twice and is. The
+  // database holds one row per person per shop for ever and keeps the FIRST
+  // moment, because the question the row answers is "did they get this far", and
+  // a moment that keeps sliding forward cannot answer it.
+  //
+  // AND IT NEVER BLOCKS THE PERSON. A report that fails is a number missing from
+  // a report we read, not a person stuck on a shop's page. So nothing waits on it
+  // and nothing is shown about it.
+  const toldOurSide = useRef(false);
+  useEffect(() => {
+    if (!toSignIn || !theyAreIn) return;
+    if (toldOurSide.current) return;
+    toldOurSide.current = true;
+    reportShopSignIn(platform.key, 'the shop greeted them by name, or showed its own sign out');
+  }, [toSignIn, theyAreIn, platform]);
+
+  // ── AND THEN THE SHOP'S PAGE CLOSES ITSELF ────────────────────────────────
+  //
+  // Back to the offer they claimed, not to the shop's home page and not to the
+  // order list. `signedIn` on the offer screen is what moves the journey on, so
+  // the button there says "Buy the product" when they land.
+  useEffect(() => {
+    if (!toSignIn || !theyAreIn) return undefined;
+    const t = setTimeout(() => {
+      if (!navigation || typeof navigation.navigate !== 'function') return;
+      const campaignId = (route && route.params && route.params.campaignId) || null;
+      // The screen that sent them here is the one that knows what to do with a
+      // signed in shop, so it is the one they go back to.
+      navigation.navigate('linkaccount', { campaignId, marketplace: platform.key, justSignedIn: true });
+    }, SIGNED_IN_SHOWS_FOR_MS);
+    return () => clearTimeout(t);
+  }, [toSignIn, theyAreIn, navigation, route, platform]);
+
+  const ourOwnWords = gate != null && !shopMayBeSeen(gate) ? whatWeSay(gate) : null;
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       {/* The WebView stays MOUNTED even while results show, so returning from
           results doesn't reload the page and drop the logged-in session. It's
           only hidden via display:none. */}
       <View style={[styles.flexOne, mode === 'web' ? null : styles.hidden]}>
-          <View style={[styles.hintBar, { backgroundColor: platform.color }]}>
-            <Text style={styles.hintText}>{platform.hint}</Text>
-          </View>
+          {/* THE HINT BAR IS NOT DRAWN ON A SIGN IN VISIT. It tells somebody to
+              "tap Fetch my reviews", which is the reader's instruction and is
+              nothing to do with signing in. On a sign in visit the only words on
+              screen are the gate's own. */}
+          {!toSignIn ? (
+            <View style={[styles.hintBar, { backgroundColor: platform.color }]}>
+              <Text style={styles.hintText}>{platform.hint}</Text>
+            </View>
+          ) : null}
           {!sessionReady ? (
             <View style={styles.webLoading}>
               <ActivityIndicator size="large" color={platform.color} />
@@ -416,6 +574,20 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
             source={{ uri: platform.startUrl }}
             onMessage={onMessage}
             injectedJavaScriptBeforeContentLoaded={platform.beforeLoadScript}
+            // THE WATCHER, and only on a visit made to sign in. It is added AFTER
+            // the shop's own script, which is untouched: src/platforms.js keeps
+            // all twelve of its injected scripts byte for byte. It asks whether
+            // the shop's own sign in is on screen and whether the shop is
+            // greeting somebody by name, and it types nothing. See
+            // src/connect/watchSignIn.js.
+            injectedJavaScript={toSignIn ? watchSignInScript() : undefined}
+            // BOTH OF THESE WERE MISSING, and that is why the library's own
+            // "Error loading page" panel was what a person saw. The app's two
+            // other web view screens have had them all along (LiveCheckScreen,
+            // LookingForItScreen); the one somebody actually signs in through is
+            // the one that skipped them.
+            onError={shopWillNotOpen}
+            onHttpError={shopWillNotOpen}
             originWhitelist={['*']}
             sharedCookiesEnabled
             thirdPartyCookiesEnabled
@@ -459,18 +631,23 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
             startInLoadingState
           />
           )}
-          <TouchableOpacity
-            style={[styles.fetchBtn, { backgroundColor: platform.color }]}
-            onPress={fetchReviews}
-            disabled={busy}
-            activeOpacity={0.85}
-          >
-            {busy ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.fetchBtnText}>Fetch my reviews</Text>
-            )}
-          </TouchableOpacity>
+          {/* FETCH IS NOT ON A SIGN IN VISIT EITHER. The person is here to sign
+              in; a button offering to read their reviews is one more thing
+              between them and that. */}
+          {!toSignIn ? (
+            <TouchableOpacity
+              style={[styles.fetchBtn, { backgroundColor: platform.color }]}
+              onPress={fetchReviews}
+              disabled={busy}
+              activeOpacity={0.85}
+            >
+              {busy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.fetchBtnText}>Fetch my reviews</Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
           {/* DEV ONLY. DEV_TOOLS is a literal false in a production build, so
               this whole control is dead-code-eliminated and cannot be reached.
               It only bypasses the campaign filter for the NEXT fetch; the filter
@@ -502,6 +679,34 @@ export default function ConnectScreen({ platform, campaign, navigation }) {
             </View>
           ) : null}
       </View>
+      {/* ── OUR OWN SCREEN, OVER THE SHOP'S ──────────────────────────────────
+          Drawn last and absolutely filling the screen, so nothing the shop
+          serves can be underneath it and still be seen. It is the shop's home
+          page, its captcha, its "install our app" and the web view library's own
+          "Error loading page" that this covers, and every one of those reached a
+          person before today.
+
+          ONE SENTENCE, and at most one control. Every word comes from
+          src/connect/gateWords.js, which our side's own plain language check
+          reads from disk. This screen writes none of its own. */}
+      {ourOwnWords ? (
+        <View style={styles.gate} accessibilityViewIsModal>
+          {gate === OPENING_UP ? (
+            <ActivityIndicator size="large" color={platform.color} style={styles.gateSpinner} />
+          ) : null}
+          <Text style={styles.gateText}>{ourOwnWords.sentence}</Text>
+          {ourOwnWords.button ? (
+            <TouchableOpacity
+              style={styles.gateBtn}
+              onPress={tryAgain}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+            >
+              <Text style={styles.gateBtnText}>{ourOwnWords.button}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
       {mode === 'results' ? (
         <View style={styles.resultsWrap}>
           <View style={styles.resultsHeader}>
@@ -603,6 +808,27 @@ const styles = StyleSheet.create({
   // deliberate exception to the fayr palette: the user is standing inside a
   // marketplace's own site, and the brand colour is what tells them which one.
   // Flattening all seven to gold would cost real orientation for no gain.
+  // OUR OWN SCREEN OVER THE SHOP'S. Absolutely filling, and opaque, because a
+  // gap anywhere in it is the shop's page showing through.
+  gate: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: COLOR.cream,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 36,
+  },
+  gateSpinner: { marginBottom: SPACE.lg },
+  gateText: {
+    fontFamily: FONT.bodyMed, fontSize: 15.5, lineHeight: 23,
+    color: COLOR.ink, textAlign: 'center',
+  },
+  gateBtn: {
+    marginTop: SPACE.xl, paddingVertical: 14, paddingHorizontal: 34,
+    borderRadius: RADIUS.round, backgroundColor: COLOR.ink,
+  },
+  gateBtnText: { fontFamily: FONT.bodySemi, fontSize: 14.5, color: '#fff' },
+
   hintBar: {
     paddingHorizontal: SPACE.lg, paddingVertical: 11,
     borderBottomLeftRadius: RADIUS.lg, borderBottomRightRadius: RADIUS.lg,

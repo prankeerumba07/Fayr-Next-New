@@ -59,11 +59,48 @@
 /**
  * THE NAME FAYR HAS READ OFF THIS SHOP'S OWN PAGE, or null.
  *
- * Always null today. See the note above for the one line that changes that, and
- * for why writing that line means editing a file this instruction froze.
+ * THE LINE THIS FILE ASKED FOR NOW EXISTS. On 5 September 2026 the connect screen
+ * was unfrozen to build the gate over a shop's page, and the early exit this file
+ * described in writing went in with it: a message carrying a sign in signal is
+ * taken by the gate and never reaches the reader's own handler, so it can no
+ * longer be read as a failed read.
+ *
+ * SO THE NAME IS REAL NOW, and it comes from one place. The shop's own page sends
+ * the words it printed at the top of itself, readAccountName in src/signin.js
+ * decides whether those words are a name, and this remembers the answer.
+ *
+ * IT IS STILL NEVER INVENTED. readAccountName refuses "Hello, sign in", "Hello,
+ * Guest" and "Hello, there" outright, and when it answers nothing the card says
+ * the account is connected and shows no name at all.
+ *
+ * ── WHY IT IS KEPT ONLY FOR THIS RUN OF THE APP ─────────────────────────────
+ *
+ * It is not written to a file and it is not sent anywhere. A name is the closest
+ * thing to a personal detail this whole path ever touches, so it lives in memory
+ * for as long as the app is open and goes when the app does. The card then says
+ * the account is connected with no name, which is the branch that was built for
+ * exactly this and is not a blank where a name goes.
  */
+
+/** What each shop last greeted this person as. Emptied when the app closes. */
+const greetedAs = new Map();
+
+/** Remember the name a shop printed at the top of its own page. */
+export function rememberAccountName(platformKey, name) {
+  const key = String(platformKey || '').toLowerCase();
+  if (key === '') return;
+  if (typeof name !== 'string' || name.trim() === '') return;
+  greetedAs.set(key, name.trim());
+}
+
+/** The name, or null when no shop has printed one this run. */
 export function accountNameFor(platformKey) {
-  // Named so the reason is on the line itself rather than only at the top.
-  const CANNOT_READ_IT_YET = null;
-  return typeof platformKey === 'string' ? CANNOT_READ_IT_YET : CANNOT_READ_IT_YET;
+  const key = String(platformKey || '').toLowerCase();
+  const name = greetedAs.get(key);
+  return typeof name === 'string' && name !== '' ? name : null;
+}
+
+/** For a check: nothing carried over from another one. */
+export function forgetAccountNames() {
+  greetedAs.clear();
 }

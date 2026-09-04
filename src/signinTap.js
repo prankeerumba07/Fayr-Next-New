@@ -216,8 +216,15 @@ const TAP_TO_SIGN_IN = {
   }),
   // Seen: a button on Zepto's own orders page whose whole label is "Login". No
   // account entry is needed, so none is tapped.
+  //
+  // THE HOST WAS WRONG AND THE SCRIPT COULD NEVER FIRE. It read `zepto\.com`, and
+  // zepto.com redirects to ZEPTONOW.com, which does not contain the letters
+  // "zepto.com" anywhere in it. Two other files in this project already record
+  // that redirect in writing (src/ConnectScreen.js and src/session.js), so the
+  // one place that needed to know it was the one place that did not. The check
+  // next door only asked whether a script EXISTED, so a dead guard passed.
   zepto: scriptFor({
-    host: String.raw`zepto\.com`,
+    host: String.raw`zepto(now)?\.com`,
     signIn: ['login', 'log in', 'sign in'],
     door: [],
   }),

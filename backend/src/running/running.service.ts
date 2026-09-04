@@ -101,23 +101,42 @@ export class RunningService {
     // boundary that will differ by a day at a month end.
     const { start, end } = this.reports.resolveRange({});
 
-    const [tasks, markReviewed, activity, paidWithdrawals] = await Promise.all([
-      this.prisma.task.findMany({ include: { campaign: true } }),
-      this.prisma.taskEvent.groupBy({
-        by: ['taskId'],
-        where: { type: 'MARK_REVIEWED' },
-        _count: { _all: true },
-      }),
-      this.reports.activity({}),
-      this.prisma.withdrawal.count({ where: { status: 'PAID' } }),
-    ]);
+    const [tasks, markReviewed, activity, paidWithdrawals, shopSignIns] =
+      await Promise.all([
+        this.prisma.task.findMany({ include: { campaign: true } }),
+        this.prisma.taskEvent.groupBy({
+          by: ['taskId'],
+          where: { type: 'MARK_REVIEWED' },
+          _count: { _all: true },
+        }),
+        this.reports.activity({}),
+        this.prisma.withdrawal.count({ where: { status: 'PAID' } }),
+        // WHO IS SIGNED IN WHERE. Every row, read once, rather than a question per
+        // place: there are seven shops and one row per person per shop, so this is
+        // small, and a query inside a loop over every place is not.
+        this.prisma.shopSignIn.findMany({ select: { userId: true, platform: true } }),
+      ]);
 
     const reviewEvents = new Map(
       markReviewed.map((g) => [g.taskId, g._count._all]),
     );
+    // One person and one shop together, so a place can ask about its own shop and
+    // not merely about whether its person has ever signed in anywhere.
+    const signedIn = new Set(
+      shopSignIns.map((r) => `${r.userId}::${r.platform}`),
+    );
     const rowOf = (t: TaskWithCampaign): JourneyRow => ({
       state: t.state,
       closeReason: t.closeReason,
+      // The shop frozen on the place at the moment it was taken, never the
+      // offer's shop as it is today.
+      //
+      // THIS LINE WAS BRIEFLY WRONG AND IT IS WORTH RECORDING WHY. It read
+      //   signedIn.has(...) || shopSignIns.some((r) => r.platform === t.platform)
+      // which counts a place whenever ANYBODY has signed in at that shop. One
+      // person signing in to Amazon would have counted every Amazon place on the
+      // system. It is one person and one shop TOGETHER, or it is not this place.
+      signedInAtThisShop: signedIn.has(`${t.userId}::${t.platform}`),
       orderId: t.orderId,
       deliveredAt: t.deliveredAt,
       reviewPublished: t.reviewPublished,
@@ -202,8 +221,8 @@ export class RunningService {
       ),
       step(
         STEPS.signedInAtTheShop,
-        notWatching(STEPS.signedInAtTheShop.whatItWouldTake),
-        notWatching(STEPS.signedInAtTheShop.whatItWouldTake),
+        counted(all.signedInAtTheShop),
+        counted(cohort.signedInAtTheShop),
       ),
       step(
         STEPS.gaveUsTheirOrder,

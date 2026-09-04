@@ -20,6 +20,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ReportModule } from './reports/report.module';
 import { RunningModule } from './running/running.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { ShopModule } from './shops/shop.module';
 import { CampaignHealthModule } from './campaign-health/campaign-health.module';
 import { SupportModule } from './support/support.module';
 import { TaskModule } from './tasks/task.module';
@@ -79,6 +80,7 @@ import { WithdrawalModule } from './withdrawals/withdrawal.module';
     WithdrawalModule,
     ReportModule,
     RunningModule,
+    ShopModule,
     OcrModule,
   ],
   providers: [

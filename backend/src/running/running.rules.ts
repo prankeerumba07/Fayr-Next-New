@@ -130,6 +130,18 @@ export function dropBetween(above: Reading, here: Reading): Drop {
 export interface JourneyRow {
   state: TaskState;
   closeReason: string | null;
+  /**
+   * Whether this place's person is recorded as signed in at THIS place's shop.
+   *
+   * A place, not a person: this row sits between "took a place" and "order
+   * established", and both of those count places, so counting people here would
+   * put a number beside two it cannot be compared with.
+   *
+   * The shop is the one frozen on the place at the moment it was taken, never the
+   * offer's shop as it is today, for the same reason every other figure on this
+   * page reads the frozen column.
+   */
+  signedInAtThisShop: boolean;
   orderId: string | null;
   deliveredAt: Date | null;
   reviewPublished: boolean | null;
@@ -140,6 +152,8 @@ export interface JourneyRow {
 
 export interface JourneyFacts {
   tookAPlace: number;
+  /** Places whose person is recorded as signed in at that place's own shop. */
+  signedInAtTheShop: number;
   gaveUsTheirOrder: number;
   orderEstablished: number;
   productArrived: number;
@@ -152,6 +166,7 @@ export interface JourneyFacts {
 export function factsOf(rows: readonly JourneyRow[], now: Date): JourneyFacts {
   return {
     tookAPlace: rows.length,
+    signedInAtTheShop: rows.filter((r) => r.signedInAtThisShop).length,
     gaveUsTheirOrder: rows.filter((r) => r.orderConfirmed).length,
     orderEstablished: rows.filter((r) => r.orderId != null).length,
     productArrived: rows.filter((r) => r.deliveredAt != null).length,

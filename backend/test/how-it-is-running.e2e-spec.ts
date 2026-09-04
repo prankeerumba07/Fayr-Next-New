@@ -482,12 +482,19 @@ describe('How Fayr is running (e2e)', () => {
       const took = page.journey.steps[0];
       expect(took.everythingSoFar).toEqual({ kind: 'counted', count: 0 });
 
-      // The two steps nothing records say so in BOTH columns, and never nought.
-      for (const i of [1, 2]) {
-        expect(page.journey.steps[i].everythingSoFar.kind).toBe('not-watching');
-        expect(page.journey.steps[i].lastThirtyDays.kind).toBe('not-watching');
-        expect(page.journey.steps[i].whatItWouldTake).toBeTruthy();
-      }
+      // THE STEP NOTHING RECORDS says so in BOTH columns, and never nought.
+      // There used to be two of these. Signing in at the shop became a real count
+      // on 5 September 2026, so going to the shop is the only one left.
+      expect(page.journey.steps[1].everythingSoFar.kind).toBe('not-watching');
+      expect(page.journey.steps[1].lastThirtyDays.kind).toBe('not-watching');
+      expect(page.journey.steps[1].whatItWouldTake).toBeTruthy();
+
+      // And signing in is a REAL NOUGHT on an empty database: we counted rows and
+      // there were none. That is a different sentence from nobody watching, and
+      // the whole page turns on the difference.
+      expect(page.journey.steps[2].everythingSoFar).toEqual({ kind: 'counted', count: 0 });
+      expect(page.journey.steps[2].lastThirtyDays).toEqual({ kind: 'counted', count: 0 });
+      expect(page.journey.steps[2].whatItWouldTake).toBeNull();
 
       // Money that has never moved has nothing to read, not a nought.
       expect(page.money.lines[0].amount).toEqual({ kind: 'nothing-yet' });
@@ -548,7 +555,7 @@ describe('How Fayr is running (e2e)', () => {
       // Worked out by hand from the world above:
       //   took a place        T1..T8, T10..T13, T9          = 13
       //   went to the shop    nothing records it
-      //   signed in           nothing records it
+      //   signed in           no shop sign in row was written = 0
       //   gave us their order T8 alone                      = 1
       //   order established   T4 T5 T6 T7 T8 T10 T11 T13    = 8
       //   product arrived     the same eight                = 8
@@ -558,7 +565,8 @@ describe('How Fayr is running (e2e)', () => {
       //   money taken out     one payout marked paid        = 1
       expect(soFar[0]).toEqual({ kind: 'counted', count: 13 });
       expect(soFar[1].kind).toBe(NOT_WATCHED);
-      expect(soFar[2].kind).toBe(NOT_WATCHED);
+      // A real nought, not an excuse: this world records no shop sign in at all.
+      expect(soFar[2]).toEqual({ kind: 'counted', count: 0 });
       expect(soFar[3]).toEqual({ kind: 'counted', count: 1 });
       expect(soFar[4]).toEqual({ kind: 'counted', count: 8 });
       expect(soFar[5]).toEqual({ kind: 'counted', count: 8 });
@@ -573,6 +581,8 @@ describe('How Fayr is running (e2e)', () => {
       // T12 is inside this window and T9 is not, so the thirty-day column is one
       // lower than everything so far, and NOT the same as a seven-day window.
       expect(thirty[0]).toEqual({ kind: 'counted', count: 12 });
+      // No shop sign in in this world, in either column.
+      expect(thirty[2]).toEqual({ kind: 'counted', count: 0 });
       expect(thirty[3]).toEqual({ kind: 'counted', count: 1 });
       expect(thirty[4]).toEqual({ kind: 'counted', count: 8 });
       expect(thirty[6]).toEqual({ kind: 'counted', count: 6 });
@@ -603,12 +613,22 @@ describe('How Fayr is running (e2e)', () => {
 
       expect(drops[0]).toBeNull(); // nothing above the first step
       expect(drops[1].kind).toBe('cannot-tell');
+      // Signing in is counted now, but the step ABOVE it is not, so the drop into
+      // it still cannot be told. That is the rule and it has not changed.
       expect(drops[2].kind).toBe('cannot-tell');
       // Confirming an order is not a step on the way, so no drop is shown.
       expect(drops[3].kind).toBe('not-a-step');
-      // And the step BELOW it measures itself from the last step on the path,
-      // which is an unwatched one, so it cannot be told either.
-      expect(drops[4].kind).toBe('cannot-tell');
+      // AND HERE IS THE ONE THE NEW COUNT CHANGES, on purpose.
+      //
+      // Eight places established an order and NOT ONE has a sign in recorded,
+      // because this world writes no sign in row at all. So the funnel really
+      // does go backwards here, by eight, and the page says exactly that instead
+      // of hiding it or clamping it to nought. It is the honest answer for every
+      // place taken before the phone started telling our side, and the page's own
+      // list of what is not real yet says so in words.
+      expect(drops[4].kind).toBe('does-not-line-up');
+      expect(drops[4].by).toBe(8);
+      expect(drops[4].why).toContain('8 more places than the step above it');
       // 8 arrived out of 8 established, so nobody dropped out. A nought drop is
       // still shown, because "nobody dropped out" is worth reading.
       expect(drops[5]).toEqual({ kind: 'dropped', count: 0 });
@@ -950,7 +970,11 @@ describe('How Fayr is running (e2e)', () => {
       expect(all).toContain('Nobody is ever told anything');
       expect(all).toContain('practice data');
       expect(all).toContain('has ever been checked against the real shop');
-      expect(all).toContain('are not recorded at all');
+      expect(all).toContain('is not recorded at all');
+      // AND THE CATCH ON THE NEW NUMBER IS ADMITTED, in the list of gaps rather
+      // than hidden beside the number.
+      expect(all).toContain('counted only from the day the phone started');
+      expect(all).toContain('can read lower than the row under it');
     });
 
     it('changes nothing at all. Reading it twice reads the same', async () => {

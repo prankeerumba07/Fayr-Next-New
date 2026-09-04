@@ -261,9 +261,18 @@ describe('the sentences that carry the most weight', () => {
     expect(HELD.leadOne).toContain('Held is a decision');
   });
 
-  it('admits the two steps nothing records rather than dropping them', () => {
+  it('admits the step nothing records rather than dropping it', () => {
+    // THIS USED TO BE TWO. On 5 September 2026 signing in at the shop became a
+    // real count: the phone now tells our side the moment a shop's own page
+    // treats somebody as signed in. Going to the shop is still not recorded, and
+    // is still admitted rather than dropped.
     expect(STEPS.wentToTheShop.whatItWouldTake.length).toBeGreaterThan(20);
-    expect(STEPS.signedInAtTheShop.whatItWouldTake.length).toBeGreaterThan(20);
+    // And the row that became real must NOT still carry an excuse, because a row
+    // with a number and a reason nobody is watching it is a contradiction.
+    expect('whatItWouldTake' in STEPS.signedInAtTheShop).toBe(false);
+    // It says what the number is and, in the same breath, what it is not.
+    expect(STEPS.signedInAtTheShop.meaning).toContain('not proof');
+    expect(STEPS.signedInAtTheShop.meaning).toContain('moves no money');
   });
 
   it('says what is not real yet, at length, including the awkward parts', () => {
@@ -274,6 +283,7 @@ describe('the sentences that carry the most weight', () => {
     expect(all).toContain('practice data');
     expect(all).toContain('has ever been checked against the real shop');
     expect(all).toContain('not recorded at all');
+    expect(all).toContain('counted only from the day the phone started');
   });
 
   it('says yesterday and today rather than a bare day count', () => {

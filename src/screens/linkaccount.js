@@ -120,6 +120,25 @@ export default function LinkAccountScreen({ navigation, route }) {
     return navigation.addListener('focus', () => setSent((was) => was));
   }, [navigation]);
 
+  // ── FAYR SAW IT HAPPEN, SO NOBODY HAS TO SAY SO ───────────────────────────
+  //
+  // The gate over the shop's page (src/connect/gate.js) closes the shop itself
+  // the moment the shop's own page treats this person as signed in, and comes
+  // back here saying so. That is the whole of what the note at the top of this
+  // file described as not built, and it is built now.
+  //
+  // THE "I HAVE SIGNED IN" BUTTON IS STILL THERE, and it has to be. Fayr sees the
+  // sign in on the two signals a shop really gives — greeting somebody by name,
+  // or showing its own sign out — and a shop that gives neither leaves somebody
+  // with no way forward. So the button remains the way through when Fayr could
+  // not see it, and it is no longer the ONLY way.
+  useEffect(() => {
+    if (params.justSignedIn !== true) return;
+    if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
+    setConnected(true);
+    setSent(true);
+  }, [params.justSignedIn, campaignId]);
+
   /** Tapping connect. The sheet comes up; nothing opens yet. */
   const askFirst = useCallback(() => setSheetUp(true), []);
 
@@ -143,10 +162,15 @@ export default function LinkAccountScreen({ navigation, route }) {
   }, [campaignId, params, navigation]);
 
   const opens = PLATFORMS[key] ? PLATFORMS[key].startUrl : null;
+  // OPENING THE SHOP'S OWN APP NO LONGER COUNTS AS SIGNING IN, and it should
+  // never have. It marked the shop connected BEFORE it had even opened, and
+  // openShopApp can come back having opened nothing at all. So somebody who
+  // tapped this and went nowhere was moved on to "buy the product" having signed
+  // in to nothing, which is the exact hole the note at the top of this file says
+  // was closed. It was closed for one of the two buttons.
   const openTheirApp = useCallback(async () => {
-    if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
     await openShopApp(key, opens);
-  }, [key, opens, campaignId]);
+  }, [key, opens]);
 
   return (
     <Screen bg={COLOR.cream}>

@@ -242,13 +242,49 @@ t('all seven shops are accounted for, so none was quietly left out', () => {
 
 // ── 6. THE FIND AND TAP SCRIPT MAY ONLY DO ONE THING ────────────────────────
 
-t('a script is only ever handed to the shop it was written for', () => {
+// THIS CHECK USED TO BE WHY A DEAD GUARD PASSED.
+//
+// It asked whether the script CONTAINED the shop's host as text. Zepto's guard
+// read `zepto\.com` and contained it, so the check passed. But zepto.com
+// REDIRECTS to zeptonow.com, and "zeptonow.com" does not contain the letters
+// "zepto.com" anywhere in it, so the guard could never match and the script could
+// never fire. Two other files in this project already recorded that redirect in
+// writing; the one place that needed to know it was the one place that did not.
+//
+// SO IT NOW RUNS THE GUARD. The host pattern is pulled out of the script and
+// tested against the shop's own host, against the host it really redirects to,
+// and against another shop's host, which must not match. Containing the right
+// letters is no longer enough.
+t('a script is only ever handed to the shop it was written for, and really matches it', () => {
+  // The hosts each shop really ends up on, watched in a real browser and recorded
+  // in src/ConnectScreen.js and src/session.js.
+  const ALSO_ENDS_UP_ON = {
+    zepto: ['www.zeptonow.com', 'zeptonow.com'],
+    flipkart: ['www.flipkart.com'],
+    blinkit: ['blinkit.com', 'www.blinkit.com'],
+  };
   for (const key of shopsThatTapToSignIn()) {
     const script = signInTapScript(key);
-    const host = new URL(PLATFORMS[key].startUrl).host.replace(/^www\./, '');
-    ok(script.includes(host.replace('.', '\\.')),
-      `${key}'s script must check it is on ${host} before it does anything, so a `
-      + 'sign in that hands off to another company is left completely alone');
+    const host = new URL(PLATFORMS[key].startUrl).host;
+
+    // The guard as the script really uses it: /^.../.test(location.host).
+    const guard = /if \(!\/([^/]+)\/\.test\(location\.host\)\) return;/.exec(script);
+    ok(guard != null, `${key}'s script must guard on the host before it does anything`);
+    const pattern = new RegExp(guard[1]);
+
+    ok(pattern.test(host),
+      `${key}'s guard must match its own host ${host}, or the script never runs`);
+    for (const later of ALSO_ENDS_UP_ON[key] || []) {
+      ok(pattern.test(later),
+        `${key}'s guard must also match ${later}, which is where the shop really `
+        + 'sends the phone. A guard that does not is a script that never fires.');
+    }
+    // And it must not wander onto another company's page: a sign in that hands
+    // off elsewhere is left completely alone.
+    for (const somebodyElse of ['accounts.google.com', 'www.amazon.in', 'www.facebook.com']) {
+      ok(!pattern.test(somebodyElse),
+        `${key}'s guard must NOT match ${somebodyElse}`);
+    }
   }
 });
 

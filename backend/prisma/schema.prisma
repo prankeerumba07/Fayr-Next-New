@@ -72,6 +72,7 @@ model User {
   screenshotUploads  ScreenshotUpload[]
   assistantQuestions AssistantQuestion[]
   chats              Chat[]
+  shopSignIns        ShopSignIn[]
 
   @@map("users")
 }
@@ -264,6 +265,41 @@ model Campaign {
 /// this row. Fields the DB must query or constrain are promoted to columns; the
 /// exact nested evidence the pure functions emit lives in `evidence` (JSONB), so
 /// transition() can hydrate and run unchanged.
+/// SOMEBODY SIGNED IN AT A SHOP, AND WHEN.
+///
+/// ONE OF THE TWO STEPS IN THE WHOLE JOURNEY THAT NOTHING RECORDED. Before this
+/// table, Fayr could not tell somebody who never went to the shop from somebody
+/// who went and gave up: both looked identical from our side, because signing in
+/// happens on the shop's own page and nothing about it reached us.
+///
+/// ONE ROW PER PERSON PER SHOP, FOR EVER, and the database enforces it rather
+/// than the code hoping. `firstAt` is the FIRST time it happened and is never
+/// moved, because the question this table answers is "did they get this far",
+/// and a moment that keeps sliding forward cannot answer it.
+///
+/// WHAT IS DELIBERATELY NOT HERE: no password, no code, no cookie, no token, no
+/// account number, and no name. Fayr never sees a single thing somebody types on
+/// a shop's page, so there is nothing of that kind to store. This row says one
+/// person got signed in at one shop at one moment, and nothing else.
+model ShopSignIn {
+  id       String   @id @default(uuid()) @db.Uuid
+  userId   String   @db.Uuid
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform Platform
+
+  /// The first time this person was seen signed in at this shop. Never updated.
+  firstAt DateTime @default(now())
+  /// How Fayr knew. Words, so a row can be read a year later without the code.
+  howWeKnew String
+
+  createdAt DateTime @default(now())
+
+  /// The rule that makes "written down exactly once" a fact and not an intention.
+  @@unique([userId, platform])
+  @@index([platform])
+  @@map("shop_sign_ins")
+}
+
 model Task {
   id         String   @id @default(uuid()) @db.Uuid
   userId     String   @db.Uuid

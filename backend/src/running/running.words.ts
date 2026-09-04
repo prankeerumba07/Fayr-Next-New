@@ -112,11 +112,11 @@ export const STEPS = {
   },
   signedInAtTheShop: {
     step: 'Signed in at the shop',
+    // WHAT THIS NUMBER IS, AND WHAT IT IS NOT, because it is the one row on this
+    // page that rests on what a phone saw rather than on what our side did.
     meaning:
-      "Signing in happens on the shop's own page, and nothing about it reaches "
-      + 'our side.',
-    whatItWouldTake:
-      'The phone would have to tell our side that a shop account was signed in to.',
+      'The phone saw the shop treat this person as signed in, and told our side. '
+      + 'It is not proof about any order, and it moves no money.',
   },
   gaveUsTheirOrder: {
     step: 'Gave us their order',
@@ -425,9 +425,16 @@ export const NOT_REAL_YET = {
     'Most of what is on this page came from practice data rather than real use. '
       + 'Every place that got past the first step was built by the practice script.',
     'No offer page has ever been checked against the real shop.',
-    'Two steps of the journey are not recorded at all. '
-      + 'Going to the shop and signing in at the shop both happen inside the phone, '
-      + 'and the phone tells our side nothing.',
+    'One step of the journey is not recorded at all. '
+      + 'Going to the shop happens inside the phone, '
+      + 'and the phone tells our side nothing about it.',
+    // THE HONEST CATCH ON THE NEW NUMBER, and it belongs here rather than beside
+    // the number, because it is a gap and this is the list of gaps.
+    'Signing in at the shop is counted only from the day the phone started '
+      + 'telling our side. '
+      + 'A place taken before that shows no sign in, however far it got. '
+      + 'So that row can read lower than the row under it, and the page says so '
+      + 'rather than hiding it.',
     'Two of the six held reasons cannot be cleared by anybody today. '
       + 'The staff list only shows the four a person has a control for. '
       + 'So a refund held for either of the other two has nobody looking at it.',

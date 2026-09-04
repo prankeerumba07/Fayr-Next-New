@@ -49,6 +49,7 @@ function row(over: Partial<JourneyRow> = {}): JourneyRow {
   return {
     state: 'CLAIMED' as TaskState,
     closeReason: null,
+    signedInAtThisShop: false,
     orderId: null,
     deliveredAt: null,
     reviewPublished: null,
@@ -162,14 +163,19 @@ describe('the journey facts', () => {
   it('counts each step off the column that records it happening', () => {
     const rows = [
       row(),
-      row({ orderConfirmed: true, orderId: 'A1' }),
-      row({ orderId: 'A2', deliveredAt: new Date('2026-08-20T00:00:00Z') }),
+      row({ orderConfirmed: true, orderId: 'A1', signedInAtThisShop: true }),
+      row({
+        orderId: 'A2',
+        deliveredAt: new Date('2026-08-20T00:00:00Z'),
+        signedInAtThisShop: true,
+      }),
       row({
         orderId: 'A3',
         deliveredAt: new Date('2026-08-21T00:00:00Z'),
         reviewPublished: true,
         markReviewedEvents: 1,
         windowEndsAt: new Date('2026-08-28T00:00:00Z'),
+        signedInAtThisShop: true,
       }),
       row({
         orderId: 'A4',
@@ -179,6 +185,9 @@ describe('the journey facts', () => {
     ];
     expect(factsOf(rows, NOW)).toEqual({
       tookAPlace: 5,
+      // Three of the five. NOT the same as any other number here, so a count
+      // that read the wrong column would show.
+      signedInAtTheShop: 3,
       gaveUsTheirOrder: 1,
       orderEstablished: 4,
       productArrived: 2,
@@ -187,6 +196,23 @@ describe('the journey facts', () => {
       // One window has passed; the December one has not.
       returnTimeFinished: 1,
     });
+  });
+
+  it('counts signing in off its own column and nothing else', () => {
+    // A place whose person signed in but which has got no further, and a place
+    // that has got all the way with no sign in recorded. Neither is possible to
+    // read off any other column, which is the point.
+    const rows = [
+      row({ signedInAtThisShop: true }),
+      row({
+        signedInAtThisShop: false,
+        orderId: 'B1',
+        deliveredAt: new Date('2026-08-20T00:00:00Z'),
+        reviewPublished: true,
+      }),
+    ];
+    expect(factsOf(rows, NOW).signedInAtTheShop).toBe(1);
+    expect(factsOf([], NOW).signedInAtTheShop).toBe(0);
   });
 
   it('reads a review that has not been marked as unknown, never as false', () => {
