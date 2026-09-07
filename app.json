@@ -6,7 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.fayr"
@@ -32,7 +31,9 @@
         {
           "photosPermission": "Fayr needs your photo library so you can send a screenshot of your order or review as proof. Only the image you pick is uploaded."
         }
-      ]
+      ],
+      "expo-sharing",
+      "expo-status-bar"
     ]
   }
 }

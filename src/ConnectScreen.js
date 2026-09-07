@@ -939,14 +939,14 @@ const styles = StyleSheet.create({
   // DELIBERATELY still an OPAQUE fill: this overlays the WebView, which stays
   // MOUNTED underneath so returning from results doesn't reload the page and drop
   // the marketplace session. Any transparency would show the page through it.
-  // The colour may change; absoluteFillObject and opacity must not.
-  resultsWrap: { ...StyleSheet.absoluteFillObject, backgroundColor: COLOR.homeBg },
+  // The colour may change; absoluteFill and opacity must not.
+  resultsWrap: { ...StyleSheet.absoluteFill, backgroundColor: COLOR.homeBg },
   // Stays WHITE, not cream, and not for consistency's sake: this sits where the
   // page will paint, and a non-white ground shows as a coloured flash before a
   // heavy SPA (Zepto/Blinkit/Swiggy) puts anything up. Matches the WebView's own
   // backgroundColor for exactly that reason.
   webLoading: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
   },
   // The hint bar keeps `platform.color` as its ground (applied inline). That is a

@@ -87,7 +87,7 @@ export default function TruecallerScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(20,20,20,.45)' },
+  scrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(20,20,20,.45)' },
   above: { flex: 1 },
   sheet: {
     backgroundColor: '#fff',
