@@ -44,5 +44,27 @@ export const TRY_AGAIN = 'Try again';
  */
 export const SIGNED_IN = 'You are signed in. Taking you back to your offer.';
 
+/**
+ * WHEN THE SIGN IN HAS GONE AND THE SHOP WILL NOT SAY WHETHER IT WORKED.
+ *
+ * THE OWNER FOUND THIS ON A REAL PHONE. He signed in at Flipkart, Flipkart took
+ * him to its own home page, and Fayr left him sitting on it. Flipkart's home page
+ * prints no greeting and shows no way out, so the two things Fayr can really see
+ * were both absent.
+ *
+ * IT DOES NOT SAY THEY ARE SIGNED IN, and that is the whole point of the wording.
+ * A signed out Flipkart home page and a signed in one are the same page as far as
+ * anything Fayr can read, which was measured rather than assumed. So this states
+ * the one thing that IS known and asks, and the two controls under it are the two
+ * things that really might have happened.
+ */
+export const NOT_SURE =
+  'The shop stopped showing a sign in, and we cannot tell if it worked.';
+
+/** Their own answer, when Fayr could not see it for itself. */
+export const I_HAVE_SIGNED_IN = 'Yes, I have signed in';
+
 /** Every sentence in this file, for the check on our side that walks them. */
-export const EVERY_SENTENCE = [OPENING, DID_NOT_OPEN, TRY_AGAIN, SIGNED_IN];
+export const EVERY_SENTENCE = [
+  OPENING, DID_NOT_OPEN, TRY_AGAIN, SIGNED_IN, NOT_SURE, I_HAVE_SIGNED_IN,
+];

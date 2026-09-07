@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { checkPlainLanguage } from '../assistant/plain-language';
 import { shopsThatTapToSignIn } from './tap-boundary';
@@ -76,7 +76,7 @@ describe('the words on the shop connect screen', () => {
 
   it('really found the sentences, so an empty walk cannot pass', () => {
     const sentences = everySentence();
-    expect(sentences.length).toBeGreaterThanOrEqual(4);
+    expect(sentences.length).toBeGreaterThanOrEqual(6);
     // The loading sentence the owner asked for, by name, so a rename shows here.
     expect(sentences.join(' ')).toContain('Opening the shop so you can sign in');
   });
@@ -106,6 +106,46 @@ describe('the words on the shop connect screen', () => {
     expect(wordsFile).toContain('The shop did not open. Please try again.');
     expect(wordsFile).toContain("export const TRY_AGAIN = 'Try again';");
   });
+
+  /**
+   * THE SENTENCE THAT ASKS, AND THE ONE THING IT MUST NEVER SAY.
+   *
+   * The owner signed in at Flipkart on a real phone and Flipkart left him on its
+   * own home page. Flipkart's home page shows no greeting and no way out, and it
+   * was measured on 6 September 2026 to show no way IN either when signed out. So
+   * Fayr cannot tell a signed in Flipkart home page from a signed out one, and the
+   * screen that comes up must say exactly that and never more.
+   */
+  it('the sentence that asks never claims anybody is signed in', () => {
+    const asking = /export const NOT_SURE =\s*\n?\s*'([^']+)'/.exec(wordsFile);
+    expect(asking).not.toBeNull();
+    const said = asking![1];
+    expect(said).not.toMatch(/you are signed in/i);
+    expect(said).toMatch(/cannot tell/i);
+    // And the answer somebody gives is plainly an answer they give.
+    expect(wordsFile).toContain("export const I_HAVE_SIGNED_IN = 'Yes, I have signed in';");
+  });
+
+  /**
+   * A NEW WORDS FILE THAT NOTHING READS.
+   *
+   * The whole arrangement here rests on the words living in ONE file that this
+   * check opens from disk. A second file of sentences in the same folder would be
+   * read by nobody and would never go through the plain language rule at all, so
+   * this fails loudly the day one appears.
+   */
+  it('and no second file of sentences appears in that folder unread', () => {
+    const folder = resolve(REPO, 'src/connect');
+    const known = new Set([
+      'gateWords.js',       // the sentences, walked above
+      'sheetWords.js',      // the sign in sheet, walked by the app's own check
+      'gate.js', 'pageQuestions.js', 'watchSignIn.js', 'accountName.js',
+      'SignInSheet.js',
+      'gate.test.mjs', 'connect.test.mjs',
+    ]);
+    const unknown = readdirSync(folder).filter((name) => !known.has(name));
+    expect(unknown).toEqual([]);
+  });
 });
 
 describe('Fayr never types anything into a shop’s page', () => {
@@ -113,6 +153,7 @@ describe('Fayr never types anything into a shop’s page', () => {
   const IN_THIS_PATH = [
     'src/connect/gate.js',
     'src/connect/watchSignIn.js',
+    'src/connect/pageQuestions.js',
     'src/connect/gateWords.js',
     'src/ConnectScreen.js',
   ] as const;
@@ -165,28 +206,58 @@ describe('Fayr never types anything into a shop’s page', () => {
   }
 
   it('the watcher only ever LOOKS: it never taps and never takes a field', () => {
-    const code = withoutComments(read('src/connect/watchSignIn.js'));
-    // Not one tap of any kind, on anything, anywhere in it.
-    expect(code.includes('.click(')).toBe(false);
-    // And it never puts the cursor in a field either, which is the step before
-    // typing and has no other reason to be there.
-    expect(code.includes('.focus()')).toBe(false);
+    // BOTH FILES, because the questions the watcher asks now live next door and a
+    // tap could be added there just as easily.
+    for (const file of ['src/connect/watchSignIn.js', 'src/connect/pageQuestions.js']) {
+      const code = withoutComments(read(file));
+      // Not one tap of any kind, on anything, anywhere in it.
+      expect({ file, taps: code.includes('.click(') }).toEqual({ file, taps: false });
+      // And it never puts the cursor in a field either, which is the step before
+      // typing and has no other reason to be there.
+      expect({ file, focuses: code.includes('.focus()') }).toEqual({ file, focuses: false });
+    }
   });
 
   it('the watcher stays away from a puzzle and from a paying page', () => {
-    const source = read('src/connect/watchSignIn.js');
+    // The questions moved into one shared file on 6 September 2026, so this looks
+    // where they live now AND checks the watcher really uses them.
+    const questions = read('src/connect/pageQuestions.js');
+    const watcher = read('src/connect/watchSignIn.js');
     // It knows what a puzzle looks like, in the shops' own words.
-    expect(source).toContain('captcha');
-    expect(source).toContain('not a robot');
-    expect(source).toContain('are you a human');
+    expect(questions).toContain('captcha');
+    expect(questions).toContain('not a robot');
+    expect(questions).toContain('are you a human');
+    expect(watcher).toContain('IS_A_PUZZLE');
     // And it leaves a checkout, a cart and a payment page completely alone.
-    const leaveAlone = /LEAVE_ALONE[\s\S]{0,300}/.exec(source)?.[0] ?? '';
+    const leaveAlone = /PAYING_PATH[\s\S]{0,300}/.exec(questions)?.[0] ?? '';
     for (const page of ['checkout', 'cart', 'payment']) {
       expect(leaveAlone).toContain(page);
     }
+    expect(watcher).toContain('PAYING_PATH');
     // On either of those it says NOTHING, rather than reporting a sign in it
     // cannot see. The person stays on our own screen.
-    expect(source).toContain('say nothing at all');
+    expect(watcher).toContain('say nothing at all');
+  });
+
+  /**
+   * THE WATCHER DECIDES NOTHING, AND THAT IS THE POINT OF THE REWRITE.
+   *
+   * It used to work out for itself whether somebody was signed in, inside the
+   * shop's page, where no check could ever reach it. Now it gathers facts and our
+   * own side decides, so every combination of what a shop might show is walked
+   * under node in src/connect/gate.test.mjs.
+   */
+  it('the watcher gathers facts and never reaches a verdict of its own', () => {
+    const code = withoutComments(read('src/connect/watchSignIn.js'));
+    // It may not name any of the three answers. Those are the gate's to give.
+    for (const verdict of ['"in"', "'in'", '"up"', "'up'", '"gone"', "'gone'"]) {
+      expect({ verdict, said: code.includes(verdict) }).toEqual({ verdict, said: false });
+    }
+    // What it sends is a bag of facts under one name, and nothing else.
+    expect(code).toContain('__fayrPage');
+    expect(code).toContain('signInControlIsThere');
+    expect(code).toContain('signOutIsThere');
+    expect(code).toContain('looksInARow');
   });
 
   it('the gate writes no sentence of its own', () => {
@@ -230,6 +301,13 @@ describe('Fayr never types anything into a shop’s page', () => {
 describe('the one place Fayr taps, and its boundary', () => {
   const source = read('src/signinTap.js');
   const code = withoutComments(source);
+  // THE QUESTIONS IT ASKS MOVED NEXT DOOR ON 6 SEPTEMBER 2026, into one shared
+  // file, because they had been written out twice and had already drifted: this
+  // script counted only a telephone box as a sign in and the watcher counted a
+  // telephone box or a password box. So some of the rules below are read from
+  // there, and each one also asserts that this script really uses that file.
+  const questions = read('src/connect/pageQuestions.js');
+  const questionsCode = withoutComments(questions);
 
   it('taps for exactly three shops, and they are the three with no sign in page', () => {
     expect(shopsThatTapToSignIn()).toEqual(['flipkart', 'zepto', 'blinkit']);
@@ -249,6 +327,7 @@ describe('the one place Fayr taps, and its boundary', () => {
       'HTMLInputElement.prototype', 'document.forms',
     ]) {
       expect({ shape, present: code.includes(shape) }).toEqual({ shape, present: false });
+      expect({ shape, next: questionsCode.includes(shape) }).toEqual({ shape, next: false });
     }
   });
 
@@ -257,14 +336,36 @@ describe('the one place Fayr taps, and its boundary', () => {
       '.value)', '.value;', 'document.cookie', 'localStorage', 'sessionStorage',
     ]) {
       expect({ shape, present: code.includes(shape) }).toEqual({ shape, present: false });
+      expect({ shape, next: questionsCode.includes(shape) }).toEqual({ shape, next: false });
     }
   });
 
+  /**
+   * THE WORD PASSWORD IS ALLOWED IN EXACTLY ONE SHAPE.
+   *
+   * The shared question knows a password box is a sign in box, because Amazon's
+   * second sign in page carries one and nothing else, and knowing that is what
+   * makes the tap script STOP there. Knowing what a box IS and reading what is in
+   * one are different things, and only the second is forbidden.
+   */
+  it('and where a password is named, it is a box’s type and never a thing read', () => {
+    // The CODE, with the prose taken out. A comment may say the word; a line that
+    // runs inside somebody's page may only ask a box what type it is.
+    const every = [...questionsCode.matchAll(/password/g)];
+    expect(every.length).toBeGreaterThan(0);
+    for (const at of every) {
+      const around = questionsCode.slice(Math.max(0, at.index - 40), at.index + 20);
+      expect(around).toMatch(/type === "password"/);
+    }
+    expect(questionsCode.includes('.value')).toBe(false);
+  });
+
   it('leaves a checkout, a cart and a payment page completely alone', () => {
-    const leaveAlone = /LEAVE_ALONE[\s\S]{0,200}/.exec(source)?.[0] ?? '';
+    const leaveAlone = /PAYING_PATH[\s\S]{0,200}/.exec(questions)?.[0] ?? '';
     for (const page of ['checkout', 'cart', 'payment']) {
       expect(leaveAlone).toContain(page);
     }
+    expect(code).toContain('PAYING_PATH');
   });
 
   it('stops for good the moment the shop’s own sign in is up', () => {
@@ -281,9 +382,52 @@ describe('the one place Fayr taps, and its boundary', () => {
 
   it('matches a whole label and never part of one', () => {
     // So "log out" and "reorder" can never be hit by a rule looking for "log".
-    expect(code).toContain('if (text !== words[w] && aria !== words[w]) continue;');
+    expect(questions).toContain('if (text !== words[w] && aria !== words[w]) continue;');
     // And a wrapper holding half the page cannot match the words of its children.
-    expect(code).toContain('if (el.children.length > 1) continue;');
+    expect(questions).toContain('if (el.children.length > 1) continue;');
+    // And this script really uses that one matcher rather than a copy of its own.
+    expect(code).toContain('WHOLE_LABEL');
+    expect(code.includes('function fayrWholeLabel(')).toBe(false);
+  });
+
+  /**
+   * ONE ANSWER TO "IS THIS A SIGN IN PAGE", AND THE OWNER NAMED THE REASON.
+   *
+   * "It is written out twice today, in watchSignIn.js and signinTap.js, and a
+   * third copy in the screen is how they start disagreeing."
+   */
+  it('and the shop’s own sign in paths are written down exactly once', () => {
+    const holdsIt: string[] = [];
+    for (const file of [
+      'src/connect/pageQuestions.js',
+      'src/connect/gate.js',
+      'src/connect/watchSignIn.js',
+      'src/signinTap.js',
+      'src/ConnectScreen.js',
+    ]) {
+      if (/login\|signin\|sign-in\|auth/.test(read(file))) holdsIt.push(file);
+    }
+    expect(holdsIt).toEqual(['src/connect/pageQuestions.js']);
+  });
+
+  /**
+   * AND THAT ONE ANSWER COVERS AMAZON'S WHOLE SIGN IN, not only its first page.
+   *
+   * Amazon asks for the number on one page and the code or the password on the
+   * next. Both are its own sign in pages, so the cover over the shop must not come
+   * back on between them. Every step of an Amazon sign in is under /ap/, which was
+   * opened and read in a real WebKit browser on 6 September 2026.
+   */
+  it('and that one answer knows Amazon’s sign in has more than one page', () => {
+    const pattern = /export const SIGN_IN_PATH = String\.raw`([^`]+)`/.exec(questions);
+    expect(pattern).not.toBeNull();
+    const asked = new RegExp(pattern![1].replace(/\\\\/g, '\\'));
+    for (const page of ['/ap/signin', '/ap/cvf/request', '/ap/challenge', '/ap/mfa']) {
+      expect({ page, isASignIn: asked.test(page) }).toEqual({ page, isASignIn: true });
+    }
+    for (const page of ['/', '/my-account', '/apple-watch', '/gp/css/order-history']) {
+      expect({ page, isASignIn: asked.test(page) }).toEqual({ page, isASignIn: false });
+    }
   });
 
   it('reaches Zepto at the address Zepto really redirects to', () => {

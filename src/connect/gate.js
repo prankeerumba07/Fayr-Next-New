@@ -11,14 +11,21 @@
 // SO THE SHOP'S PAGE IS COVERED UNTIL WE HAVE SEEN THE SHOP'S OWN SIGN IN. Not
 // hidden after the fact: covered from the first moment, and uncovered only on a
 // signal that says the sign in is really up. Anything else the shop tries to show
-// is shown to nobody.
+// is shown to nobody. AND COVERED AGAIN THE MOMENT THE SIGN IN GOES AWAY, which
+// is the fix for the flash of Amazon's home page the owner saw on a real phone.
 //
-// ── FOUR THINGS ON SCREEN AND NO FIFTH ──────────────────────────────────────
+// ── FIVE THINGS ON SCREEN AND NO SIXTH ──────────────────────────────────────
 //
-//   opening   our own loading screen, one sentence. The shop is loading behind it.
-//   shop      the shop's own sign in, and nothing of ours over it.
-//   failed    our own one sentence and one button.
-//   signedIn  our own one sentence, for a breath, then the screen closes.
+//   opening     our own loading screen, one sentence. The shop is loading behind it.
+//   shop        the shop's own sign in, and nothing of ours over it.
+//   failed      our own one sentence and one button.
+//   cannotTell  the sign in has gone and we cannot see whether it worked. Our own
+//               sentence and two controls.
+//   signedIn    our own one sentence, for a breath, then the screen closes.
+//
+// THE FIFTH ONE IS NEW AND IT IS THE OWNER'S OWN DECISION, taken on 6 September
+// 2026 after a measurement killed the simpler idea. See whatThePageShows below
+// for what was measured and why guessing was refused.
 //
 // ── PURE, AND THAT IS THE POINT ─────────────────────────────────────────────
 //
@@ -27,16 +34,24 @@
 // something goes wrong, which are the ones a phone can never be made to do on
 // demand. Same reason as ui/journey.js and ui/callUs.js.
 //
+// AND THE PAGE ITSELF DECIDES NOTHING. A shop's page gathers plain facts and hands
+// them over; every decision made about them is in this file, where a check can
+// reach it. See src/connect/pageQuestions.js for why the split is that way round.
+//
 // ── AND IT NEVER TYPES ANYTHING ─────────────────────────────────────────────
 //
 // Nothing in this file, and nothing in the screen that uses it, writes into a
-// shop's page. It reads four signals, each of which is only ever a yes or a no,
-// and it decides which of the four things above is on screen. The person types
-// their own number and their own code on the shop's own page, and Fayr never sees
-// either. connect-words.spec.ts on our side reads this file and proves it.
+// shop's page. It reads facts, each of which is only ever a yes, a no, a path or
+// the words a shop printed itself, and it decides which of the five things above
+// is on screen. The person types their own number and their own code on the
+// shop's own page, and Fayr never sees either. connect-words.spec.ts on our side
+// reads this file and proves it.
 
 import { readAccountName } from '../signin.js';
-import { DID_NOT_OPEN, OPENING, SIGNED_IN, TRY_AGAIN } from './gateWords.js';
+import {
+  DID_NOT_OPEN, I_HAVE_SIGNED_IN, NOT_SURE, OPENING, SIGNED_IN, TRY_AGAIN,
+} from './gateWords.js';
+import { PAYING_PATH, SIGN_IN_PATH } from './pageQuestions.js';
 
 /**
  * HOW LONG THE SHOP GETS TO OPEN.
@@ -65,25 +80,138 @@ export const SHOP_HAS_THIS_LONG_MS = 15000;
 /** How long the "you are signed in" line stays up before the page closes. */
 export const SIGNED_IN_SHOWS_FOR_MS = 900;
 
-/** The four things that can be on screen. Nothing else ever is. */
+/**
+ * HOW OFTEN THE PAGE IS LOOKED AT, and it used to be every second and a half.
+ *
+ * THREE HUNDRED MILLISECONDS. The old number was copied from src/signinTap.js,
+ * where a slow beat is right because that script CLICKS things and a fast one
+ * would tap over whatever the person was doing. This one only reads, so the only
+ * question is what a look costs.
+ *
+ * MEASURED, ON 6 SEPTEMBER 2026, in a real WebKit browser with a real iPhone user
+ * agent and a real iPhone screen, running the app's own questions:
+ *
+ *   Flipkart's home page      1770 nodes, 1316 candidates   11    ms a look
+ *   Blinkit's home page       1835 nodes, 1575 candidates    5.3  ms a look
+ *   Amazon's sign in page      527 nodes,  110 candidates    1.15 ms a look
+ *   Flipkart's account page    250 nodes,  126 candidates    0.5  ms a look
+ *   Zepto's orders page        254 nodes,   18 candidates    0.05 ms a look
+ *
+ * ELEVEN MILLISECONDS EVERY THREE HUNDRED is under four hundredths of the time
+ * available, on the heaviest page the app opens, and under half of one hundredth
+ * on a sign in page, which is where the watcher actually spends its life. A phone
+ * draws a frame every sixteen milliseconds and this never takes a whole one.
+ *
+ * AND IT ONLY LOOKS. It reads nothing anybody typed, taps nothing, and changes
+ * nothing on the page, so looking more often cannot do anything to a sign in.
+ */
+export const HOW_OFTEN_IT_LOOKS_MS = 300;
+
+/**
+ * HOW MANY LOOKS IN A ROW BEFORE WE BELIEVE THE SIGN IN HAS GONE.
+ *
+ * TWO, and the owner asked for two by name: "it has been true for two looks in a
+ * row, not one, so a page halfway through changing cannot be read as a sign in".
+ * A shop's own page is rebuilt in pieces, and for one look in the middle of that
+ * there can be no sign in box on it and no way in either.
+ */
+export const LOOKS_IN_A_ROW_BEFORE_WE_ASK = 2;
+
+/** The five things that can be on screen. Nothing else ever is. */
 export const OPENING_UP = 'opening';
 export const SHOP = 'shop';
 export const FAILED = 'failed';
+export const CANNOT_TELL = 'cannotTell';
 export const SIGNED_IN_NOW = 'signedIn';
 
+/** What a control on our own screen does. Never more than these two. */
+export const ASK_THE_SHOP_AGAIN = 'tryAgain';
+export const THEY_SAY_THEY_ARE_IN = 'confirm';
+
 /**
- * The four signals, and every one of them is only ever a yes or a no.
+ * THE KEY THE SHOP'S PAGE IS BUILT UNDER, and why asking it to reload is not enough.
+ *
+ * THE OWNER FOUND THIS ONE ON A REAL PHONE, 5 September 2026. Airplane mode on,
+ * tap connect, wait, get "The shop did not open. Please try again." Airplane mode
+ * off, wait for the network, tap Try again. NOTHING HAPPENED, however many times
+ * he tapped it.
+ *
+ * HIS DIAGNOSIS WAS RIGHT. Try again asked the web view to reload, and a web view
+ * whose load FAILED is holding no page: there is nothing committed to reload, so
+ * reload returns having done nothing at all and the failure it is still holding is
+ * reported straight back. The remedy is not to ask the old view to try harder. It
+ * is to throw it away and build a new one, which is what a changed key does.
+ *
+ * So Try again counts up, this turns the count into a key, and a key that has
+ * changed makes the whole view new: a new page, a new request to the shop, a new
+ * watcher, and a new fifteen seconds.
+ */
+export function shopViewKey(attempt) {
+  const n = typeof attempt === 'number' && Number.isFinite(attempt) ? attempt : 0;
+  return `shop-${n}`;
+}
+
+/**
+ * IS THIS THE SHOP'S OWN SIGN IN PAGE?
+ *
+ * ONE ANSWER, IN ONE PLACE, and the owner named the reason: it was written out
+ * twice, in the watcher and in the tap script, "and a third copy in the screen is
+ * how they start disagreeing". The pattern itself lives in pageQuestions.js
+ * because the tap script has to put it inside a shop's page as text.
+ *
+ * ── HOW THE MULTI STEP SIGN IN WAS MADE SAFE ────────────────────────────────
+ *
+ * Amazon asks for the number on one page and then moves the person to another
+ * page of its own for the password or the code. BOTH ARE ITS OWN SIGN IN PAGES,
+ * so our cover must not come back on between them, and the screen uses exactly
+ * this question to decide. It is safe because the pattern in pageQuestions.js
+ * matches Amazon's whole authentication portal and not only its first page: every
+ * step of an Amazon sign in is under /ap/, which was opened and read on
+ * 6 September 2026 rather than assumed. The old pattern named /ap/signin alone,
+ * and with that the cover really would have flashed on at Amazon's second step.
+ */
+export function isTheShopsOwnSignInPage(path) {
+  if (typeof path !== 'string') return false;
+  const where = path.charAt(0) === '/' ? path : `/${path}`;
+  return new RegExp(SIGN_IN_PATH).test(where);
+}
+
+/**
+ * THE PATH PART OF AN ADDRESS, or null when it is not one we can read.
+ *
+ * The screen is handed a whole address by the web view and every question above
+ * takes a path, so the taking apart happens once, here, where it is checked.
+ */
+export function pathOf(url) {
+  if (typeof url !== 'string') return null;
+  const m = /^https?:\/\/[^/?#]+(\/[^?#]*)?/i.exec(url.trim());
+  if (!m) return null;
+  return m[1] == null || m[1] === '' ? '/' : m[1];
+}
+
+/** A checkout, a cart or a payment page. Nothing is read on one and none is covered. */
+export function isAPayingPage(path) {
+  if (typeof path !== 'string') return false;
+  const where = path.charAt(0) === '/' ? path : `/${path}`;
+  return new RegExp(PAYING_PATH).test(where);
+}
+
+/**
+ * The signals, and every one of them is only ever a yes or a no.
  *
  *   signInIsUp     the shop's own sign in is on screen. Either its address is the
- *                  shop's own sign in, or the shop's own page put a field asking
+ *                  shop's own sign in, or the shop's own page put a box asking
  *                  for a number or an email on screen.
+ *   signInIsGone   the sign in WAS up and is not any more, and the page does not
+ *                  say whether it worked. See whatThePageShows.
  *   theyAreIn      the shop's own page says this person is signed in. Never a
- *                  guess: see whatTheShopSaid.
- *   itWillNotOpen  the shop said it could not, or it ran out of time.
+ *                  guess: see whatThePageShows.
+ *   itWillNotOpen  the shop said it could not.
  *   startedAt      when the shop was asked to open, so the wait can be counted.
  */
 export function whatIsOnScreen({
   signInIsUp = false,
+  signInIsGone = false,
   theyAreIn = false,
   itWillNotOpen = false,
   startedAt = null,
@@ -93,12 +221,23 @@ export function whatIsOnScreen({
   // in, nothing else matters: not a slow load, not a failure, not a clock. The
   // job is done and the screen closes.
   if (theyAreIn === true) return SIGNED_IN_NOW;
+  // The shop said out loud that it could not open. That is a statement, and it
+  // beats anything we worked out for ourselves.
   if (itWillNotOpen === true) return FAILED;
-  if (ranOutOfTime(startedAt, now)) return FAILED;
+  // THE SIGN IN WENT AWAY. Our own screen, and a question, because the shop is
+  // not telling us whether it worked.
+  if (signInIsGone === true) return CANNOT_TELL;
   // ONLY the sign in uncovers the shop. Any other page the shop serves - its
   // shopping page, its captcha, its error, its "install our app" - leaves this
   // false, and the person stays on our loading screen and never sees it.
+  //
+  // AND IT NOW BEATS THE CLOCK, which it did not before and should have. The
+  // fifteen seconds are there to catch a shop that never answers. A shop that took
+  // sixteen seconds and then showed its own sign in HAS answered, and the old
+  // order put "The shop did not open" over a working sign in page for ever,
+  // because nothing ever moved the clock back.
   if (signInIsUp === true) return SHOP;
+  if (ranOutOfTime(startedAt, now)) return FAILED;
   return OPENING_UP;
 }
 
@@ -119,12 +258,129 @@ export function shopMayBeSeen(state) {
   return state === SHOP;
 }
 
-/** What our own screen says, or null when the shop's page is what is showing. */
+/**
+ * What our own screen says, or null when the shop's page is what is showing.
+ *
+ * A sentence, and the controls under it. Every word comes from gateWords.js,
+ * which our own side reads from disk and puts through the real plain language
+ * rule. Nothing here writes a word of its own.
+ */
 export function whatWeSay(state) {
-  if (state === OPENING_UP) return { sentence: OPENING, button: null };
-  if (state === FAILED) return { sentence: DID_NOT_OPEN, button: TRY_AGAIN };
-  if (state === SIGNED_IN_NOW) return { sentence: SIGNED_IN, button: null };
+  if (state === OPENING_UP) return { sentence: OPENING, controls: [] };
+  if (state === FAILED) {
+    return {
+      sentence: DID_NOT_OPEN,
+      controls: [{ label: TRY_AGAIN, does: ASK_THE_SHOP_AGAIN }],
+    };
+  }
+  if (state === CANNOT_TELL) {
+    // TWO CONTROLS HERE AND ONE EVERYWHERE ELSE, on purpose. This screen is up in
+    // two opposite situations that look identical from outside the page: they
+    // signed in and the shop moved them on, or they backed out of the sign in
+    // without doing it. One control would be right for one of them and a trap for
+    // the other, because the only way forward would be to say something untrue.
+    return {
+      sentence: NOT_SURE,
+      controls: [
+        { label: I_HAVE_SIGNED_IN, does: THEY_SAY_THEY_ARE_IN },
+        { label: TRY_AGAIN, does: ASK_THE_SHOP_AGAIN },
+      ],
+    };
+  }
+  if (state === SIGNED_IN_NOW) return { sentence: SIGNED_IN, controls: [] };
   return null;
+}
+
+/**
+ * WHAT THE SHOP'S OWN PAGE IS SHOWING, WORKED OUT FROM PLAIN FACTS.
+ *
+ * ── THE MEASUREMENT THAT CHANGED THIS, 6 September 2026 ─────────────────────
+ *
+ * The owner signed in at Flipkart on a real phone. Flipkart signed him in, took
+ * him to its own home page, and Fayr left him sitting there: the watcher knew only
+ * two ways to tell somebody is in, a sign out control and a greeting, and
+ * Flipkart's home page shows neither. He was right that the whole thing had been
+ * built around what Amazon does.
+ *
+ * HIS PROPOSED THIRD SIGN WAS THAT A SHOP SHOWING NO WAY IN HAS LET THEM IN. It
+ * was measured before it was built, in a real WebKit browser with a real iPhone
+ * user agent, signed out, using the app's own questions:
+ *
+ *   Flipkart's home page       no way in, and no link to one   <- signed OUT
+ *   Blinkit's home page        no way in, and no link to one   <- signed OUT
+ *   Flipkart's account page    "Log In" is right there
+ *   Zepto's orders page        "Login" is right there
+ *
+ * SO THE SIGN IS FALSE ON THE ONE PAGE IT WAS MEANT FOR. A signed out Flipkart
+ * home page is the same page, by that test, as a signed in one. Somebody who
+ * tapped Flipkart's own back control would have been told they were signed in,
+ * had a row written down, and been moved on to buying. That is the exact hole
+ * src/screens/linkaccount.js says it closed.
+ *
+ * SO IT IS NOT USED TO CLAIM ANYTHING. It answers "gone", which is a question and
+ * not an answer: our own cover goes back on and the person is asked, in one
+ * sentence, with a control for each of the two things that really might have
+ * happened. That was the owner's own choice between three, made with the
+ * measurement in front of him.
+ *
+ * ── THE FACTS, AND WHERE EACH ONE COMES FROM ────────────────────────────────
+ *
+ *   signInWasUp           OUR OWN SIDE, and not the page: has the sign in been on
+ *                         screen at any point in this attempt. It has to be ours,
+ *                         because a page that fully reloads gets a brand new
+ *                         script with no memory of what the last page showed. On a
+ *                         shop that reloads on signing in, a page owned answer
+ *                         would be false for ever and the sign in going away could
+ *                         never be noticed at all.
+ *   fieldIsThere          the page: is a sign in box on screen. Never its value.
+ *   signInControlIsThere  the page: is a control whose WHOLE label is a way in.
+ *   signOutIsThere        the page: is a control whose WHOLE label is a way out.
+ *   greeting              the page: the words the SHOP printed at the top of
+ *                         itself. Whether they are a name is decided here.
+ *   path                  the page: the address, with no query and no host.
+ *   isAPuzzle             the page: is this asking whether they are a person.
+ *   looksInARow           the page: how many looks in a row these facts have held.
+ *
+ * Answers 'in', 'up', 'gone', or null for "say nothing".
+ */
+export function whatThePageShows(facts) {
+  const f = facts && typeof facts === 'object' ? facts : {};
+  const path = typeof f.path === 'string' ? f.path : '/';
+
+  // A PUZZLE OR A PAYING PAGE: nothing is said at all. Not "they are in", not
+  // "the sign in is up", and above all not "the sign in has gone", which on a
+  // puzzle would put a question on screen over a page we must not touch.
+  if (f.isAPuzzle === true) return null;
+  if (isAPayingPage(path)) return null;
+
+  const onItsSignIn = isTheShopsOwnSignInPage(path);
+
+  // A WAY OUT. A shop only ever shows one to somebody who is signed in.
+  if (f.signOutIsThere === true) return 'in';
+
+  // A GREETING THAT IS REALLY A NAME, and that last clause is not decoration.
+  // Amazon prints "Hello, sign in" at the top of its own shopping page to
+  // somebody who is NOT signed in, and the old rule asked only whether the words
+  // began "Hello,". readAccountName already refuses "Hello, sign in", "Hello,
+  // Guest" and "Hello, there" outright, so asking it is both the stricter
+  // question and the one that cannot disagree with the name on the card.
+  if (typeof f.greeting === 'string' && readAccountName(f.greeting) != null) return 'in';
+
+  // THE SIGN IN IS UP. Either the shop's own address, or a box on its own page.
+  if (f.fieldIsThere === true || onItsSignIn) return 'up';
+
+  // AND THE SIGN IN HAS GONE. Every one of these has to hold.
+  if (f.signInWasUp !== true) return null;
+  // Still on the shop's own sign in, so it has not gone anywhere.
+  if (onItsSignIn) return null;
+  // The shop is offering a way in, which is a shop saying they are not in. This
+  // is what keeps somebody who backed out onto Flipkart's own account page, or
+  // Zepto's own orders page, where the shop really does print a way in.
+  if (f.signInControlIsThere === true) return null;
+  // Held for long enough that a page halfway through being rebuilt cannot count.
+  const looks = typeof f.looksInARow === 'number' ? f.looksInARow : 0;
+  if (looks < LOOKS_IN_A_ROW_BEFORE_WE_ASK) return null;
+  return 'gone';
 }
 
 /**
@@ -134,38 +390,34 @@ export function whatWeSay(state) {
  * screen accepts. Anything else is ignored outright, so a shop's own page cannot
  * reach our screen by posting something we did not ask for.
  *
- * THE THREE THINGS IT MAY SAY, and not one of them is anything anybody typed:
- *
- *   signIn: 'up'   a field asking for a number or an email is on screen, or the
- *                  address is the shop's own sign in. Asked whether a field
- *                  EXISTS. Never once what is in one.
- *   signIn: 'in'   the shop's own page is greeting this person by name, or the
- *                  shop's own sign out control is on the page. Both are things a
- *                  shop only ever shows to somebody who is already in.
- *   greeting       the words the shop itself printed at the top of its own page.
- *                  Turned into a name HERE, by readAccountName, which is already
- *                  written and already checked and already refuses "Hello, sign
- *                  in", "Hello, Guest" and "Hello, there". The page sends the
- *                  words it can see; deciding whether they are a name is ours.
+ * THE PAGE SENDS FACTS AND NOTHING ELSE. It used to send a verdict, which meant
+ * the deciding happened inside a shop's page where no check could reach it. Now
+ * the facts arrive here, whatThePageShows above decides, and every combination of
+ * those facts is walked under node.
  */
-export function whatTheShopSaid(message) {
-  const said = message && typeof message === 'object' ? message : {};
-  const signal = typeof said.__fayrSignIn === 'string' ? said.__fayrSignIn : null;
-  if (signal !== 'up' && signal !== 'in') return null;
-  const greeting = typeof said.__fayrGreeting === 'string' ? said.__fayrGreeting : '';
+export function whatTheShopSaid(message, signInWasUp = false) {
+  if (!isForTheGate(message)) return null;
+  // OUR OWN MEMORY IS PUT IN HERE, and it is deliberately the only fact the page
+  // does not supply. See whatThePageShows for why a page cannot be trusted to
+  // remember what an earlier page showed.
+  const facts = { ...message.__fayrPage, signInWasUp: signInWasUp === true };
+  const shows = whatThePageShows(facts);
+  if (shows == null) return null;
+  const greeting = typeof facts.greeting === 'string' ? facts.greeting : '';
   return {
     // THE TRUTH ABOUT WHAT THE PAGE SAW, and this used to say true for both
     // signals. A shop greeting somebody by name is showing them NO sign in, so
     // reporting one was reporting something the page did not say. It was harmless
-    // only because being in is tested first below. That made it a trap: reorder
-    // those two lines, or read this field on its own, and the gate would uncover a
+    // only because being in is tested first. That made it a trap: reorder those
+    // two lines, or read this field on its own, and the gate would uncover a
     // shop's already-signed-in pages instead of closing the screen.
-    signInIsUp: signal === 'up',
-    theyAreIn: signal === 'in',
-    // A name only ever comes with 'in'. A greeting arriving with 'up' would mean
-    // a shop was greeting somebody who is not signed in, which no shop does, so
-    // it is dropped rather than believed.
-    accountName: signal === 'in' ? readAccountName(greeting) : null,
+    signInIsUp: shows === 'up',
+    theyAreIn: shows === 'in',
+    signInIsGone: shows === 'gone',
+    // A name only ever comes with 'in'. A greeting arriving with anything else
+    // would mean a shop was greeting somebody who is not signed in, which no shop
+    // does, so it is dropped rather than believed.
+    accountName: shows === 'in' ? readAccountName(greeting) : null,
   };
 }
 
@@ -182,5 +434,6 @@ export function whatTheShopSaid(message) {
 export function isForTheGate(message) {
   return message != null
     && typeof message === 'object'
-    && typeof message.__fayrSignIn === 'string';
+    && message.__fayrPage != null
+    && typeof message.__fayrPage === 'object';
 }

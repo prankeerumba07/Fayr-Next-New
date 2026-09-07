@@ -328,16 +328,43 @@ t('it never reads a password, a cookie, a token or anything stored', () => {
   const FORBIDDEN = [
     'document.cookie', 'localStorage', 'sessionStorage', 'indexedDB',
     'XMLHttpRequest', 'fetch(', 'postMessage', 'ReactNativeWebView',
-    '.value', 'password', 'authorization', 'token',
+    '.value', 'authorization', 'token',
   ];
   for (const key of shopsThatTapToSignIn()) {
     const script = signInTapScript(key);
     for (const word of FORBIDDEN) {
       ok(!script.includes(word),
-        `${key}'s script must not contain "${word}". It asks whether a field EXISTS `
+        `${key}'s script must not contain \"${word}\". It asks whether a field EXISTS `
         + 'and never looks at a value, and it sends nothing anywhere. The person '
         + 'signs in on the shop’s own page and Fayr never sees what they type');
     }
+  }
+});
+
+t('and the one place the word password appears is a question about a box, not a read', () => {
+  // THE WORD ITSELF USED TO BE BANNED OUTRIGHT, and the ban stopped being the
+  // right check on 6 September 2026, when the question "is a sign in box on
+  // screen" was written down once and shared with the watcher. The watcher's copy
+  // counted a password box as a sign in and this one counted only a telephone
+  // box, so the two disagreed about what a sign in looks like. One copy means one
+  // answer, and that one answer knows about a password box, because Amazon's
+  // second sign in page carries one and nothing else.
+  //
+  // SO THE CHECK IS THE HONEST ONE INSTEAD: the word may only ever appear as the
+  // TYPE of a box, which is a question about whether the box exists. Reading what
+  // is in one is banned above and is banned by our own side's check as well.
+  for (const key of shopsThatTapToSignIn()) {
+    const script = signInTapScript(key);
+    const every = [...script.matchAll(/password/g)];
+    ok(every.length > 0, `${key}: the shared question knows what a password box is`);
+    for (const at of every) {
+      const around = script.slice(Math.max(0, at.index - 40), at.index + 20);
+      ok(/type === "password"/.test(around),
+        `${key}: every mention of a password must be the TYPE of a box and nothing `
+        + `else. Found: ${JSON.stringify(around)}`);
+    }
+    ok(!script.includes('.value'),
+      `${key}: and the value of a box is never read, whatever its type`);
   }
 });
 

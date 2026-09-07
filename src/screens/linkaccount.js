@@ -34,12 +34,17 @@
 // WHAT IS NOT BUILT HERE, AND WHY, because it is the part the owner asked about most
 // carefully. Two things:
 //
-//   RETURNING TO FAYR THE INSTANT THE SHOP'S SIGN IN SUCCEEDS. Fayr would have to
-//   watch the sign in happen, and the only place that can see it is the web view in
-//   src/ConnectScreen.js, which is frozen and is being rebuilt by the owner. It has
-//   not been touched. What happens today: the person comes back themselves, by the
-//   back arrow or the "Fayr home" button that is always in the header, and lands on
-//   this screen's second step rather than anywhere on the shop.
+//   RETURNING TO FAYR THE INSTANT THE SHOP'S SIGN IN SUCCEEDS. BUILT, on
+//   5 September 2026, when the connect screen was unfrozen to put a gate over the
+//   shop's page. Fayr watches for the shop treating this person as signed in and
+//   closes the shop's page itself. See the note further down this file, and
+//   src/connect/gate.js.
+//
+//   WHAT IS STILL SOMEBODY'S WORD, and it is three shops out of seven. Flipkart,
+//   Blinkit and Zepto show no greeting and no way out on the page they land a
+//   person on, and their own home pages show no way IN either when signed out,
+//   which was measured in a real browser on 6 September 2026. So on those Fayr
+//   asks rather than claiming, and the button below is the answer.
 //
 //   CHECKING THAT THE ACCOUNT CONNECTED THROUGH FAYR IS THE ONE SIGNED IN TO THE
 //   SHOP'S OWN APP. Fayr cannot see inside another app at all — no phone lets it —

@@ -13,6 +13,9 @@ import { SHEET, sheetWords, verifiedCardWords } from './sheetWords.js';
 import { accountNameFor, forgetAccountNames, rememberAccountName } from './accountName.js';
 import { whereTheySignIn } from '../signin.js';
 import { signInTapScript } from '../signinTap.js';
+import { isTheShopsOwnSignInPage } from './gate.js';
+import { watchSignInScript } from './watchSignIn.js';
+import { I_HAVE_SIGNED_IN, NOT_SURE } from './gateWords.js';
 
 let passed = 0;
 const t = (name, fn) => {
@@ -41,6 +44,13 @@ const link = readFileSync(join(ROOT, 'src/screens/linkaccount.js'), 'utf8');
 const connectScreen = readFileSync(join(ROOT, 'src/ConnectScreen.js'), 'utf8');
 const gateSource = readFileSync(join(here, 'gate.js'), 'utf8');
 const theme = readFileSync(join(ROOT, 'src/ui/theme.js'), 'utf8');
+// THE FOUR FILES THE SIGN IN PATH RUNS THROUGH, read as text, because the one
+// place rule below is a rule about where things are WRITTEN and can only be
+// checked by going and looking.
+const gate = readFileSync(join(here, 'gate.js'), 'utf8');
+const watcher = readFileSync(join(here, 'watchSignIn.js'), 'utf8');
+const pageQuestions = readFileSync(join(here, 'pageQuestions.js'), 'utf8');
+const tapScript = readFileSync(join(ROOT, 'src/signinTap.js'), 'utf8');
 
 /**
  * ONE PIECE OF SOURCE, CUT OUT BY COUNTING ITS BRACKETS.
@@ -570,45 +580,331 @@ t('and then the shop’s page closes itself, back to the screen that sent them',
     + 'first, so the screen does not vanish before it has been read');
 });
 
-// ── 5b. THE ONE CONTROL ON THE FAILURE REALLY WORKS ─────────────────────────
+// ── 5b. BUG ONE. TRY AGAIN REALLY ASKS THE SHOP AGAIN ──────────────────────
 //
-// FOUND BY A MUTATION. Pointing the button at an empty function passed every
-// check in this file. A button that does nothing when tapped is the worst thing
-// on a failure screen: the person taps it, nothing happens, and they tap it
-// again, and Fayr has told them their only way forward is a lie.
-t('the try again button really asks the shop again', () => {
-  ok(/onPress=\{tryAgain\}/.test(connectScreen),
-    'the only control on the failure screen is wired to tryAgain, and not to '
-    + 'nothing and not to something else');
+// THE OWNER FOUND THIS ON A REAL PHONE, 5 September 2026. Airplane mode on, tap
+// connect, wait, get the failure with its button. Airplane mode off, wait for the
+// network, tap Try again: "IT STAYED ON THE FAILURE SCREEN. He tapped it several
+// more times. Nothing ever happened."
+//
+// AND THE CHECK THAT WAS HERE COULD NOT HAVE CAUGHT IT. It asked whether the
+// button was wired to tryAgain and whether tryAgain called reload, and both were
+// true. The bug was that reload does nothing at all on a view whose load failed:
+// there is no page committed, so there is nothing to fetch again, and the failure
+// the view is still holding is handed straight back.
+//
+// SO THIS ASKS THE ONLY QUESTION THAT SETTLES IT: is the view really thrown away
+// and rebuilt. That is a key on the web view that changes, and the thing it is
+// built from being the very thing the button moves.
+t('the try again button is wired to something that really runs', () => {
+  ok(/onPress=\{whatEachControlDoes\[control\.does\]\}/.test(connectScreen),
+    'every control our own screen draws is wired to the one thing the gate said '
+    + 'it does, and never to nothing and never to a guess made while drawing');
+  const map = connectScreen.slice(
+    connectScreen.indexOf('const whatEachControlDoes = {'),
+    connectScreen.indexOf('};', connectScreen.indexOf('const whatEachControlDoes = {')),
+  );
+  ok(/\[ASK_THE_SHOP_AGAIN\]: tryAgain/.test(map),
+    'asking the shop again really runs tryAgain');
+  ok(/\[THEY_SAY_THEY_ARE_IN\]: theySayTheyAreIn/.test(map),
+    'and saying they signed in really runs theySayTheyAreIn');
+  ok(gate.includes('ASK_THE_SHOP_AGAIN') && gate.includes('THEY_SAY_THEY_ARE_IN'),
+    'and both of those are the gate’s own names, so a control the gate adds later '
+    + 'cannot quietly land on the wrong one');
+});
 
-  // And tryAgain really does all four things it has to do: forget what the last
-  // attempt saw, start the clock again, and ask the shop again.
+t('and tryAgain throws the view away rather than asking it to reload', () => {
   const fn = connectScreen.slice(
     connectScreen.indexOf('const tryAgain = useCallback('),
-    connectScreen.indexOf('// Restore any saved login cookies'),
+    connectScreen.indexOf('const theySayTheyAreIn = useCallback('),
   );
-  ok(fn.length > 50, 'and tryAgain is really in this file');
+  ok(fn.length > 50, 'tryAgain is really in this file');
   ok(fn.includes('setSignInIsUp(false)'),
     'it forgets that a sign in was ever seen, so the cover goes back on');
+  ok(fn.includes('setSignInIsGone(false)'), 'it forgets that a sign in had gone away');
   ok(fn.includes('setTheyAreIn(false)'), 'it forgets that anybody was in');
   ok(fn.includes('setItWillNotOpen(false)'), 'it forgets the failure itself');
   ok(/setAskedAt\(at\)/.test(fn) && /setNowIs\(at\)/.test(fn),
     'it starts the wait again from now, so the fifteen seconds are a fresh '
     + 'fifteen and not already spent');
-  ok(/webRef\.current\?\.reload\(\)/.test(fn),
-    'and it really asks the shop for the page again');
 
-  // THE CLOCK MUST BE ABLE TO FIRE AGAIN. Without askedAt among the things the
-  // waiting effect watches, a second attempt would never time out: the person
-  // would be left on our loading screen for ever with nothing to tap.
+  // THE ONE THAT MATTERS, AND THE ONE THE OLD CHECK DID NOT ASK.
+  const counted = /set([A-Za-z]+)\(\(([a-z]+)\) => \2 \+ 1\)/.exec(fn);
+  ok(counted,
+    'IT MUST COUNT SOMETHING UP. A view whose load failed holds no page, so asking '
+    + 'it to reload does nothing at all and the person is left tapping a button '
+    + 'that cannot work. The only thing that really asks the shop again is a NEW '
+    + 'view, and a new view is a changed key');
+  const held = counted[1].charAt(0).toLowerCase() + counted[1].slice(1);
+
+  // And the count really is what the web view is built from.
+  const view = connectScreen.slice(
+    connectScreen.indexOf('<WebView'),
+    connectScreen.indexOf('startInLoadingState'),
+  );
+  const key = /\n\s*key=\{([^}]+)\}/.exec(view);
+  ok(key, 'the web view must carry a key of its own, or nothing can rebuild it');
+  ok(key[1].includes(held),
+    `the web view’s key must be built from ${held}, which is the very thing the `
+    + 'button moves. A key built from anything else is a button that counts up '
+    + 'and changes nothing');
+  ok(/shopViewKey\(/.test(key[1]),
+    'and it goes through the gate’s own shopViewKey, which is checked under node '
+    + 'to give a different answer every time');
+
+  // AND NOT THE OLD WAY. Reload on its own is the bug, and it must not come back.
+  ok(!/webRef\.current\?\.reload\(\)/.test(fn),
+    'and it must NOT be asking the old view to reload, which is what did nothing');
+
+  // THE CLOCK MUST BE ABLE TO FIRE AGAIN. Without the count among the things the
+  // waiting effect watches, two taps inside one millisecond leave askedAt
+  // unchanged, React skips the render, and the second attempt gets no wait at all.
   const waiter = connectScreen.slice(
     connectScreen.indexOf('// THE ONE CLOCK THAT MAKES THE WAIT REAL'),
     connectScreen.indexOf('const gate = toSignIn'),
   );
-  ok(waiter.includes('askedAt'),
-    'and the waiting clock watches askedAt, so a second attempt can time out too');
+  // THE DEPENDENCY LIST ITSELF, and not the effect around it. A first attempt at
+  // this check read the whole effect, and the comment inside it names the very
+  // thing the list must hold, so taking it out of the LIST still passed.
+  const watches = /\n  \}, \[([^\]]*)\]\);/.exec(waiter);
+  ok(watches, 'the waiting clock must say what it watches');
+  const watched = watches[1].split(',').map((one) => one.trim());
+  ok(watched.includes('askedAt'),
+    'the waiting clock watches askedAt, so a second attempt can time out too');
+  ok(watched.includes(held),
+    `and it watches ${held} as well, so two taps in the same millisecond still `
+    + `give the second one a wait of its own. It watches: ${watched.join(', ')}`);
   ok(/SHOP_HAS_THIS_LONG_MS/.test(waiter),
     'and it waits the one wait, never a number written into the screen');
+});
+
+t('and the shop answering with an error fails the same way as no answer at all', () => {
+  // THE OTHER WAY IN. The owner asked for both: the shop not answering, and the
+  // shop answering with an error. The web view library reports them separately.
+  ok(/onError=\{shopWillNotOpen\}/.test(connectScreen),
+    'a shop that cannot be reached is handled');
+  ok(/onHttpError=\{shopWillNotOpen\}/.test(connectScreen),
+    'and so is a shop that answers with an error, which is a different report '
+    + 'from the library and used to reach nobody');
+  const fn = connectScreen.slice(
+    connectScreen.indexOf('const shopWillNotOpen = useCallback('),
+    connectScreen.indexOf('// When a target product is set'),
+  );
+  ok(/if \(!toSignIn\) return;/.test(fn),
+    'and it means nothing on a reading visit, which is not gated at all');
+  ok(/if \(theyAreIn \|\| signInIsUp \|\| signInIsGone\) return;/.test(fn),
+    'and a stray failure from some small thing on the page cannot throw away '
+    + 'somebody who is already in, or already looking at the sign in, or already '
+    + 'being asked how it went');
+  ok(fn.includes('setItWillNotOpen(true)'), 'and otherwise the failure screen comes up');
+  ok(fn.includes('itWillNotOpenNow.current = true'),
+    'and it says so somewhere the save handler can read AT ONCE, because the two '
+    + 'run in one batch for the same failed load');
+});
+
+t('and a failed load never writes a signed out snapshot over a good one', () => {
+  // THE FIX FOR THIS WAS A RACE. The library calls the failure handler and the
+  // save handler for the SAME failed load, in one batch, so a state set in the
+  // first was not visible in the second: it read the value from before the
+  // failure, decided nothing had gone wrong, and wrote the empty snapshot anyway.
+  // Somebody whose network dropped once came back to a shop they were no longer
+  // signed in to, and nothing said why.
+  const fn = connectScreen.slice(
+    connectScreen.indexOf('const onLoadEnd = useCallback('),
+    connectScreen.indexOf('const shopWillNotOpen = useCallback('),
+  );
+  ok(fn.includes('if (itWillNotOpenNow.current) return;'),
+    'the save handler reads the failure from a ref, which is true the instant the '
+    + 'failure arrives, and not from state, which is not');
+  ok(!/if \(itWillNotOpen\) return;/.test(fn),
+    'and never from the state, which is the version that did not work');
+  const tryAgainFn = connectScreen.slice(
+    connectScreen.indexOf('const tryAgain = useCallback('),
+    connectScreen.indexOf('const theySayTheyAreIn = useCallback('),
+  );
+  ok(tryAgainFn.includes('itWillNotOpenNow.current = false'),
+    'and a new attempt clears it, or the new view could never save a thing');
+});
+
+// ── 5c. BUG THREE. THE COVER GOES BACK ON THE MOMENT THE SIGN IN GOES ───────
+//
+// "Signed in to Amazon. For a split second Amazon's home page was on screen, and
+// then Fayr came back." The cover came off correctly when the sign in appeared,
+// and nothing put it back until the watcher's next look.
+t('the cover goes back on the moment the shop leaves its own sign in page', () => {
+  const fn = connectScreen.slice(
+    connectScreen.indexOf('const onNav = useCallback('),
+    connectScreen.indexOf('const onLoadEnd = useCallback('),
+  );
+  ok(fn.includes('isTheShopsOwnSignInPage'),
+    'the screen must ask, on every navigation, whether the shop is still on its '
+    + 'own sign in page');
+  ok(fn.includes('pathOf('),
+    'and it must take the path out of the address through the one function that '
+    + 'is checked under node, not by pulling the address apart here');
+  ok(/!isTheShopsOwnSignInPage\(path\)\) \{\s*\n\s*setSignInIsUp\(false\);/.test(fn),
+    'and when it is NOT, the cover goes straight back on, without waiting for a '
+    + 'look. This is the split second of Amazon’s home page the owner saw');
+  ok(fn.includes('toSignIn &&'),
+    'and only on a visit made to sign in, because a reading visit is not gated');
+  ok(/toSignIn && signInIsUp &&/.test(fn),
+    'and only on the one moment the cover really goes back on, so an ordinary '
+    + 'navigation cannot push the wait out for ever and stop it timing out');
+  ok(/setAskedAt\(at\);\s*\n\s*setNowIs\(at\);/.test(fn),
+    'and the wait starts again from that moment, because signing in takes a person '
+    + 'longer than fifteen seconds and the first fifteen are long gone by then');
+});
+
+t('and the multi step sign in cannot make the cover flash', () => {
+  // AMAZON ASKS FOR THE NUMBER ON ONE PAGE AND THE CODE ON THE NEXT, and both are
+  // its own sign in pages. The one question above is what decides, so it is the
+  // one that has to know that.
+  ok(isTheShopsOwnSignInPage('/ap/signin'), 'Amazon’s first sign in page is one');
+  ok(isTheShopsOwnSignInPage('/ap/cvf/request'), 'and its second one is too');
+  ok(isTheShopsOwnSignInPage('/ap/challenge'), 'and so is its challenge page');
+  ok(!isTheShopsOwnSignInPage('/'), 'while its home page is not, so the cover goes back on there');
+});
+
+t('the script that goes inside the shop’s page is real, working javascript', () => {
+  // A HOLE IN THESE CHECKS, FOUND BY READING THEM RATHER THAN BY A MUTATION. The
+  // watcher is built by joining strings together, and nothing here had ever asked
+  // whether the result even PARSES. A stray bracket in any one of the pieces
+  // would silence the whole thing on every shop, on a real phone, with every
+  // check in this project still green: the screen would cover the shop, wait
+  // fifteen seconds and say it did not open, for ever.
+  const script = watchSignInScript();
+  ok(script.length > 500, 'there is really a script');
+  // eslint-disable-next-line no-new-func
+  new Function(script);   // throws on a syntax error, which fails this check
+
+  // And every question it asks is really defined in it, so a renamed helper next
+  // door cannot leave a call to something that does not exist.
+  for (const asked of ['fayrIsAPuzzle', 'fayrSignInIsUp', 'fayrWholeLabel', 'fayrGreeting']) {
+    ok(new RegExp(`function ${asked}\\(`).test(script),
+      `${asked} is defined inside the script`);
+    ok(new RegExp(`${asked}\\(`).test(script.replace(new RegExp(`function ${asked}\\(`, 'g'), '')),
+      `and ${asked} is really called`);
+  }
+  // It says something exactly one way, and that way is the one the gate reads.
+  ok(/postMessage\(JSON\.stringify\(\{ __fayrPage: o \}\)\)/.test(script),
+    'and the only thing it can ever send is a bag of facts under one name');
+  ok((script.match(/postMessage/g) || []).length === 1,
+    'said in exactly one place, so there is one thing to read and one to check');
+});
+
+t('and so is every script that finds a shop’s own sign in control', () => {
+  for (const key of ['flipkart', 'zepto', 'blinkit']) {
+    const script = signInTapScript(key);
+    ok(script && script.length > 500, `${key} really has a script`);
+    // eslint-disable-next-line no-new-func
+    new Function(script);
+    ok(/function fayrSignInIsUp\(/.test(script), `${key}: it can tell a sign in is up`);
+    ok(/function fayrWholeLabel\(/.test(script), `${key}: it can find a whole label`);
+  }
+});
+
+t('and the question "is this a sign in page" is written down exactly once', () => {
+  // THE OWNER NAMED THIS: it was written out twice, in the watcher and in the tap
+  // script, "and a third copy in the screen is how they start disagreeing".
+  const files = {
+    'src/connect/pageQuestions.js': pageQuestions,
+    'src/connect/gate.js': gate,
+    'src/connect/watchSignIn.js': watcher,
+    'src/signinTap.js': tapScript,
+    'src/ConnectScreen.js': connectScreen,
+  };
+  let holdsThePattern = [];
+  for (const [name, source] of Object.entries(files)) {
+    if (/login\|signin\|sign-in\|auth/.test(source)) holdsThePattern.push(name);
+  }
+  assert.deepEqual(holdsThePattern, ['src/connect/pageQuestions.js'],
+    'the shop’s own sign in paths are written out in ONE file and read from there '
+    + 'by everything that needs them');
+  ok(watcher.includes('SIGN_IN_PATH'), 'the watcher reads it from that file');
+  ok(tapScript.includes('SIGN_IN_PATH'), 'the tap script reads it from that file');
+  ok(gate.includes('SIGN_IN_PATH'), 'and the gate reads it from that file');
+});
+
+t('and the whole label matcher and the sign in box question are one copy too', () => {
+  ok(pageQuestions.includes('function fayrWholeLabel(') && pageQuestions.includes('function fayrSignInIsUp('),
+    'both live in the one file of page questions');
+  for (const [name, source] of [['the watcher', watcher], ['the tap script', tapScript]]) {
+    ok(!source.includes('function fayrWholeLabel('),
+      `${name} must not write its own whole label matcher`);
+    ok(!source.includes('function fayrSignInIsUp('),
+      `${name} must not write its own sign in box question`);
+    ok(source.includes('WHOLE_LABEL') && source.includes('SIGN_IN_IS_UP'),
+      `${name} must take both from the one file`);
+  }
+});
+
+// ── 5d. BUG TWO. THE SIGN IN WENT AWAY AND FAYR ASKS RATHER THAN CLAIMS ─────
+//
+// "FLIPKART SIGNED HIM IN AND TOOK HIM TO ITS HOME PAGE, and Fayr left him
+// there." Flipkart's own home page shows no greeting and no way out, and it was
+// measured on 6 September 2026 to show no way IN either, signed out. So the
+// absence of a way in cannot mean somebody is signed in, and this screen asks.
+t('the screen hears the sign in going away, and covers the shop again', () => {
+  const block = blockAt(connectScreen, connectScreen.indexOf('if (isForTheGate(msg))'));
+  ok(block, 'the gate’s own messages must be handled in a block of their own');
+  ok(/if \(said\.signInIsGone\) \{ setSignInIsUp\(false\); setSignInIsGone\(true\); \}/.test(block),
+    'a sign in that has gone puts the cover back on and starts the question');
+  ok(/if \(said\.signInIsUp\) \{[^}]*setSignInIsUp\(true\); setSignInIsGone\(false\); \}/.test(block),
+    'and a sign in coming back takes the question away again, so a shop that '
+    + 'rebuilds its own panel does not leave a stale question on screen');
+});
+
+t('and our own side remembers the sign in, because the shop’s page cannot', () => {
+  // A SHOP THAT RELOADS THE WHOLE PAGE ON SIGNING IN hands the watching script a
+  // brand new life with no memory of the page before it. A memory kept in there
+  // would read false exactly when it matters, and the sign in going away could
+  // never be noticed at all on that shop.
+  ok(!watcher.includes('signInWasUp'),
+    'the script inside the shop’s page keeps no such memory');
+  ok(/const signInWasUp = useRef\(false\);/.test(connectScreen),
+    'our own side keeps it instead');
+  ok(/whatTheShopSaid\(msg, signInWasUp\.current\)/.test(connectScreen),
+    'and hands it to the gate with every set of facts that arrives');
+  ok(/signInWasUp\.current = true; setSignInIsUp\(true\)/.test(connectScreen),
+    'it is set the moment a sign in is really seen');
+  const fn = connectScreen.slice(
+    connectScreen.indexOf('const tryAgain = useCallback('),
+    connectScreen.indexOf('const theySayTheyAreIn = useCallback('),
+  );
+  ok(fn.includes('signInWasUp.current = false'),
+    'and a new attempt forgets what the last one saw, or a fresh view would start '
+    + 'believing a sign in it has never shown');
+});
+
+t('and saying they signed in is recorded as their word, not as ours', () => {
+  const fn = connectScreen.slice(
+    connectScreen.indexOf('const theySayTheyAreIn = useCallback('),
+    connectScreen.indexOf('// Restore any saved login cookies'),
+  );
+  ok(fn.includes('setHowWeKnew(THEY_SAID_SO)'),
+    'their own answer is written down as their own answer');
+  ok(fn.includes('setTheyAreIn(true)'), 'and it moves the journey on, which is the point of it');
+
+  const sawIt = /const SAW_IT = '([^']+)'/.exec(connectScreen);
+  const saidSo = /const THEY_SAID_SO = '([^']+)'/.exec(connectScreen);
+  ok(sawIt && saidSo, 'both reasons must be written down in words');
+  ok(sawIt[1] !== saidSo[1],
+    'AND THEY MUST BE DIFFERENT. One is the shop’s own page showing us and the '
+    + 'other is somebody’s word, and a count built on the row must never be able '
+    + 'to turn one into the other');
+  ok(/reportShopSignIn\(platform\.key, howWeKnew\)/.test(connectScreen),
+    'and the row carries whichever it really was, not a sentence written at the '
+    + 'place the row is sent');
+  ok(!/reportShopSignIn\(platform\.key, '/.test(connectScreen),
+    'so the reason can never be a fixed sentence that says the shop showed us '
+    + 'when it did not');
+});
+
+t('and nothing on the asking screen claims they are signed in', () => {
+  ok(!/signed in\.|you are signed in/i.test(NOT_SURE),
+    'the sentence says what is known and what is not, and never that they are in');
+  ok(/^Yes,/.test(I_HAVE_SIGNED_IN),
+    'and the control that says so is plainly an answer somebody gives');
 });
 
 // ── 6. AND THE SCREEN THAT SENT THEM, WHICH NOW HEARS BACK ──────────────────

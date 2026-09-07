@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# GIVE YOUR OWN CLAIMS BACK, SO YOU CAN WALK THROUGH THE APP AGAIN NOW.
+#
+#   ./free-claims                  free the practice account's own claims
+#   ./free-claims +911234567890    free a different account's claims instead
+#
+# WHY THIS EXISTS. Walking through the app means claiming offers, and Fayr holds
+# a claim for thirty minutes before it lets it go. By the end of one walk through
+# nearly every practice offer is claimed, and the next one cannot start until the
+# half hour is up. This gives the claims back straight away.
+#
+# NOTHING IS DELETED. It runs the product's own way of letting a claim go: the
+# claim is closed, the tickets come back through the real ticket record, and what
+# happened is written down. The only thing ignored is the thirty minute clock.
+#
+# IT REFUSES ON ANYTHING THAT IS NOT A PRACTICE DATABASE, and it says so, in the
+# same way the practice data itself refuses.
+#
+# IT WILL NOT LET THE MONEY AND THE CLAIMS DISAGREE. A claim with money recorded
+# against it, and an offer that was already bought, are both left exactly as they
+# are, and it tells you which ones and why.
+#
+# IT PRINTS NO NUMBER. The account is shown with all but its last two digits
+# covered over, and it is called the practice account.
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
+
+WHO="${1:-}"
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+bad()  { printf '  \033[31m%s\033[0m\n' "$1"; }
+
+bold "Giving the practice account its own claims back."
+
+# The database has to be up, because this reads and writes it directly rather
+# than going through the running backend. Asking the database itself is the check
+# that means something; a container that is running is not the same as one that
+# is ready to answer.
+if ! docker exec fayr-postgres pg_isready -U fayr >/dev/null 2>&1; then
+  bad "The database is not answering, so there is nothing to read."
+  echo "  Start everything first:  ./start"
+  echo "  Or just the database:    cd backend && docker compose up -d"
+  exit 1
+fi
+
+# Everything else it needs to say is said by the command itself, in sentences.
+# It refuses on a database that is not a practice one, it names every claim it
+# freed and every claim it left alone with the reason, and it ends with how many
+# tickets came back.
+if [ -n "$WHO" ]; then
+  (cd "$HERE/backend" && npx ts-node scripts/free-claims.ts "$WHO")
+else
+  (cd "$HERE/backend" && npx ts-node scripts/free-claims.ts)
+fi
+RESULT=$?
+
+if [ "$RESULT" -ne 0 ]; then
+  bad "Nothing was freed. The reason is in the sentence just above."
+  exit "$RESULT"
+fi
+
+bold "You can walk through the app again now."
+echo "  Any offer it says was freed is back in the list and can be claimed."
+echo "  Anything it left alone is named above, with the reason it was left."

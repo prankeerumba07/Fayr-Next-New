@@ -22,12 +22,35 @@ import { resetDatabase } from './reset-db';
  * six in the evening. The service keeps its clock behind one method for exactly
  * this, and this holds it.
  *
- * MOMENTS ARE WRITTEN AS UNIVERSAL TIME AND MEANT AS INDIA'S. India is five and a
- * half hours ahead, so half past six in the morning universal is noon in India,
- * and half past four in the afternoon universal is ten at night.
+ * AND THE MOMENTS ARE WORKED OUT, NOT WRITTEN DOWN, AND THIS SUITE ALREADY PROVED
+ * WHY THE HARD WAY. They used to be two fixed dates in September 2026, and this
+ * whole suite began failing two days after it was written. The reason is that only
+ * ONE of the two clocks here can be held still: Fayr's. The conversation itself is
+ * written by the database, at the real moment, and the note about a slow queue is
+ * due when enough time has passed BETWEEN the two. Once the calendar walked past
+ * the fixed date, Fayr's clock was two days BEHIND the conversation, no time had
+ * passed at all, and the note was never due.
+ *
+ * SO EVERY MOMENT BELOW IS THE NEXT TIME THAT HOUR COMES ROUND IN INDIA, counted
+ * from now. It is always in the future of the conversation, whatever day the suite
+ * is run on, and it is always the hour of the day the check is about.
  */
-const NOON_IN_INDIA = new Date('2026-09-05T06:30:00.000Z');
-const TEN_AT_NIGHT_IN_INDIA = new Date('2026-09-05T16:30:00.000Z');
+const HALF_HOURS_AHEAD_OF_UNIVERSAL_TIME = 330 * 60 * 1000;
+const A_DAY = 24 * 60 * 60 * 1000;
+
+/** The next time it is `hour` o'clock in India, at or after `from`. */
+function nextInIndia(hour: number, from: Date = new Date()): Date {
+  const inIndia = new Date(from.getTime() + HALF_HOURS_AHEAD_OF_UNIVERSAL_TIME);
+  const thatHourToday = Date.UTC(
+    inIndia.getUTCFullYear(),
+    inIndia.getUTCMonth(),
+    inIndia.getUTCDate(),
+    hour,
+  ) - HALF_HOURS_AHEAD_OF_UNIVERSAL_TIME;
+  return new Date(
+    thatHourToday >= from.getTime() ? thatHourToday : thatHourToday + A_DAY,
+  );
+}
 
 /** Something the answer book cannot answer, so the chat hands it to a person. */
 const SOMETHING_NOBODY_HAS_WRITTEN_DOWN =
@@ -137,9 +160,44 @@ describe('Fayr’s hours and the time on a message (e2e)', () => {
     await app.close();
   });
 
+  // The two moments this suite works in, worked out afresh for each check so they
+  // are always in the future of the conversation that check creates.
+  let noonInIndia: Date;
+  let tenAtNightInIndia: Date;
+
   beforeEach(async () => {
     await resetDatabase(prisma);
-    itIsNow(NOON_IN_INDIA);
+    noonInIndia = nextInIndia(12);
+    tenAtNightInIndia = nextInIndia(22);
+    itIsNow(noonInIndia);
+  });
+
+  /**
+   * THE GUARD ON THIS SUITE'S OWN CLOCK.
+   *
+   * It failed silently two days after it was written, because the moments were
+   * fixed dates and the calendar walked past them. This is the one line that makes
+   * that impossible: Fayr's clock, in every check here, is at or after the real
+   * moment the conversation is written by the database.
+   */
+  it('every moment this suite works in is in the future of the conversation', () => {
+    const realNow = Date.now();
+    for (const [name, moment] of [
+      ['noon in India', noonInIndia],
+      ['ten at night in India', tenAtNightInIndia],
+      ['the next morning', nextInIndia(10, tenAtNightInIndia)],
+    ] as const) {
+      expect({ name, isAhead: moment.getTime() >= realNow }).toEqual({ name, isAhead: true });
+      // And within a day and a half of it, so a wrong day cannot hide in here.
+      expect({ name, within: moment.getTime() - realNow < 2 * A_DAY })
+        .toEqual({ name, within: true });
+    }
+    // And each one really is the hour it says it is, in India.
+    const hourInIndia = (m: Date): number =>
+      new Date(m.getTime() + HALF_HOURS_AHEAD_OF_UNIVERSAL_TIME).getUTCHours();
+    expect(hourInIndia(noonInIndia)).toBe(12);
+    expect(hourInIndia(tenAtNightInIndia)).toBe(22);
+    expect(hourInIndia(nextInIndia(10, tenAtNightInIndia))).toBe(10);
   });
 
   describe('inside our hours, nothing changes', () => {
@@ -159,7 +217,7 @@ describe('Fayr’s hours and the time on a message (e2e)', () => {
       await say(shopper.token, SOMETHING_NOBODY_HAS_WRITTEN_DOWN);
 
       // Three minutes later, still inside our hours, still nobody free.
-      itIsNow(new Date(NOON_IN_INDIA.getTime() + 3 * 60 * 1000));
+      itIsNow(new Date(noonInIndia.getTime() + 3 * 60 * 1000));
       const later = await readChat(shopper.token);
       expect(whatFayrSaid(later)).toContain(STILL_WAITING.en);
     });
@@ -167,7 +225,7 @@ describe('Fayr’s hours and the time on a message (e2e)', () => {
 
   describe('outside our hours', () => {
     beforeEach(() => {
-      itIsNow(TEN_AT_NIGHT_IN_INDIA);
+      itIsNow(tenAtNightInIndia);
     });
 
     it('says when we are open and that a person will read it when we do', async () => {
@@ -197,7 +255,7 @@ describe('Fayr’s hours and the time on a message (e2e)', () => {
       const shopper = await aShopper();
       await say(shopper.token, SOMETHING_NOBODY_HAS_WRITTEN_DOWN);
 
-      itIsNow(new Date(TEN_AT_NIGHT_IN_INDIA.getTime() + 30 * 60 * 1000));
+      itIsNow(new Date(tenAtNightInIndia.getTime() + 30 * 60 * 1000));
       const later = await readChat(shopper.token);
       expect(whatFayrSaid(later)).not.toContain(STILL_WAITING.en);
       // And the honest line is still there.
@@ -210,11 +268,12 @@ describe('Fayr’s hours and the time on a message (e2e)', () => {
       await say(shopper.token, SOMETHING_NOBODY_HAS_WRITTEN_DOWN);
 
       // Read while shut: nothing.
-      itIsNow(new Date(TEN_AT_NIGHT_IN_INDIA.getTime() + 30 * 60 * 1000));
+      itIsNow(new Date(tenAtNightInIndia.getTime() + 30 * 60 * 1000));
       await readChat(shopper.token);
 
-      // Read the next morning, inside our hours, still waiting.
-      itIsNow(new Date('2026-09-06T05:00:00.000Z'));
+      // Read the next morning, inside our hours, still waiting. Ten in the morning
+      // AFTER that night, whichever day the suite is being run on.
+      itIsNow(nextInIndia(10, tenAtNightInIndia));
       const morning = await readChat(shopper.token);
       expect(whatFayrSaid(morning)).toContain(STILL_WAITING.en);
     });

@@ -1123,6 +1123,60 @@ export class TaskService {
     return { expired };
   }
 
+  /**
+   * PRACTICE AND DEVELOPMENT DATABASES ONLY: let one claim go early.
+   *
+   * A claim is only let go once its thirty minute deadline has passed and the
+   * sweep above catches up. That is the right rule for a real person and a bad
+   * one for a rehearsal: the owner claims nearly every practice offer walking
+   * through the app, and then cannot walk through it again until the half hour is
+   * up. He asked for one command that gives him his own claims back at once.
+   *
+   * SO THIS IS THE SWEEP'S OWN WORK WITH THE CLOCK IGNORED, AND NOTHING ELSE
+   * CHANGED. It runs expireClaim, so the task is CLOSED and never deleted, the
+   * tickets come back through the real ticket ledger by way of returnOnExpiry,
+   * and the event is written. There is no second description anywhere of what
+   * letting a claim go means, and no ledger entry is written by hand near this.
+   *
+   * IT STILL REFUSES WHAT THE SWEEP REFUSES. expireClaim re-reads the row under a
+   * lock and does nothing at all unless it is still CLAIMED and still open, so a
+   * claim that has turned into a purchase cannot be handed back by this.
+   *
+   * AND THE RULE ABOUT WHICH DATABASE TRAVELS WITH THE METHOD, not with whoever
+   * calls it. That is the choice publishDraftsForPractice already made and said
+   * out loud, for the same reason: a method whose NAME promises it is only for
+   * practice, and which checks nothing, is a method somebody will one day call
+   * from a real deployment. The command that calls this refuses as well, before
+   * it reads a single row, so this is the second of two independent gates.
+   */
+  async freeClaimForPractice(userId: string, taskId: string): Promise<boolean> {
+    await this.assertPracticeDatabase();
+    return this.expireClaim(userId, taskId);
+  }
+
+  /**
+   * Refuse outright on anything that is not a practice or development database.
+   *
+   * The same shape as assertSafeDatabase in prisma/demo-seed.ts and the check
+   * inside publishDraftsForPractice. Deliberately duplicated rather than shared,
+   * exactly as those two are: the point of the rule is that it is impossible to
+   * reach the guarded work without passing a guard, and a guard imported from
+   * somewhere else is a guard somebody can forget to import.
+   */
+  private async assertPracticeDatabase(): Promise<void> {
+    const rows = await this.prisma.$queryRawUnsafe<
+      { current_database: string }[]
+    >('SELECT current_database()');
+    const name = rows[0]?.current_database ?? '';
+    if (!/_dev$|_test$/.test(name)) {
+      throw new Error(
+        `Refused to free a claim early: "${name}" is not a practice or `
+          + 'development database. On a real one a claim is let go by its own '
+          + 'deadline and by nothing else.',
+      );
+    }
+  }
+
   private expireClaim(userId: string, taskId: string): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<{ id: string }[]>`

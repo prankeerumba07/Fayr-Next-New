@@ -24,12 +24,28 @@ import { MarketplaceTag } from './ui/primitives';
 // what is on screen is in src/connect/gate.js, which is pure and checked under
 // node, including the failures a phone cannot be made to do on demand.
 import {
-  FAILED, OPENING_UP, SHOP_HAS_THIS_LONG_MS, SIGNED_IN_NOW, SIGNED_IN_SHOWS_FOR_MS,
-  isForTheGate, shopMayBeSeen, whatIsOnScreen, whatTheShopSaid, whatWeSay,
+  ASK_THE_SHOP_AGAIN, OPENING_UP, SHOP_HAS_THIS_LONG_MS, SIGNED_IN_SHOWS_FOR_MS,
+  THEY_SAY_THEY_ARE_IN, isForTheGate, isTheShopsOwnSignInPage, pathOf,
+  shopMayBeSeen, shopViewKey, whatIsOnScreen, whatTheShopSaid, whatWeSay,
 } from './connect/gate';
 import { watchSignInScript } from './connect/watchSignIn';
 import { rememberAccountName } from './connect/accountName';
 import { reportShopSignIn } from './backend/shopApi';
+
+/**
+ * HOW WE KNEW, in the words that go on the row our side keeps.
+ *
+ * TWO WAYS AND THEY ARE NOT THE SAME FACT. One is the shop's own page showing us,
+ * which is the strong one. The other is somebody's word, given because the shop's
+ * page said nothing either way, which is true of Flipkart's and Blinkit's own home
+ * pages and was measured on 6 September 2026. The row carries which, so a count
+ * built on it can never quietly turn one into the other.
+ *
+ * They are not shown to anybody, so they do not live in gateWords.js with the
+ * sentences a person reads.
+ */
+const SAW_IT = 'the shop greeted them by name, or showed its own sign out';
+const THEY_SAID_SO = 'the person said so after the shop stopped showing a sign in';
 
 // Platforms whose fetch payload feeds the task flow. Amazon reads a review's
 // order (HTML scrape); Flipkart/Myntra are order-first (their JSON order API),
@@ -152,8 +168,28 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
   const toSignIn = !!(route && route.params && route.params.toSignIn);
   // Four things and no fifth: opening, shop, failed, signedIn. See gate.js.
   const [signInIsUp, setSignInIsUp] = useState(false);
+  // THE SIGN IN WAS THERE AND IS NOT ANY MORE, and the shop is not saying whether
+  // it worked. Our own screen goes back over the shop and asks. See gate.js.
+  const [signInIsGone, setSignInIsGone] = useState(false);
   const [theyAreIn, setTheyAreIn] = useState(false);
+  // HOW WE KNEW, in the words that go on the row our side writes. Two ways in, and
+  // they are not the same fact: the shop showed us, or the person told us.
+  const [howWeKnew, setHowWeKnew] = useState(SAW_IT);
   const [itWillNotOpen, setItWillNotOpen] = useState(false);
+  // HOW MANY TIMES THE SHOP HAS BEEN ASKED. It is the web view's key, so counting
+  // it up throws the old view away and builds a new one. See shopViewKey.
+  const [attempt, setAttempt] = useState(0);
+  // HAS THE SIGN IN BEEN ON SCREEN AT ANY POINT IN THIS ATTEMPT? Ours to remember,
+  // because the script inside the shop's page cannot: a shop that reloads the whole
+  // page on signing in hands it a new life with no memory of the page before. A
+  // ref and not state, because nothing on screen depends on it and it must be
+  // right the instant a message arrives rather than after the next draw.
+  const signInWasUp = useRef(false);
+  // AND THE FAILURE ITSELF, kept as a ref as well as state. The state is what the
+  // screen is drawn from; this is what the save handler reads, because the two run
+  // in one batch for the same failed load and a state set in one is not yet
+  // visible in the other. See onLoadEnd.
+  const itWillNotOpenNow = useRef(false);
   // WHEN THE SHOP WAS ASKED TO OPEN. Held in state and not a ref, because the
   // clock below has to be able to make the screen draw again.
   const [askedAt, setAskedAt] = useState(() => Date.now());
@@ -164,24 +200,62 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
   // whether the fifteen seconds had passed.
   useEffect(() => {
     if (!toSignIn) return undefined;
-    if (signInIsUp || theyAreIn || itWillNotOpen) return undefined;
+    if (signInIsUp || signInIsGone || theyAreIn || itWillNotOpen) return undefined;
     const t = setTimeout(() => setNowIs(Date.now()), SHOP_HAS_THIS_LONG_MS + 50);
     return () => clearTimeout(t);
-  }, [toSignIn, askedAt, signInIsUp, theyAreIn, itWillNotOpen]);
+    // `attempt` IS IN HERE AND IT HAS TO BE. Two taps of Try again inside the same
+    // millisecond leave askedAt unchanged, React sees no new value and skips the
+    // render, and the second attempt would then get no wait of its own at all.
+    // The count always changes.
+  }, [toSignIn, askedAt, attempt, signInIsUp, signInIsGone, theyAreIn, itWillNotOpen]);
 
   const gate = toSignIn
-    ? whatIsOnScreen({ signInIsUp, theyAreIn, itWillNotOpen, startedAt: askedAt, now: nowIs })
+    ? whatIsOnScreen({
+      signInIsUp, signInIsGone, theyAreIn, itWillNotOpen, startedAt: askedAt, now: nowIs,
+    })
     : null;
 
-  /** Ask the shop again, from the beginning. The one control on the failure. */
+  /**
+   * ASK THE SHOP AGAIN, FROM NOTHING.
+   *
+   * IT USED TO CALL RELOAD AND THAT DID NOTHING AT ALL. The owner found it on a
+   * real phone on 5 September 2026: airplane mode on, tap connect, get the
+   * failure, airplane mode off, tap Try again, and the failure screen just sat
+   * there however many times he tapped it. A web view whose load FAILED is holding
+   * no page, so there is nothing committed for reload to fetch again; it returns
+   * having done nothing and the failure it is still holding is reported straight
+   * back.
+   *
+   * SO THE VIEW IS THROWN AWAY AND A NEW ONE IS BUILT. Counting `attempt` up
+   * changes the web view's key, and a changed key is a new view: a new request to
+   * the shop, a new page, a new watcher, and a new fifteen seconds counted from
+   * this moment. Three taps in a row are three new views.
+   */
   const tryAgain = useCallback(() => {
     setSignInIsUp(false);
+    setSignInIsGone(false);
     setTheyAreIn(false);
     setItWillNotOpen(false);
+    itWillNotOpenNow.current = false;
     const at = Date.now();
     setAskedAt(at);
     setNowIs(at);
-    try { webRef.current?.reload(); } catch (e) { /* a dead view cannot reload */ }
+    setAttempt((n) => n + 1);
+    // A NEW VIEW IS A NEW ATTEMPT, so what the last one saw is forgotten too.
+    signInWasUp.current = false;
+  }, []);
+
+  /**
+   * THEY SAID SO THEMSELVES, because Fayr could not see it.
+   *
+   * The one control that exists for the shops whose own pages say nothing either
+   * way. It is somebody's word and it is written down as somebody's word: the row
+   * our side keeps carries the reason, and this reason is not the same fact as the
+   * shop having shown us its own sign out.
+   */
+  const theySayTheyAreIn = useCallback(() => {
+    setHowWeKnew(THEY_SAID_SO);
+    setTheyAreIn(true);
   }, []);
 
   // Restore any saved login cookies BEFORE the WebView creates its store, so a
@@ -218,8 +292,41 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
   const currentUrlRef = useRef(platform.startUrl);
   const onNav = useCallback((navState) => {
     if (navState && navState.url) currentUrlRef.current = navState.url;
+    // ── THE COVER GOES STRAIGHT BACK ON WHEN THE SHOP LEAVES ITS SIGN IN ────
+    //
+    // THE OWNER SAW THIS ON A REAL PHONE: he signed in to Amazon and Amazon's home
+    // page was on screen for a split second before Fayr came back. The cover came
+    // off correctly when the sign in appeared, and then only the watcher's next
+    // look could put it back. This is faster than any look, because the screen is
+    // told about a navigation the moment it happens.
+    //
+    // AND THE MULTI STEP SIGN IN CANNOT MAKE IT FLASH. Amazon asks for the number
+    // on one page and the code or the password on the next, and BOTH are its own
+    // sign in pages, so the cover must not come back on between them. It does not,
+    // because isTheShopsOwnSignInPage matches Amazon's whole authentication portal
+    // and not only its first page: every step of an Amazon sign in is under /ap/,
+    // which was opened and read in a real browser on 6 September 2026 rather than
+    // assumed. The one question lives in gate.js and the watcher and the tap script
+    // read the same pattern, so the three cannot disagree about it.
+    if (toSignIn && signInIsUp && navState && typeof navState.url === 'string') {
+      const path = pathOf(navState.url);
+      if (path != null && !isTheShopsOwnSignInPage(path)) {
+        setSignInIsUp(false);
+        // AND THE WAIT STARTS AGAIN FROM HERE. Signing in takes a person longer
+        // than fifteen seconds, so by now the first fifteen are long gone. Without
+        // this the very next page they land on would be given no time at all and
+        // "the shop did not open" would land on a shop that had just opened.
+        //
+        // ONLY ON THE ONE MOMENT THE COVER GOES BACK ON, and never on an ordinary
+        // navigation, because a shop that keeps moving would otherwise push the
+        // deadline out for ever and never time out at all.
+        const at = Date.now();
+        setAskedAt(at);
+        setNowIs(at);
+      }
+    }
     saveSession();
-  }, [saveSession]);
+  }, [saveSession, toSignIn, signInIsUp]);
   const onLoadEnd = useCallback((e) => {
     const u = e && e.nativeEvent && e.nativeEvent.url;
     if (u) currentUrlRef.current = u;
@@ -231,9 +338,15 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     // a shop they were no longer signed in to, and nothing said why.
     //
     // Only skipped once we KNOW it failed, so the ordinary path is untouched.
-    if (itWillNotOpen) return;
+    //
+    // A REF AND NOT THE STATE, and the state was a race. The library calls the
+    // failure handler and this one for the SAME failed load, and a state set in
+    // the first is not visible to the second: they run in one batch, so this read
+    // the value from before the failure, decided nothing had gone wrong, and wrote
+    // the empty snapshot anyway. The ref is set the instant the failure arrives.
+    if (itWillNotOpenNow.current) return;
     saveSession();
-  }, [saveSession, itWillNotOpen]);
+  }, [saveSession]);
 
   /**
    * THE SHOP SAID IT COULD NOT OPEN.
@@ -249,11 +362,14 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
    */
   const shopWillNotOpen = useCallback(() => {
     if (!toSignIn) return;
-    // Already in, or the sign in already up: a later stray failure from some
-    // small thing on the page must not throw away a person who is signed in.
-    if (theyAreIn || signInIsUp) return;
+    // Already in, or the sign in already up, or gone and being asked about: a
+    // later stray failure from some small thing on the page must not throw away a
+    // person who is signed in, and must not replace the question we are asking
+    // them with "the shop did not open", which by then is not true.
+    if (theyAreIn || signInIsUp || signInIsGone) return;
+    itWillNotOpenNow.current = true;
     setItWillNotOpen(true);
-  }, [toSignIn, theyAreIn, signInIsUp]);
+  }, [toSignIn, theyAreIn, signInIsUp, signInIsGone]);
 
   // When a target product is set, show only its review(s) - this is the
   // "fetch only the correct product" behaviour the background flow needs.
@@ -297,13 +413,18 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     // and a gate message is not an answer to a fetch. Clearing it would let a
     // shop's page unstick that button by saying something we did not ask for.
     if (isForTheGate(msg)) {
-      const said = whatTheShopSaid(msg);
+      const said = whatTheShopSaid(msg, signInWasUp.current);
       if (said == null) return;
       // FROM WHAT THE PAGE REALLY SAID, never a flat true. Being in and having a
       // sign in on screen are different things, and the cover must stay on for a
       // page that is neither.
-      if (said.signInIsUp) setSignInIsUp(true);
+      if (said.signInIsUp) { signInWasUp.current = true; setSignInIsUp(true); setSignInIsGone(false); }
+      // THE SIGN IN HAS GONE AND THE SHOP WILL NOT SAY WHETHER IT WORKED. Our own
+      // cover goes back over the page and the person is asked, in one sentence.
+      // Nothing is claimed and nothing is written down from this on its own.
+      if (said.signInIsGone) { setSignInIsUp(false); setSignInIsGone(true); }
       if (said.theyAreIn) {
+        setHowWeKnew(SAW_IT);
         setTheyAreIn(true);
         // The name the shop itself printed, when it printed one. Never invented,
         // and the card says the account is connected with no name when there is
@@ -527,8 +648,8 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     if (!toSignIn || !theyAreIn) return;
     if (toldOurSide.current) return;
     toldOurSide.current = true;
-    reportShopSignIn(platform.key, 'the shop greeted them by name, or showed its own sign out');
-  }, [toSignIn, theyAreIn, platform]);
+    reportShopSignIn(platform.key, howWeKnew);
+  }, [toSignIn, theyAreIn, howWeKnew, platform]);
 
   // ── AND THEN THE SHOP'S PAGE CLOSES ITSELF ────────────────────────────────
   //
@@ -548,6 +669,13 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
   }, [toSignIn, theyAreIn, navigation, route, platform]);
 
   const ourOwnWords = gate != null && !shopMayBeSeen(gate) ? whatWeSay(gate) : null;
+  // EVERY CONTROL THE GATE CAN ASK FOR, AND THE ONE THING EACH DOES. Written as a
+  // list rather than as a question in the middle of the drawing, so a control the
+  // gate adds later cannot quietly land on the wrong one of these.
+  const whatEachControlDoes = {
+    [ASK_THE_SHOP_AGAIN]: tryAgain,
+    [THEY_SAY_THEY_ARE_IN]: theySayTheyAreIn,
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -570,6 +698,13 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
             </View>
           ) : (
           <WebView
+            // THE KEY, AND IT IS WHAT MAKES TRY AGAIN WORK AT ALL. A changed key
+            // throws this view away and builds a new one, which is the only thing
+            // that really asks the shop again: a view whose load failed holds no
+            // page, so reload has nothing to fetch and does nothing. It never
+            // changes on a reading visit, because the only thing that moves the
+            // count is the Try again control, which only the gate ever draws.
+            key={shopViewKey(attempt)}
             ref={webRef}
             source={{ uri: platform.startUrl }}
             onMessage={onMessage}
@@ -695,16 +830,26 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
             <ActivityIndicator size="large" color={platform.color} style={styles.gateSpinner} />
           ) : null}
           <Text style={styles.gateText}>{ourOwnWords.sentence}</Text>
-          {ourOwnWords.button ? (
+          {/* THE CONTROLS, AND WHICH ONE DOES WHAT IS THE GATE'S ANSWER AND NOT
+              THIS SCREEN'S. A control is drawn only because whatWeSay put it
+              there, and what it does comes from that same answer, so a control
+              can never be drawn with nothing behind it or wired to the wrong
+              thing. Most of these screens have none; the failure has one; the one
+              that asks has two, because the two things that might have happened
+              both need a way forward. */}
+          {ourOwnWords.controls.map((control, at) => (
             <TouchableOpacity
-              style={styles.gateBtn}
-              onPress={tryAgain}
+              key={control.does}
+              style={at === 0 ? styles.gateBtn : styles.gateBtnQuiet}
+              onPress={whatEachControlDoes[control.does]}
               activeOpacity={0.85}
               accessibilityRole="button"
             >
-              <Text style={styles.gateBtnText}>{ourOwnWords.button}</Text>
+              <Text style={at === 0 ? styles.gateBtnText : styles.gateBtnQuietText}>
+                {control.label}
+              </Text>
             </TouchableOpacity>
-          ) : null}
+          ))}
         </View>
       ) : null}
       {mode === 'results' ? (
@@ -810,6 +955,13 @@ const styles = StyleSheet.create({
   // Flattening all seven to gold would cost real orientation for no gain.
   // OUR OWN SCREEN OVER THE SHOP'S. Absolutely filling, and opaque, because a
   // gap anywhere in it is the shop's page showing through.
+  gateBtnQuiet: {
+    marginTop: 10, paddingHorizontal: 22, paddingVertical: 11,
+    borderRadius: RADIUS.round, borderWidth: 1, borderColor: '#D9D2C2',
+  },
+  gateBtnQuietText: {
+    fontFamily: FONT.displaySemi, fontSize: 13, color: COLOR.sub,
+  },
   gate: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,

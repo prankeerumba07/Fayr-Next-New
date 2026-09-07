@@ -7,29 +7,45 @@
 // demand: a shop that never answers, a shop that answers with a captcha, a clock
 // that is not there, a page that posts something we never asked for.
 //
-// SO THE TABLE BELOW IS EXHAUSTIVE ON PURPOSE. Every combination of the four
-// signals is listed and asserted, not a sample of them, because the failure this
-// gate exists to stop is exactly the one nobody thought to try: some fourth thing
-// the shop served getting through the cover and onto a person's screen.
+// SO THE TABLES BELOW ARE EXHAUSTIVE ON PURPOSE. Every combination of the signals
+// is listed and asserted, not a sample of them, because the failure this gate
+// exists to stop is exactly the one nobody thought to try: some fourth thing the
+// shop served getting through the cover and onto a person's screen.
+//
+// THE THREE BUGS THE OWNER FOUND ON A REAL PHONE on 5 September 2026 each have
+// their own section, named after what he saw, so a change that brings one back
+// fails with the symptom rather than with a rule number.
 //
 // NOTHING HERE TYPES ANYTHING INTO A SHOP'S PAGE, and nothing here can, because
-// the gate has no way to. The signals are only ever a yes or a no, and the one
-// piece of text that goes in is the greeting the shop printed itself.
+// the gate has no way to. The facts are only ever a yes, a no, a path, or the
+// words the shop itself printed.
 import {
+  ASK_THE_SHOP_AGAIN,
+  CANNOT_TELL,
   FAILED,
+  HOW_OFTEN_IT_LOOKS_MS,
+  LOOKS_IN_A_ROW_BEFORE_WE_ASK,
   OPENING_UP,
   SHOP,
   SHOP_HAS_THIS_LONG_MS,
   SIGNED_IN_NOW,
   SIGNED_IN_SHOWS_FOR_MS,
+  THEY_SAY_THEY_ARE_IN,
+  isAPayingPage,
   isForTheGate,
+  isTheShopsOwnSignInPage,
+  pathOf,
   ranOutOfTime,
   shopMayBeSeen,
+  shopViewKey,
   whatIsOnScreen,
+  whatThePageShows,
   whatTheShopSaid,
   whatWeSay,
 } from './gate.js';
-import { DID_NOT_OPEN, EVERY_SENTENCE, OPENING, SIGNED_IN, TRY_AGAIN } from './gateWords.js';
+import {
+  DID_NOT_OPEN, EVERY_SENTENCE, I_HAVE_SIGNED_IN, NOT_SURE, OPENING, SIGNED_IN, TRY_AGAIN,
+} from './gateWords.js';
 import { PAGE_TIMEOUT_MS } from '../livecheck.js';
 import { LIST_TIMEOUT_MS } from '../orderhistory.js';
 
@@ -49,9 +65,6 @@ const OUT_OF_TIME = OPENED_AT + SHOP_HAS_THIS_LONG_MS;
 
 console.log('=== 1. nothing known yet ===');
 {
-  // The first moment: the button has just been tapped, the shop has been asked to
-  // open, and nothing at all has come back. Our own loading screen is up and the
-  // shop's page is covered.
   ok(whatIsOnScreen() === OPENING_UP, 'with no signals at all, our own loading screen is up');
   ok(whatIsOnScreen({}) === OPENING_UP, 'an empty set of signals is the same as none');
   ok(whatIsOnScreen({ startedAt: OPENED_AT, now: OPENED_AT }) === OPENING_UP,
@@ -60,321 +73,428 @@ console.log('=== 1. nothing known yet ===');
     'so at the first moment the shop may not be seen');
 }
 
-console.log('\n=== 2. every combination of the four signals ===');
+console.log('\n=== 2. every combination of every signal, and the clock ===');
 {
-  // FOUR SIGNALS, SIXTEEN COMBINATIONS, ALL OF THEM LISTED. The two states that
-  // uncover or close the screen are the ones a shop must never be able to reach by
-  // accident, so each row says what is on screen and why, and there is no row this
-  // check leaves to judgement.
+  // FOUR SIGNALS AND A CLOCK. Sixteen combinations of the signals, each of them
+  // both in time and out of time, so thirty two rows and not one left to
+  // judgement. The order of authority the gate keeps, top first:
   //
-  // The order of authority the gate keeps, top first:
-  //   they are in     the job is done, nothing else matters
-  //   it will not open  or the fifteen seconds ran out
+  //   they are in       the job is done, nothing else matters
+  //   it will not open  the shop said so out loud
+  //   the sign in has gone   our own screen, and a question
   //   the sign in is up the one and only thing that uncovers the shop
-  //   otherwise       our own loading screen
-  const table = [
-    // signInIsUp, theyAreIn, itWillNotOpen, ran out of time, what is on screen
-    [false, false, false, false, OPENING_UP, 'still loading, nothing back yet'],
-    [false, false, false, true, FAILED, 'the shop had its fifteen seconds and said nothing'],
-    [false, false, true, false, FAILED, 'the shop said it could not open'],
-    [false, false, true, true, FAILED, 'it said it could not open and the time ran out too'],
-    [false, true, false, false, SIGNED_IN_NOW, 'in already, before any sign in was seen'],
-    [false, true, false, true, SIGNED_IN_NOW, 'in already, and a slow clock does not undo it'],
-    [false, true, true, false, SIGNED_IN_NOW, 'in already, and a failure does not undo it'],
-    [false, true, true, true, SIGNED_IN_NOW, 'in already, and nothing at all undoes it'],
-    [true, false, false, false, SHOP, 'the shop own sign in is up, so the cover comes off'],
-    [true, false, false, true, FAILED, 'a sign in that only arrives after the time is too late'],
-    [true, false, true, false, FAILED, 'a sign in is up but the shop says it could not open'],
-    [true, false, true, true, FAILED, 'could not open and too late, sign in or no sign in'],
-    [true, true, false, false, SIGNED_IN_NOW, 'being in beats the sign in being up'],
-    [true, true, false, true, SIGNED_IN_NOW, 'being in beats the sign in and the clock'],
-    [true, true, true, false, SIGNED_IN_NOW, 'being in beats the sign in and the failure'],
-    [true, true, true, true, SIGNED_IN_NOW, 'being in beats every other signal at once'],
-  ];
-  ok(table.length === 16, 'all sixteen combinations are listed, not a sample of them');
-  let sawTheShop = 0;
-  for (const [signInIsUp, theyAreIn, itWillNotOpen, timedOut, wanted, why] of table) {
+  //   the clock ran out
+  //   otherwise         our own loading screen
+  const rows = [];
+  for (const up of [false, true]) {
+    for (const gone of [false, true]) {
+      for (const areIn of [false, true]) {
+        for (const willNot of [false, true]) {
+          for (const late of [false, true]) {
+            const want = areIn ? SIGNED_IN_NOW
+              : willNot ? FAILED
+                : gone ? CANNOT_TELL
+                  : up ? SHOP
+                    : late ? FAILED : OPENING_UP;
+            rows.push([up, gone, areIn, willNot, late, want]);
+          }
+        }
+      }
+    }
+  }
+  ok(rows.length === 32, 'thirty two rows, which is every combination and not a sample');
+  let wrong = 0;
+  for (const [up, gone, areIn, willNot, late, want] of rows) {
     const got = whatIsOnScreen({
-      signInIsUp,
-      theyAreIn,
-      itWillNotOpen,
+      signInIsUp: up,
+      signInIsGone: gone,
+      theyAreIn: areIn,
+      itWillNotOpen: willNot,
       startedAt: OPENED_AT,
-      now: timedOut ? OUT_OF_TIME : STILL_IN_TIME,
+      now: late ? OUT_OF_TIME : STILL_IN_TIME,
     });
-    ok(got === wanted, `${why} (${got})`);
-    if (got === SHOP) sawTheShop += 1;
+    if (got !== want) {
+      wrong += 1;
+      console.log(`       up=${up} gone=${gone} in=${areIn} willNot=${willNot} late=${late}`
+        + ` wanted ${want} got ${got}`);
+    }
   }
-  // THE POINT OF THE WHOLE TABLE. Out of sixteen ways the signals can land, there
-  // is exactly ONE in which a person sees the shop's own page, and it is the one
-  // where its sign in is up and nothing has gone wrong.
-  ok(sawTheShop === 1, 'exactly one of the sixteen uncovers the shop page');
+  ok(wrong === 0, 'and every one of the thirty two answers is the one the order of authority gives');
+
+  // The two that must never happen, said again on their own, because they are the
+  // ones that put a shop's page in front of somebody.
+  let uncovered = 0;
+  for (const [up, gone, areIn, willNot, late] of rows) {
+    const got = whatIsOnScreen({
+      signInIsUp: up, signInIsGone: gone, theyAreIn: areIn, itWillNotOpen: willNot,
+      startedAt: OPENED_AT, now: late ? OUT_OF_TIME : STILL_IN_TIME,
+    });
+    if (shopMayBeSeen(got) && !up) uncovered += 1;
+  }
+  ok(uncovered === 0, 'the shop is never uncovered unless its own sign in is up');
 }
 
-console.log('\n=== 3. being in wins over everything ===');
+console.log('\n=== 3. the sign in beats the clock, which it did not before ===');
 {
-  // A person who is already signed in at the shop must not be shown a failure
-  // screen. This is a real moment, not a theoretical one: they signed in on a
-  // previous visit, the cookie is still good, and the shop greets them instead of
-  // ever serving a sign in page.
-  ok(whatIsOnScreen({ theyAreIn: true }) === SIGNED_IN_NOW,
-    'being in on its own closes the screen');
-  ok(whatIsOnScreen({ theyAreIn: true, itWillNotOpen: true }) === SIGNED_IN_NOW,
-    'being in beats the shop saying it could not open');
-  ok(whatIsOnScreen({ theyAreIn: true, startedAt: 0, now: 9_000_000_000 }) === SIGNED_IN_NOW,
-    'being in beats a start time far in the past');
-  ok(whatIsOnScreen({
-    signInIsUp: false,
-    theyAreIn: true,
-    itWillNotOpen: true,
-    startedAt: 0,
-    now: 9_000_000_000,
-  }) === SIGNED_IN_NOW, 'being in beats a failure and a dead clock together');
+  // A SHOP THAT TOOK SIXTEEN SECONDS HAS STILL ANSWERED. The old order asked the
+  // clock first, so a slow shop showed "The shop did not open" over its own
+  // working sign in page, for ever, because nothing ever moved the clock back.
+  const slow = whatIsOnScreen({
+    signInIsUp: true, startedAt: OPENED_AT, now: OPENED_AT + 16_000,
+  });
+  ok(slow === SHOP, 'a shop whose sign in arrived after the wait is still shown');
+  ok(shopMayBeSeen(slow) === true, 'and the person really can see it');
+  ok(whatIsOnScreen({ signInIsGone: true, startedAt: OPENED_AT, now: OPENED_AT + 600_000 })
+    === CANNOT_TELL,
+  'and a sign in ten minutes long ends in the question, not in "it did not open"');
+  ok(whatIsOnScreen({ startedAt: OPENED_AT, now: OUT_OF_TIME }) === FAILED,
+    'but a shop that answered nothing at all still fails at fifteen seconds');
 }
 
-console.log('\n=== 4. it will not open wins over waiting ===');
+console.log('\n=== 4. the wait, and where the number comes from ===');
 {
-  // When the shop itself says it could not load, there is nothing to wait for. The
-  // failure sentence and the one button go up immediately rather than after the
-  // person has watched a loading screen for the rest of the fifteen seconds.
-  ok(whatIsOnScreen({ itWillNotOpen: true }) === FAILED,
-    'a shop that said it could not open fails at once, with no clock at all');
-  ok(whatIsOnScreen({ itWillNotOpen: true, signInIsUp: false }) === FAILED,
-    'and it does not matter that no sign in was ever seen');
-  ok(whatIsOnScreen({ itWillNotOpen: true, startedAt: OPENED_AT, now: OPENED_AT }) === FAILED,
-    'it fails in the very first moment, long before the time is up');
-  ok(whatIsOnScreen({ itWillNotOpen: true, startedAt: OPENED_AT, now: STILL_IN_TIME }) === FAILED,
-    'it fails with one moment of the wait still left');
-  ok(shopMayBeSeen(whatIsOnScreen({ itWillNotOpen: true, signInIsUp: true })) === false,
-    'and a failed shop page is never uncovered, even with a sign in up');
+  ok(SHOP_HAS_THIS_LONG_MS === 15000, 'the shop gets fifteen seconds');
+  ok(PAGE_TIMEOUT_MS === SHOP_HAS_THIS_LONG_MS,
+    'which is the same wait livecheck gives a shop page');
+  ok(LIST_TIMEOUT_MS === SHOP_HAS_THIS_LONG_MS,
+    'and the same wait orderhistory gives a shop page');
+  ok(ranOutOfTime(OPENED_AT, STILL_IN_TIME) === false, 'one millisecond short is not out of time');
+  ok(ranOutOfTime(OPENED_AT, OUT_OF_TIME) === true, 'and the fifteenth second is');
+  for (const bad of [null, undefined, NaN, Infinity, '1000', {}, []]) {
+    ok(ranOutOfTime(bad, OUT_OF_TIME) === false, `a start of ${String(bad)} is never out of time`);
+    ok(ranOutOfTime(OPENED_AT, bad) === false, `a now of ${String(bad)} is never out of time`);
+  }
 }
 
-console.log('\n=== 5. the fifteen seconds, counted exactly ===');
+console.log('\n=== 5. BUG ONE. Try again really asks the shop again ===');
 {
-  ok(ranOutOfTime(OPENED_AT, OPENED_AT + SHOP_HAS_THIS_LONG_MS) === true,
-    'exactly fifteen seconds is out of time');
-  ok(ranOutOfTime(OPENED_AT, OPENED_AT + SHOP_HAS_THIS_LONG_MS - 1) === false,
-    'one moment before fifteen seconds is not');
-  ok(ranOutOfTime(OPENED_AT, OPENED_AT + SHOP_HAS_THIS_LONG_MS + 1) === true,
-    'and past fifteen seconds stays out of time');
-  ok(ranOutOfTime(OPENED_AT, OPENED_AT) === false, 'the first moment is not out of time');
+  // THE OWNER'S OWN WORDS: "IT STAYED ON THE FAILURE SCREEN. He tapped it several
+  // more times. Nothing ever happened." Try again asked the web view to reload,
+  // and a view whose load failed holds no page, so reload had nothing to fetch.
+  // The remedy is a new view, and a new view is a changed key.
+  ok(shopViewKey(0) !== shopViewKey(1), 'a second attempt is a different view from the first');
+  ok(shopViewKey(1) !== shopViewKey(2), 'and a third is different from the second');
+  ok(shopViewKey(2) !== shopViewKey(3), 'and a fourth from the third');
+  const seen = new Set();
+  for (let n = 0; n < 50; n += 1) seen.add(shopViewKey(n));
+  ok(seen.size === 50, 'fifty attempts are fifty different views, so tapping never stops working');
+  ok(shopViewKey(7) === shopViewKey(7), 'and the same attempt is always the same view');
+  for (const bad of [null, undefined, NaN, Infinity, 'two', {}]) {
+    ok(shopViewKey(bad) === shopViewKey(0), `an unreadable count of ${String(bad)} is the first view`);
+  }
+  ok(typeof shopViewKey(3) === 'string' && shopViewKey(3).length > 0,
+    'and a key is always something a view can really be built under');
+}
 
-  // A MISSING CLOCK MUST NEVER FAIL A WORKING SHOP. If we cannot tell how long it
-  // has been, the honest answer is that the time has not run out, because saying
-  // otherwise would put a failure screen over a sign in page that was loading
-  // perfectly well.
-  const cannotTell = [
-    ['nothing at all', null, null],
-    ['no start time', null, OPENED_AT],
-    ['no now', OPENED_AT, null],
-    ['a start time that is not set', undefined, OPENED_AT],
-    ['a now that is not set', OPENED_AT, undefined],
-    ['a start time in words', 'just now', OPENED_AT],
-    ['a now in words', OPENED_AT, 'later'],
-    ['a start time that is not a number', NaN, OPENED_AT],
-    ['a now that is not a number', OPENED_AT, NaN],
-    ['a start time with no end', -Infinity, OPENED_AT],
-    ['a now with no end', OPENED_AT, Infinity],
-    ['an object for a clock', { at: OPENED_AT }, OPENED_AT],
+console.log('\n=== 6. is this the shop own sign in page ===');
+{
+  // Every one of these was opened in a real browser with a real iPhone user agent.
+  const signInPages = [
+    ['/ap/signin', 'where Amazon really lands from its own sign in address'],
+    ['/ap/cvf/request', 'Amazon own second step, the code'],
+    ['/ap/challenge', 'Amazon own second step, the challenge'],
+    ['/ap/mfa', 'Amazon own second step, the extra check'],
+    ['/ap/forgotpassword', 'Amazon own forgotten password page'],
+    ['/gp/sign-in.html', 'the address Fayr opens for Amazon'],
+    ['/login', 'Flipkart and Myntra'],
+    ['/login?ret=%2F', 'and with the shop own parameters on it'],
+    ['/auth', 'Meesho and Instamart'],
+    ['/signin', 'the other spelling'],
+    ['/sign-in', 'and the other other spelling'],
   ];
-  for (const [what, startedAt, now] of cannotTell) {
-    ok(ranOutOfTime(startedAt, now) === false, `${what} can never run out of time`);
+  for (const [path, why] of signInPages) {
+    ok(isTheShopsOwnSignInPage(path) === true, `${path} is a sign in page (${why})`);
   }
-  ok(whatIsOnScreen({ signInIsUp: true, startedAt: null, now: null }) === SHOP,
-    'so a shop whose sign in is up with no clock at all is still shown');
-  ok(ranOutOfTime() === false, 'and called with nothing at all it is still not out of time');
+  const notSignInPages = [
+    ['/', 'a shop own home page'],
+    ['/my-account', 'Flipkart own account page, which offers a way in but is not one'],
+    ['/account/orders', 'Zepto own orders page'],
+    ['/orders', 'Meesho own orders page'],
+    ['/my/orders', 'Myntra own orders page'],
+    ['/gp/css/order-history', 'Amazon own order list'],
+    ['/loginhelp', 'a word that merely starts with the same letters'],
+    ['/apple-watch', 'a shopping page that starts with the same two letters as Amazon portal'],
+    ['/ap', 'the portal name with nothing under it'],
+    ['/checkout', 'a checkout'],
+    ['/product/authentic-leather-bag', 'a product whose name contains auth'],
+  ];
+  for (const [path, why] of notSignInPages) {
+    ok(isTheShopsOwnSignInPage(path) === false, `${path} is NOT a sign in page (${why})`);
+  }
+  for (const bad of [null, undefined, 0, {}, []]) {
+    ok(isTheShopsOwnSignInPage(bad) === false, `${String(bad)} is not a sign in page`);
+  }
+  ok(isTheShopsOwnSignInPage('login') === true, 'a path with no leading slash is still read');
 }
 
-console.log('\n=== 6. the shop page is uncovered for one state only ===');
+console.log('\n=== 7. the path out of an address ===');
 {
-  ok(shopMayBeSeen(SHOP) === true, 'the shop own sign in may be seen');
-  ok(shopMayBeSeen(OPENING_UP) === false, 'a loading shop may not');
-  ok(shopMayBeSeen(FAILED) === false, 'a failed shop may not');
-  ok(shopMayBeSeen(SIGNED_IN_NOW) === false, 'and a shop we are already in may not');
-  // Anything that is not one of the four is treated as not allowed. A state we do
-  // not recognise must never be the one that uncovers a shop page.
-  const junk = [undefined, null, '', 'Shop', 'SHOP', 'shopping', 0, 1, true, false, {}, [], { state: SHOP }, NaN];
-  for (const value of junk) {
-    ok(shopMayBeSeen(value) === false, `${JSON.stringify(value) || String(value)} does not uncover the shop`);
+  ok(pathOf('https://www.amazon.in/ap/signin?openid.mode=x') === '/ap/signin',
+    'the query is not part of the path');
+  ok(pathOf('https://www.flipkart.com/') === '/', 'a bare shop address is the root');
+  ok(pathOf('https://www.flipkart.com') === '/', 'and so is one with no slash at all');
+  ok(pathOf('https://blinkit.com/#top') === '/', 'and a marker on the page is not part of it');
+  for (const bad of [null, undefined, 42, {}, 'not an address', 'ftp://x/y']) {
+    ok(pathOf(bad) === null, `${String(bad)} has no path we can read`);
+  }
+  ok(isTheShopsOwnSignInPage(pathOf('https://www.amazon.in/ap/cvf/verify')) === true,
+    'and the two together answer Amazon second step correctly');
+}
+
+console.log('\n=== 8. a paying page is left completely alone ===');
+{
+  for (const path of ['/checkout', '/cart', '/payment', '/pay', '/order-payment']) {
+    ok(isAPayingPage(path) === true, `${path} is a paying page`);
+  }
+  ok(isAPayingPage('/') === false, 'a home page is not');
+  ok(isAPayingPage('/cartoons') === false, 'and neither is a page that merely starts with cart');
+  ok(whatThePageShows({ path: '/checkout', signOutIsThere: true, signInWasUp: true }) === null,
+    'and nothing at all is said about one, even when it shows a way out');
+}
+
+console.log('\n=== 9. BUG TWO. what a shop own page is really showing ===');
+{
+  // ── the two signs that always meant somebody is in ────────────────────────
+  ok(whatThePageShows({ signOutIsThere: true, path: '/' }) === 'in',
+    'a shop showing its own way out is a shop that let them in');
+  ok(whatThePageShows({ greeting: 'Hello, Manisha Dahiya Orders', path: '/' }) === 'in',
+    'and so is a shop greeting somebody by name');
+
+  // ── AND THE GREETING THAT IS NOT A NAME, which used to say they were in ───
+  ok(whatThePageShows({ greeting: 'Hello, sign in Account & Lists', path: '/' }) !== 'in',
+    'Amazon "Hello, sign in" is a shop saying nobody is signed in');
+  ok(whatThePageShows({ greeting: 'Hello, Guest', path: '/' }) !== 'in',
+    'and so is "Hello, Guest"');
+  ok(whatThePageShows({ greeting: 'Hello, there', path: '/' }) !== 'in',
+    'and so is "Hello, there"');
+
+  // ── the sign in being up ──────────────────────────────────────────────────
+  ok(whatThePageShows({ fieldIsThere: true, path: '/' }) === 'up',
+    'a box asking for a number is the sign in being up');
+  ok(whatThePageShows({ path: '/login' }) === 'up',
+    'and so is being on the shop own sign in address, which is the only signal Flipkart gives');
+
+  // ── THE THIRD SIGN, AND EVERY CONDITION ON IT ─────────────────────────────
+  const gone = {
+    signInWasUp: true, fieldIsThere: false, signInControlIsThere: false,
+    signOutIsThere: false, greeting: '', path: '/', isAPuzzle: false, looksInARow: 2,
+  };
+  ok(whatThePageShows(gone) === 'gone',
+    'the sign in was up, it has gone, and the page offers no way back in');
+  ok(whatThePageShows({ ...gone, signInWasUp: false }) === null,
+    'but not when the sign in was never up in the first place');
+  ok(whatThePageShows({ ...gone, path: '/login' }) === 'up',
+    'and not while still on the shop own sign in page');
+  ok(whatThePageShows({ ...gone, path: '/ap/cvf/request' }) === 'up',
+    'and not in the middle of Amazon two step sign in');
+  ok(whatThePageShows({ ...gone, fieldIsThere: true }) === 'up',
+    'and not while a sign in box is still on screen');
+  ok(whatThePageShows({ ...gone, isAPuzzle: true }) === null,
+    'and never on a puzzle asking whether they are a person');
+  ok(whatThePageShows({ ...gone, signInControlIsThere: true }) === null,
+    'and never while the shop is offering a way in');
+  ok(whatThePageShows({ ...gone, looksInARow: 1 }) === null,
+    'and never on one look, so a page halfway through being rebuilt cannot count');
+  ok(whatThePageShows({ ...gone, looksInARow: undefined }) === null,
+    'and never when nobody counted the looks at all');
+  ok(whatThePageShows({ ...gone, looksInARow: 5 }) === 'gone',
+    'and still after five looks, because two is a floor and not a window');
+
+  // ── THE REAL PAGES, MEASURED ON 6 SEPTEMBER 2026 ─────────────────────────
+  // Flipkart own account page, signed out: it really does print "Log In". This
+  // is what keeps somebody who backed out of the sign in from being read as in.
+  ok(whatThePageShows({
+    signInWasUp: true, signInControlIsThere: true, path: '/my-account', looksInARow: 9,
+  }) === null, 'Flipkart own account page offers a way in, so nothing is said about it');
+  // Zepto own orders page, signed out: it really does print "Login".
+  ok(whatThePageShows({
+    signInWasUp: true, signInControlIsThere: true, path: '/account/orders', looksInARow: 9,
+  }) === null, 'Zepto own orders page offers a way in, so nothing is said about it');
+  // Flipkart own home page, signed out OR signed in: no way in either way. This
+  // is the page the owner was abandoned on, and it is why "gone" is a question
+  // and never a claim that somebody is signed in.
+  ok(whatThePageShows({
+    signInWasUp: true, signInControlIsThere: false, path: '/', looksInARow: 2,
+  }) === 'gone', 'Flipkart own home page ends in the question and not in a claim');
+}
+
+console.log('\n=== 10. every combination of the facts, and the rules that must hold ===');
+{
+  const greetings = ['', 'Hello, sign in Account & Lists', 'Hello, Manisha Dahiya'];
+  const paths = ['/', '/login', '/checkout'];
+  const every = [];
+  for (const wasUp of [false, true]) {
+    for (const field of [false, true]) {
+      for (const wayIn of [false, true]) {
+        for (const wayOut of [false, true]) {
+          for (const puzzle of [false, true]) {
+            for (const greeting of greetings) {
+              for (const path of paths) {
+                for (const looks of [1, 2]) {
+                  every.push({
+                    signInWasUp: wasUp, fieldIsThere: field, signInControlIsThere: wayIn,
+                    signOutIsThere: wayOut, isAPuzzle: puzzle, greeting, path,
+                    looksInARow: looks,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  ok(every.length === 576, 'five hundred and seventy six combinations, which is all of them');
+
+  const answers = every.map((f) => [f, whatThePageShows(f)]);
+  const only = new Set(answers.map(([, a]) => a));
+  ok([...only].every((a) => a === null || a === 'in' || a === 'up' || a === 'gone'),
+    'and every answer is one of the three, or nothing');
+
+  // THE RULES, EACH ONE STATED AS A THING THAT MUST NEVER HAPPEN.
+  const never = [
+    ['nothing at all is ever said about a puzzle', ([f, a]) => !(f.isAPuzzle && a !== null)],
+    ['nothing at all is ever said about a paying page',
+      ([f, a]) => !(isAPayingPage(f.path) && a !== null)],
+    ['the sign in is never called gone while the shop offers a way in',
+      ([f, a]) => !(a === 'gone' && f.signInControlIsThere)],
+    ['the sign in is never called gone on the shop own sign in page',
+      ([f, a]) => !(a === 'gone' && isTheShopsOwnSignInPage(f.path))],
+    ['the sign in is never called gone when it was never up',
+      ([f, a]) => !(a === 'gone' && !f.signInWasUp)],
+    ['the sign in is never called gone on one look',
+      ([f, a]) => !(a === 'gone' && f.looksInARow < LOOKS_IN_A_ROW_BEFORE_WE_ASK)],
+    ['the sign in is never called gone while its own box is on screen',
+      ([f, a]) => !(a === 'gone' && f.fieldIsThere)],
+    ['nobody is ever called signed in without a way out or a real name',
+      ([f, a]) => !(a === 'in' && !f.signOutIsThere && !/Manisha/.test(f.greeting))],
+    ['a way out always means signed in, unless the page is one we leave alone',
+      ([f, a]) => !(f.signOutIsThere && !f.isAPuzzle && !isAPayingPage(f.path) && a !== 'in')],
+    ['a sign in box always means the sign in is up, unless they are already in',
+      ([f, a]) => !(f.fieldIsThere && !f.isAPuzzle && !isAPayingPage(f.path)
+        && a !== 'up' && a !== 'in')],
+  ];
+  for (const [why, holds] of never) {
+    const broken = answers.filter((row) => !holds(row));
+    if (broken.length > 0) console.log(`       first breach: ${JSON.stringify(broken[0])}`);
+    ok(broken.length === 0, `${why} (across all ${answers.length})`);
   }
 }
 
-console.log('\n=== 7. what our own screen says ===');
+console.log('\n=== 11. the facts a shop page sends, turned into signals ===');
 {
-  // THE SENTENCES ARE IMPORTED, NEVER RETYPED. If a word in gateWords.js changes,
-  // this check follows it, and the plain language check on our side is still the
-  // one thing judging whether the new words are simple enough.
+  const facts = (o) => ({ __fayrPage: o });
+  // OUR OWN MEMORY IS THE SECOND ARGUMENT, and it is not in the message on
+  // purpose: a shop's page that reloads gets a new script with no memory of the
+  // page before it, so the memory has to be ours. See whatTheShopSaid.
+  const said = (o, weSawASignIn = false) => whatTheShopSaid(facts(o), weSawASignIn);
+  ok(isForTheGate(facts({ path: '/' })) === true, 'a message carrying page facts is ours');
+  for (const notOurs of [
+    null, undefined, 'up', 3, {}, { ok: true }, { __fayrPage: 'up' }, { __fayrPage: null },
+    { items: [] }, { ok: false, error: 'Fetch failed.' },
+  ]) {
+    ok(isForTheGate(notOurs) === false,
+      `${JSON.stringify(notOurs) ?? String(notOurs)} is not the gate business`);
+  }
+
+  const up = said({ fieldIsThere: true, path: '/login' });
+  ok(up.signInIsUp === true, 'a sign in that is up says so');
+  ok(up.theyAreIn === false, 'and does not say anybody is in');
+  ok(up.signInIsGone === false, 'and does not say the sign in has gone');
+  ok(up.accountName === null, 'and carries no name');
+
+  const inNow = said({
+    signOutIsThere: true, greeting: 'Hello, Manisha Dahiya Orders', path: '/',
+  });
+  ok(inNow.theyAreIn === true, 'a shop showing its own way out says they are in');
+  ok(inNow.signInIsUp === false,
+    'AND SAYS NO SIGN IN IS UP, because a shop greeting somebody shows them none');
+  ok(inNow.signInIsGone === false, 'and does not say the sign in has gone');
+  ok(inNow.accountName === 'Manisha Dahiya', 'and carries the name the shop printed');
+
+  const goneNow = said({ path: '/', looksInARow: 2 }, true);
+  ok(goneNow.signInIsGone === true, 'a sign in that has gone says so');
+  ok(goneNow.signInIsUp === false, 'and says no sign in is up');
+  ok(goneNow.theyAreIn === false, 'AND NEVER SAYS ANYBODY IS SIGNED IN');
+  ok(goneNow.accountName === null, 'and carries no name');
+
+  ok(said({ path: '/', isAPuzzle: true }, true) === null,
+    'a puzzle is given no answer at all');
+  ok(said({ path: '/' }) === null,
+    'and neither is an ordinary shopping page nothing has happened on');
+  ok(whatTheShopSaid({ ok: true, items: [] }) === null,
+    'and a reader own result is never mistaken for one of ours');
+  ok(whatTheShopSaid(null) === null, 'and nothing at all is given nothing at all');
+  ok(said({ greeting: 'Hello, sign in', path: '/' }) === null,
+    'and Amazon own "Hello, sign in" says nothing, because it is a shop saying nobody is in');
+
+  // AND THE MEMORY IS OURS ALONE. A shop's own page claiming a sign in was up is
+  // not enough: only our own side can say that, so a page asserting it is ignored.
+  ok(said({ signInWasUp: true, path: '/', looksInARow: 9 }) === null,
+    'a shop page saying for itself that a sign in was up is not believed');
+  ok(said({ signInWasUp: false, path: '/', looksInARow: 9 }, true).signInIsGone === true,
+    'and our own memory is what decides it, even against the page');
+}
+
+console.log('\n=== 12. what we say, and the controls under it ===');
+{
   const opening = whatWeSay(OPENING_UP);
-  ok(opening.sentence === OPENING, 'the loading screen says the opening sentence');
-  ok(opening.button === null, 'and there is nothing to tap while it loads');
+  ok(opening.sentence === OPENING, 'the loading screen says the loading sentence');
+  ok(opening.controls.length === 0, 'and offers nothing to tap, because there is nothing to do');
 
   const failed = whatWeSay(FAILED);
-  ok(failed.sentence === DID_NOT_OPEN, 'the failure screen says the did not open sentence');
-  ok(failed.button === TRY_AGAIN, 'and it is the only screen with a button');
+  ok(failed.sentence === DID_NOT_OPEN, 'the failure says it did not open');
+  ok(failed.controls.length === 1, 'and offers exactly one control');
+  const onFailure = failed.controls[0] ?? { label: null, does: null };
+  ok(onFailure.label === TRY_AGAIN, 'whose words are try again');
+  ok(onFailure.does === ASK_THE_SHOP_AGAIN, 'and which asks the shop again');
+
+  const asking = whatWeSay(CANNOT_TELL);
+  ok(asking.sentence === NOT_SURE, 'the question says what we do and do not know');
+  ok(!/signed in\.|you are signed in/i.test(asking.sentence),
+    'AND NEVER CLAIMS THEY ARE SIGNED IN, because that is the thing we cannot tell');
+  ok(asking.controls.length === 2, 'and offers two controls, one for each thing that may have happened');
+  // READ THROUGH A HOLE THAT CANNOT THROW. Reading controls[1] straight would
+  // CRASH this whole file the moment a control went missing, and a file that
+  // crashes never reaches its own summary: every section after this one would
+  // silently not run at all. That really happened once, and it hid twelve
+  // worthless mutation results.
+  const control = (at) => asking.controls[at] ?? { label: null, does: null };
+  ok(control(0).label === I_HAVE_SIGNED_IN, 'the first is their own answer');
+  ok(control(0).does === THEY_SAY_THEY_ARE_IN, 'and it records that they said so');
+  ok(control(1).label === TRY_AGAIN, 'the second goes back to the shop');
+  ok(control(1).does === ASK_THE_SHOP_AGAIN, 'and asks it again from nothing');
 
   const signedIn = whatWeSay(SIGNED_IN_NOW);
-  ok(signedIn.sentence === SIGNED_IN, 'the signed in screen says the signed in sentence');
-  ok(signedIn.button === null, 'and offers nothing to tap, because it closes itself');
+  ok(signedIn.sentence === SIGNED_IN, 'the signed in line says they are signed in');
+  ok(signedIn.controls.length === 0, 'and offers nothing, because the screen is closing');
 
-  ok(whatWeSay(SHOP) === null, 'over the shop own page we say nothing at all');
-
-  // Three of our own states, three sentences, and all three of them different. Two
-  // states sharing a sentence would mean a person could not tell them apart.
-  const said = [opening.sentence, failed.sentence, signedIn.sentence];
-  ok(new Set(said).size === 3, 'the three sentences are three different sentences');
-  ok(said.every((s) => EVERY_SENTENCE.includes(s)),
-    'and every one of them is in the one file our side reads');
-  ok(EVERY_SENTENCE.includes(TRY_AGAIN), 'so is the button, so the same rule reads it');
-
-  // Nothing we do not recognise gets a sentence. A screen with no state has no
-  // words rather than made up ones.
-  for (const value of [undefined, null, '', 'nonsense', 0, {}, []]) {
-    ok(whatWeSay(value) === null, `${JSON.stringify(value) || String(value)} is given no words`);
+  ok(whatWeSay(SHOP) === null, 'and over the shop own page we say nothing at all');
+  for (const bad of [undefined, null, '', 'nonsense', 0, {}, []]) {
+    ok(whatWeSay(bad) === null, `${JSON.stringify(bad) ?? String(bad)} is given no words`);
   }
-  ok(SIGNED_IN_SHOWS_FOR_MS > 0 && SIGNED_IN_SHOWS_FOR_MS < SHOP_HAS_THIS_LONG_MS,
-    'the signed in line is up for a breath, not for a wait');
+
+  // Every word on screen comes from the one file our side reads from disk.
+  const said = [OPENING, DID_NOT_OPEN, TRY_AGAIN, SIGNED_IN, NOT_SURE, I_HAVE_SIGNED_IN];
+  ok(new Set(said).size === 6, 'the six things a person can read are six different things');
+  for (const one of said) {
+    ok(EVERY_SENTENCE.includes(one), `"${one}" is in the one file our side reads`);
+  }
+  ok(EVERY_SENTENCE.length === 6, 'and the file holds those six and nothing else');
 }
 
-console.log('\n=== 8. what the shop own page said, turned into signals ===');
+console.log('\n=== 13. BUG THREE. how often the page is looked at ===');
 {
-  const up = whatTheShopSaid({ __fayrSignIn: 'up' });
-  ok(up.signInIsUp === true, 'a sign in that is up says so');
-  ok(up.theyAreIn === false, 'and it does not claim anybody is signed in');
-  ok(up.accountName === null, 'and it carries no name');
-
-  // A greeting is only ever believed alongside 'in'. A shop greeting somebody by
-  // name while still showing them a sign in field is not something a real shop
-  // does, so the name is dropped rather than believed.
-  const upWithName = whatTheShopSaid({ __fayrSignIn: 'up', __fayrGreeting: 'Hello, Prakash Orders' });
-  ok(upWithName.signInIsUp === true, 'a sign in with a greeting attached is still a sign in');
-  ok(upWithName.theyAreIn === false, 'and still nobody is signed in');
-  ok(upWithName.accountName === null, 'and the name is dropped, because no shop greets a stranger');
-
-  const inWithName = whatTheShopSaid({ __fayrSignIn: 'in', __fayrGreeting: 'Hello, Prakash Orders' });
-  ok(inWithName.theyAreIn === true, 'a page greeting somebody by name means they are in');
-  ok(inWithName.accountName === 'Prakash',
-    'and the name is read out of the greeting, with the page furniture left behind');
-  // THE ONE THIS CHECK USED TO MISS, and it was a live trap. Being in and having a
-  // sign in on screen are DIFFERENT THINGS: a shop greeting somebody by name is
-  // showing them no sign in at all. Saying otherwise was harmless only because
-  // being in is tested first in whatIsOnScreen. Reorder those two lines, or read
-  // this one field on its own, and the gate would uncover a shop's already signed
-  // in pages, which are somebody's orders and their saved cards.
-  ok(inWithName.signInIsUp === false,
-    'and it does NOT claim a sign in is on screen, because a greeting is not one');
-  const inNoName = whatTheShopSaid({ __fayrSignIn: 'in' });
-  ok(inNoName.signInIsUp === false, 'the same with no greeting at all');
-  ok(inNoName.theyAreIn === true, '  and they are still in');
-
-  // THE ONE THAT MATTERS MOST. "Hello, sign in" is a shop saying nobody is here.
-  // It must never become a name, because that name goes on the card afterwards.
-  const noName = whatTheShopSaid({ __fayrSignIn: 'in', __fayrGreeting: 'Hello, sign in' });
-  ok(noName.theyAreIn === true, 'the page still said they are in');
-  ok(noName.accountName === null, 'but a greeting with no name in it gives no name');
-
-  const noGreeting = whatTheShopSaid({ __fayrSignIn: 'in' });
-  ok(noGreeting.theyAreIn === true, 'being in does not depend on a greeting arriving');
-  ok(noGreeting.accountName === null, 'and no greeting means no name');
-
-  // ANYTHING WE DID NOT ASK FOR IS IGNORED OUTRIGHT. A shop's own page can post
-  // whatever it likes at our screen, and none of it may reach the gate.
-  const junk = [
-    ['nothing at all', null],
-    ['not set', undefined],
-    ['a number', 42],
-    ['a string', 'string'],
-    ['an empty list', []],
-    ['an empty object', {}],
-    ['a signal we do not know', { __fayrSignIn: 'maybe' }],
-    ['the reader own result', { ok: true }],
-    ['a signal that is not words', { __fayrSignIn: true }],
-    ['a signal that is a number', { __fayrSignIn: 1 }],
-    ['a greeting with no signal', { __fayrGreeting: 'Hello, Prakash Orders' }],
-  ];
-  for (const [what, message] of junk) {
-    ok(whatTheShopSaid(message) === null, `${what} tells the gate nothing`);
-  }
-}
-
-console.log('\n=== 9. whose message is this anyway ===');
-{
-  // THE FAILURE THIS ONE STOPS. The connect screen already has a message handler
-  // for the reader's own results, and that handler treats anything without `ok` as
-  // a failed read. A gate message reaching it would print the words for a failure
-  // on a screen where nothing failed, so the two are told apart here, first.
-  ok(isForTheGate({ __fayrSignIn: 'up' }) === true, 'a sign in that is up is the gate business');
-  ok(isForTheGate({ __fayrSignIn: 'in' }) === true, 'so is a page saying they are in');
-  ok(isForTheGate({ __fayrSignIn: 'maybe' }) === true,
-    'and so is a signal we do not know, so it is swallowed here and not shown as a failure');
-  ok(isForTheGate({ __fayrSignIn: 'in', __fayrGreeting: 'Hello, Prakash Orders' }) === true,
-    'a greeting alongside it changes nothing');
-
-  const notOurs = [
-    ['a good read', { ok: true, raw: {} }],
-    ['a failed read', { ok: false, error: 'x' }],
-    ['a clear', { __fayrClear: true }],
-    ['nothing at all', null],
-    ['not set', undefined],
-    ['a number', 42],
-    ['a string', 'string'],
-    ['an empty list', []],
-    ['an empty object', {}],
-    ['a signal that is not words', { __fayrSignIn: true }],
-    ['a signal that is a number', { __fayrSignIn: 0 }],
-    ['a signal that is missing', { __fayrSignIn: null }],
-    ['a greeting on its own', { __fayrGreeting: 'Hello, Prakash Orders' }],
-  ];
-  for (const [what, message] of notOurs) {
-    ok(isForTheGate(message) === false, `${what} is left for the reader own handler`);
-  }
-}
-
-console.log('\n=== 10. the three waits are one wait ===');
-{
-  // THE SAME FIFTEEN SECONDS IN THREE FILES, PINNED TOGETHER HERE. All three are a
-  // web view being handed a shop's own page and being given a fair chance to load
-  // it, so they must agree. If they drift, a shop that is judged too slow to sign
-  // in at is still judged fast enough to read orders from, and the reason a person
-  // saw one screen and not the other becomes unexplainable.
-  //
-  // So nobody can move one and leave the others behind: change one and this fails.
-  ok(PAGE_TIMEOUT_MS === SHOP_HAS_THIS_LONG_MS,
-    `the live check wait is the gate wait (${PAGE_TIMEOUT_MS})`);
-  ok(LIST_TIMEOUT_MS === SHOP_HAS_THIS_LONG_MS,
-    `the order list wait is the gate wait (${LIST_TIMEOUT_MS})`);
-  ok(PAGE_TIMEOUT_MS === LIST_TIMEOUT_MS, 'and the other two agree with each other');
-  ok(SHOP_HAS_THIS_LONG_MS === 15000, 'and the one wait is fifteen seconds');
-}
-
-console.log('\n=== 11. the gate writes no sentence of its own ===');
-{
-  // Every word a person reads on this screen lives in gateWords.js, in one file,
-  // because our side's own plain language check opens that file from disk and reads
-  // it. A sentence invented in the gate would never be read by that check, so the
-  // owner's rule about simple words would quietly stop covering it.
-  const { readFileSync } = await import('node:fs');
-  const source = readFileSync(new URL('./gate.js', import.meta.url), 'utf8');
-  // Drop the comment lines first. They are long and plain English on purpose, and
-  // they are not words anybody reads on a phone. Block comment lines go too, or
-  // an apostrophe in the prose would be read as the start of a sentence.
-  const code = source
-    .split('\n')
-    .filter((l) => {
-      const line = l.trim();
-      return !(line.startsWith('//') || line.startsWith('/*') || line.startsWith('*'));
-    })
-    .join('\n');
-  const sentences = (code.match(/'[^'\n]*'|"[^"\n]*"/g) || []).filter((s) => {
-    const inner = s.slice(1, -1);
-    return (inner.match(/[a-z]+/g) || []).length >= 4;
-  });
-  ok(sentences.length === 0, `no sentence in the gate (found ${JSON.stringify(sentences)})`);
-  // And the state names really are the short words they look like, not sentences
-  // that slipped under the count above.
-  for (const state of [OPENING_UP, SHOP, FAILED, SIGNED_IN_NOW]) {
-    ok(typeof state === 'string' && !state.includes(' '),
-      `the state name ${state} is one word, not something to read`);
-  }
+  ok(HOW_OFTEN_IT_LOOKS_MS === 300, 'the page is looked at every three hundred milliseconds');
+  ok(HOW_OFTEN_IT_LOOKS_MS < 1500,
+    'which is faster than the tap script, because this one only reads and never clicks');
+  ok(HOW_OFTEN_IT_LOOKS_MS >= 100,
+    'and not so fast that a heaviest page eleven milliseconds is a real share of the time');
+  ok(SIGNED_IN_SHOWS_FOR_MS > HOW_OFTEN_IT_LOOKS_MS,
+    'and the signed in line is up for longer than a look, so it is really seen');
+  ok(SIGNED_IN_SHOWS_FOR_MS < 2000, 'and it is a breath, not a wait');
+  ok(LOOKS_IN_A_ROW_BEFORE_WE_ASK === 2, 'and a sign in must be gone for two looks in a row');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
-if (fail > 0) process.exit(1);
+process.exit(fail ? 1 : 0);

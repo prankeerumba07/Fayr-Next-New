@@ -70,78 +70,24 @@
 // only for a visit somebody makes in order to sign in, by src/signin.js. The
 // connect screen is not touched either.
 
-/**
- * The bit of a shop's own site the script refuses to interfere with.
- *
- * A blocklist and not an allowlist, which is the same choice src/platforms.js
- * made for the same reason: a shop can rewrite its own paths at any time, and an
- * allowlist built on a path shape nobody has watched would quietly switch the
- * whole thing off instead of failing where somebody can see it.
- */
-const LEAVE_ALONE = String.raw`/^\/(checkout|cart|payment|pay|order-payment)\b/`;
+import {
+  PAYING_PATH, SIGN_IN_IS_UP, SIGN_IN_PATH, WHOLE_LABEL,
+} from './connect/pageQuestions.js';
 
-/**
- * THE SHOP'S OWN SIGN IN PATHS. Being on one means the job is done.
- *
- * A SECOND STOP SIGNAL, AND FLIPKART IS WHY. Flipkart's own sign in page carries
- * one field written as a plain number box with no words on it at all — no name, no
- * placeholder, no label — so asking "is a sign in field on screen" cannot see it.
- * Being on Flipkart's own /login is the plainer answer, and it was watched
- * happening: tapping Account then Log In lands on
- * https://www.flipkart.com/login with Flipkart's own three parameters and its own
- * "Log in for the best experience".
- *
- * Anchored at the start of the path and closed at a word boundary, so a shopping
- * page that merely has one of these words somewhere in it can never match.
- */
-const OWN_SIGN_IN_PATH = String.raw`/^\/(login|signin|sign-in|auth|ap\/signin|gp\/sign-in)\b/`;
-
-/**
- * IS THE SHOP'S OWN SIGN IN ALREADY UP? The one signal that stops everything.
- *
- * It asks whether a field exists. It never reads one.
- */
-const SIGN_IN_IS_UP = String.raw`
-  function fayrSignInIsUp(){
-    try {
-      var ins = document.getElementsByTagName("input");
-      for (var i=0;i<ins.length;i++){
-        var el = ins[i];
-        var box = el.getBoundingClientRect();
-        if (!(box.width > 0 && box.height > 0)) continue;
-        var type = (el.type || "").toLowerCase();
-        if (type === "tel") return true;
-        // The words the shop itself puts on the field, never the value in it.
-        var said = ((el.placeholder || "") + " " + (el.getAttribute("aria-label") || "")
-                   + " " + (el.name || "")).toLowerCase();
-        if (/mobile|phone number|enter phone|email|tel-national/.test(said)) return true;
-      }
-      return false;
-    } catch(e){ return false; }
-  }
-`;
-
-/** A control whose WHOLE visible label is one of these words. Never a part of one. */
-const WHOLE_LABEL = String.raw`
-  function fayrWholeLabel(words){
-    var els = document.querySelectorAll("a,button,li,div,span,[role=button],[role=menuitem]");
-    for (var w=0; w<words.length; w++){
-      for (var i=0;i<els.length;i++){
-        var el = els[i];
-        // At most one thing inside it, so a whole wrapper holding the page cannot
-        // match the words its children happen to contain. This is the rule
-        // src/platforms.js already uses for Blinkit's own Orders entry.
-        if (el.children.length > 1) continue;
-        var text = (el.textContent || "").trim().toLowerCase().replace(/\s+/g, " ");
-        var aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
-        if (text !== words[w] && aria !== words[w]) continue;
-        var box = el.getBoundingClientRect();
-        if (box.width > 0 && box.height > 0) return el;
-      }
-    }
-    return null;
-  }
-`;
+// ── THE THREE QUESTIONS THIS SCRIPT ASKS NOW COME FROM ONE PLACE ────────────
+//
+// They used to be written out here AND in src/connect/watchSignIn.js, and the two
+// copies had already drifted: this one counted only a telephone box as a sign in,
+// the watcher counted a telephone box or a password box. The owner named the risk
+// on 5 September 2026 and it had already happened. So the pages this script will
+// not interfere with, the shop's own sign in paths, the question "is a sign in box
+// on screen" and the whole label matcher all live in src/connect/pageQuestions.js,
+// and everything that needs an answer takes it from there.
+//
+// ONE OF THEM IS NOW WIDER, and it makes this script stop sooner rather than
+// later. "Is a sign in box on screen" counts a password box as well as a telephone
+// box, which is what Amazon's second sign in page carries. There is no page where
+// that makes this tap MORE.
 
 /**
  * ONE SHOP'S SCRIPT.
@@ -172,8 +118,8 @@ function scriptFor({ host, signIn, door, extra }) {
         var path = location.pathname || "/";
         // ON THE SHOP'S OWN SIGN IN PAGE. Also done, and this is the signal that
         // works for a shop whose field carries no words. See OWN_SIGN_IN_PATH.
-        if (${OWN_SIGN_IN_PATH}.test(path)) { done = true; return; }
-        if (${LEAVE_ALONE}.test(path)) return;
+        if (/${SIGN_IN_PATH}/.test(path)) { done = true; return; }
+        if (/${PAYING_PATH}/.test(path)) return;
         if (signInTries >= 3) return;
         var control = fayrWholeLabel(${JSON.stringify(signIn)});
         if (control) { signInTries++; control.click(); return; }

@@ -114,9 +114,18 @@ export const STEPS = {
     step: 'Signed in at the shop',
     // WHAT THIS NUMBER IS, AND WHAT IT IS NOT, because it is the one row on this
     // page that rests on what a phone saw rather than on what our side did.
+    //
+    // AND IT IS NOW TWO DIFFERENT FACTS UNDER ONE HEADING, which the row has to
+    // say out loud. Some shops show us: Amazon greets a person by name, and a shop
+    // showing its own way out is a shop saying they are in. Flipkart's and
+    // Blinkit's own home pages show neither, and were measured on 6 September 2026
+    // to show no way IN either when signed out, so on those shops there is nothing
+    // to read and the person is asked instead. The row on our side keeps which of
+    // the two it was.
     meaning:
-      'The phone saw the shop treat this person as signed in, and told our side. '
-      + 'It is not proof about any order, and it moves no money.',
+      'The shop showed the phone that this person was in, or the person said so '
+      + 'when the shop showed nothing either way. It is not proof about any order, '
+      + 'and it moves no money.',
   },
   gaveUsTheirOrder: {
     step: 'Gave us their order',
