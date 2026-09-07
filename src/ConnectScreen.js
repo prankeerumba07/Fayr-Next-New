@@ -24,10 +24,14 @@ import { MarketplaceTag } from './ui/primitives';
 // what is on screen is in src/connect/gate.js, which is pure and checked under
 // node, including the failures a phone cannot be made to do on demand.
 import {
-  ASK_THE_SHOP_AGAIN, OPENING_UP, SHOP_HAS_THIS_LONG_MS, SIGNED_IN_SHOWS_FOR_MS,
+  ASK_THE_SHOP_AGAIN, FAILED, OPENING_UP, SHOP_HAS_THIS_LONG_MS, SIGNED_IN_SHOWS_FOR_MS,
   THEY_SAY_THEY_ARE_IN, isForTheGate, isTheShopsOwnSignInPage, pathOf,
-  shopMayBeSeen, shopViewKey, whatIsOnScreen, whatTheShopSaid, whatWeSay,
+  shopMayBeSeen, shopViewKey, shopViewMayExist, shouldActOnFailure, whatDecidedIt,
+  whatIsOnScreen, whatTheShopSaid, whatWeSay,
 } from './connect/gate';
+// TEMPORARY, AND IT COMES OUT WHEN THE OWNER SAYS TEST 3 PASSES. Development only:
+// every one of these is a no-op in a build a person gets. See connect/gateLog.js.
+import { describeFailure, logGate, whyInWords } from './connect/gateLog';
 import { watchSignInScript } from './connect/watchSignIn';
 import { rememberAccountName } from './connect/accountName';
 import { reportShopSignIn } from './backend/shopApi';
@@ -179,6 +183,22 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
   // HOW MANY TIMES THE SHOP HAS BEEN ASKED. It is the web view's key, so counting
   // it up throws the old view away and builds a new one. See shopViewKey.
   const [attempt, setAttempt] = useState(0);
+  // THE ATTEMPT ON SCREEN RIGHT NOW, AS A REF, and the failure handlers read this
+  // one and never the state.
+  //
+  // WHY NOT A DEPENDENCY LIST. That is what failed on 5 September: a handler built
+  // by useCallback holds whatever its dependencies were when it was built, and the
+  // web view underneath is holding the handler from the render that built IT. The
+  // count has to be readable as it is NOW, from a handler that may be older than
+  // it, and a ref is the only thing that is.
+  //
+  // SET IN TWO PLACES ON PURPOSE. The effect is what keeps it honest - it can
+  // never drift from the state, whatever else changes it. tryAgain also sets it
+  // by hand, before it sets any state at all, because an effect does not run
+  // until after the screen has been drawn and a dying view can speak inside that
+  // gap. Belt and braces, and the braces are the ones that close the gap.
+  const attemptNow = useRef(0);
+  useEffect(() => { attemptNow.current = attempt; }, [attempt]);
   // HAS THE SIGN IN BEEN ON SCREEN AT ANY POINT IN THIS ATTEMPT? Ours to remember,
   // because the script inside the shop's page cannot: a shop that reloads the whole
   // page on signing in hands it a new life with no memory of the page before. A
@@ -215,6 +235,31 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     })
     : null;
 
+  // EVERY CHANGE OF THE GATE, AND WHICH ONE OF THE FIVE INPUTS DID IT.
+  //
+  // IN AN EFFECT AND NOT IN THE DRAWING. A render can run more than once for the
+  // same state, and a line written during one would say a change had happened
+  // when nothing had. This runs after the screen is really drawn, and only when
+  // the answer is different from the last one it saw.
+  //
+  // THE REASON IS THE POINT. "failed" arrives by two roads - the shop saying so,
+  // and our own fifteen seconds running out - and they put the identical sentence
+  // on screen. whatDecidedIt names which, from the same ordered questions
+  // whatIsOnScreen itself is built on, so the two can never disagree.
+  const gateWas = useRef(null);
+  useEffect(() => {
+    if (!toSignIn) return;
+    if (gate === gateWas.current) return;
+    const why = whatDecidedIt({
+      signInIsUp, signInIsGone, theyAreIn, itWillNotOpen, startedAt: askedAt, now: nowIs,
+    });
+    logGate(attempt, 'GATE',
+      `${gateWas.current == null ? '(first)' : gateWas.current} -> ${gate}  because ${why}`
+      + `  [signInIsUp=${signInIsUp} signInIsGone=${signInIsGone} theyAreIn=${theyAreIn}`
+      + ` itWillNotOpen=${itWillNotOpen} waited=${nowIs - askedAt}ms of ${SHOP_HAS_THIS_LONG_MS}]`);
+    gateWas.current = gate;
+  }, [gate, attempt, toSignIn, signInIsUp, signInIsGone, theyAreIn, itWillNotOpen, askedAt, nowIs]);
+
   /**
    * ASK THE SHOP AGAIN, FROM NOTHING.
    *
@@ -232,6 +277,15 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
    * this moment. Three taps in a row are three new views.
    */
   const tryAgain = useCallback(() => {
+    // THE FIRST STATEMENT IN HERE, BEFORE ANY STATE IS SET, and the owner asked for
+    // it in exactly that place. If this line is missing from the window then the
+    // tap never arrived, and no amount of reasoning about what happens afterwards
+    // is worth anything. It is the one line that tells candidate C apart from the
+    // other two.
+    const next = attemptNow.current + 1;
+    logGate(attemptNow.current, 'TRY AGAIN TAPPED', `asking the shop again, next attempt=${next}`);
+    // BY HAND AND NOW, not in the effect: see attemptNow above.
+    attemptNow.current = next;
     setSignInIsUp(false);
     setSignInIsGone(false);
     setTheyAreIn(false);
@@ -240,6 +294,10 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     const at = Date.now();
     setAskedAt(at);
     setNowIs(at);
+    // THE COUNT ITSELF STILL COMES FROM REACT'S OWN VALUE and not from the ref, so
+    // the state is never derived from a copy of itself. The ref above is a mirror
+    // for the handlers to read; this is the thing it mirrors. They cannot disagree,
+    // because both add one to the same number.
     setAttempt((n) => n + 1);
     // A NEW VIEW IS A NEW ATTEMPT, so what the last one saw is forgotten too.
     signInWasUp.current = false;
@@ -254,6 +312,7 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
    * shop having shown us its own sign out.
    */
   const theySayTheyAreIn = useCallback(() => {
+    logGate(attemptNow.current, 'THEY SAID THEY ARE IN', 'the person answered our own question');
     setHowWeKnew(THEY_SAID_SO);
     setTheyAreIn(true);
   }, []);
@@ -329,6 +388,7 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
   }, [saveSession, toSignIn, signInIsUp]);
   const onLoadEnd = useCallback((e) => {
     const u = e && e.nativeEvent && e.nativeEvent.url;
+    logGate(attemptNow.current, 'LOAD ENDED', `url=${u || '?'}`);
     if (u) currentUrlRef.current = u;
     // A FAILED LOAD MUST NOT SAVE A SIGNED OUT SNAPSHOT OVER A GOOD ONE.
     //
@@ -360,13 +420,28 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
    * IT ONLY EVER MEANS ANYTHING ON A SIGN IN VISIT. A reading visit is not gated,
    * and its own error handling is unchanged.
    */
-  const shopWillNotOpen = useCallback(() => {
-    if (!toSignIn) return;
-    // Already in, or the sign in already up, or gone and being asked about: a
-    // later stray failure from some small thing on the page must not throw away a
-    // person who is signed in, and must not replace the question we are asking
-    // them with "the shop did not open", which by then is not true.
-    if (theyAreIn || signInIsUp || signInIsGone) return;
+  const shopWillNotOpen = useCallback((fromAttempt, which, event) => {
+    const native = (event && event.nativeEvent) || null;
+    const said = describeFailure(which, native);
+    // WHETHER TO ACT IS NOT DECIDED HERE. It is decided by shouldActOnFailure in
+    // connect/gate.js, which is pure, takes the stamp the view was built with, and
+    // hands back its own reason - so every combination of these six facts can be
+    // checked under node, including the dying view's last word, which no phone can
+    // be made to produce on demand.
+    const { act, why } = shouldActOnFailure({
+      toSignIn,
+      fromAttempt,
+      attemptNow: attemptNow.current,
+      theyAreIn,
+      signInIsUp,
+      signInIsGone,
+    });
+    if (!act) {
+      logGate(attemptNow.current, 'SHOP WILL NOT OPEN — IGNORED',
+        `because ${whyInWords(why)} (${why}), event stamped attempt=${fromAttempt}, ${said}`);
+      return;
+    }
+    logGate(attemptNow.current, 'SHOP WILL NOT OPEN — ACTED ON', said);
     itWillNotOpenNow.current = true;
     setItWillNotOpen(true);
   }, [toSignIn, theyAreIn, signInIsUp, signInIsGone]);
@@ -413,8 +488,18 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     // and a gate message is not an answer to a fetch. Clearing it would let a
     // shop's page unstick that button by saying something we did not ask for.
     if (isForTheGate(msg)) {
+      // RAW, AND BEFORE ANYTHING IS DECIDED ABOUT IT. What the page really sent,
+      // not our reading of it: if the reading is the thing that is wrong, a line
+      // showing only the reading cannot tell anybody that.
+      logGate(attemptNow.current, 'PAGE SAID', event.nativeEvent.data);
       const said = whatTheShopSaid(msg, signInWasUp.current);
-      if (said == null) return;
+      if (said == null) {
+        logGate(attemptNow.current, 'PAGE SAID — NO SIGNAL IN IT',
+          `weSawASignIn=${signInWasUp.current}`);
+        return;
+      }
+      logGate(attemptNow.current, 'PAGE SAID — READ AS',
+        `signInIsUp=${said.signInIsUp} theyAreIn=${said.theyAreIn} signInIsGone=${said.signInIsGone}`);
       // FROM WHAT THE PAGE REALLY SAID, never a flat true. Being in and having a
       // sign in on screen are different things, and the cover must stay on for a
       // page that is neither.
@@ -696,7 +781,7 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
             <View style={styles.webLoading}>
               <ActivityIndicator size="large" color={platform.color} />
             </View>
-          ) : (
+          ) : shopViewMayExist(toSignIn, gate) ? (
           <WebView
             // THE KEY, AND IT IS WHAT MAKES TRY AGAIN WORK AT ALL. A changed key
             // throws this view away and builds a new one, which is the only thing
@@ -721,8 +806,22 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
             // other web view screens have had them all along (LiveCheckScreen,
             // LookingForItScreen); the one somebody actually signs in through is
             // the one that skipped them.
-            onError={shopWillNotOpen}
-            onHttpError={shopWillNotOpen}
+            // THE STAMP, AND IT IS TAKEN FROM THE SAME RENDER THAT BUILT THIS VIEW.
+            // `attempt` here is a plain value closed over by these two functions at
+            // the moment the view was made, so a view being torn down still hands
+            // over the count IT was built with - and shouldActOnFailure compares
+            // that against the count on screen now and refuses anything older. A
+            // dying view's last word about a network that no longer exists can no
+            // longer put the failure back over a shop that is loading perfectly
+            // well. See shouldActOnFailure in connect/gate.js.
+            onError={(e) => shopWillNotOpen(attempt, 'onError', e)}
+            onHttpError={(e) => shopWillNotOpen(attempt, 'onHttpError', e)}
+            // LOG ONLY, and it decides nothing. Without it there is no way to tell
+            // "the new view never asked the shop anything" from "it asked and the
+            // shop never answered", which is the difference between two of the
+            // three things this could be.
+            onLoadStart={(e) => logGate(attempt, 'LOAD STARTED',
+              `url=${(e && e.nativeEvent && e.nativeEvent.url) || '?'}`)}
             originWhitelist={['*']}
             sharedCookiesEnabled
             thirdPartyCookiesEnabled
@@ -765,7 +864,7 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
             )}
             startInLoadingState
           />
-          )}
+          ) : null}
           {/* FETCH IS NOT ON A SIGN IN VISIT EITHER. The person is here to sign
               in; a button offering to read their reviews is one more thing
               between them and that. */}

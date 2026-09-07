@@ -456,24 +456,31 @@ t('a shop that will not open is heard, both of the ways it can say so', () => {
   ok(closes, 'and that web view must close');
   const webview = connectScreen.slice(from, from + closes.index);
 
-  const onError = /onError=\{([A-Za-z0-9_.]+)\}/.exec(webview);
-  const onHttpError = /onHttpError=\{([A-Za-z0-9_.]+)\}/.exec(webview);
+  // EITHER SHAPE COUNTS: the handler named on its own, or called in place so the
+  // attempt this view was built with can be handed over with the event. The second
+  // is what it became on 7 September 2026, and the check asks for the STAMP
+  // separately below rather than pinning one spelling of the wiring.
+  const goesTo = (prop) => {
+    const m = new RegExp(`${prop}=\\{\\s*(?:\\([a-z]*\\)\\s*=>\\s*)?([A-Za-z0-9_.]+)`).exec(webview);
+    return m ? m[1] : null;
+  };
+  const onError = goesTo('onError');
+  const onHttpError = goesTo('onHttpError');
   ok(onError, 'the web view must be told what to do when the shop cannot be reached');
   ok(onHttpError, 'and what to do when the shop answers with an error of its own');
-  assert.equal(onError[1], onHttpError[1],
+  assert.equal(onError, onHttpError,
     'and both must go to the same handler, because to the person waiting they are '
     + 'the same thing: the shop did not open');
 
   // And the handler really does something, so the two props above are not wired
   // to a function that shrugs.
-  const declaredAt = connectScreen.indexOf(`const ${onError[1]} = useCallback`);
-  ok(declaredAt > 0, `${onError[1]} must be a real handler on this screen`);
+  const declaredAt = connectScreen.indexOf(`const ${onError} = useCallback`);
+  ok(declaredAt > 0, `${onError} must be a real handler on this screen`);
   const handler = connectScreen.slice(declaredAt, connectScreen.indexOf('}, [', declaredAt));
-  ok(/if \(!toSignIn\) return;/.test(handler),
-    'it must do nothing at all on a reading visit, which is not gated and works today');
-  ok(/theyAreIn \|\| signInIsUp/.test(handler),
-    'and a stray failure from some small thing on the page must not throw away '
-    + 'somebody who is already signed in');
+  ok(handler.includes('shouldActOnFailure({'),
+    'and whether to act on a failure must be asked of the gate, not decided here: '
+    + 'a phone cannot be made to produce a dying view’s last word on demand, and in '
+    + 'gate.js every combination of these facts is checked under node');
   ok(handler.includes('setItWillNotOpen(true)'),
     'and otherwise it must tell the gate the shop did not open');
 });
@@ -681,21 +688,26 @@ t('and tryAgain throws the view away rather than asking it to reload', () => {
 t('and the shop answering with an error fails the same way as no answer at all', () => {
   // THE OTHER WAY IN. The owner asked for both: the shop not answering, and the
   // shop answering with an error. The web view library reports them separately.
-  ok(/onError=\{shopWillNotOpen\}/.test(connectScreen),
+  ok(/onError=\{[^}]*shopWillNotOpen\(/.test(connectScreen),
     'a shop that cannot be reached is handled');
-  ok(/onHttpError=\{shopWillNotOpen\}/.test(connectScreen),
+  ok(/onHttpError=\{[^}]*shopWillNotOpen\(/.test(connectScreen),
     'and so is a shop that answers with an error, which is a different report '
     + 'from the library and used to reach nobody');
   const fn = connectScreen.slice(
     connectScreen.indexOf('const shopWillNotOpen = useCallback('),
     connectScreen.indexOf('// When a target product is set'),
   );
-  ok(/if \(!toSignIn\) return;/.test(fn),
-    'and it means nothing on a reading visit, which is not gated at all');
-  ok(/if \(theyAreIn \|\| signInIsUp \|\| signInIsGone\) return;/.test(fn),
-    'and a stray failure from some small thing on the page cannot throw away '
-    + 'somebody who is already in, or already looking at the sign in, or already '
-    + 'being asked how it went');
+  ok(fn.includes('shouldActOnFailure({'),
+    'and it must ask the gate whether to act rather than deciding for itself');
+  for (const fact of ['toSignIn', 'fromAttempt', 'attemptNow: attemptNow.current',
+    'theyAreIn', 'signInIsUp', 'signInIsGone']) {
+    ok(fn.includes(fact),
+      `and it must hand the gate ${fact}, or the gate is deciding on half the facts`);
+  }
+  ok(/if \(!act\)/.test(fn),
+    'and when the gate says no it must stop there: a stray failure from some small '
+    + 'thing on the page cannot throw away somebody who is already in, and a dead '
+    + 'view’s last word cannot put the failure back over a shop that is loading');
   ok(fn.includes('setItWillNotOpen(true)'), 'and otherwise the failure screen comes up');
   ok(fn.includes('itWillNotOpenNow.current = true'),
     'and it says so somewhere the save handler can read AT ONCE, because the two '
@@ -940,6 +952,143 @@ t('Fayr seeing the sign in is what moves the journey on', () => {
   ok(/I HAVE SIGNED IN/.test(link),
     'and the button is still there for a shop that greets nobody by name and '
     + 'shows no sign out of its own, because otherwise that person has no way on');
+});
+
+// ── SECTION 5e. TEST THREE, THE SECOND TIME. Try again after the wifi comes back
+//
+// THE OWNER RAN IT AGAIN ON A REAL PHONE ON 7 SEPTEMBER 2026, with the
+// 5 September fix already in, and it still failed: airplane mode on, tap connect,
+// get the failure, airplane mode off, wait, tap Try again ONCE, and the same
+// sentence came back.
+//
+// THE DECISIONS ARE ALL IN gate.js AND ARE REALLY RUN THERE. What is left, and
+// what is below, is the wiring: does this screen hand the gate the facts it needs,
+// and does it act on the answer.
+
+t('the failure handler is stamped with the attempt the view was built under', () => {
+  // WITHOUT THE STAMP there is no way to tell a dying view's last word from a word
+  // about the attempt happening now. It has to be taken at RENDER time, from the
+  // same render that made the view, which means it is closed over in place rather
+  // than carried in a dependency list — a dependency list is exactly what failed
+  // on 5 September.
+  const view = connectScreen.slice(
+    connectScreen.indexOf('<WebView'),
+    connectScreen.indexOf('startInLoadingState'),
+  );
+  for (const prop of ['onError', 'onHttpError']) {
+    const wired = new RegExp(`${prop}=\\{\\([a-z]*\\) => shopWillNotOpen\\(attempt,`).exec(view);
+    ok(wired,
+      `${prop} must hand over the attempt this view was built with. Without it the `
+      + 'screen cannot tell a dead view complaining about a network that no longer '
+      + 'exists from a real failure happening now');
+  }
+});
+
+t('and the count it compares against is a ref, never a dependency list', () => {
+  ok(/const attemptNow = useRef\(0\);/.test(connectScreen),
+    'the attempt on screen now must be readable as a ref');
+  ok(/useEffect\(\(\) => \{ attemptNow\.current = attempt; \}, \[attempt\]\);/.test(connectScreen),
+    'and an effect must keep it from ever drifting from the state it mirrors');
+  const fn = connectScreen.slice(
+    connectScreen.indexOf('const shopWillNotOpen = useCallback('),
+    connectScreen.indexOf('// When a target product is set'),
+  );
+  ok(/attemptNow: attemptNow\.current/.test(fn),
+    'AND THE HANDLER MUST READ THE REF, not the state. A handler built by '
+    + 'useCallback holds whatever its dependencies were when it was built, and the '
+    + 'dying view underneath is holding the handler from the render that built IT — '
+    + 'so the count has to be readable as it is NOW');
+  // THE CODE ONLY, not the words it prints: the log line says "attempt=" on
+  // purpose, and that is text rather than a read of the state.
+  const code = fn
+    .replace(/`[^`]*`/g, '``')
+    .replace(/'[^'\n]*'/g, "''")
+    .replace(/fromAttempt/g, 'STAMP')
+    .replace(/attemptNow/g, 'REF');
+  ok(!/\battempt\b/.test(code),
+    'and it must not read the attempt state directly anywhere, because that value '
+    + 'is as old as the handler holding it');
+});
+
+t('and the shop view is thrown away while the failure is up, not merely covered', () => {
+  // A COVERED VIEW IS STILL ALIVE AND CAN STILL SPEAK. Whether it may exist is the
+  // gate's answer, so the screen cannot get it right in one branch and wrong in
+  // another.
+  ok(/shopViewMayExist\(toSignIn, gate\)/.test(connectScreen),
+    'whether the shop view exists at all must be the gate’s answer, given both the '
+    + 'kind of visit and what is on screen');
+  const from = connectScreen.indexOf('shopViewMayExist(toSignIn, gate)');
+  const after = connectScreen.slice(from, from + 60);
+  ok(/\?\s*\(/.test(after),
+    'and it must gate the drawing of the view itself, so on a failure there is '
+    + 'nothing left to deliver one last error into the next attempt');
+  ok(/\) : null\}/.test(connectScreen.slice(connectScreen.indexOf('startInLoadingState'))),
+    'and when it says no, nothing is drawn in its place');
+});
+
+t('and tryAgain says so before it touches a single piece of state', () => {
+  const fn = connectScreen.slice(
+    connectScreen.indexOf('const tryAgain = useCallback('),
+    connectScreen.indexOf('}, []);', connectScreen.indexOf('const tryAgain = useCallback(')),
+  );
+  const logAt = fn.indexOf("logGate(attemptNow.current, 'TRY AGAIN TAPPED'");
+  ok(logAt > 0,
+    'TRY AGAIN MUST SAY IT WAS TAPPED. It is the one line that tells "the tap never '
+    + 'arrived" apart from "the tap arrived and something else went wrong", and '
+    + 'without it that question cannot be answered from a phone at all');
+  const firstSet = fn.indexOf('set');
+  ok(logAt < firstSet,
+    'and it must say so BEFORE any state is set, or a tap that arrives and then '
+    + 'throws leaves no trace of having arrived');
+  ok(fn.indexOf('attemptNow.current = next') > logAt,
+    'and it must move the count by hand as well as through state, because an effect '
+    + 'does not run until the screen has been drawn and a dying view can speak '
+    + 'inside that gap');
+});
+
+t('and every one of the five things worth knowing is written down', () => {
+  // THE OWNER ASKED FOR THIS ONE BY NAME: "it must be impossible to run test 3 and
+  // not know which of A, B or C happened". Each line below is the one that answers
+  // one of those questions.
+  const mustSay = [
+    ['TRY AGAIN TAPPED', 'whether the tap arrived at all'],
+    ['SHOP WILL NOT OPEN', 'whether a failure was acted on or ignored, and why'],
+    ['GATE', 'every change of what is on screen, and which input decided it'],
+    ['PAGE SAID', 'what the shop’s own page really sent, before we read anything into it'],
+    ['LOAD STARTED', 'whether the new view ever asked the shop anything'],
+    ['LOAD ENDED', 'and whether the shop ever answered'],
+  ];
+  for (const [line, why] of mustSay) {
+    ok(connectScreen.includes(`'${line}`), `the window must show ${why} (${line})`);
+  }
+  ok(/logGate\(attempt, 'GATE'/.test(connectScreen),
+    'and the gate line must carry the attempt, or two attempts read as one');
+  ok(/whatDecidedIt\(\{/.test(connectScreen),
+    'and it must name which input decided, from the gate’s own ordered questions '
+    + 'rather than a second copy of them');
+  ok(/logGate\(attemptNow\.current, 'PAGE SAID', event\.nativeEvent\.data\)/.test(connectScreen),
+    'and the page’s message must be written down RAW, because if our reading of it '
+    + 'is the thing that is wrong, a line showing only the reading cannot say so');
+});
+
+t('and the running commentary is development only, and says so', () => {
+  const log = readFileSync(join(here, 'gateLog.js'), 'utf8');
+  ok(/typeof __DEV__ !== 'undefined' && __DEV__ === true/.test(log),
+    'it must be off in a build a person gets, and read defensively so the checks '
+    + 'for it can run under node where __DEV__ does not exist');
+  ok(/if \(!gateLogIsOn\(\)\) return false;/.test(log),
+    'and nothing may be printed when it is off');
+  const writes = log.match(/console\.[a-z]+\(/g) || [];
+  assert.deepEqual(writes, ['console.log('],
+    'and there must be exactly ONE way out of that file, because that is what makes '
+    + '"every line carries the tag" structurally true rather than a promise');
+  ok(log.includes("export const TAG = '[fayr-gate]';"),
+    'and the tag must be the one the owner searches the window for');
+  ok(!/from 'react/.test(log),
+    'and it must not be able to draw anything, so no word of it can reach a screen');
+  ok(connectScreen.includes('TEMPORARY, AND IT COMES OUT WHEN THE OWNER SAYS TEST 3 PASSES'),
+    'and the screen must say out loud that this is temporary, because nothing else '
+    + 'in the app is built to be deleted and this is');
 });
 
 console.log(`  ${passed} checks passed`);

@@ -129,6 +129,38 @@ export const ASK_THE_SHOP_AGAIN = 'tryAgain';
 export const THEY_SAY_THEY_ARE_IN = 'confirm';
 
 /**
+ * THE FIVE INPUTS, NAMED, so a log can say which one decided and be believed.
+ *
+ * They are the ANSWER of whatDecidedIt and nothing reads them for a person: they
+ * are words for whoever is reading a phone's log. The one that matters most is
+ * the difference between the last two, because both of them put the same
+ * sentence on screen and only one of them is the shop's own doing.
+ */
+export const BECAUSE_THEY_ARE_IN = 'theyAreIn';
+export const BECAUSE_THE_SHOP_SAID_SO = 'itWillNotOpen';
+export const BECAUSE_THE_SIGN_IN_WENT = 'signInIsGone';
+export const BECAUSE_THE_SIGN_IN_IS_UP = 'signInIsUp';
+export const BECAUSE_TIME_RAN_OUT = 'ranOutOfTime';
+export const BECAUSE_NOTHING_YET = 'stillOpening';
+
+/**
+ * WHAT EACH REASON PUTS ON SCREEN. The whole of whatIsOnScreen is this table.
+ *
+ * TWO REASONS SHARE ONE SCREEN and that is the point of naming them apart: the
+ * shop saying it could not open, and our own fifteen seconds running out, both
+ * show "The shop did not open. Please try again." A person cannot tell them
+ * apart and neither could we, until now.
+ */
+const STATE_FOR_REASON = {
+  [BECAUSE_THEY_ARE_IN]: SIGNED_IN_NOW,
+  [BECAUSE_THE_SHOP_SAID_SO]: FAILED,
+  [BECAUSE_THE_SIGN_IN_WENT]: CANNOT_TELL,
+  [BECAUSE_THE_SIGN_IN_IS_UP]: SHOP,
+  [BECAUSE_TIME_RAN_OUT]: FAILED,
+  [BECAUSE_NOTHING_YET]: OPENING_UP,
+};
+
+/**
  * THE KEY THE SHOP'S PAGE IS BUILT UNDER, and why asking it to reload is not enough.
  *
  * THE OWNER FOUND THIS ONE ON A REAL PHONE, 5 September 2026. Airplane mode on,
@@ -209,7 +241,29 @@ export function isAPayingPage(path) {
  *   itWillNotOpen  the shop said it could not.
  *   startedAt      when the shop was asked to open, so the wait can be counted.
  */
-export function whatIsOnScreen({
+export function whatIsOnScreen(facts = {}) {
+  return STATE_FOR_REASON[whatDecidedIt(facts)];
+}
+
+/**
+ * WHICH ONE OF THE FIVE INPUTS DECIDED IT, in a word.
+ *
+ * ── WHY THIS EXISTS, AND WHY IT IS THE SAME CODE AND NOT A SECOND COPY ──────
+ *
+ * The owner asked, on 7 September 2026, to be able to read off a real phone which
+ * input put the screen where it is, because "The shop did not open" is one
+ * sentence with TWO different causes behind it: the shop saying so, and our own
+ * clock running out. On a phone they look identical, and he had been left guessing
+ * which one he was looking at.
+ *
+ * IT WOULD HAVE BEEN EASY TO GET THIS WRONG. The obvious way is a second function
+ * that repeats the same five questions in the same order for the log. That is a
+ * copy, and a copy drifts: the day somebody reorders one, the log starts naming an
+ * input that did not decide anything, which is worse than no log at all. So the
+ * order lives HERE, once, and whatIsOnScreen is a lookup over this answer. The two
+ * cannot disagree, because there is only one of them.
+ */
+export function whatDecidedIt({
   signInIsUp = false,
   signInIsGone = false,
   theyAreIn = false,
@@ -220,13 +274,13 @@ export function whatIsOnScreen({
   // BEING IN WINS OVER EVERYTHING. If the shop's page says this person is signed
   // in, nothing else matters: not a slow load, not a failure, not a clock. The
   // job is done and the screen closes.
-  if (theyAreIn === true) return SIGNED_IN_NOW;
+  if (theyAreIn === true) return BECAUSE_THEY_ARE_IN;
   // The shop said out loud that it could not open. That is a statement, and it
   // beats anything we worked out for ourselves.
-  if (itWillNotOpen === true) return FAILED;
+  if (itWillNotOpen === true) return BECAUSE_THE_SHOP_SAID_SO;
   // THE SIGN IN WENT AWAY. Our own screen, and a question, because the shop is
   // not telling us whether it worked.
-  if (signInIsGone === true) return CANNOT_TELL;
+  if (signInIsGone === true) return BECAUSE_THE_SIGN_IN_WENT;
   // ONLY the sign in uncovers the shop. Any other page the shop serves - its
   // shopping page, its captcha, its error, its "install our app" - leaves this
   // false, and the person stays on our loading screen and never sees it.
@@ -236,9 +290,9 @@ export function whatIsOnScreen({
   // sixteen seconds and then showed its own sign in HAS answered, and the old
   // order put "The shop did not open" over a working sign in page for ever,
   // because nothing ever moved the clock back.
-  if (signInIsUp === true) return SHOP;
-  if (ranOutOfTime(startedAt, now)) return FAILED;
-  return OPENING_UP;
+  if (signInIsUp === true) return BECAUSE_THE_SIGN_IN_IS_UP;
+  if (ranOutOfTime(startedAt, now)) return BECAUSE_TIME_RAN_OUT;
+  return BECAUSE_NOTHING_YET;
 }
 
 /** Has the shop had its fifteen seconds? False whenever we cannot tell. */
@@ -257,6 +311,102 @@ export function ranOutOfTime(startedAt, now) {
 export function shopMayBeSeen(state) {
   return state === SHOP;
 }
+
+/**
+ * IS THE SHOP'S PAGE ALLOWED TO EXIST RIGHT NOW? Not "be seen" - EXIST.
+ *
+ * ── WHY A DEAD VIEW MUST BE GONE AND NOT MERELY COVERED ─────────────────────
+ *
+ * The owner found this on a real phone on 7 September 2026, after the Try again
+ * fix of 5 September was already in: airplane mode on, tap connect, get the
+ * failure, airplane mode off, wait, tap Try again ONCE - and the same sentence
+ * came straight back.
+ *
+ * A COVERED VIEW IS STILL ALIVE AND CAN STILL SPEAK. While our failure screen was
+ * up, the web view underneath it was still mounted, still holding a load that had
+ * failed, and still able to report that failure again. Throwing it away when the
+ * count changes is not enough on its own, because the throwing away and the new
+ * view's first moments happen together, and a last word from the dying one lands
+ * in the middle of them. The certain fix is for there to be nothing there to
+ * speak: while the screen says the shop did not open, the shop's view does not
+ * exist at all, so tapping Try again builds one from nothing.
+ *
+ * ONLY ON A VISIT MADE TO SIGN IN. A visit made to READ somebody's own orders
+ * keeps its view mounted through everything, on purpose: it is what stops
+ * returning from the results screen from reloading the page and dropping the
+ * shop session. Unmounting there would break the thing this app is for.
+ *
+ * AND THE COST IS REAL AND WORTH SAYING. A shop that was one second away from
+ * showing its own sign in when the fifteen seconds ran out used to be able to
+ * rescue itself, because a late sign in beats the clock in whatDecidedIt. Once
+ * the view is gone it cannot. That is the right trade: a rescue nobody can rely
+ * on, for a Try again that works every time.
+ */
+export function shopViewMayExist(toSignIn, state) {
+  if (toSignIn !== true) return true;
+  return state !== FAILED;
+}
+
+/**
+ * SHOULD A "THE SHOP WILL NOT OPEN" EVENT BE ACTED ON, OR IGNORED AND WHY?
+ *
+ * ── THE STALE EVENT, WHICH IS THE WHOLE REASON THIS IS A FUNCTION ───────────
+ *
+ * Every one of these events carries the count of the attempt whose view raised
+ * it, stamped in at the moment that view was built. A view being torn down can
+ * still deliver one last failure, and without the stamp there is no way to tell
+ * that word from a word about the attempt happening now: the screen would take a
+ * dead view's complaint about a network that no longer exists and put the failure
+ * back over a shop that is loading perfectly well.
+ *
+ * IT IS A FUNCTION AND NOT A LINE IN THE SCREEN because a phone cannot be made to
+ * produce a dying view's last word on demand. Here it is six arguments and a
+ * plain answer, and every combination of them can be checked under node - which
+ * is the same reason the rest of this file is shaped the way it is.
+ *
+ * THE ANSWER CARRIES ITS OWN REASON so the log can say why it ignored something.
+ * An ignored event that nobody can explain is how this bug survived two days.
+ */
+export function shouldActOnFailure({
+  toSignIn = false,
+  fromAttempt = null,
+  attemptNow = null,
+  theyAreIn = false,
+  signInIsUp = false,
+  signInIsGone = false,
+} = {}) {
+  // A reading visit is not gated at all, and its own error handling is unchanged.
+  if (toSignIn !== true) return { act: false, why: NOT_A_SIGN_IN_VISIT };
+  // THE STAMP. Anything but the attempt on screen right now is a dead view talking.
+  if (fromAttempt !== attemptNow) return { act: false, why: A_DEAD_VIEW_SPOKE };
+  // Already in: a stray failure from some small thing on the page must not throw
+  // away a person who is signed in.
+  if (theyAreIn === true) return { act: false, why: THEY_ARE_ALREADY_IN };
+  // The sign in is on screen, so the shop plainly did open.
+  if (signInIsUp === true) return { act: false, why: THE_SIGN_IN_IS_UP };
+  // We are already asking them a question, and must not replace it with a
+  // sentence that is no longer true.
+  if (signInIsGone === true) return { act: false, why: WE_ARE_ASKING_THEM };
+  return { act: true, why: THE_SHOP_REALLY_WILL_NOT_OPEN };
+}
+
+/**
+ * WHY AN EVENT WAS IGNORED, OR ACTED ON. One word each, and that is deliberate.
+ *
+ * THIS FILE WRITES NO SENTENCES, and the rule is not mine: our own side enforces
+ * it by reading this file off disk and refusing any literal in it of four words
+ * or more, because "a sentence written in the gate would never be read by
+ * anybody" - it would sit outside gateWords.js where the plain language rule
+ * cannot reach it. So the answers here are names, and the readable clause a
+ * developer sees is built from them in connect/gateLog.js, which is development
+ * only and is deleted when this is over.
+ */
+export const NOT_A_SIGN_IN_VISIT = 'notASignInVisit';
+export const A_DEAD_VIEW_SPOKE = 'staleAttempt';
+export const THEY_ARE_ALREADY_IN = 'alreadyIn';
+export const THE_SIGN_IN_IS_UP = 'theSignInIsUp';
+export const WE_ARE_ASKING_THEM = 'weAreAsking';
+export const THE_SHOP_REALLY_WILL_NOT_OPEN = 'reallyWillNotOpen';
 
 /**
  * What our own screen says, or null when the shop's page is what is showing.

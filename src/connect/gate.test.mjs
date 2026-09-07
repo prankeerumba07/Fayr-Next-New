@@ -21,8 +21,23 @@
 // words the shop itself printed.
 import {
   ASK_THE_SHOP_AGAIN,
+  A_DEAD_VIEW_SPOKE,
+  BECAUSE_NOTHING_YET,
+  BECAUSE_THEY_ARE_IN,
+  BECAUSE_THE_SHOP_SAID_SO,
+  BECAUSE_THE_SIGN_IN_IS_UP,
+  BECAUSE_THE_SIGN_IN_WENT,
+  BECAUSE_TIME_RAN_OUT,
   CANNOT_TELL,
   FAILED,
+  NOT_A_SIGN_IN_VISIT,
+  THEY_ARE_ALREADY_IN,
+  THE_SHOP_REALLY_WILL_NOT_OPEN,
+  THE_SIGN_IN_IS_UP,
+  WE_ARE_ASKING_THEM,
+  shopViewMayExist,
+  shouldActOnFailure,
+  whatDecidedIt,
   HOW_OFTEN_IT_LOOKS_MS,
   LOOKS_IN_A_ROW_BEFORE_WE_ASK,
   OPENING_UP,
@@ -494,6 +509,184 @@ console.log('\n=== 13. BUG THREE. how often the page is looked at ===');
     'and the signed in line is up for longer than a look, so it is really seen');
   ok(SIGNED_IN_SHOWS_FOR_MS < 2000, 'and it is a breath, not a wait');
   ok(LOOKS_IN_A_ROW_BEFORE_WE_ASK === 2, 'and a sign in must be gone for two looks in a row');
+}
+
+console.log('\n=== 14. TEST THREE. the dying view last word, which is why Try again did nothing ===');
+{
+  // THE OWNER FOUND THIS ON A REAL PHONE ON 7 SEPTEMBER 2026, with the 5 September
+  // Try again fix already in: airplane mode on, tap connect, get the failure,
+  // airplane mode off, wait, tap Try again ONCE, and the same sentence came back.
+  //
+  // A view being torn down can still deliver one last failure, and a failure with
+  // no attempt on it cannot be told from a failure about the attempt happening
+  // now. The stamp is the whole answer, and every combination of it is here
+  // because no phone can be made to produce a dead view speaking on demand.
+  const live = { toSignIn: true, fromAttempt: 1, attemptNow: 1 };
+
+  ok(shouldActOnFailure(live).act === true,
+    'a failure from the view on screen right now is acted on, and the failure screen comes up');
+  ok(shouldActOnFailure(live).why === THE_SHOP_REALLY_WILL_NOT_OPEN,
+    'and it says so, so a log can never leave anybody guessing why it acted');
+
+  ok(shouldActOnFailure({ ...live, fromAttempt: 0 }).act === false,
+    'A FAILURE STAMPED WITH AN EARLIER ATTEMPT IS IGNORED. That is the dead view '
+    + 'talking about a network that no longer exists, and acting on it puts the '
+    + 'failure screen back over a shop that is loading perfectly well');
+  ok(shouldActOnFailure({ ...live, fromAttempt: 0 }).why === A_DEAD_VIEW_SPOKE,
+    'and it says which of the reasons it was, because an ignored event nobody can '
+    + 'explain is how this survived two days');
+
+  // Every stamp against every attempt, and only the matching pair may act.
+  for (let stamped = 0; stamped <= 4; stamped += 1) {
+    for (let onScreen = 0; onScreen <= 4; onScreen += 1) {
+      const answer = shouldActOnFailure({ toSignIn: true, fromAttempt: stamped, attemptNow: onScreen });
+      const shouldAct = stamped === onScreen;
+      ok(answer.act === shouldAct,
+        `a failure stamped ${stamped} while attempt ${onScreen} is on screen is `
+        + `${shouldAct ? 'acted on' : 'ignored'}`);
+    }
+  }
+
+  // A MISSING STAMP IS NOT A MATCH. Wiring one of the two handlers up and
+  // forgetting to pass the attempt must not read as "current".
+  ok(shouldActOnFailure({ toSignIn: true, attemptNow: 1 }).act === false,
+    'a failure that carries no attempt at all is ignored, so a handler wired '
+    + 'without the stamp fails loudly instead of quietly trusting everything');
+  ok(shouldActOnFailure({ toSignIn: true, fromAttempt: 0, attemptNow: 0 }).act === true,
+    'and the very first attempt, which is nought, still works');
+
+  // The three that were already true before today, still true.
+  ok(shouldActOnFailure({ ...live, theyAreIn: true }).why === THEY_ARE_ALREADY_IN,
+    'somebody already signed in is never thrown away by a late failure');
+  ok(shouldActOnFailure({ ...live, signInIsUp: true }).why === THE_SIGN_IN_IS_UP,
+    'and a shop showing its own sign in plainly did open, whatever else it says');
+  ok(shouldActOnFailure({ ...live, signInIsGone: true }).why === WE_ARE_ASKING_THEM,
+    'and a question already on screen is not replaced by a sentence that is no longer true');
+  ok(shouldActOnFailure({ ...live, toSignIn: false }).why === NOT_A_SIGN_IN_VISIT,
+    'and a reading visit is not gated at all, so nothing here touches it');
+  ok(shouldActOnFailure().act === false,
+    'and asked nothing at all it acts on nothing');
+}
+
+console.log('\n=== 15. TEST THREE. while the failure is up, the shop view does not exist ===');
+{
+  // COVERING A DEAD VIEW IS NOT ENOUGH, because a covered view is still alive and
+  // can still speak. The certain fix is that there is nothing there to speak: tap
+  // Try again and a view is built from nothing.
+  ok(shopViewMayExist(true, FAILED) === false,
+    'ON A SIGN IN VISIT, the shop view is gone while the screen says it did not open');
+  ok(shopViewMayExist(true, OPENING_UP) === true, 'it exists while the shop is opening');
+  ok(shopViewMayExist(true, SHOP) === true, 'it exists when the shop own sign in is up, which is the point');
+  ok(shopViewMayExist(true, CANNOT_TELL) === true,
+    'and it stays while we are asking them, because the answer may still be yes '
+    + 'and throwing the page away would take their sign in with it');
+  ok(shopViewMayExist(true, SIGNED_IN_NOW) === true,
+    'and it stays once they are in, because the cookies are in it');
+
+  // A READING VISIT IS UNTOUCHED, in every state there is.
+  for (const state of [OPENING_UP, SHOP, FAILED, CANNOT_TELL, SIGNED_IN_NOW]) {
+    ok(shopViewMayExist(false, state) === true,
+      `A READING VISIT KEEPS ITS VIEW IN ${state}. Unmounting there would reload the `
+      + 'page and drop the shop session, which is the whole reason it stays mounted '
+      + 'under the results screen');
+  }
+  ok(shopViewMayExist(undefined, FAILED) === true,
+    'and anything that is not plainly a sign in visit is treated as a reading one, '
+    + 'because that is the path that works today');
+}
+
+console.log('\n=== 16. TEST THREE. which of the five inputs decided it ===');
+{
+  // "The shop did not open" ARRIVES BY TWO ROADS and they look identical on a
+  // phone: the shop saying so, and our own fifteen seconds running out. The owner
+  // had been left guessing which one he was looking at.
+  ok(whatDecidedIt({ itWillNotOpen: true }) === BECAUSE_THE_SHOP_SAID_SO,
+    'the shop saying it could not open is one reason');
+  ok(whatDecidedIt({ startedAt: OPENED_AT, now: OUT_OF_TIME }) === BECAUSE_TIME_RAN_OUT,
+    'and our own clock running out is a DIFFERENT reason with the same sentence');
+  ok(whatIsOnScreen({ itWillNotOpen: true })
+    === whatIsOnScreen({ startedAt: OPENED_AT, now: OUT_OF_TIME }),
+    'and both really do put the identical screen up, which is why naming them apart matters');
+
+  ok(whatDecidedIt({ theyAreIn: true }) === BECAUSE_THEY_ARE_IN, 'being in is its own reason');
+  ok(whatDecidedIt({ signInIsGone: true }) === BECAUSE_THE_SIGN_IN_WENT,
+    'the sign in going away is its own reason');
+  ok(whatDecidedIt({ signInIsUp: true }) === BECAUSE_THE_SIGN_IN_IS_UP,
+    'the sign in being up is its own reason');
+  ok(whatDecidedIt() === BECAUSE_NOTHING_YET, 'and nothing known yet is its own reason');
+
+  // THE TWO CAN NEVER DISAGREE, and this is the check that says so. Every
+  // combination of the four signals against in and out of time: the reason named
+  // must be an input that is actually true, and it must be the one whatIsOnScreen
+  // acted on.
+  const STATE_OF = {
+    [BECAUSE_THEY_ARE_IN]: SIGNED_IN_NOW,
+    [BECAUSE_THE_SHOP_SAID_SO]: FAILED,
+    [BECAUSE_THE_SIGN_IN_WENT]: CANNOT_TELL,
+    [BECAUSE_THE_SIGN_IN_IS_UP]: SHOP,
+    [BECAUSE_TIME_RAN_OUT]: FAILED,
+    [BECAUSE_NOTHING_YET]: OPENING_UP,
+  };
+  const IS_REALLY_TRUE = {
+    [BECAUSE_THEY_ARE_IN]: (f) => f.theyAreIn === true,
+    [BECAUSE_THE_SHOP_SAID_SO]: (f) => f.itWillNotOpen === true,
+    [BECAUSE_THE_SIGN_IN_WENT]: (f) => f.signInIsGone === true,
+    [BECAUSE_THE_SIGN_IN_IS_UP]: (f) => f.signInIsUp === true,
+    [BECAUSE_TIME_RAN_OUT]: (f) => f.now - f.startedAt >= SHOP_HAS_THIS_LONG_MS,
+    [BECAUSE_NOTHING_YET]: () => true,
+  };
+  let agreed = 0;
+  let named = 0;
+  for (const theyAreIn of [false, true]) {
+    for (const itWillNotOpen of [false, true]) {
+      for (const signInIsGone of [false, true]) {
+        for (const signInIsUp of [false, true]) {
+          for (const now of [STILL_IN_TIME, OUT_OF_TIME]) {
+            const facts = {
+              theyAreIn, itWillNotOpen, signInIsGone, signInIsUp, startedAt: OPENED_AT, now,
+            };
+            const why = whatDecidedIt(facts);
+            if (STATE_OF[why] === whatIsOnScreen(facts)) agreed += 1;
+            if (IS_REALLY_TRUE[why](facts)) named += 1;
+          }
+        }
+      }
+    }
+  }
+  ok(agreed === 32,
+    `THE REASON AND THE SCREEN AGREE IN ALL 32 COMBINATIONS (${agreed}). They cannot `
+    + 'drift, because whatIsOnScreen is a lookup over this same answer rather than a '
+    + 'second copy of the same five questions in the same order');
+  ok(named === 32,
+    `AND THE REASON NAMED IS ALWAYS AN INPUT THAT IS REALLY TRUE (${named}). A log `
+    + 'that blames an input which was false is worse than no log at all');
+}
+
+console.log('\n=== 17. TEST THREE. three Try agains in a row are three different views ===');
+{
+  // The owner asked for three taps to work three times. The key is the only thing
+  // that makes a view new, so three taps must be three keys.
+  const keys = [0, 1, 2, 3].map((n) => shopViewKey(n));
+  ok(new Set(keys).size === 4,
+    `four attempts are four different views (${keys.join(', ')}), and a repeated key `
+    + 'would be the same view asked to try harder, which is what did nothing at all');
+
+  // AND EACH ONE GETS ITS OWN FIFTEEN SECONDS, counted from its own moment. A
+  // second attempt that inherited the first one moment would be out of time the
+  // instant it began.
+  const tapped = [OPENED_AT, OPENED_AT + 20_000, OPENED_AT + 41_000];
+  for (const at of tapped) {
+    ok(whatIsOnScreen({ startedAt: at, now: at }) === OPENING_UP,
+      `an attempt asked at ${at - OPENED_AT}ms in starts on the loading screen, not on the failure`);
+    ok(whatIsOnScreen({ startedAt: at, now: at + SHOP_HAS_THIS_LONG_MS - 1 }) === OPENING_UP,
+      'and is still waiting a millisecond before its own fifteen seconds are up');
+    ok(whatIsOnScreen({ startedAt: at, now: at + SHOP_HAS_THIS_LONG_MS }) === FAILED,
+      'and only then gives up, on its own clock and not on the first one');
+  }
+  // THE TRAP THIS RULES OUT: a second attempt that kept the first askedAt.
+  ok(whatIsOnScreen({ startedAt: OPENED_AT, now: OPENED_AT + 20_000 }) === FAILED,
+    'because an attempt still holding the FIRST moment would be failed before it '
+    + 'began, which is exactly what a Try again that forgot to move the clock does');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

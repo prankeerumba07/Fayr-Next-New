@@ -342,4 +342,111 @@ t('and the phone’s own code still says what this check claims it says', () => 
     'RCTView.m must still answer a tap on a none view with nothing at all');
 });
 
+// ── THE GATE COVER, AND WHETHER A TAP ON IT CAN LAND ────────────────────────
+//
+// TEST THREE FAILED TWICE ON A REAL PHONE and one of the three things it could
+// have been is the plainest: the tap never reached the button. This project has
+// the precedent — 2 September 2026, the reminder card, where one word killed every
+// tap on a card that looked perfectly right.
+//
+// TWO DIFFERENT QUESTIONS, AND ONLY ONE OF THEM HAS TEETH HERE.
+//
+// The first is whether anything switched taps off, and the machinery above answers
+// it. On this cover the honest answer is that IT PASSES BECAUSE THERE IS NOTHING
+// THERE: styles.gate carries no pointerEvents at all, so asking that question of
+// it proves only the absence of a known killer. That is worth pinning so nobody
+// adds the word later, and it is not proof that a tap lands.
+//
+// The second is what is drawn ON TOP, and that is the one that could really eat a
+// tap. React Native has no z-index here: the later sibling wins. So the cover must
+// be drawn after the shop's own view, and nothing absolutely positioned may be
+// drawn after the cover — and that is what nothing in this repo checked until now.
+
+t('nothing has switched taps off anywhere on the connect screen', () => {
+  const connect = readFileSync(join(APP, 'ConnectScreen.js'), 'utf8');
+  const refused = boxesThatRefuseTaps(connect);
+  assert.deepEqual(refused, [],
+    'a box on the connect screen refuses taps with something tappable inside it, '
+    + 'which is the 2 September defect where the cross, the card and the dots all '
+    + 'went dead at once');
+  ok(!/styles\.gate[^A-Za-z]/.test(connect.slice(0, connect.indexOf('const styles')))
+    || !/pointerEvents/.test(connect.slice(
+      connect.indexOf('<View style={styles.gate}'),
+      connect.indexOf('<View style={styles.gate}') + 400)),
+    'and the cover itself carries no pointerEvents, so it is not refusing taps and '
+    + 'not asking for a two layer trick React Native does not do');
+});
+
+t('the gate cover is drawn after the shop’s own view, so it is on top of it', () => {
+  const connect = readFileSync(join(APP, 'ConnectScreen.js'), 'utf8');
+  const shopView = connect.indexOf('<WebView');
+  const cover = connect.indexOf('<View style={styles.gate}');
+  ok(shopView > 0, 'the screen must still draw the shop’s view');
+  ok(cover > 0, 'and it must still draw our own cover over it');
+  ok(cover > shopView,
+    'THE COVER MUST COME AFTER THE SHOP’S VIEW IN THE TREE. React Native draws the '
+    + 'later sibling on top and there is no z-index here, so a cover written before '
+    + 'the shop would sit UNDER the shop’s page: the words would be invisible and '
+    + 'every tap on Try again would land on Flipkart');
+});
+
+t('and nothing absolutely positioned is drawn over the cover', () => {
+  const connect = readFileSync(join(APP, 'ConnectScreen.js'), 'utf8');
+  const code = withoutComments(connect);
+  const cover = code.indexOf('<View style={styles.gate}');
+  ok(cover > 0, 'the cover must be findable');
+
+  // Every style in this file that lifts a view out of the flow and fills the screen.
+  const styleBlock = code.slice(code.indexOf('const styles = StyleSheet.create('));
+  const lifted = new Set();
+  for (const m of styleBlock.matchAll(/(\w+):\s*\{[^}]*(?:position:\s*'absolute'|absoluteFill)/g)) {
+    lifted.add(m[1]);
+  }
+  ok(lifted.has('gate'), 'the cover must be one of them, or it is not covering anything');
+
+  // Which of them are drawn after the cover, in the drawing rather than the styles.
+  // FROM THE END OF THE COVER'S OWN OPENING TAG. Starting one character in left the
+  // cover's own style inside the slice, and it read as something drawn over itself.
+  const after = code.slice(
+    code.indexOf('>', cover),
+    code.indexOf('const styles = StyleSheet.create('),
+  );
+  // A WHOLE NAME AND NOT A PREFIX. styles.gate is a prefix of styles.gateText, and
+  // matching on the prefix made the cover read as something drawn over itself.
+  const over = [...lifted]
+    .filter((name) => new RegExp(`styles\\.${name}\\b`).test(after));
+
+  // ONE EXCEPTION, AND IT IS NAMED RATHER THAN ALLOWED BY A GAP. The results
+  // overlay is drawn after the cover and belongs to the READING visit: it is what
+  // somebody sees after tapping "Fetch my reviews", a control this screen does not
+  // draw at all on a visit made to sign in. So it can never be over the gate.
+  assert.deepEqual(over, ['resultsWrap'],
+    `these are drawn over the gate cover and would swallow a tap on Try again: `
+    + `${over.join(', ')}. Only the results overlay may be, and only because it `
+    + `belongs to the reading visit`);
+  const resultsAt = after.indexOf('styles.resultsWrap');
+  ok(/\{mode === 'results' \? \(/.test(after.slice(Math.max(0, resultsAt - 120), resultsAt)),
+    'and the results overlay must be drawn only when the results really are up, so '
+    + 'a sign in visit never puts it over the cover');
+});
+
+t('and every control on the cover is a real button with a real function behind it', () => {
+  const connect = readFileSync(join(APP, 'ConnectScreen.js'), 'utf8');
+  const cover = connect.indexOf('<View style={styles.gate}');
+  const block = connect.slice(cover, connect.indexOf('</View>', connect.indexOf('))}', cover)));
+  ok(/<TouchableOpacity/.test(block), 'the controls must be things a phone treats as buttons');
+  ok(/onPress=\{whatEachControlDoes\[control\.does\]\}/.test(block),
+    'and what each one does must come from the gate’s own answer, so a control can '
+    + 'never be drawn with nothing behind it');
+  const wiring = connect.slice(
+    connect.indexOf('const whatEachControlDoes = {'),
+    connect.indexOf('};', connect.indexOf('const whatEachControlDoes = {')),
+  );
+  ok(/\[ASK_THE_SHOP_AGAIN\]: tryAgain/.test(wiring),
+    'and Try again must be wired to the one thing that really asks the shop again');
+  ok(/accessibilityRole="button"/.test(block),
+    'and it must announce itself as a button, so somebody using a screen reader can '
+    + 'find the only way forward this screen offers');
+});
+
 console.log(`  ${passed} checks passed`);

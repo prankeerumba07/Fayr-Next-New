@@ -142,9 +142,67 @@ describe('the words on the shop connect screen', () => {
       'gate.js', 'pageQuestions.js', 'watchSignIn.js', 'accountName.js',
       'SignInSheet.js',
       'gate.test.mjs', 'connect.test.mjs',
+      // TEMPORARY, AND IT LEAVES WHEN THE OWNER SAYS TEST 3 PASSES. It is allowed
+      // here only because the next check proves it can never be a source of words
+      // a person reads. Delete both together.
+      'gateLog.js',
     ]);
     const unknown = readdirSync(folder).filter((name) => !known.has(name));
     expect(unknown).toEqual([]);
+  });
+
+  /**
+   * AND THE ONE FILE ADDED TO THAT LIST CANNOT PUT A WORD ON A SCREEN.
+   *
+   * gateLog.js holds sentences, so naming it above would ordinarily be exactly the
+   * hole the check before this one exists to catch. It is safe for one structural
+   * reason and not for a promise: THERE IS A SINGLE console.log IN IT, every line
+   * goes through it, and every line begins with a tag in square brackets. A screen
+   * cannot draw from it because nothing in it returns anything a screen renders,
+   * and it pulls in neither React nor React Native to do so.
+   *
+   * If somebody ever adds a second way out of that file, this goes red, and the
+   * choice is theirs to make in the open rather than by accident.
+   */
+  it('and the one temporary file in there can only ever reach a console', () => {
+    const log = read('src/connect/gateLog.js');
+    const code = withoutComments(log);
+
+    const writes = code.match(/console\.[a-z]+\(/g) ?? [];
+    expect(writes).toEqual(['console.log(']);
+
+    // Every line it can emit carries the tag, because the one call site is handed
+    // a line that was built with it.
+    expect(code).toContain("export const TAG = '[fayr-gate]';");
+    expect(code).toContain('return `${TAG} ');
+
+    // It is off in a build a person gets.
+    expect(code).toContain("typeof __DEV__ !== 'undefined' && __DEV__ === true");
+    expect(code).toContain('if (!gateLogIsOn()) return false;');
+
+    // And it can draw nothing.
+    expect(code).not.toMatch(/from 'react/);
+    expect(code).not.toMatch(/from 'react-native'/);
+    expect(code).not.toMatch(/<[A-Z]/);
+
+    // AND A CONSOLE IS THE ONLY WAY OUT OF IT, WHICH IS WHAT THE NAME PROMISES.
+    //
+    // Until 8 September this check counted console calls and nothing else, so a
+    // line added BESIDE them that put the same developer words onto a network or
+    // into a file would have passed it green. That was found by breaking it on
+    // purpose: one exported function calling fetch() went unnoticed.
+    //
+    // It matters more here than almost anywhere. These lines carry a shop's url
+    // and the account name a shop printed for a real person, and a file that is
+    // meant to be deleted is exactly where a second way out would live longest
+    // without anybody looking at it again.
+    for (const wayOut of [
+      /\bfetch\s*\(/, /XMLHttpRequest/, /\bWebSocket\b/, /sendBeacon/,
+      /AsyncStorage/, /SecureStore/, /writeFileSync/, /\bnew File\b/, /\bPaths\./,
+      /\brequire\s*\(/, /^import /m, /process\.std(out|err)/,
+    ]) {
+      expect(code).not.toMatch(wayOut);
+    }
   });
 });
 
