@@ -22,6 +22,24 @@ export function remove(queue, taskId, key) {
   return q.filter((x) => !(x.taskId === taskId && x.key === key));
 }
 
+/**
+ * EVERY TASK ID WITH SOMETHING STILL WAITING, each one once.
+ *
+ * Asked by src/taskStore.js before it forgets a claim the server no longer has:
+ * an entry whose evidence is still queued must not be dropped, or the queue
+ * would go on retrying against a task nothing on the phone displays any more.
+ * See src/forgotten.js, which says why that direction of failure is the safe one.
+ */
+export function taskIds(queue) {
+  const q = Array.isArray(queue) ? queue : [];
+  const seen = [];
+  for (const item of q) {
+    const id = item && item.taskId;
+    if (id && !seen.includes(id)) seen.push(id);
+  }
+  return seen;
+}
+
 export function isEmpty(queue) {
   return !Array.isArray(queue) || queue.length === 0;
 }

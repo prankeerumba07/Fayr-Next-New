@@ -25,8 +25,15 @@ export async function claim(campaignId, acceptedTerms) {
 // campaignId → taskId map from the source of truth.
 export async function listTasks() {
   const res = await authedFetch('/tasks', { method: 'GET' });
-  const arr = res.ok && Array.isArray(res.body) ? res.body : [];
-  return { ok: res.ok, status: res.status, tasks: arr };
+  // `ok` ON ITS OWN IS NOT ENOUGH, and this is why `gotTheList` is reported
+  // separately. A body that is not a list becomes an empty list below, so every
+  // caller that only looks at `tasks` cannot tell "the server has none" from "we
+  // could not read what it sent". Those two mean opposite things to
+  // src/forgotten.js: the first clears every believed claim, the second must
+  // clear nothing at all.
+  const gotTheList = res.ok && Array.isArray(res.body);
+  const arr = gotTheList ? res.body : [];
+  return { ok: res.ok, status: res.status, tasks: arr, gotTheList };
 }
 
 // GET /tasks/:id — one authoritative task.

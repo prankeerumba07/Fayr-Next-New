@@ -17,7 +17,8 @@ import { fileURLToPath } from 'node:url';
 import { countdownFor, holdIsOver, messageText, noticeFromTask } from './theNotice.js';
 import {
   COULD_NOT_START, EVERY_SENTENCE, HAVE_YOU_BOUGHT_IT, NOTHING_WAS_SPENT,
-  NOT_YET, TIME_IS_UP, TRY_AGAIN, YES_I_HAVE, takeMeThere, timeLeftInWords,
+  NOT_BUILT_YET, NOT_YET, TIME_IS_UP, TRY_AGAIN, YES_I_HAVE, takeMeThere,
+  timeLeftInWords,
 } from '../ui/journeyWords.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -202,7 +203,7 @@ console.log('\n=== 8. AND NO SCREEN WRITES THOSE SENTENCES ITSELF ===');
 
 console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
 {
-  ok(EVERY_SENTENCE.length === 14, 'the list of them is complete');
+  ok(EVERY_SENTENCE.length === 15, 'the list of them is complete');
   for (const sentence of EVERY_SENTENCE) {
     ok(typeof sentence === 'string' && sentence.trim() !== '',
       `"${sentence}" is a real sentence`);
@@ -212,9 +213,9 @@ console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
   ok(code.includes('COULD_NOT_START') && !code.includes(COULD_NOT_START),
     'the buy screen NAMES the refusal sentence rather than holding a copy of it');
   ok(!code.includes(NOTHING_WAS_SPENT), 'and the same for the second half of it');
-  ok([HAVE_YOU_BOUGHT_IT, YES_I_HAVE, NOT_YET, TRY_AGAIN, takeMeThere('Amazon')]
-    .every((s) => EVERY_SENTENCE.includes(s)),
-    'every word a person reads on these screens is in the walked list');
+  ok([HAVE_YOU_BOUGHT_IT, YES_I_HAVE, NOT_YET, NOT_BUILT_YET, TRY_AGAIN,
+    takeMeThere('Amazon')].every((s) => EVERY_SENTENCE.includes(s)),
+  'every word a person reads on these screens is in the walked list');
 }
 
 console.log('\n=== 10. THE SHOP DOES NOT OPEN UNLESS OUR SIDE RECORDED IT ===');
@@ -244,6 +245,98 @@ console.log('\n=== 10. THE SHOP DOES NOT OPEN UNLESS OUR SIDE RECORDED IT ===');
     'THERE IS NO WAY PAST THE NOTICE: the phone own back control does nothing');
   ok(!/onDismiss|onBackdropPress|closeOnOverlay/.test(code),
     'and nothing dismisses it by tapping outside or swiping');
+}
+
+console.log('\n=== 11. AND THE BUY SCREEN CHANGES AFTER THEY HAVE GONE ===');
+{
+  // THE BUG THIS SECTION EXISTS FOR. The owner tapped Buy, went to Amazon, came
+  // back to Fayr and saw the same screen with the same "OPEN AMAZON" button. The
+  // new message was on Home and in My Products, and this was the one place he was
+  // actually standing.
+  const screen = read('src/screens/buyinterstitial.js');
+  const code = screen.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  // WATCHED, NOT READ ONCE. A single read at render time is why the screen could
+  // not notice the visit it had itself just recorded.
+  ok(/subscribe\(\(id\) => \{/.test(code),
+    'the screen watches the store rather than reading it once');
+  ok(/setAuthoritative\(getAuthoritative\(campaignId\)\)/.test(code),
+    'and re-reads the authoritative task when it changes');
+  ok(/setInterval\(\(\) => setNow\(Date\.now\(\)\), 30000\)/.test(code),
+    'and keeps its own clock, so the countdown beside the message moves');
+
+  // ONE RECORD, READ. Not a fourth wording of it.
+  ok(/messageText\(authoritative, 'long'\)/.test(code),
+    'THE SAME ONE MESSAGE the other three places show, in its long form');
+  ok(/countdownFor\(authoritative, now\)/.test(code),
+    'with the countdown from the same record');
+  ok(/holdIsOver\(authoritative, now\)/.test(code),
+    'and it asks separately whether the two hours are gone');
+  ok(/wentToShopAt != null/.test(code),
+    'and the whole thing turns on whether our side recorded the visit');
+
+  // THE SHOP'S DOOR IS GONE ONCE THEY HAVE WALKED THROUGH IT. A second tap
+  // records nothing new — our side keeps the first tap and cannot move it — so
+  // all it could do is send somebody to buy the same thing twice.
+  ok(/\{!hasGone && couldNotStart \?/.test(code),
+    'the retry button is drawn only before the visit is recorded');
+  ok(/\{!hasGone && !couldNotStart \?/.test(code),
+    'and so is the shop own door');
+  ok(/OPEN \{shop\.toUpperCase\(\)\} →/.test(code),
+    'AND THE DESIGN OWN WORDING IS STILL THERE, untouched');
+  ok(/\{couldNotStart && !hasGone \?/.test(code),
+    'and the refusal sentence cannot appear over a visit that did get recorded');
+
+  // STEP SEVEN, AND ONLY WHILE THERE IS TIME LEFT.
+  ok(/\{hasGone && !over \?/.test(code),
+    'the question is asked only after they have gone AND while the hold is alive');
+  ok(code.includes('HAVE_YOU_BOUGHT_IT') && !code.includes(HAVE_YOU_BOUGHT_IT),
+    'the screen NAMES the question rather than holding a copy of it');
+  ok(code.includes('YES_I_HAVE') && code.includes('NOT_YET')
+    && !code.includes(YES_I_HAVE) && !code.includes(NOT_YET),
+  'and both answers the same way');
+  ok(code.includes('NOT_BUILT_YET') && !code.includes(NOT_BUILT_YET),
+    'and so does the sentence admitting the next step is missing');
+
+  // YES IS HONEST ABOUT LEADING NOWHERE, AND STEPS EIGHT TO TWELVE ARE NOT
+  // HALF-BUILT HERE. Nothing on this screen reads an order, matches one, or moves
+  // the task on.
+  ok(/onPress=\{\(\) => setSaidYes\(true\)\}/.test(code),
+    'YES sets one flag and does nothing else at all');
+  for (const notHere of [
+    'dispatch(', 'postTaskAction', 'confirmOrder', 'markReviewed', 'startHold',
+    'releaseRefund', 'orderCandidates', 'submitEvidence', 'postEvidence',
+  ]) {
+    ok(!code.includes(notHere),
+      `and it does not reach for ${notHere} — steps eight to twelve stay unbuilt`);
+  }
+  ok(/onPress=\{\(\) => goBackOrHome\(navigation\)\}/.test(code),
+    'and NOT YET simply leaves, changing nothing');
+
+  // THE RAN-OUT CASE OFFERS NOTHING ONWARD. Every button on the screen is inside
+  // a block that refuses to draw when the hold is over.
+  const buttons = code.match(/<Pill /g) || [];
+  ok(buttons.length === 4,
+    'there are exactly four buttons on this screen, and every one is accounted for');
+  // Sliced to step seven's OWN block: from its guard to the shop door's guard
+  // below it. Taking the rest of the file would have counted the two doors too,
+  // which is how this check first read four and proved nothing.
+  const from = code.indexOf('{hasGone && !over ?');
+  const to = code.indexOf('{!hasGone && couldNotStart ?');
+  ok(from !== -1 && to !== -1 && from < to, 'step seven is drawn above the shop door');
+  const step7 = code.slice(from, to);
+  ok((step7.match(/<Pill /g) || []).length === 2,
+    'two of the four are step seven own, behind the !over guard');
+  // AND THE OTHER TWO ARE BOTH BEHIND !hasGone, so once the visit is recorded
+  // there is no button on this screen that is not step seven's.
+  const doors = code.slice(to);
+  ok((doors.match(/<Pill /g) || []).length === 2,
+    'and the other two are the shop own door, below it');
+  ok((doors.match(/!hasGone/g) || []).length === 2,
+    'each of those two refuses to draw once the visit is recorded');
+  ok(/hasGone \? null : deadlineLine/.test(code),
+    'AND THE CLAIM OWN HALF HOUR IS HIDDEN once they have tapped Buy, or it runs '
+    + 'out while the two hours are still going and contradicts them');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

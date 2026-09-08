@@ -11,7 +11,7 @@
 
 import { File, Paths } from 'expo-file-system';
 import { AppState } from 'react-native';
-import { enqueue, remove, isEmpty } from './outbox.js';
+import { enqueue, remove, isEmpty, taskIds } from './outbox.js';
 
 const OUTBOX_FILE = 'fayr-evidence-outbox-v1.json';
 
@@ -124,4 +124,15 @@ export async function flush() {
 export function pending() {
   hydrate();
   return queue.length;
+}
+
+/**
+ * WHICH TASKS STILL HAVE EVIDENCE WAITING. Wired into taskStore by App.js so the
+ * store can ask before it forgets a claim the server no longer has. Hydrated
+ * first, because the queue that matters is the one on disk from the last run,
+ * not whatever this run happens to have collected so far.
+ */
+export function pendingTaskIds() {
+  hydrate();
+  return taskIds(queue);
 }

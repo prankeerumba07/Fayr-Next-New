@@ -28,12 +28,26 @@
 // the person comes back and lets Fayr read their orders. That is not hidden: one
 // plain line on the screen says which door is which and why it matters.
 //
+// TWO FACES, AND THE SECOND ONE IS WHY THIS SCREEN CHANGED.
+//
+// The owner tapped Buy, went to Amazon, came back to Fayr, and saw this screen
+// exactly as he had left it: "Before you go", and one button offering to open
+// Amazon again. The new message was on Home and on My Products, and this is the
+// one place he was actually standing, so it was the one place that did not say
+// anything. A screen that cannot tell it has already been used is a screen that
+// invites somebody to buy the same thing twice.
+//
+// So once the visit is recorded this screen shows THE SAME ONE MESSAGE the other
+// three places show, read off task.message, with the clock beside it, and the one
+// button below becomes step seven's question instead of the shop's door again.
+// Not one word of that is written here.
+//
 // AND THE PRODUCT NAME GOES ON THE CLIPBOARD, on either door. The owner asked for
 // it so nobody has to type a product name into a search box. It is the name and
 // nothing else — no price, no shop, nothing of ours — because anything extra turns
 // a search that finds the product into a search that finds nothing. The screen says
 // out loud that the clipboard changed, and says so if it could not.
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as campaignStore from '../backend/campaignStore';
@@ -46,10 +60,15 @@ import { Screen, ProductImage } from '../ui/primitives';
 import { copyLine } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
 import { deadlineLine } from '../ui/confirmJoin';
-import { getAuthoritative, getTaskId } from '../taskStore';
+import { getAuthoritative, getTaskId, subscribe } from '../taskStore';
 import { goingToTheShop } from '../backend/tasksApi';
-import { noticeFromTask } from '../journey/theNotice';
-import { COULD_NOT_START, NOTHING_WAS_SPENT, TRY_AGAIN } from '../ui/journeyWords';
+import {
+  countdownFor, holdIsOver, messageText, noticeFromTask,
+} from '../journey/theNotice';
+import {
+  COULD_NOT_START, HAVE_YOU_BOUGHT_IT, NOTHING_WAS_SPENT, NOT_BUILT_YET,
+  NOT_YET, TRY_AGAIN, YES_I_HAVE,
+} from '../ui/journeyWords';
 import { Modal, TouchableOpacity } from 'react-native';
 
 /** The design's three lines about how to buy, in its order and its words. */
@@ -65,10 +84,60 @@ export default function BuyInterstitialScreen({ navigation, route }) {
   const params = (route && route.params) || {};
   const campaignId = params.campaignId || null;
   const campaign = campaignId ? campaignStore.getById(campaignId) : null;
+  // WATCHED, NOT READ ONCE. This used to be a single read at render time, so the
+  // screen could not notice the visit it had itself just recorded. It is the
+  // AUTHORITATIVE task and not the optimistic one because the store builds the
+  // optimistic copy from a hand written list of fields that does not carry the
+  // visit at all — see the note in src/journey/theNotice.js.
+  const [authoritative, setAuthoritative] = useState(
+    campaignId ? getAuthoritative(campaignId) : null,
+  );
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!campaignId) return undefined;
+    const sync = () => setAuthoritative(getAuthoritative(campaignId));
+    const un = subscribe((id) => {
+      if (id !== campaignId) return;
+      sync();
+    });
+    sync();
+    return un;
+  }, [campaignId]);
+
+  // The clock the message sits beside. Thirty seconds, the same as the opened
+  // task screen, because the count is written in whole minutes and a faster tick
+  // would only redraw the same words.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  // ── WHICH FACE THIS SCREEN IS WEARING ────────────────────────────────────
+  //
+  // One fact decides it: has our own side recorded the visit? Everything below
+  // reads off the authoritative task and writes nothing.
+  const hasGone = !!(authoritative && authoritative.wentToShopAt != null);
+  // THE ONE RECORD, LONG FORM. The bar above the navigation and the My Products
+  // row show the short form of this same string. Built once on the server, in
+  // backend engine/journey-message.ts, and READ here.
+  const theMessage = messageText(authoritative, 'long');
+  const timeLeft = countdownFor(authoritative, now);
+  // THE TWO HOURS ARE GONE. The message already says so — the server swaps it for
+  // the ran-out one on its own — and what this decides is that there is no way
+  // onward, because offering one would be offering something we cannot pay.
+  const over = holdIsOver(authoritative, now);
+
   // HOW LONG IS LEFT TO BUY, in the same one line the connect page and the slot
   // reserved moment use. The confirmation page carried this in a card of its own
   // until the owner took that page off the path on 2 September 2026.
-  const deadline = deadlineLine(getAuthoritative(campaignId), new Date());
+  //
+  // AND IT IS HIDDEN THE MOMENT THEY HAVE TAPPED BUY.
+  // This line is the CLAIM's own half hour, which the tap spends. Leaving it up
+  // afterwards meant that half hour ran out while the two hours were still going
+  // and the screen said "Your time to buy has run out." to somebody who had an
+  // hour and a half left. Two clocks, and only one of them applies at a time.
+  const deadline = hasGone ? null : deadlineLine(authoritative, new Date());
   const key = campaign ? campaign.marketplace : params.marketplace || 'amazon';
   const platform = PLATFORMS[key];
   const shop = platform ? platform.name : String(key);
@@ -92,6 +161,12 @@ export default function BuyInterstitialScreen({ navigation, route }) {
   // null = nothing has gone wrong, true = the call failed and we did not open.
   const [couldNotStart, setCouldNotStart] = useState(false);
   const [asking, setAsking] = useState(false);
+  // THEY SAID YES AND THERE IS NOWHERE TO SEND THEM. Steps eight to twelve —
+  // reading their orders, matching one to this offer, asking "is this your
+  // order?" — are not built, so Yes sets this and the screen says so in words.
+  // A button that appears to work and quietly does nothing is the failure this
+  // whole area of the app keeps producing, and it is worse than an honest refusal.
+  const [saidYes, setSaidYes] = useState(false);
 
   /**
    * TAPPING BUY NOW GOES THROUGH OUR SIDE FIRST.
@@ -142,6 +217,25 @@ export default function BuyInterstitialScreen({ navigation, route }) {
       <TopBar title="Before you go" onBack={() => goBackOrHome(navigation)} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
         {deadline ? <Text style={styles.deadline}>⏰ {deadline}</Text> : null}
+
+        {/* ── THE ONE MESSAGE, ON THE SCREEN THEY ARE ACTUALLY STANDING ON ──
+            The same record the bar above the navigation and the My Products row
+            read, in its long form, exactly as the opened task screen shows it.
+            Built once on the server and READ here: there is no wording of this
+            screen's own anywhere in this box, and no fourth version of it.
+
+            The clock beside it ticks on the phone, because a number that changes
+            cannot come from a record built on a server. It is NEVER drawn for a
+            task with no recorded tap — countdownFor answers nothing to that, and
+            this box is not drawn at all without a message. */}
+        {theMessage ? (
+          <View style={styles.sentMessage}>
+            <Text style={styles.sentMessageText}>{theMessage}</Text>
+            {timeLeft ? (
+              <Text style={styles.sentMessageClock}>⏰ {timeLeft}</Text>
+            ) : null}
+          </View>
+        ) : null}
 
         <CardBox>
           <Text style={styles.cardTitle}>Buy exactly this</Text>
@@ -196,28 +290,74 @@ export default function BuyInterstitialScreen({ navigation, route }) {
             src/openShop.js opens the shop's own app by its own address and falls
             back to the shop's website in the phone's own browser. Nothing renders
             a marketplace inside Fayr. */}
-        {couldNotStart ? (
+        {couldNotStart && !hasGone ? (
           <View style={styles.couldNot}>
             <Text style={styles.couldNotText}>{COULD_NOT_START}</Text>
             <Text style={styles.couldNotText}>{NOTHING_WAS_SPENT}</Text>
           </View>
         ) : null}
+
+        {/* ── AND WHEN THE TWO HOURS ARE GONE, NOTHING IS OFFERED ────────────
+            No question, no shop, no retry. The message above already says the
+            two hours ran out and that the offer went to somebody else, and the
+            honest thing under that sentence is empty space. A button here would
+            be offering something we cannot pay for.
+
+            NOT A DEAD END THOUGH: the back control at the top of the screen is
+            untouched, so they can leave and claim something else. So there is
+            nothing to render here, and the two blocks below both refuse to draw
+            when `over` is true. This comment is the only thing in this place. */}
+
+        {/* ── STEP SEVEN, WHEN THEY HAVE ALREADY GONE ────────────────────────
+            The question and both answers come from src/ui/journeyWords.js, which
+            Fayr's plain language rule reads off disk.
+
+            YES LEADS NOWHERE YET AND SAYS SO. Steps eight to twelve are not
+            built. NOT half-built here: this screen does not read an order, does
+            not match one, and does not advance the task. It shows one sentence
+            admitting the app has not got there.
+
+            NOT YET simply leaves. Nothing has changed, their place is still
+            held, and My Products brings them back to this exact screen. */}
+        {hasGone && !over ? (
+          <View style={styles.step7}>
+            {saidYes ? (
+              <Text style={styles.notBuilt}>{NOT_BUILT_YET}</Text>
+            ) : (
+              <Text style={styles.askedText}>{HAVE_YOU_BOUGHT_IT}</Text>
+            )}
+            <Pill onPress={() => setSaidYes(true)} color={COLOR.ink}>
+              {YES_I_HAVE.toUpperCase()}
+            </Pill>
+            <Pill onPress={() => goBackOrHome(navigation)} color={COLOR.line}>
+              {NOT_YET.toUpperCase()}
+            </Pill>
+          </View>
+        ) : null}
+
         {/* TWO WRITINGS OF ONE BUTTON, AND THE DESIGN'S OWN IS KEPT INTACT.
             Its before you go screen reads "OPEN AMAZON →"
             (fayr-design.browser.jsx:2568), and src/ui/shopApp.test.mjs reads this
             file to check that wording is still here. Folding both into one
             template string broke that check, so the two are written out
             separately: the design's words stay exactly as the design has them,
-            and the retry is its own line. */}
-        {couldNotStart ? (
+            and the retry is its own line.
+
+            AND NEITHER IS DRAWN ONCE THE VISIT IS RECORDED. The shop's door is
+            what the owner was left staring at after he had already walked through
+            it. A second tap on it would record nothing new — our side keeps the
+            first tap and cannot move it — so all it could do is send somebody to
+            buy the same thing twice. */}
+        {!hasGone && couldNotStart ? (
           <Pill onPress={openTheirApp} color={COLOR.ink}>
             {TRY_AGAIN.toUpperCase()}
           </Pill>
-        ) : (
+        ) : null}
+        {!hasGone && !couldNotStart ? (
           <Pill onPress={openTheirApp} color={COLOR.ink}>
             OPEN {shop.toUpperCase()} →
           </Pill>
-        )}
+        ) : null}
       </View>
 
       {/* ── THE NOTICE, OVER EVERYTHING, WITH ONE WAY OUT ───────────────────
@@ -263,6 +403,31 @@ export default function BuyInterstitialScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
+  // THE ONE MESSAGE, drawn the same way the opened task screen draws it, so the
+  // same words look the same in both places.
+  sentMessage: {
+    marginBottom: 12, backgroundColor: '#fff', borderWidth: 1,
+    borderColor: COLOR.line, borderRadius: RADIUS.md,
+    paddingHorizontal: 14, paddingVertical: 12,
+  },
+  sentMessageText: {
+    fontFamily: FONT.bodySemi, fontSize: 13, lineHeight: 19, color: COLOR.ink2,
+  },
+  sentMessageClock: {
+    fontFamily: FONT.bodyBold, fontSize: 12.5, color: COLOR.red, marginTop: 6,
+  },
+
+  step7: { gap: 8 },
+  askedText: {
+    fontFamily: FONT.bodyBold, fontSize: 15, lineHeight: 21, color: COLOR.ink,
+    textAlign: 'center', marginBottom: 2,
+  },
+  notBuilt: {
+    fontFamily: FONT.bodySemi, fontSize: 13, lineHeight: 19, color: '#8A5A00',
+    backgroundColor: COLOR.amberBg, borderRadius: RADIUS.md,
+    paddingHorizontal: 12, paddingVertical: 10, textAlign: 'center',
+  },
+
   couldNot: { marginBottom: 10 },
   couldNotText: {
     fontFamily: FONT.bodyMed, fontSize: 13, lineHeight: 19,

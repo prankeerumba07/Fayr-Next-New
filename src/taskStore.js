@@ -16,6 +16,7 @@ import { evidenceKey } from './backend/evidenceKey';
 import { claim as claimApi, listTasks, postTaskAction } from './backend/tasksApi';
 import { isTaskAction, alreadyApplied } from './backend/taskActions';
 import { preferTask } from './ui/tasklist';
+import { forgottenCampaigns } from './forgotten';
 
 const FILE = 'fayr-tasks-v3.json'; // v3: {campaignId: {taskId, authoritative}}
 
@@ -23,6 +24,7 @@ const FILE = 'fayr-tasks-v3.json'; // v3: {campaignId: {taskId, authoritative}}
 let entries = {};
 let listeners = [];
 let syncFn = null; // injected: (taskId, dtoBody) => Promise (see evidenceSync)
+let outboxFn = null; // injected: () => taskId[] still waiting (see evidenceSync)
 
 function file() {
   return new File(Paths.document, FILE);
@@ -49,6 +51,14 @@ export function subscribe(fn) {
 // module so there's no import cycle and the store stays testable/UI-agnostic.
 export function configureSync(fn) {
   syncFn = fn;
+}
+
+// Inject the outbox reader (evidenceSync.pendingTaskIds). Same reason as above —
+// this module must not import evidenceSync — and it is asked before a claim the
+// server no longer has is forgotten, so evidence still waiting is never
+// stranded. If nothing is injected, NOTHING is ever forgotten: see forgotten.js.
+export function configureOutbox(fn) {
+  outboxFn = fn;
 }
 
 // ── engine-task <-> backend response ──────────────────────────────────────────
@@ -222,15 +232,49 @@ export function load() {
 }
 
 // Rebuild the map + snapshots from GET /tasks — the authoritative source.
+//
+// TWO HALVES, AND THE SECOND ONE IS NEW. Adding was all this ever did: every task
+// the server returned was written over the local copy, and a local copy the
+// server never mentioned was left alone for ever. So a claim deleted on our side
+// stayed believed on the phone, the claim page and the terms box were skipped,
+// and somebody was dropped on "Before you go" holding an offer no record existed
+// of. Now the list is subtracted from as well as added to.
 export async function refreshFromBackend() {
   try {
-    const res = await listTasks();
-    if (res.ok) {
-      for (const tr of res.tasks) applyAuthoritative(tr);
+    const answer = await listTasks();
+    if (answer.ok) {
+      for (const tr of answer.tasks) applyAuthoritative(tr);
     }
+    forgetWhatIsGone(answer);
   } catch (e) {
     /* keep last-known state */
   }
+}
+
+// Drop the local mirror of any claim the server no longer has a task for.
+//
+// EVERY GUARD THAT DECIDES THIS LIVES IN src/forgotten.js, on purpose: getting it
+// wrong loses somebody's claim, so the decision is pure and walked under node
+// against a failed call, a body that was not a list, a claim still in flight and
+// evidence still queued. What is left here is only the doing of it.
+//
+// Deleted all at once, then written to disk once, then every listener told. A
+// listener that reads the store back mid-way through would otherwise see a file
+// and a map that disagreed.
+function forgetWhatIsGone(answer) {
+  let waiting = null;
+  try {
+    waiting = outboxFn ? outboxFn() : null;
+  } catch (e) {
+    // A broken reader is not permission to guess. Null means "we could not ask",
+    // and forgottenCampaigns answers that with an empty list.
+    waiting = null;
+  }
+  const gone = forgottenCampaigns(answer, entries, waiting);
+  if (gone.length === 0) return;
+  for (const campaignId of gone) delete entries[campaignId];
+  persist();
+  for (const campaignId of gone) notify(campaignId);
 }
 
 // ── authoritative apply ───────────────────────────────────────────────────────

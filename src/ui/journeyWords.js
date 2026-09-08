@@ -54,6 +54,26 @@ export const YES_I_HAVE = 'Yes, I have';
 export const NOT_YET = 'Not yet';
 
 /**
+ * AND THE HONEST ANSWER WHEN THEY SAY YES, BECAUSE THE NEXT STEP DOES NOT EXIST.
+ *
+ * Steps eight to twelve — reading their orders, matching one to this offer,
+ * asking "is this your order?" — are not built. So the Yes button leads to this
+ * and to nothing else.
+ *
+ * ── WHY A SENTENCE RATHER THAN A BUTTON THAT DOES NOTHING ───────────────────
+ *
+ * A button that appears to work and quietly does not is the exact failure this
+ * whole area of the app keeps producing: a tapped "I have written my review" that
+ * vanished on the next fetch, a back control that did nothing. Somebody who taps
+ * Yes and sees no change assumes they did it wrong and taps again. This says
+ * plainly that the app has not got there yet, so the next move is theirs.
+ *
+ * It is not a sentence about the campaign's state, which the server owns. It is a
+ * sentence about Fayr, and this file is where the screens' own words live.
+ */
+export const NOT_BUILT_YET = 'We have not built the next step yet.';
+
+/**
  * HOW LONG IS LEFT, IN WORDS, and it ticks on the phone.
  *
  * ── WHY THIS IS ON THIS SIDE AND THE MESSAGE IS NOT ─────────────────────────
@@ -102,6 +122,7 @@ export const EVERY_SENTENCE = [
   HAVE_YOU_BOUGHT_IT,
   YES_I_HAVE,
   NOT_YET,
+  NOT_BUILT_YET,
   TIME_IS_UP,
   timeLeftInWords(30 * 1000),
   timeLeftInWords(60 * 1000),

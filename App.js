@@ -46,7 +46,9 @@ import { PLATFORM_LIST } from './src/platforms';
 import { shopHandedToConnectScreen } from './src/signin';
 import { goHome } from './src/ui/nav';
 import { COLOR, FONT } from './src/ui/theme';
-import { load as loadTask, applyAuthoritative, configureSync } from './src/taskStore';
+import {
+  load as loadTask, applyAuthoritative, configureSync, configureOutbox,
+} from './src/taskStore';
 import * as authSession from './src/backend/authSession';
 import * as campaignStore from './src/backend/campaignStore';
 import * as evidenceSync from './src/backend/evidenceSync';
@@ -206,6 +208,11 @@ function AppInner() {
     if (authState !== 'in') return;
     evidenceSync.configure({ send: postEvidence, onApplied: applyAuthoritative });
     configureSync(evidenceSync.syncEvidence);
+    // AND THE STORE CAN NOW ASK WHAT IS STILL WAITING. Without this the store
+    // forgets nothing at all, so a claim the server no longer has would stay
+    // believed on the phone for ever. src/forgotten.test.mjs reads this
+    // file off disk and checks the wire is here.
+    configureOutbox(evidenceSync.pendingTaskIds);
     evidenceSync.start();
     campaignStore.load();
     loadTask();
