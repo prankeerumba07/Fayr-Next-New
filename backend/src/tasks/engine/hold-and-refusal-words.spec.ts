@@ -12,6 +12,7 @@ import {
 import { OUT_OF_WINDOW_MESSAGE } from './order-window';
 import { EVERY_REFUSAL } from './refusal-words';
 import { everySentence } from './shop-visit-words';
+import { everyMessageSentence } from './journey-message';
 
 /**
  * EVERY WORD SAID TO SOMEBODY ABOUT THEIR OWN MONEY, WALKED.
@@ -69,13 +70,20 @@ describe('every word said about somebody’s own money', () => {
     for (const words of everySentence()) {
       say('before they leave for the shop', words);
     }
+    // THE ONE MESSAGE FOR A CAMPAIGN, added 8 September. Both lengths of all four,
+    // because the short form is what the bar and the list show and the long form
+    // is what the opened screen shows, and a rule that read only one of them
+    // would leave the other unwalked.
+    for (const words of everyMessageSentence()) {
+      say('the one message for this campaign', words);
+    }
     return out;
   }
 
   it('is a real list, and every piece of it is somebody’s money', () => {
     // Six held reasons, said twice, plus two fallbacks, plus five refusals,
     // plus the two for an order bought outside the offer's own window.
-    expect(everythingItSays()).toHaveLength(6 + 1 + 6 + 1 + 5 + 2 + 6);
+    expect(everythingItSays()).toHaveLength(6 + 1 + 6 + 1 + 5 + 2 + 6 + 8);
   });
 
   it('reads plainly, every sentence, with nothing skipped', () => {
@@ -167,6 +175,7 @@ describe('every word said about somebody’s own money', () => {
     // the top of this file, kept visible rather than quietly excluded.
     expect(wordFiles).toEqual([
       'hold-reasons.ts',
+      'journey-message.ts',
       'order-window.ts',
       'refusal-words.ts',
       'shop-visit-words.ts',

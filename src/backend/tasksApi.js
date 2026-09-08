@@ -66,6 +66,30 @@ export async function postTaskAction(taskId, type) {
     : { ok: false, status: res.status, error: res.body && res.body.message };
 }
 
+/**
+ * THEY TAPPED BUY AND ARE GOING TO THE SHOP. Our side records it FIRST.
+ *
+ * ── WHY THIS IS NOT ONE OF THE FOUR ACTIONS ABOVE ───────────────────────────
+ *
+ * The four in ACTION_PATHS are state transitions and the engine runs them. This
+ * one changes no state: it writes down the moment, starts the two hour hold, and
+ * hands back the pop-up's own words. A task in CLAIMED is still in CLAIMED
+ * afterwards.
+ *
+ * ── AND THE CALLER MUST NOT OPEN THE SHOP IF THIS FAILS ─────────────────────
+ *
+ * A visit our own side does not know about is a visit that can never be paid.
+ * The answer is shaped like the others so a caller cannot mistake a failure for
+ * a success: `ok` is false and there is no `task` to read.
+ */
+export async function goingToTheShop(taskId) {
+  if (!taskId) return { ok: false, status: 0, error: 'no task' };
+  const res = await authedFetch(`/tasks/${taskId}/going-to-the-shop`, { method: 'POST' });
+  return res.ok
+    ? { ok: true, status: res.status, task: res.body }
+    : { ok: false, status: res.status, error: res.body && res.body.message };
+}
+
 // Named wrappers, for callers that want the intent rather than the event type.
 export const confirmOrder = (taskId) => postTaskAction(taskId, 'CONFIRM_ORDER');
 export const markReviewed = (taskId) => postTaskAction(taskId, 'MARK_REVIEWED');

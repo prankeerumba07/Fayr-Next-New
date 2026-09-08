@@ -348,14 +348,40 @@ export function waitingBox(task, campaign, now) {
   // a countdown anywhere else would be inventing one.
   const clock = situation === 'to-buy' ? countdown(task, new Date(when)) : null;
 
+  // ── ONE MESSAGE, AND WHERE IT WINS ────────────────────────────────────────
+  //
+  // THE OWNER'S RULE, in his words: "There should not be any different messages
+  // for the same campaign on different pages." So when the server has sent a
+  // message for this task, THAT is what the bar says, and the wording in this
+  // file is not consulted at all. The bar takes the SHORT form, the My Products
+  // list takes the SHORT form, and the opened screen takes the LONG form, all
+  // from the one record built in backend engine/journey-message.ts.
+  //
+  // WHAT THIS DOES NOT YET COVER, said plainly rather than implied. The server
+  // sends a message only for the went-to-the-shop journey: four states, listed
+  // in that file. Every OTHER situation still uses wordsFor() above, which holds
+  // its own sentences in this file. That is fifteen sentences that have not moved
+  // to the server yet, and moving them is a job of its own rather than something
+  // to do halfway. Until then this file is the single source for those and the
+  // server is the single source for its four, and no situation has two sources.
+  const sent = task && task.message && typeof task.message === 'object'
+    ? task.message
+    : null;
+  const fromServer = sent && typeof sent.short === 'string' && sent.short !== ''
+    ? sent.short
+    : null;
+
   return {
     taskId: (task && task.id) || null,
     campaignId: summary.id || c.id || null,
     productName: summary.productName || c.productName || null,
     imageUrl: summary.imageUrl || c.imageUrl || null,
     situation,
-    status: words.status,
-    line: words.line,
+    status: fromServer || words.status,
+    // THE SECOND LINE IS DROPPED when the server spoke, and that is deliberate:
+    // it belongs to this file's own wording, and pairing it with a sentence from
+    // somewhere else is how two half-messages read as one confused one.
+    line: fromServer ? null : words.line,
     cta: words.cta,
     tone: words.tone,
     campaignLine: campaignLineFor(c),

@@ -20,7 +20,7 @@ import {
 describe('the words before somebody leaves for the shop', () => {
   it('every sentence passes Fayr own plain language rule', () => {
     for (const sentence of everySentence()) {
-      const verdict = checkPlainLanguage('en', sentence);
+      const verdict = checkPlainLanguage(sentence, 'en');
       expect(verdict.problems.map((p) => `${sentence} :: ${p}`)).toEqual([]);
       expect(verdict.ok).toBe(true);
     }
@@ -31,7 +31,7 @@ describe('the words before somebody leaves for the shop', () => {
     // push it past the sentence length limit, not the wording.
     for (const name of Object.values(EVERY_PLATFORM_NAME)) {
       for (const sentence of everySentence(name)) {
-        expect(checkPlainLanguage('en', sentence).ok).toBe(true);
+        expect(checkPlainLanguage(sentence, 'en').ok).toBe(true);
       }
     }
   });

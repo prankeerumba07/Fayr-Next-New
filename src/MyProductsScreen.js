@@ -77,6 +77,16 @@ function ProgressRow({ row, campaign, now, onOpen }) {
 
       <View style={styles.divider} />
 
+      {/* THE SHORT FORM, WHEN THE SERVER SENT ONE, and it is the same string the
+          bar above the bottom navigation shows. Not a second wording written
+          here: one record, three places. See src/ui/tasklist.js and backend
+          engine/journey-message.ts. */}
+      {row.messageShort ? (
+        <Text style={styles.sentMessage} numberOfLines={2}>
+          {row.messageShort}
+        </Text>
+      ) : null}
+
       <View style={styles.rowBottom}>
         {timeLeft ? (
           <View style={styles.timer}>
@@ -263,6 +273,12 @@ export default function MyProductsScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  // THE ONE MESSAGE, SHORT FORM. Its words come from the server and this screen
+  // writes none of its own. See backend engine/journey-message.ts.
+  sentMessage: {
+    fontFamily: FONT.bodyMed, fontSize: 12.5, lineHeight: 18,
+    color: COLOR.ink2, marginTop: 6,
+  },
   root: { flex: 1, backgroundColor: COLOR.homeBg },
   header: { paddingHorizontal: SPACE.lg, paddingBottom: 14 },
   title: { fontFamily: FONT.displayXBold, fontSize: 26, color: COLOR.ink, marginTop: 6, marginBottom: 14 },

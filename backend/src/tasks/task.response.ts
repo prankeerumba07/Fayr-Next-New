@@ -5,6 +5,8 @@ import { policyForWindowDays } from './engine/return-policy';
 import type { TaskStateName } from './engine/states';
 import { refundEligibility } from './engine/transition';
 import { toEngineTask } from './task.mapper';
+import { messageFor } from './engine/journey-message';
+import { platformDisplayName } from '../common/platform-name';
 
 /**
  * The public shape of a task. Money is integer paise as decimal STRINGS (JSON
@@ -111,6 +113,22 @@ export interface TaskResponse {
    * the record and the sentence a person read are one sentence and not two.
    */
   shopVisitNoticeText: string | null;
+  /**
+   * ONE MESSAGE FOR THIS PERSON ABOUT THIS CAMPAIGN AT THIS MOMENT, or null.
+   *
+   * The owner's rule, in his words: "There should not be any different messages
+   * for the same campaign on different pages." So it is written ONCE, here, and
+   * the three places that show it READ it: the small bar above the bottom
+   * navigation and the My Products list take `short`, and the opened My Products
+   * screen takes `long`. No screen writes its own wording for a campaign's state.
+   *
+   * `short` is literally the opening of `long`, by construction. See
+   * engine/journey-message.ts.
+   *
+   * NULL IS A REAL ANSWER: a task nobody has taken to the shop yet has no
+   * message, and the screen for that has its own button instead.
+   */
+  message: { key: string; short: string; long: string } | null;
   closedAt: string | null;
   closeReason: string | null;
   createdAt: string;
@@ -225,6 +243,23 @@ export function toTaskResponse(
     wentToShopAt: iso(row.wentToShopAt),
     shopHoldEndsAt: iso(row.shopHoldEndsAt),
     shopVisitNoticeText: row.shopVisitNoticeText ?? null,
+    // BUILT HERE AND NOWHERE ELSE. `now` is the same instant the rest of this
+    // response was built from, so the message and the eligibility above cannot
+    // disagree about what time it is.
+    //
+    // WHAT IS HONESTLY NOT WIRED YET: `lookedAndFoundNothing`. There is no record
+    // of a completed unsuccessful look anywhere in the schema, so the
+    // "we could not find your order" message is built and checked but cannot yet
+    // be reached from a real task. It arrives with the checking screen in steps 8
+    // to 12. Said here rather than faked with a guess.
+    message: messageFor({
+      wentToShopAt: row.wentToShopAt?.getTime() ?? null,
+      shopHoldEndsAt: row.shopHoldEndsAt?.getTime() ?? null,
+      shopName: platformDisplayName(campaign.platform) ?? campaign.platform,
+      orderWaitingToBeConfirmed:
+        task.order != null && task.orderConfirmed !== true,
+      now,
+    }),
     closedAt: iso(row.closedAt),
     closeReason: row.closeReason,
     createdAt: row.createdAt.toISOString(),

@@ -31,6 +31,7 @@ import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
 import { Card, RefundBadge, ProductImage } from './ui/primitives';
 import { clampMonotonic, releaseStageState } from './ui/timeline';
 import { closedInfo, explainBlocker, nextStepLine } from './ui/stages';
+import { countdownFor, messageText } from './journey/theNotice';
 import { goBackOrHome } from './ui/nav';
 import { StageChip } from './ui/stagebits';
 
@@ -408,6 +409,12 @@ export default function TaskScreen({ navigation, route }) {
   // countdown / refund-eligibility below.
   const gaps = nextStepGaps(authoritative, view, platformName);
   const closed = closedInfo(authoritative || task);
+  // THE ONE RECORD, LONG FORM, read and never rebuilt. From the authoritative
+  // backend snapshot, because the optimistic local task carries no message.
+  const theMessage = messageText(authoritative, 'long');
+  // AND THE CLOCK, from the same task. Null when there is no recorded tap, which
+  // is what stops a countdown appearing beside an offer nobody has started.
+  const timeLeft = countdownFor(authoritative, now);
   // The refund is based on what was actually CHARGED, not a listed price — the
   // two are different fields on different platforms, so never read itemPaise
   // straight (see src/chargedAmount.js). When this can't be decided safely the
@@ -671,6 +678,27 @@ export default function TaskScreen({ navigation, route }) {
         </LinearGradient>
 
         <View style={styles.body}>
+          {/* ── THE ONE MESSAGE, LONG FORM, AND THIS IS THE THIRD PLACE ──────
+              The bar above the bottom navigation and the My Products list both
+              show its SHORT form; this is the same record's LONG form, which is
+              that short form plus the rest of its sentences. It is built once on
+              the server, in backend engine/journey-message.ts, and this screen
+              writes not one word of it.
+
+              The countdown beside it ticks on the phone, because a number that
+              changes every second cannot come from a record built on a server.
+              Its unit words live in src/ui/journeyWords.js, which Fayr's plain
+              language rule reads off disk. It is NEVER drawn for a task with no
+              recorded tap: see countdownFor. */}
+          {theMessage ? (
+            <View style={styles.sentMessage}>
+              <Text style={styles.sentMessageText}>{theMessage}</Text>
+              {timeLeft ? (
+                <Text style={styles.sentMessageClock}>⏰ {timeLeft}</Text>
+              ) : null}
+            </View>
+          ) : null}
+
           {/* A CLOSED claim says so first and loudly. The server writes closedAt
               + closeReason while leaving state at CLAIMED, so without this a dead
               claim still rendered a live "Buy on Amazon, then check again". */}
@@ -887,6 +915,17 @@ export default function TaskScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
+  // THE ONE MESSAGE, LONG FORM. Its words come from the server; this screen owns
+  // the box around them and nothing inside it.
+  sentMessage: {
+    backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 12,
+  },
+  sentMessageText: {
+    fontFamily: FONT.bodyMed, fontSize: 14, lineHeight: 21, color: COLOR.ink2,
+  },
+  sentMessageClock: {
+    fontFamily: FONT.bodyBold, fontSize: 12.5, color: COLOR.red, marginTop: 8,
+  },
   container: { flex: 1, backgroundColor: COLOR.homeBg },
   center: { alignItems: 'center', justifyContent: 'center' },
   muted: { fontFamily: FONT.body, fontSize: 14, color: COLOR.sub },

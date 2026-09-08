@@ -73,6 +73,16 @@ export function myProductsView(tasks) {
   const rows = list.map((t) => {
     const closed = closedInfo(t);
     const stage = taskStage(t);
+    // ONE MESSAGE, READ HERE AS THE SHORT FORM. The owner's rule: "There should
+    // not be any different messages for the same campaign on different pages."
+    // The bar above the navigation shows this same string, and the opened screen
+    // shows the long form of it. All three come from one record on the server,
+    // built in backend engine/journey-message.ts. Nothing here writes wording.
+    //
+    // Null when the server sent none, which is every state outside the
+    // went-to-the-shop journey. Those still use `stage.label` from stages.js, and
+    // that is a single source too, so no state has two sources.
+    const sent = t.message && typeof t.message === 'object' ? t.message : null;
     return {
       task: t,
       id: t.id || null,
@@ -80,6 +90,12 @@ export function myProductsView(tasks) {
       stage,
       closed,
       settled: isSettled(t),
+      /** The SHORT form, for the row. The same string the bar shows. */
+      messageShort:
+        sent && typeof sent.short === 'string' && sent.short !== '' ? sent.short : null,
+      /** The LONG form, for the opened screen. Carried so it is read, not rebuilt. */
+      messageLong:
+        sent && typeof sent.long === 'string' && sent.long !== '' ? sent.long : null,
       // A closed, unpaid claim has no next action — offering one would be a lie.
       cta: closed.closed ? null : stage.cta,
     };
