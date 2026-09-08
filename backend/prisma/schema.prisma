@@ -288,7 +288,7 @@ model ShopSignIn {
   platform Platform
 
   /// The first time this person was seen signed in at this shop. Never updated.
-  firstAt DateTime @default(now())
+  firstAt   DateTime @default(now())
   /// How Fayr knew. Words, so a row can be read a year later without the code.
   howWeKnew String
 
@@ -343,6 +343,34 @@ model Task {
   windowEndsAt           DateTime? // delivery + return window; anchors the hold AND the 1.6 scheduler
   claimExpiresAt         DateTime? // deadline to purchase; past it with no purchase -> tickets returned
 
+  /// THEY TAPPED BUY AND WENT TO THE SHOP. The moment our side recorded it.
+  ///
+  /// This is the step the journey never had. Before it there was no instant to
+  /// measure a purchase against except the claim, so an order could only ever be
+  /// compared to when somebody said yes to an offer, not to when they actually
+  /// went shopping. The shop's own timestamp on the order is now checked against
+  /// THIS, in engine/shop-visit.ts.
+  ///
+  /// It is also the consent. The pop-up in front of them before they leave has one
+  /// button, they cannot reach the shop without tapping it, and tapping it is both
+  /// the leaving and the agreeing. So there is one row for both and not two.
+  ///
+  /// WRITE ONCE. A second tap on the same task must not move it, or somebody could
+  /// walk their own two hour hold forward for ever by tapping again. The service
+  /// refuses the second write and the end to end walk proves it.
+  wentToShopAt        DateTime?
+  /// The end of the two hour hold that the tap above started. Materialised rather
+  /// than worked out on read, for the same reason claimExpiresAt and windowEndsAt
+  /// are: the sweep has to be able to query for holds that have ended.
+  shopHoldEndsAt      DateTime?
+  /// The words they were shown on that pop-up, frozen from the server's own copy.
+  ///
+  /// The same reasoning as offerTermsText directly above: a record of "they agreed
+  /// to whatever the pop-up says now" is not a record. The times inside it were
+  /// worked out from this task's own hold, so the sentence they read is the
+  /// sentence kept.
+  shopVisitNoticeText String?
+
   /// WHEN THIS PERSON ACCEPTED THIS OFFER'S OWN TERMS, and what they accepted.
   ///
   /// NOT the same thing as users.termsAcceptedAt, which is consent to Fayr itself
@@ -385,6 +413,7 @@ model Task {
   @@index([campaignId])
   @@index([state, windowEndsAt]) // scheduler: holds whose return window has ended
   @@index([state, claimExpiresAt]) // scheduler: claims that expired unpurchased
+  @@index([state, shopHoldEndsAt]) // sweep: two hour holds that have run out
   @@index([platform, orderId])
   @@index([platform, itemId]) // refund gate: has this order already been paid out?
   @@map("tasks")

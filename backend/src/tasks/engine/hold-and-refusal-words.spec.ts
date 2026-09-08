@@ -11,6 +11,7 @@ import {
 } from './hold-reasons';
 import { OUT_OF_WINDOW_MESSAGE } from './order-window';
 import { EVERY_REFUSAL } from './refusal-words';
+import { everySentence } from './shop-visit-words';
 
 /**
  * EVERY WORD SAID TO SOMEBODY ABOUT THEIR OWN MONEY, WALKED.
@@ -60,13 +61,21 @@ describe('every word said about somebody’s own money', () => {
     for (const [verdict, words] of Object.entries(OUT_OF_WINDOW_MESSAGE)) {
       say(`bought outside the offer's window (${verdict})`, words);
     }
+    // THE POP-UP BEFORE THEY LEAVE FOR THE SHOP, added 8 September. It is not
+    // about a refund already earned, but it is the sentence that tells somebody
+    // how long they have before they CANNOT be paid, which is the same money seen
+    // from the other end. Walked here as well as in its own spec, so the tripwire
+    // below is telling the truth rather than trusting a file it never reads.
+    for (const words of everySentence()) {
+      say('before they leave for the shop', words);
+    }
     return out;
   }
 
   it('is a real list, and every piece of it is somebody’s money', () => {
     // Six held reasons, said twice, plus two fallbacks, plus five refusals,
     // plus the two for an order bought outside the offer's own window.
-    expect(everythingItSays()).toHaveLength(6 + 1 + 6 + 1 + 5 + 2);
+    expect(everythingItSays()).toHaveLength(6 + 1 + 6 + 1 + 5 + 2 + 6);
   });
 
   it('reads plainly, every sentence, with nothing skipped', () => {
@@ -160,6 +169,7 @@ describe('every word said about somebody’s own money', () => {
       'hold-reasons.ts',
       'order-window.ts',
       'refusal-words.ts',
+      'shop-visit-words.ts',
       'states.ts',
       'transition.ts',
     ]);

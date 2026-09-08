@@ -95,6 +95,22 @@ export interface TaskResponse {
     basedOnPaise: string | null;
   };
   claimExpiresAt: string | null;
+  /**
+   * THEY TAPPED BUY AND WENT TO THE SHOP, or they have not. Null means not.
+   *
+   * The app needs this to know which of two things to draw: the button that sends
+   * somebody to the shop, or the message asking whether they have bought it yet.
+   */
+  wentToShopAt: string | null;
+  /** When the two hour hold ends. Null until the tap above is recorded. */
+  shopHoldEndsAt: string | null;
+  /**
+   * The pop-up's own words, frozen at the tap, with the real time inside them.
+   *
+   * The screen draws THESE rather than writing its own, so the sentence kept as
+   * the record and the sentence a person read are one sentence and not two.
+   */
+  shopVisitNoticeText: string | null;
   closedAt: string | null;
   closeReason: string | null;
   createdAt: string;
@@ -206,6 +222,9 @@ export function toTaskResponse(
       basedOnPaise: charged.paise != null ? charged.paise.toString() : null,
     },
     claimExpiresAt: iso(row.claimExpiresAt),
+    wentToShopAt: iso(row.wentToShopAt),
+    shopHoldEndsAt: iso(row.shopHoldEndsAt),
+    shopVisitNoticeText: row.shopVisitNoticeText ?? null,
     closedAt: iso(row.closedAt),
     closeReason: row.closeReason,
     createdAt: row.createdAt.toISOString(),

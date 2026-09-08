@@ -113,6 +113,26 @@ export class TaskController {
     return this.candidates.chooseMine(user.id, id, candidateId);
   }
 
+  /**
+   * THEY TAPPED BUY AND ARE GOING TO THE SHOP.
+   *
+   * Records the tap, starts the two hour hold, and returns the task with the
+   * pop-up's own words on it. The app draws the pop-up from those words rather
+   * than writing its own, so what is kept and what is read are the same thing.
+   *
+   * Tapping twice is not an error. The second call returns the first tap's hold
+   * unchanged, because a hold somebody can walk forward by tapping again is not a
+   * hold. See goToShop.
+   */
+  @Post(':id/going-to-the-shop')
+  @HttpCode(HttpStatus.OK)
+  goToShop(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<TaskResponse> {
+    return this.tasks.goToShop(user.id, id);
+  }
+
   @Post(':id/confirm-order')
   @HttpCode(HttpStatus.OK)
   confirmOrder(

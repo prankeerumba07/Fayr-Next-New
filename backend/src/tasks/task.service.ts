@@ -28,6 +28,9 @@ import {
   SAME_ORDER_ALREADY_REFUNDED,
 } from './engine/refusal-words';
 import { orderWindow, screenEvidenceByWindow } from './engine/order-window';
+import { mayTapBuy, theHold } from './engine/shop-visit';
+import { theNotice } from './engine/shop-visit-words';
+import { platformDisplayName } from '../common/platform-name';
 import type {
   AmountEvidenceSource,
   Evidence,
@@ -785,6 +788,97 @@ export class TaskService {
     key?: string,
   ): Promise<TaskResponse> {
     return this.runEvent(userId, taskId, { type: 'EVIDENCE', evidence, key });
+  }
+
+  /**
+   * THEY TAPPED BUY AND ARE GOING TO THE SHOP. Record it, and start the hold.
+   *
+   * ── THIS IS THE STEP THE JOURNEY NEVER HAD ────────────────────────────────
+   *
+   * Nothing anywhere recorded that somebody went to the shop, so there was no
+   * instant to measure their order against except the claim itself. Everything
+   * about the two hours hangs off this row.
+   *
+   * ── WHY THE TAP IS RECORDED BEFORE THE POP-UP, NOT AFTER IT ───────────────
+   *
+   * The pop-up has ONE button and no way past it, so there is no decision on it
+   * to record: by the time it is on screen the person has already said they are
+   * going. Recording here means the sentence frozen onto the task is word for
+   * word the sentence they then read, because both are built from THIS instant.
+   * Recording on the button instead would freeze a notice built a few seconds
+   * after the one displayed, and "held until 4:45 pm" would be a record of a
+   * promise nobody was actually shown. If the owner wants the button itself to
+   * be the recorded moment, that is a second route and a second row, not a
+   * tweak to this one.
+   *
+   * ── WRITE ONCE, AND THAT IS THE WHOLE POINT ───────────────────────────────
+   *
+   * A second tap returns the FIRST tap's hold and notice unchanged. Without that
+   * somebody could walk their own deadline forward for ever by tapping again,
+   * which would make the two hours mean nothing at all. It is not an error and
+   * is not reported as one: tapping twice is a normal thing to do on a phone.
+   */
+  async goToShop(userId: string, taskId: string): Promise<TaskResponse> {
+    const now = new Date();
+    const row = await this.prisma.task.findFirst({
+      where: { id: taskId, userId },
+      select: {
+        id: true, state: true, platform: true,
+        claimExpiresAt: true, wentToShopAt: true, shopHoldEndsAt: true,
+      },
+    });
+    // A task that is not theirs reads as missing, never as forbidden, so nothing
+    // leaks the existence of somebody else's task. Same as every route here.
+    if (!row) throw new NotFoundException('Task not found');
+
+    // ALREADY TAPPED: hand back what was recorded then, and change nothing.
+    if (row.wentToShopAt != null) return this.getForUser(userId, taskId);
+
+    if (row.state !== STATES.CLAIMED) {
+      throw new BadRequestException(
+        'This offer is past the point of going to the shop.',
+      );
+    }
+    if (mayTapBuy({ claimExpiresAt: row.claimExpiresAt?.getTime() ?? null, now: now.getTime() })
+      !== 'ok') {
+      throw new BadRequestException(
+        'The time to tap Buy has run out, so your place has gone back. '
+        + 'Claim the offer again if it is still open.',
+      );
+    }
+
+    const hold = theHold(now.getTime());
+    // THE SHOP'S NAME IN WORDS, AND IT IS REFUSED RATHER THAN GUESSED AT.
+    //
+    // platformDisplayName answers null for a shop it has no written name for, and
+    // its own comment says why it does not fall back to the raw enum. A null here
+    // would put "Buy the product at null" in front of a person, so an unwritten
+    // name stops the whole thing instead. It cannot happen for a task, whose
+    // platform comes from the enum, which is exactly why it is worth failing
+    // loudly if it ever does.
+    const shopName = platformDisplayName(row.platform);
+    if (shopName == null) {
+      throw new BadRequestException('That shop is not one we can send you to yet.');
+    }
+    const notice = theNotice({
+      shopName,
+      endsAt: hold.endsAt,
+      from: now.getTime(),
+    });
+
+    // CONDITIONAL ON wentToShopAt STILL BEING NULL, so two taps arriving together
+    // cannot both write. The second updates no rows and reads back the first's.
+    const written = await this.prisma.task.updateMany({
+      where: { id: taskId, userId, wentToShopAt: null },
+      data: {
+        wentToShopAt: now,
+        shopHoldEndsAt: new Date(hold.endsAt),
+        shopVisitNoticeText: notice.wholeThing,
+      },
+    });
+    if (written.count === 0) return this.getForUser(userId, taskId);
+
+    return this.getForUser(userId, taskId);
   }
 
   confirmOrder(userId: string, taskId: string): Promise<TaskResponse> {
