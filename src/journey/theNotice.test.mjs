@@ -202,7 +202,7 @@ console.log('\n=== 8. AND NO SCREEN WRITES THOSE SENTENCES ITSELF ===');
 
 console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
 {
-  ok(EVERY_SENTENCE.length === 18, 'the list of them is complete');
+  ok(EVERY_SENTENCE.length === 20, 'the list of them is complete');
   for (const sentence of EVERY_SENTENCE) {
     ok(typeof sentence === 'string' && sentence.trim() !== '',
       `"${sentence}" is a real sentence`);

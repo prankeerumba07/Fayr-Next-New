@@ -183,6 +183,86 @@ console.log('\n=== 4. THE SCREEN STOPS AND SAYS SO, RATHER THAN ASKING FOR A PHO
   }
 }
 
+console.log('\n=== 4b. THE SHOP WANTS A SIGN IN: SENT BACK, NOT ASKED FOR A PHOTOGRAPH ===');
+{
+  // MEASURED, AND IT IS THE NORMAL CASE ON AMAZON. /your-orders redirects to
+  // ap/signin?openid.pape.max_auth_age=0 — a demand for a FRESH password, which
+  // the review and profile pages never make.
+  //
+  // THE FETCH FOLLOWS REDIRECTS, so the wall arrives as a 200 carrying the sign
+  // in page and is indistinguishable from a real page by its status. The final
+  // address is the only honest signal, which is why the script reports it.
+  const at = (url) => tried(() => readListOutcome({
+    ok: true, status: 200, html: '<html>sign in</html>', url,
+  }).wantsSignIn);
+
+  ok(at('https://www.amazon.in/ap/signin?openid.pape.max_auth_age=0') === true,
+    'THE REAL RE-AUTH WALL is recognised');
+  ok(at('https://www.amazon.in/gp/sign-in.html') === true,
+    "and Amazon's other sign in address");
+  ok(at('https://www.flipkart.com/login') === true,
+    'and another shop own, where its sign in sits at the top of the address');
+
+  // ── AN HONEST LIMIT, RECORDED RATHER THAN PAPERED OVER ──────────────────
+  //
+  // SIGN_IN_PATH is anchored at the start of the path, deliberately, so a
+  // shopping page merely holding one of those words cannot match. The cost is
+  // that a shop whose sign in sits UNDER a prefix is not recognised:
+  // /account/login does not match.
+  //
+  // It does not matter today. Amazon's two are /ap/signin and /gp/sign-in.html,
+  // and both match; Amazon is the only shop whose order list this read is being
+  // tested against. It WILL matter when the other shops are wired, and the fix
+  // then is to widen SIGN_IN_PATH in one place with its own measured addresses —
+  // not to add a second idea of a sign in page here.
+  ok(at('https://www.flipkart.com/account/login') === false,
+    'AND A SIGN IN UNDER A PREFIX IS NOT RECOGNISED, which is a real limit of the '
+    + 'shared pattern and is written down rather than worked around here');
+
+  // AND IT CANNOT MISTAKE A REAL PAGE FOR A WALL.
+  for (const ordinary of [
+    'https://www.amazon.in/your-orders/orders?_encoding=UTF8',
+    'https://www.amazon.in/',
+    'https://www.amazon.in/gp/your-account/order-details?orderID=403-1234567-8901234',
+    'https://www.amazon.in/dp/B0F16X1NQ7',
+    'not a url', '', null, undefined,
+  ]) {
+    ok(at(ordinary) === false,
+      `${JSON.stringify(ordinary) ?? String(ordinary)} is not a sign in wall`);
+  }
+
+  // IT USES THE ONE EXISTING VOCABULARY, not a second idea of a sign in page.
+  const hist = read('src/orderhistory.js');
+  ok(/import \{ SIGN_IN_PATH \} from '\.\/connect\/pageQuestions\.js'/.test(hist),
+    'the path test is the one the connect flow already uses');
+  ok(/new RegExp\(SIGN_IN_PATH\)\.test\(path\)/.test(hist),
+    'and it is applied to the path, which is what that pattern is anchored on');
+
+  // AND THE SCRIPT REPORTS WHERE IT ENDED UP, or none of this can work.
+  ok(/url: r\.url/.test(hist), 'the injected script reports the final address');
+  ok(/send\(\{ ok:true, status:p\.status, html:p\.html, url:p\.url \}\)/.test(hist),
+    'and posts it back');
+
+  const screen = read('src/order/LookingForItScreen.js');
+  const code = screen.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  ok(/if \(outcome\.wantsSignIn === true\) \{/.test(code),
+    'the screen asks whether the shop wants a sign in');
+  ok(/setNeedsSignIn\(true\);\s*return;/.test(code),
+    'AND STOPS, rather than handing back to the screenshot flow');
+  // ASKED FIRST, because it is the one outcome with something to DO about it.
+  const signInAt = code.indexOf('if (outcome.wantsSignIn === true)');
+  const refusedAt = code.indexOf('if (outcome.whyNot != null)');
+  const handBackAt = code.indexOf('if (!outcome.looked)');
+  ok(signInAt !== -1 && signInAt < refusedAt && refusedAt < handBackAt,
+    'and it is asked BEFORE the refusal and before the hand-back');
+  // AND IT SENDS THEM TO A SIGN IN VISIT, which is the whole difference.
+  ok(/toSignIn: true,/.test(code),
+    'SENT BACK AS A SIGN IN VISIT, not a reading visit — that flag is the whole '
+    + 'difference between the shop own sign in page and its shop front');
+  ok(code.includes('SHOP_WANTS_A_SIGN_IN') && code.includes('THEN_WE_CAN_LOOK'),
+    'and it names its words rather than holding copies');
+}
+
 console.log('\n=== 5. IT IS SLOW AFTER TEN SECONDS AND DEAD AFTER TWENTY ===');
 {
   const screen = read('src/order/LookingForItScreen.js');

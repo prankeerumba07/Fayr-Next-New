@@ -91,6 +91,25 @@ export const TRY_IN_A_FEW_MINUTES = 'Please try again in a few minutes.';
 export const TAKING_LONGER = 'This is taking a little longer than usual.';
 
 /**
+ * THE SHOP WANTS THEM TO SIGN IN AGAIN BEFORE IT WILL SHOW THE ORDERS.
+ *
+ * ── WHY THIS IS NOT THE SAME AS THE SHOP REFUSING ──────────────────────────
+ *
+ * Because there is something the person can DO, and it takes one tap. The
+ * refusal above means wait; this means sign in. Telling somebody to wait when
+ * they need to sign in leaves them waiting for ever.
+ *
+ * MEASURED, AND IT IS THE NORMAL CASE ON AMAZON, not an edge one. The orders
+ * page redirects to a sign in demanding a FRESH password, which the review and
+ * profile pages never do. So this will be seen often.
+ *
+ * IT DOES NOT NAME THE SHOP, because the sentence does not need to: the button
+ * beside it does, through takeMeThere, and that is one place rather than two.
+ */
+export const SHOP_WANTS_A_SIGN_IN = 'The shop needs you to sign in again first.';
+export const THEN_WE_CAN_LOOK = 'Then we can look for your order.';
+
+/**
  * HOW LONG IS LEFT, IN WORDS, and it ticks on the phone.
  *
  * ── WHY THIS IS ON THIS SIDE AND THE MESSAGE IS NOT ─────────────────────────
@@ -143,6 +162,8 @@ export const EVERY_SENTENCE = [
   NOTHING_IS_WRONG_WITH_YOUR_ORDER,
   TRY_IN_A_FEW_MINUTES,
   TAKING_LONGER,
+  SHOP_WANTS_A_SIGN_IN,
+  THEN_WE_CAN_LOOK,
   TIME_IS_UP,
   timeLeftInWords(30 * 1000),
   timeLeftInWords(60 * 1000),

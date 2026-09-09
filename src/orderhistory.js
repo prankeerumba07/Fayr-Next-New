@@ -41,6 +41,7 @@
 
 import { PLATFORMS } from './platforms.js';
 import { whyTheShopIsRefusing } from './connect/shopRefusing.js';
+import { SIGN_IN_PATH } from './connect/pageQuestions.js';
 
 /**
  * How many orders back to look. The owner's number.
@@ -111,13 +112,13 @@ export function buildOrderListScript(url) {
     if (sent) return; sent = true;
     try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch(e){}
   }
-  var done = setTimeout(function(){ send({ ok:false, status:0, html:'', error:'timed out' }); }, ${LIST_TIMEOUT_MS});
+  var done = setTimeout(function(){ send({ ok:false, status:0, html:'', url:'', error:'timed out' }); }, ${LIST_TIMEOUT_MS});
   try {
     fetch(${safeUrl}, { credentials: 'include', redirect: 'follow' })
-      .then(function(r){ return r.text().then(function(t){ return { status: r.status, html: t }; }); })
-      .then(function(p){ clearTimeout(done); send({ ok:true, status:p.status, html:p.html }); })
-      .catch(function(e){ clearTimeout(done); send({ ok:false, status:0, html:'', error:String((e&&e.message)||e) }); });
-  } catch(e){ clearTimeout(done); send({ ok:false, status:0, html:'', error:String((e&&e.message)||e) }); }
+      .then(function(r){ return r.text().then(function(t){ return { status: r.status, html: t, url: r.url }; }); })
+      .then(function(p){ clearTimeout(done); send({ ok:true, status:p.status, html:p.html, url:p.url }); })
+      .catch(function(e){ clearTimeout(done); send({ ok:false, status:0, html:'', url:'', error:String((e&&e.message)||e) }); });
+  } catch(e){ clearTimeout(done); send({ ok:false, status:0, html:'', url:'', error:String((e&&e.message)||e) }); }
 })();
 true;`;
 }
@@ -294,6 +295,45 @@ function looksLikeAPuzzle(html) {
  * — that one reads innerText, this one reads markup, and the same sentence in
  * markup carries a head, a script or two and some attributes with it.
  */
+/**
+ * THE SHOP WANTS A SIGN IN BEFORE IT WILL SHOW THIS.
+ *
+ * ── WHY THIS IS ITS OWN ANSWER AND NOT "WE COULD NOT LOOK" ─────────────────
+ *
+ * Because there is something the person can DO about it, and it is not sending a
+ * photograph. Until now a sign in wall fell into the silent hand-back, which
+ * lands on "show us the order" — so somebody who simply needed to sign in again
+ * was asked for a picture instead of being sent to sign in.
+ *
+ * MEASURED, AND IT IS THE NORMAL CASE ON AMAZON. /your-orders redirects to
+ * ap/signin?openid.pape.max_auth_age=0 — Amazon demanding a FRESH password for a
+ * sensitive page. The max_auth_age=0 is the tell, and the review and profile
+ * endpoints never do it.
+ *
+ * ── WHY THE FINAL ADDRESS AND NOT THE BODY ─────────────────────────────────
+ *
+ * The fetch follows redirects, so a sign in wall arrives as a 200 carrying the
+ * sign in page — indistinguishable from a real page by its status. The final
+ * address is the honest signal, which is why the script now reports it.
+ *
+ * The path test is SIGN_IN_PATH from src/connect/pageQuestions.js: the one
+ * existing vocabulary for "this is the shop's own sign in page", already anchored
+ * and closed at a word boundary so a shopping page merely holding one of those
+ * words cannot match. A second idea of what a sign in page looks like is how the
+ * two drift apart.
+ */
+function wantsASignIn(url) {
+  if (typeof url !== 'string' || url === '') return false;
+  let path = null;
+  try {
+    path = new URL(url).pathname;
+  } catch (e) {
+    // Not an address we can take apart. Not a reason to claim a sign in wall.
+    return false;
+  }
+  return new RegExp(SIGN_IN_PATH).test(path);
+}
+
 function looksLikeADeadEnd(html) {
   if (html.length === 0 || html.length > 4000) return false;
   return /click the button below to continue shopping/i.test(html);
@@ -311,9 +351,12 @@ export function readListOutcome(answer) {
     isAPuzzle: looksLikeAPuzzle(html),
     isADeadEnd: looksLikeADeadEnd(html),
   });
+  // WHERE WE ENDED UP. A sign in wall arrives as a 200 carrying the sign in page,
+  // so the address is the only honest signal.
+  const wantsSignIn = wantsASignIn(typeof a.url === 'string' ? a.url : '');
   if (a.ok !== true || status === 0 || status >= 400) {
-    return { looked: false, blocks: [], whyNot };
+    return { looked: false, blocks: [], whyNot, wantsSignIn };
   }
   const blocks = readOrderBlocks(html);
-  return { looked: blocks.length > 0, blocks, whyNot };
+  return { looked: blocks.length > 0, blocks, whyNot, wantsSignIn };
 }

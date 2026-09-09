@@ -53,8 +53,8 @@ import { COLOR, FONT, SPACE } from '../ui/theme';
 import { Screen } from '../ui/primitives';
 import { WAIT_LINES, WAIT_LINE_MS, waitLineAt } from '../ui/funnyWait.js';
 import {
-  NOTHING_IS_WRONG_WITH_YOUR_ORDER, SHOP_WILL_NOT_LET_US_LOOK, TAKING_LONGER,
-  TRY_IN_A_FEW_MINUTES, TRY_AGAIN,
+  NOTHING_IS_WRONG_WITH_YOUR_ORDER, SHOP_WANTS_A_SIGN_IN, SHOP_WILL_NOT_LET_US_LOOK,
+  TAKING_LONGER, THEN_WE_CAN_LOOK, TRY_IN_A_FEW_MINUTES, TRY_AGAIN, takeMeThere,
 } from '../ui/journeyWords.js';
 import { Pill } from '../ui/brand';
 
@@ -88,6 +88,9 @@ export default function LookingForItScreen({ navigation, route }) {
   // WHY THE SHOP WOULD NOT LET US LOOK, when there is a name for it. Null while
   // the ring is turning and null on an ordinary empty answer.
   const [refused, setRefused] = useState(null);
+  // THE SHOP WANTS A SIGN IN. Its own answer, because there is something to DO
+  // about it and it is not sending a photograph.
+  const [needsSignIn, setNeedsSignIn] = useState(false);
   const [job, setJob] = useState(null);
   const answered = useRef(false);
   const waiting = useRef(null);
@@ -194,6 +197,24 @@ export default function LookingForItScreen({ navigation, route }) {
       // IT STOPS HERE INSTEAD. Nothing is handed back, the screenshot flow is
       // not entered, and the honest answer is on screen with one way to retry.
       // The right action is to wait a few minutes, and no photograph helps.
+      // ── THE SHOP WANTS A SIGN IN, AND THAT IS ASKED FIRST ─────────────────
+      //
+      // Before the refusal and before the hand-back, because it is the one
+      // outcome with something the person can DO. Measured: Amazon's orders page
+      // redirects to a sign in demanding a FRESH password, which its review and
+      // profile pages never do — so this is the normal case, not an edge one.
+      //
+      // It used to fall into the silent hand-back, which lands on "show us the
+      // order". Somebody who simply needed to sign in again was asked for a
+      // photograph instead of being sent to sign in.
+      if (outcome.wantsSignIn === true) {
+        await settle();
+        if (!alive) return;
+        stopTheClock();
+        setNeedsSignIn(true);
+        return;
+      }
+
       if (outcome.whyNot != null) {
         await settle();
         if (!alive) return;
@@ -230,6 +251,35 @@ export default function LookingForItScreen({ navigation, route }) {
   const turn = spin.interpolate({
     inputRange: [0, 1], outputRange: ['0deg', '360deg'],
   });
+
+  // ── WHEN THE SHOP WANTS A SIGN IN, SEND THEM BACK AND SAY SO PLAINLY ─────
+  //
+  // The owner asked for this in those words. One tap, to the shop's own sign in
+  // through the connect screen — with toSignIn, which is the whole difference
+  // between a sign in visit and a reading visit (see src/signin.js).
+  //
+  // THE SENTENCE DOES NOT NAME THE SHOP AND THE BUTTON DOES, through takeMeThere,
+  // so the shop's name lives in one place rather than two.
+  if (needsSignIn) {
+    return (
+      <Screen bg={COLOR.cream}>
+        <View style={styles.middle}>
+          <Text style={styles.refusedHead}>{SHOP_WANTS_A_SIGN_IN}</Text>
+          <Text style={styles.refusedLine}>{THEN_WE_CAN_LOOK}</Text>
+          <View style={styles.refusedFoot}>
+            <Pill
+              onPress={() => navigation.replace(platformKey, {
+                campaignId, toSignIn: true,
+              })}
+              color={COLOR.ink}
+            >
+              {(platform ? takeMeThere(platform.name) : TRY_AGAIN).toUpperCase()}
+            </Pill>
+          </View>
+        </View>
+      </Screen>
+    );
+  }
 
   // ── WHEN THE SHOP WOULD NOT LET US LOOK ──────────────────────────────────
   //
