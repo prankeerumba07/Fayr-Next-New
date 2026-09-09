@@ -5,7 +5,7 @@ import {
 } from './order-window';
 import {
   PRACTICE_WINDOW_MAX_DAYS, PRACTICE_WINDOW_OFF, isAPracticeDatabase,
-  practiceGraceMs, practiceWindowDays, widenTheHold,
+  practiceCampaignFloor, practiceGraceMs, practiceWindowDays, widenTheHold,
 } from './practice-window';
 import { checkOrderAgainstTheVisit, theHold } from './shop-visit';
 
@@ -151,26 +151,86 @@ describe('the practice order window', () => {
       expect(checkOrderWindow(boughtInJune, practice)).toBe('ok');
     });
 
-    it('AND THE CAMPAIGN OWN AGE STILL BOUNDS IT — a practice campaign must be backdated too', () => {
-      // orderWindow clamps its floor to campaignCreatedAt, deliberately: a
-      // campaign that did not exist cannot have caused a purchase, on a practice
-      // database or anywhere else. So a year of practice window against a
-      // campaign made yesterday still only reaches back to yesterday.
+    it('THE GRACE ALONE IS NOT ENOUGH — the campaign clamp threw all of it away', () => {
+      // THE DEFECT THIS PAIR OF CHECKS EXISTS FOR, kept as a check rather than
+      // deleted, because it is the thing that made the setting look like it was
+      // working while it did nothing.
       //
-      // THIS IS WRITTEN DOWN SO NOBODY SPENDS AN AFTERNOON WONDERING WHY THEIR
-      // OLD ORDER STILL WILL NOT MATCH.
+      // orderWindow's floor is the LATER of (claim less grace) and the campaign's
+      // own creation. Widen only the grace and the clamp discards every day of it
+      // for any campaign younger than the setting — which is every practice
+      // campaign, because it was made for the test the day before.
       const claimedAt = Date.UTC(2026, 8, 9, 10, 0);
       const campaignMadeYesterday = Date.UTC(2026, 8, 8, 10, 0);
       const boughtInJune = Date.UTC(2026, 5, 14);
 
-      const window = orderWindow({
+      const graceOnly = orderWindow({
         claimedAt,
         campaignCreatedAt: campaignMadeYesterday,
         claimExpiresAt: null,
         graceMs: practiceGraceMs(365, ORDER_WINDOW_GRACE_MS),
       });
-      expect(window.floor).toBe(campaignMadeYesterday);
-      expect(checkOrderWindow(boughtInJune, window)).toBe('before-claim');
+      expect(graceOnly.floor).toBe(campaignMadeYesterday);
+      expect(checkOrderWindow(boughtInJune, graceOnly)).toBe('before-claim');
+    });
+
+    it('SO BOTH HALVES MOVE, and only then does the months old order match', () => {
+      // The same campaign, the same order, the same setting — with the clamp
+      // widened by the same number of days. THIS is the case the owner is
+      // testing: a campaign made for the test, and a purchase from months before
+      // it existed.
+      const claimedAt = Date.UTC(2026, 8, 9, 10, 0);
+      const campaignMadeYesterday = Date.UTC(2026, 8, 8, 10, 0);
+      const boughtInJune = Date.UTC(2026, 5, 14);
+
+      const both = orderWindow({
+        claimedAt,
+        campaignCreatedAt: practiceCampaignFloor(campaignMadeYesterday, 365),
+        claimExpiresAt: null,
+        graceMs: practiceGraceMs(365, ORDER_WINDOW_GRACE_MS),
+      });
+      expect(checkOrderWindow(boughtInJune, both)).toBe('ok');
+      // ONE NUMBER, NOT TWO. With the setting at 365 the floor is 365 days
+      // before the claim whatever the campaign's age — not "before the campaign,
+      // or before the claim, depending which is older".
+      expect(both.floor).toBe(claimedAt - 365 * DAY);
+    });
+
+    it('and the campaign floor is OFF unless somebody asked for it', () => {
+      const madeAt = Date.UTC(2026, 8, 8, 10, 0);
+      expect(practiceCampaignFloor(madeAt, 0)).toBe(madeAt);
+      expect(practiceCampaignFloor(madeAt, -5)).toBe(madeAt);
+      for (const junk of [null, undefined, NaN, 'ten']) {
+        expect(practiceCampaignFloor(madeAt, junk as unknown as number)).toBe(madeAt);
+      }
+      // A fraction of a day is truncated to nothing, the same as the grace.
+      expect(practiceCampaignFloor(madeAt, 0.9)).toBe(madeAt);
+    });
+
+    it('reaches back by exactly the days asked for, and can only move EARLIER', () => {
+      const madeAt = Date.UTC(2026, 8, 8, 10, 0);
+      expect(practiceCampaignFloor(madeAt, 1)).toBe(madeAt - DAY);
+      expect(practiceCampaignFloor(madeAt, 400)).toBe(madeAt - 400 * DAY);
+      for (const days of [1, 30, 365, 400, PRACTICE_WINDOW_MAX_DAYS]) {
+        expect(practiceCampaignFloor(madeAt, days)).toBeLessThanOrEqual(madeAt);
+      }
+    });
+
+    it('NULL STAYS NULL — it never invents a floor where there was none', () => {
+      // orderWindow reads null as "no second bound". Widening it into a real
+      // instant would ADD a clamp to a campaign that had none, which is the one
+      // direction this must never move.
+      expect(practiceCampaignFloor(null, 400)).toBeNull();
+      expect(practiceCampaignFloor(undefined, 400)).toBeNull();
+      expect(practiceCampaignFloor(NaN, 400)).toBeNull();
+      const claimedAt = Date.UTC(2026, 8, 9, 10, 0);
+      const window = orderWindow({
+        claimedAt,
+        campaignCreatedAt: practiceCampaignFloor(null, 400),
+        claimExpiresAt: null,
+        graceMs: practiceGraceMs(400, ORDER_WINDOW_GRACE_MS),
+      });
+      expect(window.floor).toBe(claimedAt - 400 * DAY);
     });
 
     it('and the deadline end of the window is untouched', () => {
@@ -253,6 +313,21 @@ describe('the practice order window', () => {
         expect(src).toContain('await this.practiceWindow.daysAllowed()');
         expect(src).toContain(
           'graceMs: practiceGraceMs(practiceDays, ORDER_WINDOW_GRACE_MS)',
+        );
+        // AND THE OTHER HALF OF THE FLOOR. Widening the grace alone is the
+        // defect two checks above: the campaign clamp discarded all of it. A
+        // call site that passes a raw campaign date has the same bug back.
+        // THE SECOND ARGUMENT IS PINNED, not just the function name. Calling it
+        // with a literal 0 would compile, read correctly at a glance, and
+        // reinstate the whole defect.
+        expect(withoutComments(src)).toMatch(
+          /campaignCreatedAt: practiceCampaignFloor\(\s*[\w.()]+,\s*practiceDays,?\s*\)/,
+        );
+        expect(withoutComments(src)).not.toMatch(
+          /campaignCreatedAt:\s*\w+\.campaign\.createdAt\.getTime\(\)/,
+        );
+        expect(withoutComments(src)).not.toMatch(
+          /campaignCreatedAt:\s*campaign\.createdAt\.getTime\(\)/,
         );
       }
     });

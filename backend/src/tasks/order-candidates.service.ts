@@ -7,7 +7,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { matchOrderToCampaign } from '../ocr/order-comparison';
 import { orderWindow } from './engine/order-window';
 import { ORDER_WINDOW_GRACE_MS } from './engine/order-window';
-import { practiceGraceMs } from './engine/practice-window';
+import {
+  practiceCampaignFloor,
+  practiceGraceMs,
+} from './engine/practice-window';
 import { PracticeWindowService } from './practice-window.service';
 import { SOURCES } from './engine/states';
 import {
@@ -205,7 +208,13 @@ export class OrderCandidatesService {
     const practiceDays = await this.practiceWindow.daysAllowed();
     const window = orderWindow({
       claimedAt: task.createdAt.getTime(),
-      campaignCreatedAt: task.campaign.createdAt.getTime(),
+      // BOTH HALVES OF THE FLOOR, for the reason recorded at the other call
+      // site: the campaign's own age is the later of the two bounds, so widening
+      // only the grace changed nothing for a campaign made for the test.
+      campaignCreatedAt: practiceCampaignFloor(
+        task.campaign.createdAt.getTime(),
+        practiceDays,
+      ),
       claimExpiresAt: task.claimExpiresAt ? task.claimExpiresAt.getTime() : null,
       graceMs: practiceGraceMs(practiceDays, ORDER_WINDOW_GRACE_MS),
     });

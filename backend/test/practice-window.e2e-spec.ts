@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
@@ -107,6 +109,25 @@ describe('the practice order window (e2e)', () => {
     expect(days).toBe(Math.min(Math.trunc(setting), PRACTICE_WINDOW_MAX_DAYS));
     expect(days).toBeGreaterThan(PRACTICE_WINDOW_OFF);
     expect(days).toBeLessThanOrEqual(Math.trunc(setting));
+  });
+
+  it('and the WHOLE suite runs with it off, so no rule check depends on a .env', () => {
+    // THE FIFTH TIME THE SETTINGS FILE HAS BROKEN A CHECK, and this time three
+    // at once, in orders-found and order-window: with the campaign floor widened
+    // too, PRACTICE_ORDER_WINDOW_DAYS=400 made the date rule genuinely accept
+    // months old orders in here, so every check asserting it REFUSES one failed
+    // on correct code.
+    //
+    // Those checks had been passing BY ACCIDENT — the campaign clamp threw the
+    // practice window away, so the setting was on and did nothing.
+    //
+    // global-setup pins it off, next to the line that pins NODE_ENV. This is the
+    // check that keeps it pinned: without it, deleting that line makes three
+    // unrelated suites start passing by accident again, which is exactly how the
+    // hole was there in the first place.
+    expect(process.env.PRACTICE_ORDER_WINDOW_DAYS).toBe('0');
+    const src = readFileSync(resolve(__dirname, 'global-setup.ts'), 'utf8');
+    expect(src).toContain("process.env.PRACTICE_ORDER_WINDOW_DAYS = '0';");
   });
 
   it('REFUSES A REAL DATABASE NAME, which is the point of the whole thing', () => {

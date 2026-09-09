@@ -29,7 +29,10 @@ import {
 } from './engine/refusal-words';
 import { orderWindow, screenEvidenceByWindow } from './engine/order-window';
 import { ORDER_WINDOW_GRACE_MS } from './engine/order-window';
-import { practiceGraceMs } from './engine/practice-window';
+import {
+  practiceCampaignFloor,
+  practiceGraceMs,
+} from './engine/practice-window';
 import { PracticeWindowService } from './practice-window.service';
 import { mayTapBuy, theHold } from './engine/shop-visit';
 import { theNotice } from './engine/shop-visit-words';
@@ -1357,7 +1360,15 @@ export class TaskService {
           event.evidence,
           orderWindow({
             claimedAt: row.createdAt.getTime(),
-            campaignCreatedAt: campaign.createdAt.getTime(),
+            // BOTH HALVES OF THE FLOOR, or neither is any use. orderWindow takes
+            // the LATER of (claim less grace) and the campaign's creation, so
+            // widening only the grace was thrown away by the clamp for every
+            // campaign younger than the setting — which is every practice
+            // campaign, because it was made for the test.
+            campaignCreatedAt: practiceCampaignFloor(
+              campaign.createdAt.getTime(),
+              practiceDays,
+            ),
             claimExpiresAt: row.claimExpiresAt?.getTime() ?? null,
             graceMs: practiceGraceMs(practiceDays, ORDER_WINDOW_GRACE_MS),
           }),

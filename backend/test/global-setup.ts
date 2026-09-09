@@ -21,6 +21,28 @@ export default async function globalSetup(): Promise<void> {
   // logger to silent and disables the rate limiter (see ThrottlerModule.skipIf).
   process.env.NODE_ENV = 'test';
 
+  // AND PIN THE PRACTICE ORDER WINDOW OFF, for the same reason and at the same
+  // moment.
+  //
+  // THE DEFECT THIS CLOSES, WHICH TOOK THREE CHECKS DOWN AT ONCE. The suite runs
+  // on a *_test database, so the practice window's guard is satisfied here — and
+  // PRACTICE_ORDER_WINDOW_DAYS lives in backend/.env, which git has never seen.
+  // The owner set it to 400 to test the Amazon read. Once the campaign floor was
+  // widened as well (engine/practice-window.ts, practiceCampaignFloor), the date
+  // rule started genuinely accepting months old orders in here, and every check
+  // that asserts the rule REFUSES one went red on correct code.
+  //
+  // Those checks had been passing BY ACCIDENT: the campaign clamp discarded the
+  // whole practice window, so the setting was on and did nothing. Fixing the
+  // floor removed the accident rather than causing it.
+  //
+  // A suite whose rules change with an untracked file is not a suite. So the
+  // value is pinned here, before dotenv is allowed to fill anything in, and the
+  // practice window's behaviour when it IS on is proved where the number is a
+  // parameter instead of an environment: engine/practice-window.spec.ts and
+  // tasks/practice-window.service.spec.ts.
+  process.env.PRACTICE_ORDER_WINDOW_DAYS = '0';
+
   // Load this checkout's own .env before deciding anything. There are two
   // checkouts of this project on one machine now, sharing one Postgres, and a
   // run started in either must wipe only its own test database — see

@@ -109,14 +109,15 @@ export function practiceWindowDays(
  * that grace, never earlier than the campaign itself. So this is not a new
  * mechanism: it is a bigger number going into the one that already exists.
  *
- * ── AND THE CAMPAIGN'S OWN AGE STILL BOUNDS IT, WHICH IS DELIBERATE ────────
+ * ── THIS IS ONLY HALF THE FLOOR. THE OTHER HALF IS BELOW ───────────────────
  *
- * orderWindow clamps its floor to campaignCreatedAt. So a practice window of a
- * year against a campaign made yesterday still only reaches back to yesterday.
- * That is not a bug to work around here — a campaign that did not exist cannot
- * have caused a purchase, on a practice database or anywhere else — and it means
- * a practice campaign has to be BACKDATED as well for an old order to match. The
- * check for that says so out loud, so nobody spends an afternoon wondering.
+ * orderWindow's floor is the LATER of two things: the claim moment less the
+ * grace, and the campaign's own creation. This function widens the first. On its
+ * own it did nothing useful, and that is worth recording rather than quietly
+ * fixing: with a setting of 400 days against a campaign made days ago, the
+ * campaign clamp threw all 400 days away and the owner's months old order still
+ * would not match. practiceCampaignFloor below widens the other half, by the
+ * SAME number of days, and the two together are what actually move the floor.
  */
 export function practiceGraceMs(days: number, normalGraceMs: number): number {
   const allowed = typeof days === 'number' && Number.isFinite(days) ? Math.trunc(days) : 0;
@@ -126,6 +127,54 @@ export function practiceGraceMs(days: number, normalGraceMs: number): number {
   // would be a practice setting that made the rule stricter, which nobody would
   // ever want and which would look like the rule misbehaving.
   return Math.max(normalGraceMs, wider);
+}
+
+/**
+ * THE OTHER HALF OF THE FLOOR: THE CAMPAIGN'S OWN CREATION, MOVED BACK.
+ *
+ * ── WHY THE CLAMP HAD TO MOVE TOO, AND WHY THAT WAS NOT OBVIOUS ────────────
+ *
+ * orderWindow takes the LATER of (claim less grace) and campaignCreatedAt. So a
+ * practice window widened only on the grace side is thrown away entirely for any
+ * campaign younger than the setting — and every practice campaign is days old,
+ * because it was made for the test. PRACTICE_ORDER_WINDOW_DAYS=400 against a
+ * campaign made yesterday reached back exactly as far as yesterday: the setting
+ * appeared to be working, was on, was marked, and changed nothing.
+ *
+ * The reason the clamp exists is sound and is NOT being argued with: a campaign
+ * that did not exist cannot have caused a purchase. On a practice database the
+ * whole point is to test the reading against purchases nothing caused, so the
+ * clamp is moved by the same amount as the rest of the window rather than
+ * removed. It is the same guard as everywhere else — a positive setting AND a
+ * live database whose own name ends _dev or _test — and every task it lets
+ * through carries the day count, so a widened match is never mistakeable for a
+ * real one.
+ *
+ * ── THE SAME NUMBER OF DAYS, NOT "NO CLAMP" ────────────────────────────────
+ *
+ * Deliberately. Removing the clamp would leave the floor governed by one number
+ * and the clamp by nothing, and "how far back does this reach" would then have
+ * two answers depending on which campaign you asked about. Moving both by the
+ * same days keeps ONE number to reason about: with the setting at 400, the floor
+ * is 400 days before the claim, whatever the campaign's age.
+ *
+ * NULL STAYS NULL. A campaign with no creation instant has no clamp to widen,
+ * and orderWindow already reads null as "no second bound" — inventing one here
+ * would add a floor where there was none.
+ *
+ * IT CAN ONLY EVER MOVE EARLIER. Subtracting days cannot narrow the window, and
+ * an off, negative or nonsense setting returns the instant untouched.
+ */
+export function practiceCampaignFloor(
+  campaignCreatedAt: number | null | undefined,
+  days: number,
+): number | null {
+  if (campaignCreatedAt == null || !Number.isFinite(campaignCreatedAt)) {
+    return null;
+  }
+  const allowed = typeof days === 'number' && Number.isFinite(days) ? Math.trunc(days) : 0;
+  if (allowed <= 0) return campaignCreatedAt;
+  return campaignCreatedAt - allowed * DAY_MS;
 }
 
 /**
