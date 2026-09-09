@@ -38,6 +38,21 @@ export async function getProfile() {
       gender: b.gender || null,
       categories: Array.isArray(b.categories) ? b.categories : [],
       platforms: Array.isArray(b.platforms) ? b.platforms : [],
+      // WHICH SHOPS THEY ARE ACTUALLY SIGNED IN AT, and NULL when our side did
+      // not send the field at all.
+      //
+      // The distinction is load bearing and the obvious writing of this line
+      // destroys it. `? b.connectedShops : []` would turn "an older build of the
+      // server, which does not have this yet" into "nothing is connected", and
+      // src/backend/connectedShops.js would believe it and put the sign in step
+      // back in front of everybody. Absent is not empty.
+      //
+      // This whitelist is also WHY the field has to be added here at all: it
+      // copies named fields and silently drops the rest, so a field the server
+      // sends and this list does not name can never reach a screen. That is the
+      // same shape as the optimistic whitelist in src/taskStore.js, which
+      // swallowed `quantity` for months.
+      connectedShops: Array.isArray(b.connectedShops) ? b.connectedShops : null,
       setupDone: b.setupDone === true,
       termsVersion: b.termsVersion || null,
       termsAcceptedAt: b.termsAcceptedAt || null,

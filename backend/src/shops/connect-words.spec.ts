@@ -174,7 +174,20 @@ describe('the words on the shop connect screen', () => {
     // Every line it can emit carries the tag, because the one call site is handed
     // a line that was built with it.
     expect(code).toContain("export const TAG = '[fayr-gate]';");
-    expect(code).toContain('return `${TAG} ');
+    expect(code).toContain('${TAG} ');
+
+    // ── AND NOBODY'S TELEPHONE NUMBER GOES OUT OF IT ─────────────────────────
+    //
+    // THIS FILE LEAKED THE OWNER'S OWN NUMBER, on 9 September 2026. The connect
+    // screen hands the shop page's raw answer to logGate, and Amazon's sign in
+    // page puts the person's mobile number in its greeting, so it went into a log
+    // he then pasted. His standing rule is that his number reaches no file,
+    // check, fixture, report or output.
+    //
+    // The masking is asserted on the ASSEMBLED LINE and not on one argument.
+    // Masking `detail` alone was tried and mutation-proved: a caller can as
+    // easily put a page's answer in `what`, and one did.
+    expect(code).toMatch(/return maskNumbers\(`\$\{TAG\} /);
 
     // It is off in a build a person gets.
     expect(code).toContain("typeof __DEV__ !== 'undefined' && __DEV__ === true");
@@ -199,10 +212,46 @@ describe('the words on the shop connect screen', () => {
     for (const wayOut of [
       /\bfetch\s*\(/, /XMLHttpRequest/, /\bWebSocket\b/, /sendBeacon/,
       /AsyncStorage/, /SecureStore/, /writeFileSync/, /\bnew File\b/, /\bPaths\./,
-      /\brequire\s*\(/, /^import /m, /process\.std(out|err)/,
+      /\brequire\s*\(/, /process\.std(out|err)/,
     ]) {
       expect(code).not.toMatch(wayOut);
     }
+
+    // ── EXACTLY ONE IMPORT, AND IT IS THE ONE THAT KEEPS A NUMBER IN ─────────
+    //
+    // `/^import /m` used to be in the list above, so this file could import
+    // nothing at all. The reason given was right and still is: a file that is
+    // meant to be deleted is where a second way OUT would live longest without
+    // anybody looking at it again.
+    //
+    // But the mask is not a way out. It is a pure inbound function that takes a
+    // string and returns a shorter one, and the alternative to importing it was
+    // worse in both available directions: a second copy of the rule inside a file
+    // scheduled for deletion, or masking at each call site, which was
+    // mutation-proved to fail the moment a caller uses a different argument.
+    //
+    // So the rule is NARROWED rather than dropped. One import, named, from the
+    // file that owns the rule — and that file gets the same sweep below, so
+    // allowing this in opens nothing. The guarantee is stronger than it was: this
+    // file could previously emit somebody's telephone number, and now it cannot.
+    const imports = code.match(/^import .*$/gm) ?? [];
+    expect(imports).toEqual([
+      "import { maskNumbers } from '../maskNumbers.js';",
+    ]);
+
+    // AND THE FILE IT IMPORTS HAS NO WAY OUT EITHER, or the sweep above is a
+    // sweep of one half of a pair.
+    const mask = withoutComments(read('src/maskNumbers.js'));
+    for (const wayOut of [
+      /\bfetch\s*\(/, /XMLHttpRequest/, /\bWebSocket\b/, /sendBeacon/,
+      /AsyncStorage/, /SecureStore/, /writeFileSync/, /\bnew File\b/, /\bPaths\./,
+      /\brequire\s*\(/, /^import /m, /process\.std(out|err)/, /console\./,
+      /from 'react/, /<[A-Z]/,
+    ]) {
+      expect(mask).not.toMatch(wayOut);
+    }
+    // It masks the shape the owner named: eight or more digits, optional plus.
+    expect(mask).toContain('/\\+?\\d{8,}/g');
   });
 });
 

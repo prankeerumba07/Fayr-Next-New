@@ -664,4 +664,129 @@ describe('Signed in at a shop (e2e)', () => {
       expect(signedIn!.everythingSoFar).toEqual({ kind: 'counted', count: 0 });
     });
   });
+
+  /**
+   * ── AND THE APP CAN NOW READ IT BACK, WHICH IS WHY THIS TABLE MATTERS ──────
+   *
+   * The header above says a row here "opens no gate". That stopped being true on
+   * 9 September 2026 and this block is why.
+   *
+   * MEASURED FROM THE OWNER'S OWN LOG. Amazon connect succeeded at 19:06. At
+   * 19:10 the app asked Amazon for its sign in page AGAIN, for a second campaign,
+   * and Amazon served a body reading only "Click the button below to continue
+   * shopping", then 503 on its sign in address, then its robot puzzle. Amazon had
+   * decided we were a machine.
+   *
+   * The app asked because it did not know. It kept its own note of having
+   * connected in a file on the phone, keyed BY CAMPAIGN, so a second campaign at
+   * the same shop looked like a shop nobody had ever signed in to. This table has
+   * held the real answer since 4 September and NOTHING HAD EVER READ IT BACK:
+   * there was no getter on the service, no @Get on the controller, and no reader
+   * in the app.
+   *
+   * So the profile carries it. These checks are about the READ, not the write.
+   */
+  describe('the profile says which shops they are already signed in at', () => {
+    const PROFILE = '/me';
+
+    function profileOf(person: Person) {
+      return request(server())
+        .get(PROFILE)
+        .set('authorization', `Bearer ${person.token}`);
+    }
+
+    it('is an empty list for somebody who has signed in nowhere', async () => {
+      // A REAL EMPTY LIST AND NOT A MISSING FIELD. The app tells those two apart
+      // on purpose — a missing field means an older build of our side and must
+      // leave what the phone already knew — so the field has to be here even when
+      // there is nothing in it.
+      const person = await newPerson();
+      const res = await profileOf(person).expect(200);
+      expect(res.body.connectedShops).toEqual([]);
+    });
+
+    it('names the shop once it has been recorded', async () => {
+      const person = await newPerson();
+      await say(person, { platform: 'AMAZON' }).expect(200);
+      const res = await profileOf(person).expect(200);
+      expect(res.body.connectedShops).toEqual(['amazon']);
+    });
+
+    it('SPELLS IT THE WAY THE APP SPELLS IT, not the way the database does', async () => {
+      // The database stores AMAZON. The app's own key is 'amazon' — the route
+      // every connect screen is registered under, and the list the profile's own
+      // `platforms` field is validated against. A response carrying two spellings
+      // of Amazon is a response somebody compares wrongly, and the comparison
+      // that would silently answer false for ever is the one deciding whether to
+      // open a shop.
+      const person = await newPerson();
+      await say(person, { platform: 'AMAZON' }).expect(200);
+      const res = await profileOf(person).expect(200);
+      expect(res.body.connectedShops).not.toContain('AMAZON');
+      expect(res.body.connectedShops).toContain('amazon');
+      // AND IT MATCHES THE SPELLING OF THE FIELD BESIDE IT.
+      const everyShop = res.body.connectedShops as string[];
+      expect(everyShop.every((n) => n === n.toLowerCase())).toBe(true);
+    });
+
+    it('names every shop, and each of them once however often it was said', async () => {
+      // SAID OUT OF ORDER ON PURPOSE, and this is not a detail. The first writing
+      // of this check said them alphabetically, so a read with no ordering at all
+      // came back in the order they were written — which is alphabetical — and
+      // the check passed while proving nothing. Found by deleting the orderBy and
+      // watching it stay green.
+      const person = await newPerson();
+      for (const shop of ['ZEPTO', 'AMAZON', 'FLIPKART']) {
+        for (let i = 0; i < 3; i += 1) await say(person, { platform: shop }).expect(200);
+      }
+      const res = await profileOf(person).expect(200);
+      // Ordered, so two reads cannot answer the same thing two ways.
+      expect(res.body.connectedShops).toEqual(['amazon', 'flipkart', 'zepto']);
+    });
+
+    it('IS ONE PERSON OWN LIST AND NEVER ANOTHER PERSON', async () => {
+      // The whole point of the field is to decide whether to send somebody to a
+      // shop's sign in page. One person's list handed to another would drop them
+      // into a shop they have no account on WITH THE SIGN IN STEP SKIPPED, which
+      // is worse than the bug being fixed.
+      const mine = await newPerson();
+      const theirs = await newPerson();
+      await say(mine, { platform: 'AMAZON' }).expect(200);
+
+      expect((await profileOf(mine).expect(200)).body.connectedShops).toEqual(['amazon']);
+      expect((await profileOf(theirs).expect(200)).body.connectedShops).toEqual([]);
+    });
+
+    it('is on the PATCH answer too, so the app can rely on the field', async () => {
+      // GET /me and PATCH /me return the same shape. A field on one and not the
+      // other is a field nothing can depend on.
+      const person = await newPerson();
+      await say(person, { platform: 'MEESHO' }).expect(200);
+      const res = await request(server())
+        .patch(PROFILE)
+        .set('authorization', `Bearer ${person.token}`)
+        .send({ name: 'Someone' })
+        .expect(200);
+      expect(res.body.connectedShops).toEqual(['meesho']);
+    });
+
+    it('cannot be read by anybody who is not signed in to Fayr', async () => {
+      await request(server()).get(PROFILE).expect(401);
+    });
+
+    it('carries no moment, no reason, and nothing else about the row', async () => {
+      // The row's one honest fact is "they got this far at least once". `firstAt`
+      // is exactly the sort of thing a screen starts drawing once it can see it,
+      // at which point that fact has quietly become a claim about WHEN.
+      const person = await newPerson();
+      await say(person, { platform: 'AMAZON', howWeKnew: 'the shop greeted them' })
+        .expect(200);
+      const res = await profileOf(person).expect(200);
+      expect(res.body.connectedShops).toEqual(['amazon']);
+      const asText = JSON.stringify(res.body);
+      expect(asText).not.toContain('firstAt');
+      expect(asText).not.toContain('howWeKnew');
+      expect(asText).not.toContain('the shop greeted them');
+    });
+  });
 });

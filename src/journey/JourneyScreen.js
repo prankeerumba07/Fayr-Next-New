@@ -46,6 +46,7 @@ import { screenFor } from '../screens';
 import {
   SAID_THEY_BOUGHT, SIGNED_IN, WENT_TO_BUY, hasVisitedShop,
 } from './shopVisits';
+import { isConnected as isShopConnected } from '../backend/connectedShops';
 
 /** The tone each step is drawn in, from the design's own palette. */
 const TONE = {
@@ -101,10 +102,28 @@ export default function JourneyScreen({ navigation, route }) {
 
   const facts = {
     task: authoritative,
-    // Only the first two steps use this, and only before there is any record to
-    // read. See journey/shopVisits.js for why it is a note and not a check.
+    // ── ARE THEY SIGNED IN AT THIS SHOP? FOUR ANSWERS, AND THE FIRST IS NEW ──
+    //
+    // OUR OWN RECORD COMES FIRST, and adding it is the fix for the thing that
+    // stopped the owner dead. Measured from his log on 9 September 2026: Amazon
+    // connect succeeded at 19:06, the app asked Amazon for its sign in page again
+    // at 19:10 for a second campaign, and Amazon answered with a body reading
+    // only "Click the button below to continue shopping", then 503, then its
+    // robot puzzle. Every extra visit to a shop's sign in page brings that block
+    // closer, and it was an entirely unnecessary visit.
+    //
+    // The three below it are all DEVICE-LOCAL and all narrower than the question:
+    // the first is about THIS TASK, the second about THIS CAMPAIGN, and the third
+    // is a note in a file keyed by campaign and sign-in. Keyed BY CAMPAIGN — so a
+    // second campaign at the same shop read as a shop nobody had ever signed in
+    // to, and a reinstall lost all three.
+    //
+    // They are KEPT, not replaced. Each is still a true reason to believe
+    // somebody is signed in, and our side's record can be a moment behind on a
+    // first launch. Any one of the four is enough.
     connected:
-      !!(authoritative && authoritative.order)
+      isShopConnected(marketplace)
+      || !!(authoritative && authoritative.order)
       || purchaseShots > 0
       || hasVisitedShop(campaignId, SIGNED_IN),
     // The two steps that happen entirely on the phone, before the shop has told

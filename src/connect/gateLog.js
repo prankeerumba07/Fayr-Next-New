@@ -25,10 +25,23 @@
 // TAG in front. So every line this file can possibly emit begins with a bracket.
 // backend/src/shops/connect-words.spec.ts checks that by reading this file.
 //
+// ── AND NOBODY'S TELEPHONE NUMBER GOES OUT OF IT ────────────────────────────
+//
+// THIS FILE LEAKED THE OWNER'S OWN NUMBER. ConnectScreen hands the shop page's
+// raw answer straight to logGate, and Amazon's sign in page puts the person's
+// mobile number in its greeting, so it went into a log he then pasted. The same
+// structure that keeps the bracket in front now keeps the number out: every line
+// is assembled in gateLine() and gateLine() masks what it assembled, so it cannot
+// matter which argument the next caller puts a page's answer into. The rule
+// itself lives in src/maskNumbers.js, which is not one of the files this
+// instrumentation takes with it when it is deleted.
+//
 // ── AND IT IS OFF IN A REAL BUILD ───────────────────────────────────────────
 //
 // Guarded on __DEV__, read defensively so this module also loads under node,
 // where the app's own checks call the pure half of it directly.
+
+import { maskNumbers } from '../maskNumbers.js';
 
 /** The one prefix, so a whole test can be found in a busy window by searching. */
 export const TAG = '[fayr-gate]';
@@ -67,7 +80,11 @@ export function stamp(at) {
 export function gateLine(attempt, what, detail, at) {
   const n = typeof attempt === 'number' && Number.isFinite(attempt) ? attempt : '?';
   const tail = detail == null || detail === '' ? '' : ` ${detail}`;
-  return `${TAG} ${stamp(at)} attempt=${n} ${what}${tail}`;
+  // MASKED HERE, AT THE ONE PLACE EVERY LINE PASSES THROUGH. See the note above
+  // about the telephone number. The whole assembled line goes through it, not
+  // just `detail`, so it does not matter which argument a future caller puts a
+  // page's raw answer into.
+  return maskNumbers(`${TAG} ${stamp(at)} attempt=${n} ${what}${tail}`);
 }
 
 /** The only place this file writes anything anywhere. */

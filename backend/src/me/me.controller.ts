@@ -6,6 +6,7 @@ import {
   Patch,
   UseGuards,
 } from '@nestjs/common';
+import { Platform } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ContactService } from '../contact/contact.service';
@@ -15,6 +16,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TicketService } from '../tickets/ticket.service';
 import { WalletService } from '../wallet/wallet.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ShopSignInService } from '../shops/shop-sign-in.service';
+import { AS_THE_APP_SPELLS_IT } from '../common/platform-name';
 
 /** The signed-in user's own balances. Money is integer paise as a STRING. */
 export interface MyWalletResponse {
@@ -35,7 +38,32 @@ export interface MyProfileResponse {
   ageBand: string | null;
   gender: string | null;
   categories: string[];
+  /** Which shops they SAID they use, at setup. A preference, not a fact. */
   platforms: string[];
+  /**
+   * WHICH SHOPS THEY ARE ACTUALLY SIGNED IN AT, from our own record of it.
+   *
+   * ── NOT THE SAME FIELD AS `platforms`, AND THE DIFFERENCE IS THE POINT ─────
+   *
+   * `platforms` is what somebody ticked during setup. This is what really
+   * happened, one row per person per shop, written the moment the phone saw a
+   * shop treat them as signed in.
+   *
+   * ── WHY THE APP NEEDS IT, MEASURED ────────────────────────────────────────
+   *
+   * Because asking a shop for its sign in page when they are already signed in
+   * is what gets Fayr taken for a robot. From the owner's log on 9 September
+   * 2026: Amazon connect succeeded at 19:06, the app asked Amazon again at 19:10
+   * for a second campaign, and Amazon served a page reading only "Click the
+   * button below to continue shopping", then 503, then its puzzle. The app asked
+   * because it kept its own note keyed by CAMPAIGN in a file on the phone, so a
+   * second campaign at the same shop looked like a shop nobody had signed in to.
+   *
+   * SPELLED THE WAY THE REST OF THIS RESPONSE SPELLS SHOPS. `platforms` carries
+   * the app's own lower case keys, so this does too — a response with two
+   * spellings of Amazon in it is a response somebody compares wrongly.
+   */
+  connectedShops: string[];
   setupDone: boolean;
   /** Which terms version is on record, and when it was agreed to. Null until then. */
   termsVersion: string | null;
@@ -59,6 +87,7 @@ export class MeController {
     private readonly wallet: WalletService,
     private readonly prisma: PrismaService,
     private readonly contact: ContactService,
+    private readonly signIns: ShopSignInService,
   ) {}
 
   /**
@@ -96,10 +125,11 @@ export class MeController {
   async profile(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<MyProfileResponse> {
-    const row = await this.prisma.user.findUniqueOrThrow({
-      where: { id: user.id },
-    });
-    return toProfileResponse(row);
+    const [row, connected] = await Promise.all([
+      this.prisma.user.findUniqueOrThrow({ where: { id: user.id } }),
+      this.signIns.platformsConnected(user.id),
+    ]);
+    return toProfileResponse(row, connected);
   }
 
   /**
@@ -161,7 +191,11 @@ export class MeController {
       where: { id: user.id },
       data,
     });
-    return toProfileResponse(updated);
+    // THE CONNECTED SHOPS ARE READ HERE TOO. This response and the one from GET
+    // /me are the same shape, and a field that appeared on one and not the other
+    // would be a field the app could not rely on.
+    const connected = await this.signIns.platformsConnected(user.id);
+    return toProfileResponse(updated, connected);
   }
 }
 
@@ -178,7 +212,7 @@ function toProfileResponse(row: {
   termsVersion: string | null;
   termsAcceptedAt: Date | null;
   pan: string | null;
-}): MyProfileResponse {
+}, connectedShops: readonly Platform[]): MyProfileResponse {
   return {
     id: row.id,
     displayId: row.displayId,
@@ -188,6 +222,11 @@ function toProfileResponse(row: {
     gender: row.gender,
     categories: row.categories,
     platforms: row.platforms,
+    // LOWER CASED to match `platforms` above, through the one map that already
+    // knows both spellings rather than toLowerCase() here. A second place that
+    // converts between our enum and the app's keys is a second place to get it
+    // wrong, and the app keys off this to decide whether to open a shop.
+    connectedShops: connectedShops.map((p) => AS_THE_APP_SPELLS_IT[p]),
     setupDone: row.setupDoneAt != null,
     // Returned so the app can tell whether consent is on record and for WHICH
     // version — that is how a terms change becomes visible rather than assumed.

@@ -39,3 +39,36 @@ export function platformDisplayName(
 
 /** Every shop, for anything that needs the whole list. */
 export const EVERY_PLATFORM_NAME = WRITTEN;
+
+/**
+ * A shop's name AS THE APP'S OWN CODE SPELLS IT — the key, not the written name.
+ *
+ * ── WHY A THIRD SPELLING IS NOT BEING INVENTED HERE ────────────────────────
+ *
+ * There are already exactly two and they both already exist. The database says
+ * AMAZON. The app says 'amazon': that is the key on src/platforms.js, the route
+ * name every connect screen is registered under, and the list the profile's own
+ * `platforms` field is validated against (SHOP_PLATFORMS in the me DTO). What has
+ * been missing is one place that turns the first into the second.
+ *
+ * It was missing on this side only. The APP has had the map since the day the
+ * sign-in report was built — AS_OUR_SIDE_SPELLS_IT in src/backend/shopApi.js goes
+ * the other way, lower case to enum, for writing. This is the reading direction.
+ *
+ * ── AND WHY IT IS A TOTAL RECORD RATHER THAN toLowerCase() ─────────────────
+ *
+ * toLowerCase() is right for all seven of today's names and is right by accident.
+ * It gives no answer at all for a name where the two sides genuinely differ, and
+ * it would silently produce a key no screen has, which is a shop that can never
+ * be recognised as connected. Typed against Platform, so the eighth shop does not
+ * compile until it is written down here.
+ */
+export const AS_THE_APP_SPELLS_IT: Record<Platform, string> = {
+  AMAZON: 'amazon',
+  FLIPKART: 'flipkart',
+  MEESHO: 'meesho',
+  MYNTRA: 'myntra',
+  BLINKIT: 'blinkit',
+  ZEPTO: 'zepto',
+  INSTAMART: 'instamart',
+};

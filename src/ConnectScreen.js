@@ -32,6 +32,8 @@ import {
 // TEMPORARY, AND IT COMES OUT WHEN THE OWNER SAYS TEST 3 PASSES. Development only:
 // every one of these is a no-op in a build a person gets. See connect/gateLog.js.
 import { describeFailure, logGate, whyInWords } from './connect/gateLog';
+import { maskNumbers } from './maskNumbers';
+import { markConnected } from './backend/connectedShops';
 import { watchSignInScript } from './connect/watchSignIn';
 import { rememberAccountName } from './connect/accountName';
 import { reportShopSignIn } from './backend/shopApi';
@@ -458,7 +460,9 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
   // for the rest.
   const rawText = useMemo(() => {
     if (raw == null) return '';
-    const s = JSON.stringify(raw, null, 2) || '';
+    // MASKED. See the note on rawJsonToShare below: this is the same dump, and
+    // the rule covers what is shown as well as what is written.
+    const s = maskNumbers(JSON.stringify(raw, null, 2) || '');
     const LIMIT = 200000;
     return s.length > LIMIT
       ? `${s.slice(0, LIMIT)}\n\n…(truncated ${s.length - LIMIT} more chars — use “Download JSON” for the full file)`
@@ -694,12 +698,31 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     );
   }, [platform, logoutThisPlatform]);
 
+  /**
+   * THE DUMP, WITH NOBODY'S TELEPHONE NUMBER IN IT.
+   *
+   * ── THE SECOND LEAK, AND THE WORSE OF THE TWO ─────────────────────────────
+   *
+   * The owner asked for the gate's LOG to be masked, because his own number came
+   * out of it. This is the other end of the same page: the reader's raw capture,
+   * written to a file and then handed to the phone's own share sheet, which sends
+   * it off the device entirely. His rule names files and outputs, and this is
+   * both, so it is masked with the same one rule rather than a second idea of it.
+   *
+   * Built once and used by both the screen and the file, so the thing shown and
+   * the thing written can never be two different texts.
+   */
+  const rawJsonToShare = useCallback(
+    () => maskNumbers(JSON.stringify(raw, null, 2) || ''),
+    [raw],
+  );
+
   const downloadRawJson = useCallback(async () => {
     if (!raw) return;
     try {
       const file = new File(Paths.cache, `fayr-${platform.key}-${Date.now()}.json`);
       file.create({ overwrite: true });
-      file.write(JSON.stringify(raw, null, 2));
+      file.write(rawJsonToShare());
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
         await Sharing.shareAsync(file.uri, {
@@ -712,7 +735,7 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     } catch (e) {
       Alert.alert('Could not export JSON', String((e && e.message) || e));
     }
-  }, [raw, platform]);
+  }, [raw, platform, rawJsonToShare]);
 
   // ── WRITTEN DOWN, ONCE, AT THE MOMENT IT HAPPENS ──────────────────────────
   //
@@ -734,6 +757,15 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     if (toldOurSide.current) return;
     toldOurSide.current = true;
     reportShopSignIn(platform.key, howWeKnew);
+    // AND WRITTEN DOWN ON THIS SIDE AT THE SAME MOMENT.
+    //
+    // Our side is being told on the line above, and the next profile read would
+    // carry it back. But the next profile read is on the next launch or the next
+    // return to the foreground, and the thing that has to stop happening is the
+    // app asking this shop for its sign in page AGAIN a few minutes later for a
+    // different campaign. That is what got Fayr taken for a robot, so the answer
+    // cannot wait for a round trip.
+    markConnected(platform.key);
   }, [toSignIn, theyAreIn, howWeKnew, platform]);
 
   // ── AND THEN THE SHOP'S PAGE CLOSES ITSELF ────────────────────────────────

@@ -28,10 +28,27 @@ export interface ShopSignInRecorded {
  * no account number. Fayr never sees a single thing somebody types on a shop's
  * page, so there is nothing of that kind to store even by mistake.
  *
- * IT MOVES NO MONEY AND OPENS NO GATE. A row here does not advance a task, does
- * not release a refund, and is not evidence of anything about an order. It is a
- * count for the page that measures Fayr, and nothing reads it for any other
- * purpose.
+ * IT MOVES NO MONEY. A row here does not advance a task, does not release a
+ * refund, and is not evidence of anything about an order.
+ *
+ * ── IT DOES NOW OPEN ONE GATE, AND THAT LINE USED TO SAY IT OPENED NONE ─────
+ *
+ * It decides whether to ASK A SHOP FOR ITS SIGN IN PAGE AGAIN, and that turned
+ * out to matter more than anything else this table does. Measured from the
+ * owner's own log on 9 September 2026: Amazon connect succeeded at 19:06, the app
+ * asked Amazon for its sign in page again four minutes later for a second
+ * campaign, and Amazon answered with a page reading only "Click the button below
+ * to continue shopping", then 503 on /gp/sign-in.html, then its robot puzzle.
+ * Amazon had decided we were a machine.
+ *
+ * The app was asking because it did not know. It kept its own note of having
+ * connected in a file on the phone, keyed by CAMPAIGN, so a second campaign at
+ * the same shop looked like a shop nobody had ever signed in to. This table has
+ * held the real answer since 4 September — one row per person per shop, for ever
+ * — and nothing had ever read it back. So `platformsConnected` exists, and the
+ * gate reads it.
+ *
+ * A row still opens no gate about MONEY, and that part of the old note stands.
  */
 @Injectable()
 export class ShopSignInService {
@@ -47,6 +64,30 @@ export class ShopSignInService {
    * nothing and both write. This is one statement: the rule on the table decides,
    * and a second call updates nothing at all.
    */
+  /**
+   * WHICH SHOPS THIS PERSON IS ALREADY SIGNED IN AT.
+   *
+   * ── WHY THE ANSWER IS A LIST OF SHOPS AND NOT THE ROWS ─────────────────────
+   *
+   * The caller's question is "do we need to ask this shop for its sign in page",
+   * and the only thing that answers it is which shops are in the list. Handing
+   * back the rows would hand back `firstAt` as well, and a moment is exactly the
+   * sort of thing a screen starts drawing once it can see it — at which point
+   * this table's one honest fact, "they got this far at least once", has quietly
+   * become a claim about when, which is not what it means.
+   *
+   * ORDERED, so two calls cannot answer the same thing in two orders and make a
+   * check that compares them flap.
+   */
+  async platformsConnected(userId: string): Promise<Platform[]> {
+    const rows = await this.prisma.shopSignIn.findMany({
+      where: { userId },
+      select: { platform: true },
+      orderBy: { platform: 'asc' },
+    });
+    return rows.map((r) => r.platform);
+  }
+
   async record(
     userId: string,
     platform: Platform,

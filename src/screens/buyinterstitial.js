@@ -60,7 +60,7 @@ import { Screen, ProductImage } from '../ui/primitives';
 import { copyLine } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
 import { deadlineLine } from '../ui/confirmJoin';
-import { getAuthoritative, getTaskId, subscribe } from '../taskStore';
+import { applyAuthoritative, getAuthoritative, getTaskId, subscribe } from '../taskStore';
 import { goingToTheShop } from '../backend/tasksApi';
 import {
   countdownFor, holdIsOver, messageText, noticeFromTask,
@@ -194,6 +194,26 @@ export default function BuyInterstitialScreen({ navigation, route }) {
       setCouldNotStart(true);
       return;
     }
+    // ── THE STORE IS TOLD, AND IT IS TOLD FIRST ──────────────────────────────
+    //
+    // MY BUG, AND THE OWNER FOUND IT ON A REAL PHONE. This screen asked our side
+    // to record the visit, read the answer for the pop-up's words, and THREW THE
+    // REST OF IT AWAY. Nothing else in the app ever saw that reply. So the store
+    // still held the task as it was before the tap, and this screen watches the
+    // store — so it went on offering OPEN AMAZON to somebody who had already
+    // gone, which is the very thing the last change was supposed to fix. Adding
+    // the watching without adding this made the screen watch a record nobody was
+    // updating.
+    //
+    // BEFORE the notice is built, not after: applyAuthoritative notifies every
+    // listener, and one of them is this screen. Doing it first means the face
+    // behind the pop-up is already the right one when the pop-up is dismissed,
+    // rather than changing a moment later in front of them.
+    //
+    // It also reaches the other three places at once — the bar above the
+    // navigation, the My Products row, the opened task screen — because they all
+    // read the same store. One reply, one record, four screens.
+    applyAuthoritative(answer.task);
     const built = noticeFromTask(answer.task, shop);
     if (built == null) {
       // RECORDED BUT WORDLESS. The row is written, so the hold is real, but this

@@ -48,7 +48,10 @@ import { goHome } from './src/ui/nav';
 import { COLOR, FONT } from './src/ui/theme';
 import {
   load as loadTask, applyAuthoritative, configureSync, configureOutbox,
+  refreshFromBackend,
 } from './src/taskStore';
+import { shouldRefreshOnForeground } from './src/foregroundRefresh';
+import * as connectedShops from './src/backend/connectedShops';
 import * as authSession from './src/backend/authSession';
 import * as campaignStore from './src/backend/campaignStore';
 import * as evidenceSync from './src/backend/evidenceSync';
@@ -166,6 +169,12 @@ function AppInner() {
       if (!signedIn) {
         setProfile(null);
         setSetupState('unknown');
+        // AND WHICH SHOPS WERE CONNECTED, for the same reason and a sharper one.
+        // That list decides whether the app walks somebody through a shop sign
+        // in. Leaving one person's list in place would tell the next person they
+        // are already signed in at Amazon, drop them into a shop they have no
+        // account on, and skip the one step that could have fixed it.
+        connectedShops.forget();
       }
     });
     authSession.hydrate();
@@ -192,8 +201,37 @@ function AppInner() {
       getToken: () => authSession.getAccessToken(),
       renew: renewNow,
     });
+    // AND ON COMING BACK, ASK OUR OWN SIDE WHAT CHANGED WHILE THEY WERE AWAY.
+    //
+    // Everything a person does at Amazon happens where Fayr cannot see it. They
+    // leave, they buy, they come back — and nothing used to ask, so the screens
+    // showed whatever was true when the app last started.
+    //
+    // WHETHER to act on an "active" is decided in src/foregroundRefresh.js, not
+    // here, because iOS says "active" for the notification shade, the app
+    // switcher and a dismissed call as readily as for somebody walking back from
+    // a shop. That decision is walked under node against all of them.
+    //
+    // This effect only exists while authState is 'in', so the signed-in test
+    // below is the second of two rather than the only one. It is written out
+    // anyway: this handler outlives a sign-out by however long the teardown
+    // takes, and a fetch with no session is not merely wasted — the transport
+    // treats the refusal as a reason to renew, and a renewal with nothing to
+    // renew clears the session.
+    let askedAt = null;
     const watcher = AppState.addEventListener('change', (next) => {
       if (next === 'active') void keeper.checkNow();
+      const now = Date.now();
+      if (shouldRefreshOnForeground({
+        nextState: next, signedIn: authSession.isAuthed(), lastAt: askedAt, now,
+      })) {
+        askedAt = now;
+        void refreshFromBackend();
+        // AND OUR RECORD OF WHICH SHOPS THEY ARE SIGNED IN AT. They may have
+        // signed in at one while they were away, on the shop's own app, and this
+        // is the moment we can find out without asking the shop anything.
+        void connectedShops.load();
+      }
     });
     return () => {
       watcher.remove();
@@ -213,9 +251,20 @@ function AppInner() {
     // believed on the phone for ever. src/forgotten.test.mjs reads this
     // file off disk and checks the wire is here.
     configureOutbox(evidenceSync.pendingTaskIds);
+    // AND THE CONNECTED-SHOPS STORE IS HANDED ITS READER, for the same reason the
+    // two above are: that store must be walkable under node, so it imports
+    // nothing and is given what it needs.
+    connectedShops.configure(getProfile);
     evidenceSync.start();
     campaignStore.load();
     loadTask();
+    // WHICH SHOPS THEY ARE ALREADY SIGNED IN AT, from our own record.
+    //
+    // Read here, at the same moment as the campaigns and the tasks, because the
+    // journey's gate needs it before it decides whether to walk somebody through
+    // a sign in they do not need — and asking a shop for its sign in page when
+    // they are already signed in is what gets Fayr taken for a robot.
+    connectedShops.load();
 
     // Ask the SERVER whether setup is needed. Deriving it from the server's
     // setupDoneAt latch — rather than anything on the device — is what stops a
