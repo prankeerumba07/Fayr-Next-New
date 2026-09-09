@@ -4,7 +4,10 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PracticeWindowService } from '../src/tasks/practice-window.service';
-import { PRACTICE_WINDOW_OFF } from '../src/tasks/engine/practice-window';
+import {
+  PRACTICE_WINDOW_MAX_DAYS,
+  PRACTICE_WINDOW_OFF,
+} from '../src/tasks/engine/practice-window';
 import { resetDatabase } from './reset-db';
 
 /**
@@ -69,11 +72,41 @@ describe('the practice order window (e2e)', () => {
     expect(PracticeWindowService.databaseIsAPracticeOne('fayr_next_test')).toBe(true);
   });
 
-  it('IS OFF BY DEFAULT even here, because the setting is not set', async () => {
-    // The suite runs with the ordinary test environment, where
-    // PRACTICE_ORDER_WINDOW_DAYS is unset and therefore zero. A practice database
-    // alone must never be enough: somebody has to ask for it.
-    await expect(practice.daysAllowed()).resolves.toBe(PRACTICE_WINDOW_OFF);
+  it('needs BOTH halves to agree, whichever way the setting happens to be set', async () => {
+    // THE SETTINGS-FILE TRAP, FOR THE FOURTH TIME, AND THIS TIME IT WAS THIS FILE.
+    //
+    // This check used to assert that daysAllowed() was OFF, on the stated
+    // assumption that PRACTICE_ORDER_WINDOW_DAYS "is unset and therefore zero".
+    // The owner then set it to 400 in backend/.env — on our own instruction, to
+    // test the Amazon read — and this check went red on a machine whose code was
+    // perfect. A test whose result depends on a file git has never seen is not a
+    // test. That rule is already written down in prisma/demo-seed.ts and in
+    // seed.e2e-spec.ts, and this is the same rule catching the same mistake.
+    //
+    // So it now asserts THE RULE, which holds in both worlds, and says out loud
+    // which world the run is in — the shape number-lives-in-one-place.spec.ts
+    // uses for the same reason. What it deliberately does NOT do is assert a
+    // default it cannot control: the setting is read once when the application
+    // boots, and the note at the foot of this file records why a second
+    // application cannot be handed a different one.
+    //
+    // "A practice database alone is never enough" is still proved
+    // unconditionally, in engine/practice-window.spec.ts, where the setting is a
+    // parameter rather than an environment.
+    const setting = Number(process.env.PRACTICE_ORDER_WINDOW_DAYS ?? 0);
+    const days = await practice.daysAllowed();
+
+    if (!Number.isFinite(setting) || setting <= 0) {
+      // Nobody asked for it, so a practice database on its own gets nothing.
+      expect(days).toBe(PRACTICE_WINDOW_OFF);
+      return;
+    }
+
+    // Somebody did ask for it, and this IS a practice database, so both halves
+    // agree and it applies — clamped at the ceiling, and never wider than asked.
+    expect(days).toBe(Math.min(Math.trunc(setting), PRACTICE_WINDOW_MAX_DAYS));
+    expect(days).toBeGreaterThan(PRACTICE_WINDOW_OFF);
+    expect(days).toBeLessThanOrEqual(Math.trunc(setting));
   });
 
   it('REFUSES A REAL DATABASE NAME, which is the point of the whole thing', () => {
