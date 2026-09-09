@@ -68,7 +68,23 @@ export const SIGN_IN_PATH = String.raw`^\/(login|signin|sign-in|auth|ap\/|gp\/si
  * nobody has watched would quietly switch the whole thing off instead of failing
  * where somebody can see it.
  */
-export const PAYING_PATH = String.raw`^\/(checkout|cart|payment|pay|order-payment|errors\/validateCaptcha)\b`;
+/*
+ * AND THE CAPTCHA ADDRESS IS TWO ADDRESSES, BECAUSE THE SHOPS SPELL IT
+ * DIFFERENTLY. This list carried `errors/validateCaptcha`, which is Flipkart's.
+ * Amazon's real one, MEASURED FROM THE OWNER'S OWN LOG ON 9 SEPTEMBER 2026, is
+ *
+ *   https://www.amazon.in/errors_page/validateCaptcha
+ *
+ * one word apart — errors_page, not errors — so it never matched, and this list
+ * is anchored at `^\/` so it could not have matched further along either. The
+ * consequence was not cosmetic: the page that says "we have decided you are a
+ * robot" was read as an ordinary shop page.
+ *
+ * Both are here rather than one loosened pattern. `errors[_a-z]*\/` would also
+ * match an address neither shop has, and a pattern that matches things nobody
+ * has seen is a pattern nobody can check.
+ */
+export const PAYING_PATH = String.raw`^\/(checkout|cart|payment|pay|order-payment|errors\/validateCaptcha|errors_page\/validateCaptcha)\b`;
 
 /**
  * A PUZZLE ASKING WHETHER THEY ARE A PERSON.
@@ -84,6 +100,53 @@ export const IS_A_PUZZLE = String.raw`
       if (document.querySelector('iframe[src*="recaptcha"],iframe[title*="challenge"],[id*="captcha"],[class*="captcha"]')) return true;
       return false;
     } catch(e){ return true; }
+  }
+`;
+
+/**
+ * THE SHOP IS ASKING US TO SLOW DOWN, AND IT SAYS SO WITH A PAGE.
+ *
+ * ── WHAT THIS IS, MEASURED ──────────────────────────────────────────────────
+ *
+ * From the owner's log, 9 September 2026, after the app asked Amazon for its
+ * sign in page a second time inside four minutes. Amazon served, in order:
+ *
+ *   a page whose WHOLE BODY was "Click the button below to continue shopping"
+ *   HTTP 503 on /gp/sign-in.html
+ *   its robot puzzle
+ *
+ * That first page is not a shop that failed to open, and it is not a sign in
+ * page, and until now nothing recognised it at all — so it fell through as an
+ * ordinary page with no signal in it, and the app went on asking.
+ *
+ * ── MATCHED ON WHAT THE PAGE SAYS, NOT WHERE IT IS ──────────────────────────
+ *
+ * The address was plain `/` both times, so there is nothing in it to match. The
+ * body is the only evidence there is.
+ *
+ * ── AND IT CANNOT MATCH A REAL SHOP PAGE ────────────────────────────────────
+ *
+ * Two conditions together, and the second is what makes it safe. The words have
+ * to be there AND the page has to be practically empty of anything else: a real
+ * Amazon page carrying a "continue shopping" button somewhere in it runs to
+ * thousands of characters, and this one was a single sentence. So the length is
+ * part of the test rather than the wording alone.
+ *
+ * It reports `false` on its own error, not `true`. Being wrong towards "the shop
+ * is fine" costs one more attempt; being wrong towards "the shop is blocking us"
+ * would stop a person who had no problem at all.
+ */
+export const IS_A_DEAD_END = String.raw`
+  function fayrIsADeadEnd(){
+    try {
+      var text = (document.body && document.body.innerText || "").trim();
+      if (text.length === 0) return false;
+      if (text.length > 400) return false;
+      var said = text.toLowerCase();
+      if (/click the button below to continue shopping/.test(said)) return true;
+      if (/continue shopping/.test(said) && text.length < 120) return true;
+      return false;
+    } catch(e){ return false; }
   }
 `;
 

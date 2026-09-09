@@ -142,6 +142,11 @@ describe('the words on the shop connect screen', () => {
       'gate.js', 'pageQuestions.js', 'watchSignIn.js', 'accountName.js',
       'SignInSheet.js',
       'gate.test.mjs', 'connect.test.mjs',
+      // RECOGNISING WHAT A SHOP IS SAYING, AND SAYING NOTHING ITSELF. It answers
+      // one-word names — theDeadEndPage, tooManyAsks, aPuzzle — and the check
+      // below holds it to the same no-sentence rule as gate.js, so it cannot
+      // become a second source of words a person reads.
+      'shopRefusing.js', 'shopRefusing.test.mjs',
       // TEMPORARY, AND IT LEAVES WHEN THE OWNER SAYS TEST 3 PASSES. It is allowed
       // here only because the next check proves it can never be a source of words
       // a person reads. Delete both together.
@@ -370,11 +375,19 @@ describe('Fayr never types anything into a shop’s page', () => {
   it('the gate writes no sentence of its own', () => {
     // Every word a person reads comes from the words file, where the rule above
     // reads it. A sentence written in the gate would never be read by anybody.
-    const code = withoutComments(read('src/connect/gate.js'));
-    const literals = (code.match(/'[^'\n]*'|"[^"\n]*"/g) ?? [])
-      .map((raw) => raw.slice(1, -1))
-      .filter((text) => (text.match(/\b[a-z]+\b/g) ?? []).length >= 4);
-    expect(literals).toEqual([]);
+    //
+    // TWO FILES NOW, AND THE SECOND EARNS ITS PLACE HERE RATHER THAN ON THE
+    // KNOWN LIST ALONE. shopRefusing.js recognises what a shop is saying — the
+    // dead end page, the 503, the puzzle — and it must never be where the
+    // resulting sentence lives, because the sentence a person reads about that
+    // has to go through the plain language rule like every other.
+    for (const file of ['src/connect/gate.js', 'src/connect/shopRefusing.js']) {
+      const code = withoutComments(read(file));
+      const literals = (code.match(/'[^'\n]*'|"[^"\n]*"/g) ?? [])
+        .map((raw) => raw.slice(1, -1))
+        .filter((text) => (text.match(/\b[a-z]+\b/g) ?? []).length >= 4);
+      expect({ file, literals }).toEqual({ file, literals: [] });
+    }
   });
 });
 

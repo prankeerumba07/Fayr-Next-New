@@ -28,6 +28,7 @@ import {
   THEY_SAY_THEY_ARE_IN, isForTheGate, isTheShopsOwnSignInPage, pathOf,
   shopMayBeSeen, shopViewKey, shopViewMayExist, shouldActOnFailure, whatDecidedIt,
   whatIsOnScreen, whatTheShopSaid, whatWeSay,
+  CANNOT_TELL, HOLD_CANNOT_TELL_MS, holdBackCannotTell,
 } from './connect/gate';
 // TEMPORARY, AND IT COMES OUT WHEN THE OWNER SAYS TEST 3 PASSES. Development only:
 // every one of these is a no-op in a build a person gets. See connect/gateLog.js.
@@ -231,11 +232,55 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     // The count always changes.
   }, [toSignIn, askedAt, attempt, signInIsUp, signInIsGone, theyAreIn, itWillNotOpen]);
 
-  const gate = toSignIn
+  const gateSays = toSignIn
     ? whatIsOnScreen({
       signInIsUp, signInIsGone, theyAreIn, itWillNotOpen, startedAt: askedAt, now: nowIs,
     })
     : null;
+
+  // ── WHEN "WE CANNOT TELL" FIRST BECAME TRUE ──────────────────────────────
+  //
+  // Kept in a ref rather than state because writing state during a render is not
+  // allowed, and this is read in the same render that first sees it. Cleared the
+  // moment the gate says anything else, so a later cannot-tell gets its own three
+  // seconds instead of inheriting a start from minutes ago.
+  const cannotTellSince = useRef(null);
+  if (gateSays === CANNOT_TELL) {
+    if (cannotTellSince.current == null) cannotTellSince.current = Date.now();
+  } else {
+    cannotTellSince.current = null;
+  }
+
+  // ── AND IT IS HELD BACK FOR THREE SECONDS BEFORE IT IS SHOWN ─────────────
+  //
+  // MEASURED. On 9 September 2026 at 19:07:14 this screen asked him whether the
+  // sign in had worked, and at 19:07:16 the gate worked out that it had. He was
+  // interrupted two seconds before we knew the answer.
+  //
+  // The decision is in src/connect/gate.js, walked under node, and it can hold
+  // back exactly one of the five screens. The failure screen is never delayed —
+  // the owner asked for that in those words — and it is written there as a single
+  // equality rather than a list of screens, because a list is a thing somebody
+  // adds to.
+  const gate = holdBackCannotTell({
+    gate: gateSays, since: cannotTellSince.current, now: nowIs,
+  });
+
+  // AND THE SCREEN HAS TO COME BACK BY ITSELF WHEN THE HOLD IS OVER.
+  //
+  // Nothing else would wake it: the gate's inputs have already settled, so there
+  // is no further message from the page to re-render on, and without this the
+  // covered page would sit there until something unrelated happened. This is the
+  // same shape as the fifteen second clock above it, and for the same reason.
+  useEffect(() => {
+    if (gateSays !== CANNOT_TELL) return undefined;
+    const began = cannotTellSince.current;
+    if (began == null) return undefined;
+    const left = HOLD_CANNOT_TELL_MS - (Date.now() - began);
+    if (left <= 0) return undefined;
+    const t = setTimeout(() => setNowIs(Date.now()), left + 50);
+    return () => clearTimeout(t);
+  }, [gateSays, attempt]);
 
   // EVERY CHANGE OF THE GATE, AND WHICH ONE OF THE FIVE INPUTS DID IT.
   //

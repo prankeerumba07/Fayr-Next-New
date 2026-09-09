@@ -124,6 +124,28 @@ export const FAILED = 'failed';
 export const CANNOT_TELL = 'cannotTell';
 export const SIGNED_IN_NOW = 'signedIn';
 
+/**
+ * HOW LONG "WE CANNOT TELL" IS HELD BACK BEFORE IT IS SHOWN.
+ *
+ * ── THE NUMBER COMES OUT OF THE OWNER'S OWN LOG ────────────────────────────
+ *
+ * 9 September 2026. At 19:07:14 the cannot-tell screen appeared, and at 19:07:16
+ * the gate worked out he was signed in. TWO SECONDS. He was interrupted by a
+ * question about whether it had worked, two seconds before we knew that it had.
+ *
+ * So three seconds: the measured gap plus one second of margin. Not thirty,
+ * because a person who really is stuck should not sit in front of a covered page
+ * wondering; and not two, because the number measured once is the number that
+ * will be exceeded.
+ *
+ * ── WHAT IT COSTS IF IT IS WRONG, WHICH IS WHY IT IS SAFE ──────────────────
+ *
+ * Waiting three seconds too long shows the covered "opening" page for three more
+ * seconds. Not waiting shows a question that answers itself while somebody is
+ * reading it. The first is a delay and the second is a screen that lies.
+ */
+export const HOLD_CANNOT_TELL_MS = 3000;
+
 /** What a control on our own screen does. Never more than these two. */
 export const ASK_THE_SHOP_AGAIN = 'tryAgain';
 export const THEY_SAY_THEY_ARE_IN = 'confirm';
@@ -159,6 +181,48 @@ const STATE_FOR_REASON = {
   [BECAUSE_TIME_RAN_OUT]: FAILED,
   [BECAUSE_NOTHING_YET]: OPENING_UP,
 };
+
+/**
+ * HOLD "WE CANNOT TELL" BACK, BRIEFLY, AND HOLD NOTHING ELSE BACK EVER.
+ *
+ * Answers WHICH SCREEN TO ACTUALLY SHOW, given the one the gate decided and how
+ * long it has been saying it.
+ *
+ * ── WHY ONLY THIS ONE SCREEN ───────────────────────────────────────────────
+ *
+ * Because "we cannot tell" is the only one of the five that can be WRONG A
+ * MOMENT LATER. It is reached when the shop's sign in box has gone and the shop
+ * will not say whether it worked, and one of the things that looks exactly like
+ * that is a sign in which HAS worked and has not been recognised yet — the shop
+ * rebuilds its page in pieces, and for a look or two in the middle there is no
+ * box and no way in either. The other four are all settled: they are in, the box
+ * is up, the shop said it would not open, or the clock ran out.
+ *
+ * ── AND IT CAN NEVER DELAY THE FAILED SCREEN. THE OWNER ASKED FOR THAT ─────
+ *
+ * Written as a single equality against CANNOT_TELL rather than a list of screens
+ * to hold or not hold. A list is a thing somebody adds to; this cannot be added
+ * to by accident. FAILED arrives by two roads — the shop saying so, and our own
+ * fifteen seconds running out — and somebody whose shop genuinely will not open
+ * must not be made to wait three more seconds to be told so.
+ *
+ * While it is held back, the screen shown is OPENING_UP: the cover stays on, the
+ * page underneath is still loading as far as anybody can see, and nothing has
+ * been claimed. That is the honest thing to show while we do not yet know.
+ */
+export function holdBackCannotTell({
+  gate = null, since = null, now = null, holdMs = HOLD_CANNOT_TELL_MS,
+} = {}) {
+  if (gate !== CANNOT_TELL) return gate;
+  // NO MOMENT MEANS NO HOLDING. If nothing recorded when this began we cannot
+  // say how long it has been, and inventing a start would hold the screen back
+  // for ever. Showing it is the answer that always ends.
+  if (typeof since !== 'number' || !Number.isFinite(since)) return gate;
+  const at = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
+  // A clock that went backwards is not a reason to keep somebody waiting.
+  if (at < since) return CANNOT_TELL;
+  return at - since < holdMs ? OPENING_UP : CANNOT_TELL;
+}
 
 /**
  * THE KEY THE SHOP'S PAGE IS BUILT UNDER, and why asking it to reload is not enough.
