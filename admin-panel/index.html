@@ -3858,6 +3858,23 @@
             : h("div", null, d.questions.map(function (q) { return ThreadCard(q, { withUser: false }); }))));
     }
 
+    /**
+     * THE ORDER WINDOW WAS WIDENED FOR TESTING ON THIS TASK.
+     *
+     * Null on every real task. Shown in the "bad" tone because it is not a note,
+     * it is a reason to look harder before paying: the date rule that normally
+     * proves the campaign caused the purchase was handed a lower floor.
+     *
+     * Reads the number off the task and never recomputes it from a setting. The
+     * setting can be turned off between the match and somebody looking at it, and
+     * a mark that vanishes with it is not a mark.
+     */
+    function practiceMark(t) {
+      var days = t && t.practiceWindowDays;
+      if (typeof days !== "number" || !(days > 0)) return null;
+      return pill("PRACTICE WINDOW " + String(days) + "d", "bad");
+    }
+
     function TasksBlock(tasks) {
       if (!tasks || tasks.length === 0) return h("div", { class: "empty" }, "No tasks.");
       return h("div", null, tasks.map(function (t) {
@@ -3869,6 +3886,20 @@
             pill(t.state, TASK_PILL[t.state]),
             c.platform ? h("span", { class: "muted", style: "font-size:12.5px" }, c.platform) : null,
             h("div", { class: "spacer" }),
+            // ── THE PRACTICE WINDOW MARK, AND IT IS LOUD ON PURPOSE ────────
+            //
+            // A task matched through a widened order window must never be
+            // mistaken for a real one. This is the pill somebody sees before
+            // they decide whether to release money, so it sits beside the state
+            // in the "bad" tone rather than in the quiet line underneath: the
+            // owner's requirement is that a widened match "can never be mistaken
+            // for a real one", and a grey note in a meta row can be.
+            //
+            // It names the NUMBER OF DAYS, because a window widened by one day
+            // and one widened by three years are different claims about how much
+            // was let through. Null on every real task — the setting only applies
+            // on a database whose own name ends _dev or _test.
+            practiceMark(t),
             refund.eligible ? pill("REFUND READY", "ok") : null),
           h("div", { class: "meta" },
             h("span", null, "Refund: ", h("span", { class: "num" }, rupees(refund.amountPaise))),

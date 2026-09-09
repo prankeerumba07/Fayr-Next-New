@@ -28,6 +28,9 @@ import {
   SAME_ORDER_ALREADY_REFUNDED,
 } from './engine/refusal-words';
 import { orderWindow, screenEvidenceByWindow } from './engine/order-window';
+import { ORDER_WINDOW_GRACE_MS } from './engine/order-window';
+import { practiceGraceMs } from './engine/practice-window';
+import { PracticeWindowService } from './practice-window.service';
 import { mayTapBuy, theHold } from './engine/shop-visit';
 import { theNotice } from './engine/shop-visit-words';
 import { platformDisplayName } from '../common/platform-name';
@@ -95,6 +98,7 @@ export class TaskService {
     private readonly prisma: PrismaService,
     private readonly tickets: TicketService,
     private readonly wallet: WalletService,
+    private readonly practiceWindow: PracticeWindowService,
     config: ConfigService<Env, true>,
   ) {
     this.claimTtlMinutes = config.get('CLAIM_TTL_MINUTES', { infer: true });
@@ -1337,14 +1341,43 @@ export class TaskService {
       // what will bind manual entry automatically when it exists.
       let effective = event;
       if (event.type === 'EVIDENCE') {
+        // ── THE PRACTICE WINDOW, AND IT IS A NUMBER AND NOT A FLAG ──────────
+        //
+        // screenEvidenceByWindow and checkOrderWindow are untouched. Neither has
+        // learned about the practice window, neither has gained a way to be
+        // skipped, and neither can be told not to compare. THE FLOOR IS LOWER,
+        // that is all — a rule that compares a date to a floor is the same rule
+        // whatever the floor is, and a rule with an off switch is not.
+        //
+        // Zero on every real database, whatever the setting says: the service
+        // asks the LIVE DATABASE ITS OWN NAME and refuses unless it ends _dev or
+        // _test. So this line changes nothing in a real deployment.
+        const practiceDays = await this.practiceWindow.daysAllowed();
         const screened = screenEvidenceByWindow(
           event.evidence,
           orderWindow({
             claimedAt: row.createdAt.getTime(),
             campaignCreatedAt: campaign.createdAt.getTime(),
             claimExpiresAt: row.claimExpiresAt?.getTime() ?? null,
+            graceMs: practiceGraceMs(practiceDays, ORDER_WINDOW_GRACE_MS),
           }),
         );
+        // ── AND THE TASK IS MARKED, WHEN AND ONLY WHEN IT WAS USED ──────────
+        //
+        // Written on the task at the moment the widened window is handed to the
+        // rule, and only when the order was NOT refused: a widened window that
+        // refused the order anyway let nothing through, so marking it would put a
+        // warning on a task nothing was let through on.
+        //
+        // Not worked out later from the setting. The setting can be turned off
+        // between the match and somebody looking at it, and a mark that vanishes
+        // with it is not a mark.
+        if (practiceDays > 0 && !screened.refused && event.evidence.order != null) {
+          await tx.task.update({
+            where: { id: taskId },
+            data: { practiceWindowDays: practiceDays },
+          });
+        }
         if (screened.refused) {
           // The submission still lands as an audit record, and the task carries a
           // blocker the screen explains — but the order never becomes the anchor,

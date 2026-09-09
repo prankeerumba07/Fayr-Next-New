@@ -114,6 +114,23 @@ export interface TaskResponse {
    */
   shopVisitNoticeText: string | null;
   /**
+   * HOW MANY DAYS THE ORDER WINDOW WAS WIDENED BY, FOR TESTING. Null on every
+   * real task, and null is what it stays unless the setting is on AND the live
+   * database's own name ends in _dev or _test.
+   *
+   * ── ON THE RESPONSE SO THE STAFF PANEL CAN SHOW IT ────────────────────────
+   *
+   * The owner's requirement, in his words: "every task it touches is MARKED as
+   * having used it, and the staff panel shows the mark, so a widened match can
+   * never be mistaken for a real one". The panel reads the same task response the
+   * app does, so putting it here is what puts it in front of a person deciding
+   * whether to release money.
+   *
+   * A NUMBER AND NOT A YES OR NO, because a window widened by one day and one
+   * widened by three years are different claims about how much was let through.
+   */
+  practiceWindowDays: number | null;
+  /**
    * ONE MESSAGE FOR THIS PERSON ABOUT THIS CAMPAIGN AT THIS MOMENT, or null.
    *
    * The owner's rule, in his words: "There should not be any different messages
@@ -243,6 +260,7 @@ export function toTaskResponse(
     wentToShopAt: iso(row.wentToShopAt),
     shopHoldEndsAt: iso(row.shopHoldEndsAt),
     shopVisitNoticeText: row.shopVisitNoticeText ?? null,
+    practiceWindowDays: row.practiceWindowDays ?? null,
     // BUILT HERE AND NOWHERE ELSE. `now` is the same instant the rest of this
     // response was built from, so the message and the eligibility above cannot
     // disagree about what time it is.

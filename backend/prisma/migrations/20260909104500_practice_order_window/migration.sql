@@ -1,0 +1,11 @@
+-- HOW MANY DAYS THE ORDER WINDOW WAS WIDENED BY, FOR TESTING, WHEN IT WAS.
+--
+-- ADDITIVE ONLY. One nullable column, no default, nothing dropped and nothing
+-- rewritten, so every task that already exists keeps NULL — which is exactly
+-- what it means: this match was not widened.
+--
+-- The mark exists so a widened match can never be mistaken for a real one. It is
+-- written at the moment the widened window is used, not worked out later from the
+-- setting, because a setting can be turned off between the match and somebody
+-- looking at it and a mark that vanishes with it is not a mark.
+ALTER TABLE "tasks" ADD COLUMN "practiceWindowDays" INTEGER;

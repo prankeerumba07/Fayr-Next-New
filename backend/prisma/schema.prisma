@@ -371,6 +371,29 @@ model Task {
   /// sentence kept.
   shopVisitNoticeText String?
 
+  /// HOW MANY DAYS THE ORDER WINDOW WAS WIDENED BY, FOR TESTING, WHEN IT WAS.
+  ///
+  /// NULL ON EVERY REAL TASK, and null is what it stays unless two things are
+  /// both true at once: PRACTICE_ORDER_WINDOW_DAYS is set to a positive number,
+  /// AND the live database's own name ends in _dev or _test. See
+  /// tasks/engine/practice-window.ts, and tasks/practice-window.service.ts for
+  /// the guard that asks the database rather than the settings.
+  ///
+  /// ── WHY A NUMBER AND NOT A YES OR NO ──────────────────────────────────────
+  ///
+  /// Because "this match was widened" is not enough to judge it by. A window
+  /// widened by one day and a window widened by three years are different
+  /// claims about how much was let through, and a staff member looking at a
+  /// held refund needs the second one to be obvious.
+  ///
+  /// ── AND IT IS WRITTEN AT THE MOMENT IT IS USED ────────────────────────────
+  ///
+  /// Not worked out again later from the setting. The setting can be changed or
+  /// turned off between the match and somebody looking at it, and a mark that
+  /// disappears when the setting does is not a mark. This is the record that it
+  /// happened, so a widened match can never be mistaken for a real one.
+  practiceWindowDays Int?
+
   /// WHEN THIS PERSON ACCEPTED THIS OFFER'S OWN TERMS, and what they accepted.
   ///
   /// NOT the same thing as users.termsAcceptedAt, which is consent to Fayr itself

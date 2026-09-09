@@ -6,6 +6,9 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { matchOrderToCampaign } from '../ocr/order-comparison';
 import { orderWindow } from './engine/order-window';
+import { ORDER_WINDOW_GRACE_MS } from './engine/order-window';
+import { practiceGraceMs } from './engine/practice-window';
+import { PracticeWindowService } from './practice-window.service';
 import { SOURCES } from './engine/states';
 import {
   dateToSubmit,
@@ -49,6 +52,7 @@ export class OrderCandidatesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tasks: TaskService,
+    private readonly practiceWindow: PracticeWindowService,
   ) {}
 
   /** The caller's own task, with its campaign. 404 if it is not theirs. */
@@ -193,10 +197,17 @@ export class OrderCandidatesService {
     // settles the question when it falls entirely outside the window. See
     // dateToSubmit: the rule itself is not weakened, and the day is kept as
     // written either way.
+    // THE PRACTICE WINDOW APPLIES HERE TOO, and it has to. This is the other
+    // real caller of orderWindow: it decides which of a person's orders are even
+    // OFFERED as candidates. Widening only the enforcement side would produce the
+    // worst of both — an old order that would now be accepted, never shown to
+    // anybody to accept. Zero on every real database, whatever the setting says.
+    const practiceDays = await this.practiceWindow.daysAllowed();
     const window = orderWindow({
       claimedAt: task.createdAt.getTime(),
       campaignCreatedAt: task.campaign.createdAt.getTime(),
       claimExpiresAt: task.claimExpiresAt ? task.claimExpiresAt.getTime() : null,
+      graceMs: practiceGraceMs(practiceDays, ORDER_WINDOW_GRACE_MS),
     });
     const date = dateToSubmit(row.orderDate, window);
 

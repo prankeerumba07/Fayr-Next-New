@@ -126,6 +126,36 @@ export const envSchema = z.object({
     .max(129_600)
     .default(30),
 
+  // --- The practice order window (TESTING ONLY) -----------------------------
+  //
+  // HOW MANY DAYS FURTHER BACK AN ORDER MAY BE AND STILL MATCH. Zero is off, and
+  // zero is the default, and off changes nothing anywhere.
+  //
+  // WHY IT EXISTS. The owner has test campaigns pointing at products he already
+  // bought on Amazon months ago. They are real purchases, and the date rule
+  // refuses every one of them — correctly, because a campaign must have CAUSED
+  // the purchase. Without this the READ cannot be tested at all.
+  //
+  // IT CANNOT REACH A REAL DATABASE, and that is not enforced here. This setting
+  // being on is only half of what is required: engine/practice-window.ts asks the
+  // LIVE DATABASE ITS OWN NAME and refuses to widen anything unless that name
+  // ends in _dev or _test, the same shape as scripts/free-practice-claims.ts.
+  // So setting this in a real deployment's environment does nothing at all.
+  //
+  // AND IT WEAKENS NO RULE. checkOrderWindow is untouched and gains no flag; what
+  // changes is the window it is handed. Every task matched through a widened
+  // window is MARKED, and the staff panel shows the mark, so a widened match can
+  // never be mistaken for a real one.
+  //
+  // The ceiling is ten years, longer than any shop's order history, because a
+  // setting with no ceiling is one somebody types a wrong number into.
+  PRACTICE_ORDER_WINDOW_DAYS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3650)
+    .default(0),
+
   // --- Scheduler (step 1.6) -------------------------------------------------
   // The maintenance cron: re-checks review visibility during HOLDING, auto-
   // releases eligible refunds, and expires unpurchased claims. Disabled under

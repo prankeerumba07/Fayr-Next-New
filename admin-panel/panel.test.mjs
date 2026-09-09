@@ -1261,5 +1261,56 @@ console.log('\n=== 7f. the page that measures Fayr itself ===');
   }
 }
 
+console.log('\n=== the practice window mark, actually run ===');
+{
+  // ── WHY THIS IS RUN AND NOT READ ────────────────────────────────────────
+  //
+  // FOUND BY BREAKING THE CODE. The checks on this mark were string matches in a
+  // backend spec, and a `return null;` inserted at the top of practiceMark left
+  // every one of those strings in the file. So the mark could be switched off
+  // completely with everything green. A function has to be CALLED.
+  //
+  // A widened order window is a window whose floor was lowered for testing. A
+  // staff member looking at a held refund has to see that before they decide
+  // whether to pay it, so this is the loudest thing on the row.
+  const src = (script.match(/function practiceMark\(t\)[\s\S]*?\n    \}/) || [])[0] || '';
+  ok(src.length > 0, 'practiceMark was found in the panel');
+
+  const run = new Function(`
+    function pill(text, tone) { return { text: text, tone: tone }; }
+    ${src}
+    return practiceMark;
+  `)();
+
+  // READ SAFELY, BECAUSE A CRASH IS NOT A CATCH. Switching the mark off makes the
+  // first check below fail correctly and then made the NEXT line read .text off
+  // null, which killed the process before any summary printed — so the harness
+  // read a dead process as a catch. Found by breaking the code.
+  const markFor = (task) => {
+    const got = run(task);
+    return got && typeof got === 'object' ? got : { text: null, tone: null };
+  };
+
+  ok(run({ practiceWindowDays: 400 }) != null,
+    'A WIDENED TASK IS MARKED — the mark cannot be switched off silently');
+  ok(markFor({ practiceWindowDays: 400 }).text === 'PRACTICE WINDOW 400d',
+    'and it names the number of days, not just that it happened');
+  ok(markFor({ practiceWindowDays: 1 }).text === 'PRACTICE WINDOW 1d',
+    'one day says one day');
+  ok(markFor({ practiceWindowDays: 400 }).tone === 'bad',
+    'AND IT IS LOUD: a quiet mark can be mistaken for a real match, which is the '
+    + 'one thing forbidden');
+
+  // NULL ON EVERY REAL TASK, and every shape of nothing.
+  for (const real of [
+    { practiceWindowDays: null }, { practiceWindowDays: 0 }, {},
+    { practiceWindowDays: undefined }, { practiceWindowDays: '400' },
+    { practiceWindowDays: -1 }, null, undefined,
+  ]) {
+    ok(run(real) == null,
+      `${JSON.stringify(real) ?? String(real)} carries no mark`);
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
