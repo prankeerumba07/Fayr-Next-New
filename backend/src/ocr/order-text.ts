@@ -151,10 +151,23 @@ const ORDER_HASH_LABEL = /^order\s*#\s*(.*)$/i;
  *
  * Deliberately not "Delivered on", which sits two lines away on a Zepto screen
  * and carries a date of its own. A delivery date read as an order date would make
- * an order look as though it was placed after it arrived.
+ * an order look as though it was placed after it arrived. See DELIVERY_LABEL
+ * below, which reads that date as the separate thing it is.
+ *
+ * ── "ORDER PLACED", WITH NO "ON" AFTER IT ─────────────────────────────────
+ *
+ * Which is exactly how Amazon writes it on an order's own page, and the "on" was
+ * required. Measured, not guessed: the order page text read
+ *
+ *   Order placed / 2 June 2026 / Order # 408-… / Order Total / ₹1,299.00
+ *
+ * and came back with the number, the total and the product, and no date at all —
+ * one of the four fields the whole read exists to produce. So the "on" is now
+ * optional. It is the same heading with the same meaning on the list page, where
+ * the date sits under it in the same way.
  */
 const ORDER_DATE_LABEL =
-  /^(?:placed\s+on|ordered\s+on|order\s+placed\s+on|order(?:ed)?\s+date|placed)\b\s*[:\-]?\s*(.*)$/i;
+  /^(?:placed\s+on|ordered\s+on|order\s+placed(?:\s+on)?|order(?:ed)?\s+date|placed)\b\s*[:\-]?\s*(.*)$/i;
 
 /** A shipment heading — "Shipment 1 of 2". */
 const SHIPMENT_HEADING = /^shipment\b/i;

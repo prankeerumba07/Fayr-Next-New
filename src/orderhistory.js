@@ -339,22 +339,79 @@ function looksLikeADeadEnd(html) {
   return /click the button below to continue shopping/i.test(html);
 }
 
-export function readListOutcome(answer) {
+/**
+ * ONE FETCHED PAGE, AS FAR AS THE SHOP'S OWN REFUSALS GO.
+ *
+ * Everything readListOutcome does about a refusal, without the cutting-into-
+ * orders part. Its own function because it is asked of TWO different kinds of
+ * page now — the list, and each order's own page — and the refusals are
+ * identical for both: a dead end is a dead end, a 503 is a 503, and a sign in
+ * wall is a sign in wall whichever address was asked for.
+ *
+ * SEPARATED RATHER THAN COPIED. The first writing of the order-page read had its
+ * own idea of what a refusal was, which is how two ideas of one thing start.
+ */
+export function readPageRefusal(answer) {
   const a = answer && typeof answer === 'object' ? answer : {};
   const status = Number.isFinite(a.status) ? Number(a.status) : 0;
   const html = typeof a.html === 'string' ? a.html : '';
-  // WHY WE COULD NOT LOOK, WHEN THERE IS A NAME FOR IT. Worked out BEFORE the
-  // early return, because the answer that carries a 503 is exactly the answer
-  // that returns early, and it is the one worth explaining.
-  const whyNot = whyTheShopIsRefusing({
-    statusCode: status,
-    isAPuzzle: looksLikeAPuzzle(html),
-    isADeadEnd: looksLikeADeadEnd(html),
-  });
-  // WHERE WE ENDED UP. A sign in wall arrives as a 200 carrying the sign in page,
-  // so the address is the only honest signal.
-  const wantsSignIn = wantsASignIn(typeof a.url === 'string' ? a.url : '');
-  if (a.ok !== true || status === 0 || status >= 400) {
+  return {
+    status,
+    html,
+    // Worked out BEFORE any early return, because the answer that carries a 503
+    // is exactly the answer that returns early and the one worth explaining.
+    whyNot: whyTheShopIsRefusing({
+      statusCode: status,
+      isAPuzzle: looksLikeAPuzzle(html),
+      isADeadEnd: looksLikeADeadEnd(html),
+    }),
+    // A sign in wall arrives as a 200 carrying the sign in page, so the final
+    // address is the only honest signal.
+    wantsSignIn: wantsASignIn(typeof a.url === 'string' ? a.url : ''),
+    answered: a.ok === true && status !== 0 && status < 400,
+  };
+}
+
+/**
+ * ONE ORDER'S OWN PAGE, AS THE TEXT THE SERVER WILL READ.
+ *
+ * ── WHY THIS IS NOT readListOutcome ────────────────────────────────────────
+ *
+ * A list page holds many orders and has to be cut up. An order's own page holds
+ * ONE, so there is nothing to cut: the whole page is the order. What it still
+ * needs is the furniture removed — Amazon's menu, its footer, its wall of
+ * accessibility text — because the server reads the first twenty thousand
+ * characters and the fields are near the top.
+ *
+ * readOrderBlocks already drops everything above the first order opening, which
+ * is exactly that furniture, so it is reused and the FIRST block taken. If the
+ * page carries no opening this reader recognises, the whole page text is handed
+ * over instead rather than nothing: the server's reader is the one allowed to
+ * decide there is no order here, and a page held back because this file did not
+ * recognise a heading would be this file deciding a money question.
+ */
+export function readDetailOutcome(answer) {
+  const { html, whyNot, wantsSignIn, answered } = readPageRefusal(answer);
+  // A REFUSED PAGE NEVER COUNTS AS HAVING LOOKED, and this is not tidiness. The
+  // dead end page carries a sentence, so its text is not empty and it would come
+  // back as an order with something on it. A caller that asked "did we look?"
+  // before "was it refused?" would then post Amazon's own apology to the server
+  // as though it were somebody's order.
+  if (!answered || whyNot != null || wantsSignIn === true) {
+    return { looked: false, text: '', whyNot, wantsSignIn };
+  }
+  const blocks = readOrderBlocks(html);
+  const text = blocks.length > 0 ? blocks[0] : pageToLines(html).join('\n');
+  return { looked: text !== '', text, whyNot, wantsSignIn };
+}
+
+export function readListOutcome(answer) {
+  // THE REFUSALS COME FROM ONE PLACE, shared with the order-page read above, so
+  // the two cannot end up with different ideas of what a dead end is.
+  const { html, whyNot, wantsSignIn, answered } = readPageRefusal(answer);
+  // The same rule as the order-page read above, for the same reason: a refused
+  // page has not been looked at, whatever words happen to be on it.
+  if (!answered || whyNot != null || wantsSignIn === true) {
     return { looked: false, blocks: [], whyNot, wantsSignIn };
   }
   const blocks = readOrderBlocks(html);

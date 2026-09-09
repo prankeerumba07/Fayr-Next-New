@@ -317,5 +317,88 @@ describe('reading an order screen that holds several shipments', () => {
       expect(order.items[0].pricePaise).toBe(129950n);
       expect(order.totalPaise).toBe(129950n);
     });
+  
+  /**
+   * ── AMAZON'S ORDER PAGE, WHICH IS WHERE THE FOUR FIELDS COME FROM ────────
+   *
+   * The owner's one requirement: read his Amazon order history and come back
+   * with the ORDER NUMBER, the ORDER AMOUNT, the ORDER DATE and the PRODUCT
+   * NAME, matched to the campaign.
+   *
+   * The order LIST page cannot give them. It is filled in by Amazon's own code
+   * after the page arrives and a fetch runs none of it, so the cards come back
+   * as empty frames — measured twice, fourteen minutes apart in one session:
+   * eight matched products, then none. The order's OWN page is rendered by
+   * Amazon's server, and this is the reader that has to get all four out of it.
+   *
+   * THE TEXT BELOW IS THE SHAPE THE PHONE REALLY HANDS OVER, taken from
+   * readDetailOutcome in src/orderhistory.js: every tag becomes a line break, so
+   * a label and its value arrive as two lines rather than one sentence.
+   *
+   * AND ONE OF THE FOUR WAS MISSING WHEN THIS WAS FIRST TRIED. "Order placed"
+   * with no "on" after it did not match the date label, so the read came back
+   * with the number, the total and the product and no date at all. That is why
+   * the first check here is the date.
+   */
+  describe("Amazon's own order page, all four fields", () => {
+    const orderPage = [
+      'Order placed',
+      '2 June 2026',
+      'Order # 408-5094957-4481129',
+      'Order Total',
+      '₹1,299.00',
+      'boAt Rockerz 255 Pro Plus Bluetooth Headphones',
+      '1 x ₹1,299.00',
+      'Delivered 5 June 2026',
+    ].join('\n');
+
+    it('THE ORDER DATE, from "Order placed" with no "on" after it', () => {
+      expect(parseOrderText(orderPage).orderDate).toBe('2026-06-02');
+    });
+
+    it('the order number, written the way Amazon writes it', () => {
+      expect(parseOrderText(orderPage).orderNumber).toBe('408-5094957-4481129');
+    });
+
+    it('the order amount, from its own label and not the first rupee token', () => {
+      expect(parseOrderText(orderPage).totalPaise).toBe(129900n);
+    });
+
+    it('and the product name, which is what the match is made on', () => {
+      const order = parseOrderText(orderPage);
+      expect(order.items).toHaveLength(1);
+      expect(order.items[0].name).toBe(
+        'boAt Rockerz 255 Pro Plus Bluetooth Headphones',
+      );
+      expect(order.items[0].pricePaise).toBe(129900n);
+    });
+
+    it('the delivery line is NOT read as the order date', () => {
+      // The order was placed on 2 June and arrived on 5 June. Reading the
+      // arrival as the placing would make an order look as though it was placed
+      // after it turned up, and it would be compared against the wrong window.
+      expect(parseOrderText(orderPage).orderDate).not.toBe('2026-06-05');
+    });
+
+    it('and "Delivered" is not read as a product either', () => {
+      const names = parseOrderText(orderPage).items.map((i) => i.name);
+      expect(names.some((n) => /delivered/i.test(n))).toBe(false);
+    });
+
+    it('still reads it when the label and the value share one line', () => {
+      // Not every page breaks where this one does, so both shapes are checked.
+      const oneLine = [
+        'Order placed 2 June 2026',
+        'Order # 408-5094957-4481129',
+        'boAt Rockerz 255 Pro Plus ₹1,299.00',
+        'Order Summary',
+        'Order Total ₹1,299.00',
+      ].join('\n');
+      const order = parseOrderText(oneLine);
+      expect(order.orderDate).toBe('2026-06-02');
+      expect(order.orderNumber).toBe('408-5094957-4481129');
+      expect(order.totalPaise).toBe(129900n);
+    });
   });
+});
 });

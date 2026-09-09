@@ -46,7 +46,13 @@ import { WebView } from 'react-native-webview';
 import * as campaignStore from '../backend/campaignStore';
 import { getTaskId, refreshFromBackend } from '../taskStore';
 import { PLATFORMS } from '../platforms';
-import { buildOrderListScript, orderListPageFor, readListOutcome } from '../orderhistory.js';
+import {
+  buildOrderListScript, orderListPageFor, readDetailOutcome, readListOutcome,
+} from '../orderhistory.js';
+import {
+  harvestOrderNumbers, orderDetailPageFor, pagesToOpen, readsOrderPages,
+  waitBeforeFetch,
+} from './detailLook.js';
 import { sendFoundOrders } from '../backend/orderCandidatesApi';
 import { useMotion } from '../ui/celebration';
 import { COLOR, FONT, SPACE } from '../ui/theme';
@@ -94,6 +100,9 @@ export default function LookingForItScreen({ navigation, route }) {
   const [job, setJob] = useState(null);
   const answered = useRef(false);
   const waiting = useRef(null);
+  // THE WEB VIEW ITSELF, so the second and later fetches can be injected into
+  // the page that is already open instead of loading a fresh one each time.
+  const web = useRef(null);
   const spin = useRef(new Animated.Value(0)).current;
 
   // ── the words change, so the screen does not read as stuck ────────────────
@@ -177,10 +186,32 @@ export default function LookingForItScreen({ navigation, route }) {
         return;
       }
 
-      const answer = await new Promise((resolve) => {
+      /**
+       * ── ONE PAGE LOAD, MANY FETCHES ─────────────────────────────────────
+       *
+       * The first fetch mounts the web view, which loads the shop's own page and
+       * runs the script on load. Every fetch after that is injected into the
+       * page that is ALREADY open.
+       *
+       * WHY, AND IT IS NOT TIDINESS. Remounting per fetch means a full page load
+       * of the shop's home page each time. Six of those, plus six fetches, plus
+       * the gaps between them, is comfortably past the twenty second ceiling this
+       * screen enforces — so the look would be cut off before it finished on
+       * every run that needed more than a page or two. It is also six page loads
+       * asked of a shop that rate-limits us, for nothing.
+       */
+      const openTheShop = (url) => new Promise((resolve) => {
         waiting.current = resolve;
-        setJob({ url: page });
+        setJob({ url });
       });
+      const askAgain = (url) => new Promise((resolve) => {
+        if (!web.current) { resolve(null); return; }
+        waiting.current = resolve;
+        web.current.injectJavaScript(buildOrderListScript(url));
+      });
+      const pause = (ms) => new Promise((done) => { setTimeout(done, ms); });
+
+      const answer = await openTheShop(page);
       if (!alive) return;
 
       const outcome = readListOutcome(answer);
@@ -223,6 +254,96 @@ export default function LookingForItScreen({ navigation, route }) {
         return;
       }
 
+      /** Hand the text of everything opened so far to the server, and ask. */
+      const askTheServer = async (pages) => {
+        const sent = await sendFoundOrders(taskId, pages);
+        if (!sent.ok) return [];
+        return sent.orders.filter((o) => o && o.matches === true && !o.chosenAt);
+      };
+
+      /** Leave with whatever the server ended up holding. */
+      const leaveWith = async (matched) => {
+        await refreshFromBackend();
+        await settle();
+        if (!alive) return;
+        moveOn(matched.length > 0 ? 'IsThisYourOrder' : 'Journey');
+      };
+
+      // ── AMAZON: THE LIST IS WORTH ITS ORDER NUMBERS AND NOTHING ELSE ────
+      //
+      // Amazon fills its list in with its own code after the page arrives, and a
+      // fetch runs none of it, so the cards come back as empty frames. Measured
+      // twice fourteen minutes apart in one session: eight matched products, then
+      // none. What survives is each card's own attribute carrying the order
+      // number, because an attribute is in the markup as sent.
+      //
+      // So the numbers are harvested and each order's OWN page is opened — the
+      // server-rendered one the review-first read has always used and proven.
+      // The TEXT goes to the server, which reads it with the same one reader the
+      // screenshots go through and says whether it matched. The phone decides
+      // nothing about money.
+      //
+      // IT STOPS AT THE FIRST MATCH, so the ordinary case is one order page.
+      // Every other shop keeps exactly what it did before: their list pages
+      // really do carry their orders as text.
+      // ASKED, NEVER NAMED. This screen may not write a shop's name anywhere,
+      // including in a comparison, and there is a check that reads this file and
+      // holds every piece of text in it to that rule. src/order/detailLook.js
+      // knows which shops are read this way; this only asks.
+      if (readsOrderPages(platformKey)) {
+        const numbers = pagesToOpen(harvestOrderNumbers(answer && answer.html));
+        const pages = [];
+        for (let i = 0; i < numbers.length; i += 1) {
+          const gap = waitBeforeFetch(i);
+          if (gap > 0) await pause(gap);
+          if (!alive) return;
+          const url = orderDetailPageFor(numbers[i]);
+          // Cannot be null — pagesToOpen already refused anything that is not an
+          // order number — and it is still asked, because the day that stops
+          // being true the answer must be "do not fetch it" and not a guess.
+          if (url == null) continue;
+
+          const one = await askAgain(url);
+          if (!alive) return;
+          const detail = readDetailOutcome(one);
+
+          // ── ANY REFUSAL STOPS THE WHOLE LOOK, NOT JUST THIS PAGE ────────
+          //
+          // A dead end, a 503 or a puzzle on one order page means the shop is
+          // done with us for now. Carrying on down the list would be pushing
+          // against exactly the limit it just named, and it is the behaviour
+          // that gets an account blocked. Reported through the same two answers
+          // the list already uses, so there is one vocabulary for it.
+          if (detail.wantsSignIn === true) {
+            await settle();
+            if (!alive) return;
+            stopTheClock();
+            setNeedsSignIn(true);
+            return;
+          }
+          if (detail.whyNot != null) {
+            await settle();
+            if (!alive) return;
+            stopTheClock();
+            setRefused(detail.whyNot);
+            return;
+          }
+
+          // An order page with nothing readable on it is not a refusal. On to
+          // the next one.
+          if (!detail.looked) continue;
+
+          pages.push(detail.text);
+          const matched = await askTheServer(pages);
+          if (!alive) return;
+          if (matched.length > 0) { await leaveWith(matched); return; }
+        }
+        // Nothing matched, or there were no order numbers to open at all. The
+        // silent hand-back, exactly as before: the journey asks the person.
+        await leaveWith([]);
+        return;
+      }
+
       if (!outcome.looked) {
         await settle();
         if (alive) moveOn('Journey');
@@ -230,15 +351,7 @@ export default function LookingForItScreen({ navigation, route }) {
       }
 
       // THE TEXT, AND ONLY THE TEXT. The server reads it and decides.
-      const sent = await sendFoundOrders(taskId, outcome.blocks);
-      await refreshFromBackend();
-      await settle();
-      if (!alive) return;
-
-      const matched = sent.ok
-        ? sent.orders.filter((o) => o && o.matches === true && !o.chosenAt)
-        : [];
-      moveOn(matched.length > 0 ? 'IsThisYourOrder' : 'Journey');
+      await leaveWith(await askTheServer(outcome.blocks));
     })();
 
     return () => {
@@ -334,7 +447,13 @@ export default function LookingForItScreen({ navigation, route }) {
           anybody to read, and the person is watching the ring. */}
       {job ? (
         <WebView
-          key={job.url}
+          /* ONE MOUNT FOR THE WHOLE LOOK. The key is deliberately NOT the
+             address: keying on it would reload the shop's home page before every
+             fetch, which is six page loads asked of a shop that rate-limits us
+             and comfortably past this screen's own twenty second ceiling. Later
+             fetches are injected into the page already open. */
+          key="the-look"
+          ref={web}
           source={{ uri: platform.startUrl }}
           userAgent={platform.userAgent}
           sharedCookiesEnabled
