@@ -40,6 +40,7 @@
 // imports PLATFORMS to read a shop's name and nothing else.
 
 import { PLATFORMS } from './platforms.js';
+import { whyTheShopIsRefusing } from './connect/shopRefusing.js';
 
 /**
  * How many orders back to look. The owner's number.
@@ -258,12 +259,61 @@ export function readOrderBlocks(html) {
  * it is ever put in front of them, because the screen that is waiting on this is
  * not allowed to mention the shop at all.
  */
+/**
+ * ── THE SHOP'S OWN REFUSAL, READ OUT OF THE PAGE WE WERE HANDED ─────────────
+ *
+ * The two below look at the FETCHED TEXT, not at a live page, which is why they
+ * are here rather than in the injected questions in src/connect/pageQuestions.js.
+ * Same words, different place to look: that file asks a document, this asks a
+ * string. The NAMES they produce come from one place, src/connect/shopRefusing.js,
+ * so there is one vocabulary for this and not two.
+ *
+ * WHY THIS MATTERS MORE THAN IT LOOKS. "We could not find your order" and "the
+ * shop is not letting us look right now" send a person to two different places,
+ * and only one of them is about their money. Until now every failure here
+ * collapsed into one silent answer.
+ */
+function looksLikeAPuzzle(html) {
+  const said = html.toLowerCase();
+  if (/enter the characters you see|type the characters|are you a human/.test(said)) {
+    return true;
+  }
+  if (/i am not a robot|unusual traffic|verify you are human/.test(said)) return true;
+  // Amazon's own puzzle address, and Flipkart's. Both, because both are real.
+  return /errors_page\/validatecaptcha|errors\/validatecaptcha/.test(said);
+}
+
+/**
+ * THE DEAD END. A page whose whole body is "Click the button below to continue
+ * shopping" is not a shop that has no orders on it.
+ *
+ * THE LENGTH IS PART OF THE TEST, and it is what stops this matching a real
+ * orders page. A real one carrying those words somewhere in it runs to many
+ * thousands of characters; the page Amazon sent was one sentence. Measured
+ * against the FETCHED HTML, so the ceiling is larger than the injected version's
+ * — that one reads innerText, this one reads markup, and the same sentence in
+ * markup carries a head, a script or two and some attributes with it.
+ */
+function looksLikeADeadEnd(html) {
+  if (html.length === 0 || html.length > 4000) return false;
+  return /click the button below to continue shopping/i.test(html);
+}
+
 export function readListOutcome(answer) {
   const a = answer && typeof answer === 'object' ? answer : {};
   const status = Number.isFinite(a.status) ? Number(a.status) : 0;
+  const html = typeof a.html === 'string' ? a.html : '';
+  // WHY WE COULD NOT LOOK, WHEN THERE IS A NAME FOR IT. Worked out BEFORE the
+  // early return, because the answer that carries a 503 is exactly the answer
+  // that returns early, and it is the one worth explaining.
+  const whyNot = whyTheShopIsRefusing({
+    statusCode: status,
+    isAPuzzle: looksLikeAPuzzle(html),
+    isADeadEnd: looksLikeADeadEnd(html),
+  });
   if (a.ok !== true || status === 0 || status >= 400) {
-    return { looked: false, blocks: [] };
+    return { looked: false, blocks: [], whyNot };
   }
-  const blocks = readOrderBlocks(typeof a.html === 'string' ? a.html : '');
-  return { looked: blocks.length > 0, blocks };
+  const blocks = readOrderBlocks(html);
+  return { looked: blocks.length > 0, blocks, whyNot };
 }

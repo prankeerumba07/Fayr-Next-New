@@ -480,7 +480,27 @@ export default function TaskScreen({ navigation, route }) {
   const amountNeedsStaff = hasOrder && refundLabel == null;
   const release = releaseStageState({ refunded, eligible, hasAmount: refundLabel != null });
 
-  const goMarketplace = () => navigation.navigate(campaign.marketplace, { campaignId });
+  /**
+   * "CHECK AMAZON", AND IT NOW CHECKS AMAZON.
+   *
+   * ── WHAT IT USED TO DO, AND WHAT HE SAW ───────────────────────────────────
+   *
+   * navigation.navigate(campaign.marketplace, { campaignId }) — the connect
+   * screen's route, WITHOUT toSignIn. src/signin.js shopHandedToConnectScreen
+   * returns the shop's own start page for a visit that is not a sign in visit, so
+   * he tapped "Check Amazon", got the "Continue shopping" page, and landed on
+   * Amazon's home page. The label promised a check and it delivered a shop front.
+   *
+   * ── KEPT AND POINTED AT THE READ, RATHER THAN REMOVED ─────────────────────
+   *
+   * The owner offered either. This is the better half of the choice: the button
+   * now does the thing its label says, and the thing its label says is the whole
+   * point of the day. LookingForIt reads the shop's own list of orders from
+   * inside the web view and hands the text to our side to judge — so "check
+   * again" really is a check, and it costs Amazon one page rather than a visit to
+   * a sign in page it has already started refusing.
+   */
+  const goMarketplace = () => navigation.navigate('LookingForIt', { campaignId });
 
   const stages = [
     {

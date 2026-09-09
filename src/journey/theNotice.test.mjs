@@ -17,8 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { countdownFor, holdIsOver, messageText, noticeFromTask } from './theNotice.js';
 import {
   COULD_NOT_START, EVERY_SENTENCE, HAVE_YOU_BOUGHT_IT, NOTHING_WAS_SPENT,
-  NOT_BUILT_YET, NOT_YET, TIME_IS_UP, TRY_AGAIN, YES_I_HAVE, takeMeThere,
-  timeLeftInWords,
+  NOT_YET, TIME_IS_UP, TRY_AGAIN, YES_I_HAVE, takeMeThere, timeLeftInWords,
 } from '../ui/journeyWords.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -203,7 +202,7 @@ console.log('\n=== 8. AND NO SCREEN WRITES THOSE SENTENCES ITSELF ===');
 
 console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
 {
-  ok(EVERY_SENTENCE.length === 15, 'the list of them is complete');
+  ok(EVERY_SENTENCE.length === 18, 'the list of them is complete');
   for (const sentence of EVERY_SENTENCE) {
     ok(typeof sentence === 'string' && sentence.trim() !== '',
       `"${sentence}" is a real sentence`);
@@ -213,8 +212,8 @@ console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
   ok(code.includes('COULD_NOT_START') && !code.includes(COULD_NOT_START),
     'the buy screen NAMES the refusal sentence rather than holding a copy of it');
   ok(!code.includes(NOTHING_WAS_SPENT), 'and the same for the second half of it');
-  ok([HAVE_YOU_BOUGHT_IT, YES_I_HAVE, NOT_YET, NOT_BUILT_YET, TRY_AGAIN,
-    takeMeThere('Amazon')].every((s) => EVERY_SENTENCE.includes(s)),
+  ok([HAVE_YOU_BOUGHT_IT, YES_I_HAVE, NOT_YET, TRY_AGAIN, takeMeThere('Amazon')]
+    .every((s) => EVERY_SENTENCE.includes(s)),
   'every word a person reads on these screens is in the walked list');
 }
 
@@ -295,14 +294,28 @@ console.log('\n=== 11. AND THE BUY SCREEN CHANGES AFTER THEY HAVE GONE ===');
   ok(code.includes('YES_I_HAVE') && code.includes('NOT_YET')
     && !code.includes(YES_I_HAVE) && !code.includes(NOT_YET),
   'and both answers the same way');
-  ok(code.includes('NOT_BUILT_YET') && !code.includes(NOT_BUILT_YET),
-    'and so does the sentence admitting the next step is missing');
+  // NO PLACEHOLDER SENTENCE ANY MORE. Yesterday YES set a flag and the screen
+  // said "we have not built the next step yet", which was true of the ROUTE and
+  // not of the work: both order screens already existed and were reachable only
+  // from returncatch.js. The sentence is gone from the words file too, because a
+  // walked sentence nothing shows is a lie in the list of what people read.
+  ok(!code.includes('NOT_BUILT_YET'),
+    'and the placeholder sentence is gone, because YES now goes somewhere');
 
   // YES IS HONEST ABOUT LEADING NOWHERE, AND STEPS EIGHT TO TWELVE ARE NOT
   // HALF-BUILT HERE. Nothing on this screen reads an order, matches one, or moves
   // the task on.
-  ok(/onPress=\{\(\) => setSaidYes\(true\)\}/.test(code),
-    'YES sets one flag and does nothing else at all');
+  // ── YES NOW LOOKS FOR THE ORDER, AND THAT WAS THE ONE MISSING LINK ──────
+  //
+  // src/order/LookingForItScreen.js reads the shop's own list of orders from
+  // inside the web view and hands the TEXT to our side to judge;
+  // IsThisYourOrderScreen shows what came back. Both already existed. The whole
+  // path was reachable only from src/screens/returncatch.js, so nobody arriving
+  // from "I have bought it" could reach it.
+  ok(/onPress=\{lookForTheOrder\}/.test(code),
+    'YES looks for the order');
+  ok(/navigation\.navigate\('LookingForIt', \{ campaignId \}\);/.test(code),
+    'and that is a navigation to the waiting screen, and nothing else');
   for (const notHere of [
     'dispatch(', 'postTaskAction', 'confirmOrder', 'markReviewed', 'startHold',
     'releaseRefund', 'orderCandidates', 'submitEvidence', 'postEvidence',

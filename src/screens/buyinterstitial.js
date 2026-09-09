@@ -66,7 +66,7 @@ import {
   countdownFor, holdIsOver, messageText, noticeFromTask,
 } from '../journey/theNotice';
 import {
-  COULD_NOT_START, HAVE_YOU_BOUGHT_IT, NOTHING_WAS_SPENT, NOT_BUILT_YET,
+  COULD_NOT_START, HAVE_YOU_BOUGHT_IT, NOTHING_WAS_SPENT,
   NOT_YET, TRY_AGAIN, YES_I_HAVE,
 } from '../ui/journeyWords';
 import { Modal, TouchableOpacity } from 'react-native';
@@ -161,12 +161,30 @@ export default function BuyInterstitialScreen({ navigation, route }) {
   // null = nothing has gone wrong, true = the call failed and we did not open.
   const [couldNotStart, setCouldNotStart] = useState(false);
   const [asking, setAsking] = useState(false);
-  // THEY SAID YES AND THERE IS NOWHERE TO SEND THEM. Steps eight to twelve —
-  // reading their orders, matching one to this offer, asking "is this your
-  // order?" — are not built, so Yes sets this and the screen says so in words.
-  // A button that appears to work and quietly does nothing is the failure this
-  // whole area of the app keeps producing, and it is worse than an honest refusal.
-  const [saidYes, setSaidYes] = useState(false);
+  /**
+   * THEY SAID YES, AND NOW IT GOES SOMEWHERE.
+   *
+   * ── THIS WAS THE ONE MISSING LINK, AND IT WAS ONE LINE ────────────────────
+   *
+   * Yesterday this set a flag and the screen said "we have not built the next
+   * step yet", which was true of the ROUTE and not of the work. Both screens
+   * already existed: src/order/LookingForItScreen.js reads the shop's own list of
+   * orders from inside the web view and hands the TEXT to our side, which parses
+   * it and decides; src/order/IsThisYourOrderScreen.js shows what came back and
+   * asks. The whole path was reachable only from src/screens/returncatch.js, so
+   * nobody arriving from "I have bought it" could ever get to it.
+   *
+   * SO NOTHING IS HALF-BUILT HERE. This screen still reads no order, matches
+   * nothing, and moves no task on. It navigates.
+   *
+   * AND THE SCREENSHOT IS NOT ON THIS PATH. LookingForIt hands back to the
+   * journey only when the read found nothing, and the journey then asks for a
+   * picture — which is the owner's rule exactly: the screenshot is the fallback,
+   * offered when the read finds nothing, and never the first thing.
+   */
+  const lookForTheOrder = useCallback(() => {
+    navigation.navigate('LookingForIt', { campaignId });
+  }, [navigation, campaignId]);
 
   /**
    * TAPPING BUY NOW GOES THROUGH OUR SIDE FIRST.
@@ -332,21 +350,17 @@ export default function BuyInterstitialScreen({ navigation, route }) {
             The question and both answers come from src/ui/journeyWords.js, which
             Fayr's plain language rule reads off disk.
 
-            YES LEADS NOWHERE YET AND SAYS SO. Steps eight to twelve are not
-            built. NOT half-built here: this screen does not read an order, does
-            not match one, and does not advance the task. It shows one sentence
-            admitting the app has not got there.
+            YES LOOKS FOR THE ORDER. It navigates to the waiting screen, which
+            reads the shop's own list of orders and hands the TEXT to our side to
+            judge. NOTHING IS HALF-BUILT HERE: this screen reads no order,
+            matches nothing, and moves no task on.
 
             NOT YET simply leaves. Nothing has changed, their place is still
             held, and My Products brings them back to this exact screen. */}
         {hasGone && !over ? (
           <View style={styles.step7}>
-            {saidYes ? (
-              <Text style={styles.notBuilt}>{NOT_BUILT_YET}</Text>
-            ) : (
-              <Text style={styles.askedText}>{HAVE_YOU_BOUGHT_IT}</Text>
-            )}
-            <Pill onPress={() => setSaidYes(true)} color={COLOR.ink}>
+            <Text style={styles.askedText}>{HAVE_YOU_BOUGHT_IT}</Text>
+            <Pill onPress={lookForTheOrder} color={COLOR.ink}>
               {YES_I_HAVE.toUpperCase()}
             </Pill>
             <Pill onPress={() => goBackOrHome(navigation)} color={COLOR.line}>
@@ -441,11 +455,6 @@ const styles = StyleSheet.create({
   askedText: {
     fontFamily: FONT.bodyBold, fontSize: 15, lineHeight: 21, color: COLOR.ink,
     textAlign: 'center', marginBottom: 2,
-  },
-  notBuilt: {
-    fontFamily: FONT.bodySemi, fontSize: 13, lineHeight: 19, color: '#8A5A00',
-    backgroundColor: COLOR.amberBg, borderRadius: RADIUS.md,
-    paddingHorizontal: 12, paddingVertical: 10, textAlign: 'center',
   },
 
   couldNot: { marginBottom: 10 },

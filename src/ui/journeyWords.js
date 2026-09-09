@@ -53,25 +53,42 @@ export const HAVE_YOU_BOUGHT_IT = 'Have you bought the product?';
 export const YES_I_HAVE = 'Yes, I have';
 export const NOT_YET = 'Not yet';
 
+
 /**
- * AND THE HONEST ANSWER WHEN THEY SAY YES, BECAUSE THE NEXT STEP DOES NOT EXIST.
+ * THE SHOP WILL NOT LET US LOOK, AND THIS IS NOT "WE COULD NOT FIND YOUR ORDER".
  *
- * Steps eight to twelve — reading their orders, matching one to this offer,
- * asking "is this your order?" — are not built. So the Yes button leads to this
- * and to nothing else.
+ * ── WHY THE TWO MUST NEVER BE THE SAME SENTENCE ─────────────────────────────
  *
- * ── WHY A SENTENCE RATHER THAN A BUTTON THAT DOES NOTHING ───────────────────
+ * They send a person to two different places. "We could not find your order"
+ * means work: look again, send a photograph, check you bought the right thing —
+ * and worry, because it is about whether their money is coming. This one means
+ * wait a few minutes. Saying the first when the second is true tells somebody
+ * their purchase might not count when there is nothing wrong with it at all.
  *
- * A button that appears to work and quietly does not is the exact failure this
- * whole area of the app keeps producing: a tapped "I have written my review" that
- * vanished on the next fetch, a back control that did nothing. Somebody who taps
- * Yes and sees no change assumes they did it wrong and taps again. This says
- * plainly that the app has not got there yet, so the next move is theirs.
+ * MEASURED. On 9 September 2026 Amazon answered our second visit in four minutes
+ * with a page reading only "Click the button below to continue shopping", then
+ * 503, then its robot puzzle. Three faces of one meaning: slow down.
  *
- * It is not a sentence about the campaign's state, which the server owns. It is a
- * sentence about Fayr, and this file is where the screens' own words live.
+ * ── AND IT NEVER NAMES THE SHOP ─────────────────────────────────────────────
+ *
+ * The owner's rule: never blame Amazon by name. It also happens to be the honest
+ * wording, because we do not know that the shop is at fault. We asked twice in
+ * four minutes; a shop that then declines is behaving reasonably.
  */
-export const NOT_BUILT_YET = 'We have not built the next step yet.';
+export const SHOP_WILL_NOT_LET_US_LOOK = 'The shop is not letting us look just now.';
+export const NOTHING_IS_WRONG_WITH_YOUR_ORDER =
+  'Nothing is wrong with your order, and you have not lost your place.';
+export const TRY_IN_A_FEW_MINUTES = 'Please try again in a few minutes.';
+
+/**
+ * IT IS TAKING LONGER THAN IT SHOULD, said lightly and without a reason.
+ *
+ * The read is normally five to ten seconds. Past that a person needs to know the
+ * screen has not died, and needs to be told nothing else: the rule on the waiting
+ * screen is that it never says a shop account is being looked at, so this says
+ * only that it is slow.
+ */
+export const TAKING_LONGER = 'This is taking a little longer than usual.';
 
 /**
  * HOW LONG IS LEFT, IN WORDS, and it ticks on the phone.
@@ -122,7 +139,10 @@ export const EVERY_SENTENCE = [
   HAVE_YOU_BOUGHT_IT,
   YES_I_HAVE,
   NOT_YET,
-  NOT_BUILT_YET,
+  SHOP_WILL_NOT_LET_US_LOOK,
+  NOTHING_IS_WRONG_WITH_YOUR_ORDER,
+  TRY_IN_A_FEW_MINUTES,
+  TAKING_LONGER,
   TIME_IS_UP,
   timeLeftInWords(30 * 1000),
   timeLeftInWords(60 * 1000),

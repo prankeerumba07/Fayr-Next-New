@@ -52,12 +52,28 @@ import { useMotion } from '../ui/celebration';
 import { COLOR, FONT, SPACE } from '../ui/theme';
 import { Screen } from '../ui/primitives';
 import { WAIT_LINES, WAIT_LINE_MS, waitLineAt } from '../ui/funnyWait.js';
+import {
+  NOTHING_IS_WRONG_WITH_YOUR_ORDER, SHOP_WILL_NOT_LET_US_LOOK, TAKING_LONGER,
+  TRY_IN_A_FEW_MINUTES, TRY_AGAIN,
+} from '../ui/journeyWords.js';
+import { Pill } from '../ui/brand';
 
 /** The shortest this is on screen. Below this it reads as a flicker, not a wait. */
 export const LEAST_TIME_MS = 1600;
 
 /** The longest, whatever the shop does. Nobody is left on a turning ring. */
 export const MOST_TIME_MS = 20000;
+
+/**
+ * PAST THIS IT IS SLOW, and a person is told so.
+ *
+ * The read is normally five to ten seconds. Ten is the top of normal, so this is
+ * where "it is working" stops being the honest thing to imply and "it is slow"
+ * starts. The line it shows says nothing about what is happening — the rule on
+ * this screen is that it never tells anybody their shop account is being looked
+ * at — so it says only that it is taking longer.
+ */
+export const SLOW_AFTER_MS = 10000;
 
 export default function LookingForItScreen({ navigation, route }) {
   const params = (route && route.params) || {};
@@ -68,6 +84,10 @@ export default function LookingForItScreen({ navigation, route }) {
 
   const motion = useMotion();
   const [line, setLine] = useState(WAIT_LINES[0]);
+  const [slow, setSlow] = useState(false);
+  // WHY THE SHOP WOULD NOT LET US LOOK, when there is a name for it. Null while
+  // the ring is turning and null on an ordinary empty answer.
+  const [refused, setRefused] = useState(null);
   const [job, setJob] = useState(null);
   const answered = useRef(false);
   const waiting = useRef(null);
@@ -80,6 +100,16 @@ export default function LookingForItScreen({ navigation, route }) {
       setLine(waitLineAt(Date.now() - startedAt));
     }, WAIT_LINE_MS);
     return () => clearInterval(id);
+  }, []);
+
+  // ── AND PAST TEN SECONDS IT SAYS IT IS SLOW ───────────────────────────────
+  //
+  // One line, added under the turning ones, saying nothing about what is
+  // happening. Ten seconds is the top of normal for this read, so before that
+  // "it is working" is honest and after it, saying nothing is not.
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), SLOW_AFTER_MS);
+    return () => clearTimeout(t);
   }, []);
 
   // ── the ring turns, unless the phone asked for less movement ──────────────
@@ -117,6 +147,12 @@ export default function LookingForItScreen({ navigation, route }) {
 
     // The hard limit. It runs whatever else is going on.
     const giveUp = setTimeout(() => { if (alive) moveOn('Journey'); }, MOST_TIME_MS);
+    // NOTE ON THE ORDER OF THESE TWO. The hard limit is cleared when this effect
+    // is torn down, and showing the refusal does NOT tear it down — so it is
+    // checked inside moveOn instead: `answered` is not set by the refusal, so a
+    // refusal shown at nineteen seconds would still be replaced by the journey a
+    // second later. That is why the refusal clears it directly.
+    const stopTheClock = () => clearTimeout(giveUp);
 
     /** Wait until the screen has been up long enough to have been seen. */
     const settle = () => new Promise((done) => {
@@ -145,6 +181,27 @@ export default function LookingForItScreen({ navigation, route }) {
       if (!alive) return;
 
       const outcome = readListOutcome(answer);
+
+      // ── THE SHOP REFUSED, AND THAT IS NOT "WE COULD NOT FIND YOUR ORDER" ──
+      //
+      // Three faces of one meaning, all measured from the owner's own log on 9
+      // September 2026: a page reading only "Click the button below to continue
+      // shopping", a 503, and the robot puzzle. Every one of them used to fall
+      // into the silent hand-back below, which lands on "show us the order" —
+      // so somebody whose purchase was perfectly fine was asked for a
+      // photograph because a shop had asked us to slow down.
+      //
+      // IT STOPS HERE INSTEAD. Nothing is handed back, the screenshot flow is
+      // not entered, and the honest answer is on screen with one way to retry.
+      // The right action is to wait a few minutes, and no photograph helps.
+      if (outcome.whyNot != null) {
+        await settle();
+        if (!alive) return;
+        stopTheClock();
+        setRefused(outcome.whyNot);
+        return;
+      }
+
       if (!outcome.looked) {
         await settle();
         if (alive) moveOn('Journey');
@@ -174,6 +231,36 @@ export default function LookingForItScreen({ navigation, route }) {
     inputRange: [0, 1], outputRange: ['0deg', '360deg'],
   });
 
+  // ── WHEN THE SHOP WOULD NOT LET US LOOK ──────────────────────────────────
+  //
+  // A separate face for this screen, and no ring: there is nothing turning any
+  // more. Every word comes from src/ui/journeyWords.js, where Fayr's own plain
+  // language rule reads it off disk, and not one of them names the shop.
+  //
+  // TRY AGAIN, AND NOT A SCREENSHOT. The right action is to wait a few minutes,
+  // and a photograph cannot make a shop answer. Retrying is done by rebuilding
+  // this screen from nothing — the same `replace` the rest of it uses — because
+  // the read runs once inside an effect keyed on the campaign.
+  if (refused != null) {
+    return (
+      <Screen bg={COLOR.cream}>
+        <View style={styles.middle}>
+          <Text style={styles.refusedHead}>{SHOP_WILL_NOT_LET_US_LOOK}</Text>
+          <Text style={styles.refusedLine}>{NOTHING_IS_WRONG_WITH_YOUR_ORDER}</Text>
+          <Text style={styles.refusedLine}>{TRY_IN_A_FEW_MINUTES}</Text>
+          <View style={styles.refusedFoot}>
+            <Pill
+              onPress={() => navigation.replace('LookingForIt', { campaignId })}
+              color={COLOR.ink}
+            >
+              {TRY_AGAIN.toUpperCase()}
+            </Pill>
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
   return (
     <Screen bg={COLOR.cream}>
       <View style={styles.middle}>
@@ -186,6 +273,11 @@ export default function LookingForItScreen({ navigation, route }) {
         </View>
         <Text style={styles.line}>{line}</Text>
         <Text style={styles.small}>This screen moves on by itself.</Text>
+        {/* SLOW, SAID LIGHTLY AND WITH NO REASON GIVEN. Past ten seconds, which
+            is the top of normal for this read. The words say only that it is
+            slow: this screen must never tell anybody their shop account is
+            being looked at, and that rule holds here as everywhere else on it. */}
+        {slow ? <Text style={styles.slow}>{TAKING_LONGER}</Text> : null}
       </View>
 
       {/* The look itself. Off screen on purpose: there is nothing on it for
@@ -213,6 +305,26 @@ const styles = StyleSheet.create({
   middle: {
     flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30,
   },
+
+  // The slow line, quieter than the turning one above it: it is a reassurance,
+  // not the thing being said.
+  slow: {
+    fontFamily: FONT.bodyMed, fontSize: 12.5, lineHeight: 18,
+    color: COLOR.ink2, textAlign: 'center', marginTop: 14, opacity: 0.85,
+  },
+
+  // ── THE SHOP WOULD NOT LET US LOOK ───────────────────────────────────────
+  // No ring here. Nothing is turning any more, and a ring over a finished
+  // message is a screen that looks like it is still working.
+  refusedHead: {
+    fontFamily: FONT.displaySemi, fontSize: 19, lineHeight: 26, color: COLOR.ink,
+    textAlign: 'center', marginBottom: 14,
+  },
+  refusedLine: {
+    fontFamily: FONT.bodyMed, fontSize: 14, lineHeight: 21, color: COLOR.ink2,
+    textAlign: 'center', marginBottom: 8,
+  },
+  refusedFoot: { marginTop: 22, alignSelf: 'stretch' },
 
   // The design's ring: 110 across, a 4 point pale circle, one green arc turning.
   ring: { width: 110, height: 110, alignItems: 'center', justifyContent: 'center' },
