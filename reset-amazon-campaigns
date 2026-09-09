@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# GIVE THE AMAZON SEATS BACK, SO YOU CAN CLAIM THOSE OFFERS AGAIN.
+#
+#   ./reset-amazon-campaigns                  the practice account's Amazon claims
+#   ./reset-amazon-campaigns +911234567890    a different account's instead
+#
+# WHY THIS EXISTS, AND WHY IT IS NOT ./free-claims. Freeing a claim closes it and
+# gives the tickets back, but it leaves the row where it is — and a row that is
+# still there still holds its seat. So after enough walk throughs every Amazon
+# offer reads "All seats taken" and no amount of freeing will open them again.
+# This REMOVES the rows, which is the only thing that gives a seat back.
+#
+# IT DELETES, AND THERE IS NO UNDOING IT. That is the difference between this and
+# ./free-claims, and it is why it refuses on anything that is not a practice
+# database, in the same way the practice data itself refuses.
+#
+# ANY ROW WITH MONEY AGAINST IT IS LEFT EXACTLY WHERE IT IS, and named, with what
+# was found on it. Money is asked about four ways, not one.
+#
+# NOTHING ELSE IS TOUCHED. Only this account, only offers on Amazon, and only the
+# rows claiming them — no campaign's name, picture, terms or seat count changes.
+#
+# THE TICKETS DO NOT COME BACK. The ticket record is append-only, so a removed
+# claim leaves its deduction standing. It prints how many went. Run ./free-claims
+# FIRST if you want the tickets.
+#
+# IT PRINTS NO NUMBER. The account is shown with all but its last two digits
+# covered over, and it is called the practice account.
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
+
+WHO="${1:-}"
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+bad()  { printf '  \033[31m%s\033[0m\n' "$1"; }
+
+bold "Removing the practice account's Amazon claims, so the seats come back."
+printf '  \033[31mThis deletes rows. There is no undoing it.\033[0m\n'
+echo "  It refuses on any database that is not a practice one."
+echo "  Anything with money against it is left where it is."
+
+# The database has to be up, because this reads and writes it directly rather
+# than going through the running backend. Asking the database itself is the check
+# that means something; a container that is running is not the same as one that
+# is ready to answer.
+if ! docker exec fayr-postgres pg_isready -U fayr >/dev/null 2>&1; then
+  bad "The database is not answering, so there is nothing to read."
+  echo "  Start everything first:  ./start"
+  echo "  Or just the database:    cd backend && docker compose up -d"
+  exit 1
+fi
+
+# Everything else it needs to say is said by the command itself, in sentences.
+# It refuses on a database that is not a practice one, it groups what it deleted
+# by offer, it names every row it left alone and what was found on it, and it
+# ends with how many tickets went with the rows.
+if [ -n "$WHO" ]; then
+  (cd "$HERE/backend" && npx ts-node scripts/reset-amazon-campaigns.ts "$WHO")
+else
+  (cd "$HERE/backend" && npx ts-node scripts/reset-amazon-campaigns.ts)
+fi
+RESULT=$?
+
+if [ "$RESULT" -ne 0 ]; then
+  bad "Nothing was deleted. The reason is in the sentence just above."
+  exit "$RESULT"
+fi
+
+bold "Those Amazon offers have their seats back."
+echo "  Any offer it says rows were deleted from can be claimed again."
+echo "  Anything it left alone is named above, with what was found on it."
