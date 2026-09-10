@@ -26,6 +26,14 @@ export interface OrderCandidateResponse {
   orderNumber: string | null;
   /** The day it was placed, as "2026-08-21", or null. */
   orderDate: string | null;
+  /**
+   * The day it ARRIVED, as "2026-06-05", or null. A different date from the one
+   * above, and null when the page did not say — including when it said it
+   * without a year, which Amazon's own page does.
+   */
+  deliveryDate: string | null;
+  /** TRI-STATE as the page said it: true, false, or null for "it did not say". */
+  returned: boolean | null;
   totalPaise: string | null;
   items: { name: string; pricePaise: string }[];
   shipments: number;
@@ -56,6 +64,10 @@ export function toOrderCandidateResponse(
     source: SAID[row.source] ?? 'order-list',
     orderNumber: row.orderNumber,
     orderDate: day(row.orderDate),
+    // THE SAME DAY CONVERTER as the order date. Two dates written two ways is
+    // how one of them ends up a day out.
+    deliveryDate: day(row.deliveryDate),
+    returned: row.returned,
     totalPaise: row.totalPaise == null ? null : String(row.totalPaise),
     items: itemsFromJson(row.items).map((i) => ({
       name: i.name,

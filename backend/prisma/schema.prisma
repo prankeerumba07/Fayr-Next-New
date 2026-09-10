@@ -508,6 +508,20 @@ model OrderCandidate {
 
   orderNumber String?
   orderDate   DateTime?
+  /// THE DAY IT ARRIVED, which is not the day it was placed.
+  ///
+  /// Both are printed on an order's own page and both are kept. Reading one as
+  /// the other would make an order look as though it was placed after it turned
+  /// up. NULL when the page did not say, and null also when it said it without a
+  /// year — "Delivered 5 June" is not a date, and filling the year in from today
+  /// would be an invention. Additive and nullable: no existing row is rewritten.
+  deliveryDate DateTime?
+  /// WHETHER IT WAS SENT BACK, as the page said it. TRI-STATE and no default:
+  /// true is a completed return, false is a page that discusses returns and
+  /// states none, null is a page that said nothing about one. "We did not look"
+  /// and "we looked and it was not" are different facts wherever a refund is
+  /// decided — the same reason tasks.returned is tri-state.
+  returned    Boolean?
   /// What was charged for the whole order. Integer paise, never a float.
   totalPaise  BigInt?
   /// Every product read off it: [{ name, pricePaise }]. pricePaise is a STRING of

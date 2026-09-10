@@ -51,6 +51,26 @@ export interface AwaitingAmountItem {
   /** The most a person may type here, and which real figure produced that ceiling. */
   maxAmountPaise: string | null;
   maxAmountAnchor: 'campaign-price' | 'order-total' | null;
+  /**
+   * WHEN IT ARRIVED, and WHETHER IT WENT BACK. Both read off the task, both
+   * shown to the person deciding the amount.
+   *
+   * ── WHY THESE BELONG ON THIS ROW AND NOT SOME OTHER ───────────────────────
+   *
+   * This is the row where a staff member types a figure that becomes somebody's
+   * refund, and it showed neither. A RETURNED ORDER MUST NEVER BE PAID — the
+   * refund gate refuses one — so a reviewer working this queue was being asked
+   * to name an amount without being shown the one fact that makes the whole
+   * question moot. The gate still decides; this is so the person is not deciding
+   * blind, and so a returned order is obvious before they type rather than after
+   * they are refused.
+   *
+   * TRI-STATE, AND THE NULL MATTERS. null is "nothing we read said either way",
+   * which is a different thing from "we read it and it was not returned" — the
+   * gate treats them differently and so should the person.
+   */
+  deliveredAt: string | null;
+  returned: boolean | null;
 }
 
 export interface AwaitingAmountResponse {
@@ -145,6 +165,11 @@ export function toAwaitingAmountItem(row: Row): AwaitingAmountItem | null {
     // type honest rather than asserting it.
     heldReason: charged.reason ?? 'amount-unknown',
     heldExplanation: explainHoldForStaff(charged.reason),
+    // Straight off the task's own promoted columns, which is where the evidence
+    // funnel already writes them. Not re-derived from the evidence here: two
+    // readings of one fact is how the money defects in this project started.
+    deliveredAt: row.deliveredAt != null ? row.deliveredAt.toISOString() : null,
+    returned: row.returned,
     payoutPercent: row.campaign.payoutPercent,
     payoutCapPaise:
       row.campaign.payoutCapPaise != null

@@ -268,6 +268,10 @@ describe('reading an order screen that holds several shipments', () => {
         orderDate: null,
         totalPaise: null,
         itemTotalPaise: null,
+        // Both null and neither false: nothing was read, so nothing is claimed.
+        // "We did not look" is not "we looked and it was not returned".
+        deliveryDate: null,
+        returned: null,
         shipments: 0,
         items: [],
       });
@@ -340,6 +344,116 @@ describe('reading an order screen that holds several shipments', () => {
    * with the number, the total and the product and no date at all. That is why
    * the first check here is the date.
    */
+  /**
+   * ── THE DELIVERY, WHICH WAS BEING DROPPED ────────────────────────────────
+   *
+   * The order page states the day it arrived and whether it went back. The
+   * reader read neither, and JudgedOrder had nowhere to put them, so they went
+   * no further than the page. Both are carried now.
+   *
+   * TWO DATES, KEPT APART. An order placed on 2 June and delivered on 5 June has
+   * both printed on it. Reading one as the other would make an order look as
+   * though it was placed after it turned up, and would compare it against the
+   * wrong window.
+   */
+  describe('when it arrived, and whether it went back', () => {
+    const page = (...extra: string[]) => [
+      'Order placed', '2 June 2026',
+      'Order # 408-5094957-4481129',
+      'boAt Rockerz 255 Pro Plus', '1 x ₹1,299.00',
+      'Order Summary', 'Order Total ₹1,299.00',
+      ...extra,
+    ].join('\n');
+
+    it('reads the day it arrived', () => {
+      expect(parseOrderText(page('Delivered 5 June 2026')).deliveryDate)
+        .toBe('2026-06-05');
+    });
+
+    it('and the two dates never become one', () => {
+      const order = parseOrderText(page('Delivered 5 June 2026'));
+      expect(order.orderDate).toBe('2026-06-02');
+      expect(order.deliveryDate).toBe('2026-06-05');
+      expect(order.orderDate).not.toBe(order.deliveryDate);
+    });
+
+    it('reads "Delivered on" and the label-then-date shape too', () => {
+      expect(parseOrderText(page('Delivered on 5 Jun 2026')).deliveryDate)
+        .toBe('2026-06-05');
+      expect(parseOrderText(page('Delivered', '5 June 2026')).deliveryDate)
+        .toBe('2026-06-05');
+    });
+
+    it('NULL WITHOUT A YEAR, because "Delivered 5 June" is not a date', () => {
+      // A real and known limit of Amazon's own page. A year filled in from
+      // today's would be an invention, and an invented year on a date the order
+      // window is judged against is the worst kind.
+      expect(parseOrderText(page('Delivered 5 June')).deliveryDate).toBeNull();
+    });
+
+    it('and a PROMISE about the future is never read as an arrival', () => {
+      for (const line of [
+        'Arriving tomorrow', 'Arriving 12 June 2026', 'Out for delivery',
+        'Out for delivery 5 June 2026', 'Shipped 3 June 2026',
+      ]) {
+        expect(parseOrderText(page(line)).deliveryDate).toBeNull();
+      }
+    });
+
+    it('a delivery CHARGE is not a delivery date', () => {
+      expect(parseOrderText(page('Delivery fee ₹40')).deliveryDate).toBeNull();
+    });
+
+    it('TRUE only for a return that really happened', () => {
+      for (const line of [
+        'Returned', 'Return completed', 'Return complete', 'Refund issued',
+        'Cancelled', 'Canceled', 'Refunded',
+      ]) {
+        expect(parseOrderText(page(line)).returned).toBe(true);
+      }
+    });
+
+    it('and the LIMIT of that, said out loud rather than left to be found', () => {
+      // "Your return is complete" reads FALSE. The words have to be adjacent,
+      // because the pattern is the one the on-device reader has used against
+      // these pages since it was written and this is not the place to guess at a
+      // wider one.
+      //
+      // WHICH WAY THE RISK RUNS, AND IT IS WHY THIS STAYS NARROW. A true here
+      // stops a refund — the gate refuses a returned order. So a wrong true
+      // costs somebody their money and a wrong false costs a staff member a
+      // second look. The narrow pattern fails in the cheaper direction.
+      //
+      // If Amazon is ever SEEN writing it this way, the pattern widens then, on
+      // the evidence, and this check becomes the record of when it changed.
+      expect(parseOrderText(page('Your return is complete')).returned).toBe(false);
+    });
+
+    it('FALSE when the page talks about returns and states none', () => {
+      // The ordinary answer on a delivered order, and worth having: it is the
+      // page saying "not returned". Every order page carries chrome like this,
+      // which contains "Return" and never "Returned" — a looser test reported
+      // every order as returned.
+      for (const line of [
+        'Return window closed', 'Return items: Eligible through 3 July 2026',
+        'Return or replace items',
+      ]) {
+        expect(parseOrderText(page(line)).returned).toBe(false);
+      }
+    });
+
+    it('and NULL when the page said nothing that could be one', () => {
+      expect(parseOrderText(page()).returned).toBeNull();
+      expect(parseOrderText(page('Delivered 5 June 2026')).returned).toBeNull();
+    });
+
+    it('the delivery line is still not read as a product', () => {
+      const names = parseOrderText(page('Delivered 5 June 2026'))
+        .items.map((i) => i.name);
+      expect(names).toEqual(['boAt Rockerz 255 Pro Plus']);
+    });
+  });
+
   describe("Amazon's own order page, all four fields", () => {
     const orderPage = [
       'Order placed',

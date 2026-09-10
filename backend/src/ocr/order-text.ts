@@ -51,6 +51,36 @@ export interface ParsedOrder {
   totalPaise: bigint | null;
   /** What the products alone came to, where the screen states it. Integer paise. */
   itemTotalPaise: bigint | null;
+  /**
+   * The day it was DELIVERED, as "2026-06-05". Never the order date.
+   *
+   * Two dates, kept apart on purpose. An order placed on 2 June and delivered on
+   * 5 June has both printed on its page, and reading one as the other would make
+   * an order look as though it was placed after it turned up — and would compare
+   * it against the wrong window. ORDER_DATE_LABEL refuses "Delivered" for exactly
+   * this reason; this is the field that reads it as the separate thing it is.
+   *
+   * NULL WHEN THE PAGE DID NOT SAY, and null also when it said it without a
+   * year: "Delivered 5 June" is not a date, and a year filled in from today's
+   * would be an invention. That is a real and known limit of Amazon's own page.
+   */
+  deliveryDate: string | null;
+  /**
+   * WHETHER IT WAS SENT BACK. TRI-STATE, and every state is something the page
+   * really said:
+   *
+   *   true   the page states a COMPLETED return, refund or cancellation.
+   *   false  the page talks about returns — a window, an eligibility — and
+   *          states none completed. This is the ordinary answer on a delivered
+   *          order, and it is worth having: it is the page saying "not returned".
+   *   null   the page said nothing that could be one, so we do not know.
+   *
+   * The distinction matters because null and false are treated differently
+   * wherever a refund is decided (see Task.returned, which is tri-state for the
+   * same reason). "We did not look" and "we looked and it was not" are not the
+   * same fact.
+   */
+  returned: boolean | null;
   shipments: number;
   items: ParsedOrderItem[];
 }
@@ -168,6 +198,50 @@ const ORDER_HASH_LABEL = /^order\s*#\s*(.*)$/i;
  */
 const ORDER_DATE_LABEL =
   /^(?:placed\s+on|ordered\s+on|order\s+placed(?:\s+on)?|order(?:ed)?\s+date|placed)\b\s*[:\-]?\s*(.*)$/i;
+
+/**
+ * "Delivered 5 June 2026", "Delivered on 5 Jun 2026", "Delivered" then the date.
+ *
+ * DELIBERATELY NOT "arriving" OR "out for delivery". Those are a promise about
+ * the future, not a record of an arrival, and writing a promise into a delivery
+ * date would put a date on an order that has not turned up. "Out for delivery"
+ * cannot match anyway because this is anchored at the start of the line, which
+ * is the other reason it is anchored.
+ *
+ * ── AND "delivery" IS LEFT OUT, THOUGH NOTHING CATCHES IT ─────────────────
+ *
+ * Said honestly: adding "delivery" here fails no check, and the reason is worth
+ * knowing rather than hiding. The loop that uses this keeps going while the date
+ * is still null, so a line like "Delivery fee ₹40" matches, yields no date, and
+ * the search carries on to the real "Delivered 5 June 2026" further down. The
+ * looser word is therefore harmless AS THIS LOOP IS WRITTEN — and it stops being
+ * harmless the moment the loop stops at the first matching label. It is left out
+ * because "delivery" is a subject a page discusses and "delivered" is a thing
+ * that happened, and only one of those is a date.
+ */
+const DELIVERY_LABEL =
+  /^(?:delivered|arrived)\b\s*(?:on)?\s*[:\-]?\s*(.*)$/i;
+
+/**
+ * A RETURN THAT REALLY HAPPENED. The completed forms only.
+ *
+ * The same phrases the on-device reader has used against these pages since it
+ * was written, and its comment records why the list is what it is: every order
+ * page carries chrome like "Return window closed" and "Return items: Eligible
+ * through", which contain "Return" and never "Returned". A looser test reported
+ * every order as returned.
+ */
+const RETURN_COMPLETED =
+  /\b(?:returned|refunded|cancelled|canceled)\b|\brefund\s+issued\b|\breturn\s+complete[d]?\b/i;
+
+/**
+ * ANY MENTION OF A RETURN AT ALL, including the chrome above.
+ *
+ * This is what separates "we looked and it was not returned" from "the page said
+ * nothing about returns". A page that discusses a return window has told us
+ * there was no return; a page that never mentions one has told us nothing.
+ */
+const RETURN_MENTIONED = /\b(?:return|refund|cancel)[a-z]*\b/i;
 
 /** A shipment heading — "Shipment 1 of 2". */
 const SHIPMENT_HEADING = /^shipment\b/i;
@@ -295,6 +369,8 @@ function nothing(): ParsedOrder {
     orderDate: null,
     totalPaise: null,
     itemTotalPaise: null,
+    deliveryDate: null,
+    returned: null,
     shipments: 0,
     items: [],
   };
@@ -364,6 +440,26 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     orderDate = dayFromText(written) ?? dayFromText(lines[i + 1] ?? '');
   }
 
+  // ── the day it ARRIVED, which is a different date ─────────────────────────
+  let deliveryDate: string | null = null;
+  for (let i = 0; i < lines.length && deliveryDate == null; i += 1) {
+    const m = DELIVERY_LABEL.exec(lines[i]);
+    if (!m) continue;
+    // The same comma trick as the order date: a screen writes the time after it.
+    const written = (m[1] ?? '').split(',')[0].trim();
+    deliveryDate = dayFromText(written) ?? dayFromText(lines[i + 1] ?? '');
+  }
+
+  // ── whether it was sent back ──────────────────────────────────────────────
+  //
+  // Read over the WHOLE text rather than line by line, because a phrase like
+  // "refund issued" can be split across a layout and because none of the three
+  // answers depends on where in the page the words were.
+  const whole = lines.join(' ');
+  const returned = RETURN_COMPLETED.test(whole)
+    ? true
+    : (RETURN_MENTIONED.test(whole) ? false : null);
+
   // ── how many shipments the screen showed ──────────────────────────────────
   const shipments = lines.filter((l) => SHIPMENT_HEADING.test(l)).length;
 
@@ -410,6 +506,8 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     orderDate,
     totalPaise: moneyForLabels(lines, totalsFrom, TOTAL_BILL_LABELS),
     itemTotalPaise: moneyForLabels(lines, totalsFrom, ITEM_TOTAL_LABELS),
+    deliveryDate,
+    returned,
     shipments,
     items,
   };

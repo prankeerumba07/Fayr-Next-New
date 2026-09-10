@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -473,5 +475,107 @@ describe('The orders the phone found (e2e)', () => {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     expect(task?.state).toBe('CLAIMED');
     expect(task?.blocker).toBe('order_out_of_window');
+  });
+
+  /**
+   * ── THE DELIVERY, CARRIED THE WHOLE WAY ──────────────────────────────────
+   *
+   * An order's own page states the day it arrived and whether it went back. Both
+   * were read by the parser and then dropped, because JudgedOrder had nowhere to
+   * put them. This is the check that they survive the whole journey: read from
+   * the text, written into the row, and handed back on the wire.
+   *
+   * IT IS NOT FED INTO THE EVIDENCE FUNNEL, deliberately. That is what would
+   * move a task to delivered, which is a state change nobody asked for.
+   */
+  describe('when it arrived, and whether it went back', () => {
+    const AMAZON_ORDER_PAGE = [
+      'Order placed', '2 June 2026',
+      'Order # 408-5094957-4481129',
+      'Headband', '1 x ₹149',
+      'Order Summary', 'Order Total ₹149',
+      'Delivered 5 June 2026',
+      'Return window closed',
+    ].join('\n');
+
+    it('reads both off the page, keeps them, and hands them back', async () => {
+      const { token, taskId } = await ready();
+      const res = await request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages: [AMAZON_ORDER_PAGE] })
+        .expect(200);
+
+      // ON THE WIRE, as a day and a tri-state.
+      expect(res.body[0].deliveryDate).toBe('2026-06-05');
+      expect(res.body[0].returned).toBe(false);
+      // AND THE TWO DATES ARE STILL TWO.
+      expect(res.body[0].orderDate).toBe('2026-06-02');
+
+      // AND IN THE ROW, which is the part that survives a restart.
+      const row = await prisma.orderCandidate.findFirstOrThrow({
+        where: { taskId },
+      });
+      expect(row.deliveryDate).not.toBeNull();
+      expect(row.deliveryDate?.toISOString().slice(0, 10)).toBe('2026-06-05');
+      expect(row.returned).toBe(false);
+    });
+
+    it('TRUE, and loudly, for an order that really went back', async () => {
+      const { token, taskId } = await ready();
+      const res = await request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages: [`${AMAZON_ORDER_PAGE}\nReturned`] })
+        .expect(200);
+      expect(res.body[0].returned).toBe(true);
+      const row = await prisma.orderCandidate.findFirstOrThrow({
+        where: { taskId },
+      });
+      expect(row.returned).toBe(true);
+    });
+
+    it('NULL, not false, when the page said nothing either way', async () => {
+      // The two are different facts wherever a refund is decided. An existing
+      // row, read before any of this existed, is null for exactly this reason.
+      const { token, taskId } = await ready();
+      const res = await request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages: ['Order # 408-5094957-4481129\nHeadband\n1 x ₹149'] })
+        .expect(200);
+      expect(res.body[0].returned).toBeNull();
+      expect(res.body[0].deliveryDate).toBeNull();
+      const row = await prisma.orderCandidate.findFirstOrThrow({
+        where: { taskId },
+      });
+      expect(row.returned).toBeNull();
+      expect(row.deliveryDate).toBeNull();
+    });
+
+    it('and the columns are ADDITIVE, so no existing row was rewritten', async () => {
+      // The migration adds two nullable columns with NO default. A default would
+      // have written an answer into every candidate ever read, none of which was
+      // read with these fields — and "not returned" is not a thing we know about
+      // any of them.
+      const whole = readFileSync(
+        resolve(
+          __dirname,
+          '../prisma/migrations/20260909180000_order_candidate_delivery/migration.sql',
+        ),
+        'utf8',
+      );
+      // COMMENTS STRIPPED FIRST, and this file has now been caught by that four
+      // times. The migration's own comment EXPLAINS that it uses no default and
+      // no not-null, so a check over the whole text reads the explanation as the
+      // thing it forbids — which would be a rule against writing the reason down.
+      const sql = whole.replace(/--.*$/gm, '');
+      expect(sql).toContain('ADD COLUMN "deliveryDate"');
+      expect(sql).toContain('ADD COLUMN "returned"');
+      expect(sql).not.toMatch(/NOT NULL/i);
+      expect(sql).not.toMatch(/DEFAULT/i);
+      expect(sql).not.toMatch(/\bDROP\b/i);
+      expect(sql).not.toMatch(/\bUPDATE\b/i);
+    });
   });
 });

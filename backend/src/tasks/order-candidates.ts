@@ -55,6 +55,18 @@ export interface JudgedOrder {
   orderNumber: string | null;
   orderDate: Date | null;
   totalPaise: bigint | null;
+  /**
+   * The day it ARRIVED, kept apart from the day it was placed.
+   *
+   * It was being dropped: the order page states it, the reader read it, and
+   * there was nowhere on this shape to put it, so it went no further than the
+   * parser. It is carried now — read, written down and shown to staff — and it
+   * is NOT yet fed into the evidence funnel, which is what would move a task to
+   * delivered. That is a state change and nobody asked for one.
+   */
+  deliveryDate: Date | null;
+  /** TRI-STATE, exactly as the page said it. See ParsedOrder.returned. */
+  returned: boolean | null;
   shipments: number;
   items: { name: string; pricePaise: bigint }[];
   matches: boolean;
@@ -93,7 +105,12 @@ function dayToDate(day: string | null): Date | null {
  * overpaid one is not fixed at all.
  */
 export function itemPriceIsCertain(
-  order: ParsedOrder,
+  // ONLY THE THREE FIELDS THIS ACTUALLY READS, and the narrowing is deliberate.
+  // It took a whole ParsedOrder, so every field added to that shape had to be
+  // handed in here as a null — and one caller rebuilding an order from a stored
+  // row already had four of them. A price decision has nothing to do with when
+  // something was delivered, and the type now says so.
+  order: Pick<ParsedOrder, 'totalPaise' | 'shipments' | 'items'>,
   item: OrderItemForComparison | null,
 ): boolean {
   if (item == null) return false;
@@ -136,6 +153,10 @@ export function judgeFoundOrders(
       orderNumber: parsed.orderNumber,
       orderDate: dayToDate(parsed.orderDate),
       totalPaise: parsed.totalPaise,
+      // Through the SAME day-to-date converter as the order date, so the two
+      // cannot end up on different sides of a time zone.
+      deliveryDate: dayToDate(parsed.deliveryDate),
+      returned: parsed.returned,
       shipments: parsed.shipments,
       items: parsed.items,
       matches: answer.matches,

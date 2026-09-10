@@ -2942,6 +2942,12 @@
           factCell("Order total", rupees(it.orderTotalPaise)),
           factCell("The offer says", rupees(it.campaignPricePaise)),
           factCell("Ordered", fmtDay(it.orderDate)),
+          // WHEN IT ARRIVED AND WHETHER IT WENT BACK. This is the row where a
+          // person types a figure that becomes somebody's refund, and it showed
+          // neither. A returned order is never paid, so it has to be visible
+          // BEFORE the figure is typed rather than after the gate refuses it.
+          factCell("Delivered", fmtDay(it.deliveredAt)),
+          factCell("Sent back", sentBack(it.returned)),
           factCell("Stage", it.state)),
         h("form", { onsubmit: onSubmit, style: "margin-top:12px" },
           h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;align-items:flex-end" },
@@ -3107,6 +3113,23 @@
     }
 
     // One labelled fact. Kept tiny and local so the card reads as a card.
+    // WHETHER IT WENT BACK, IN WORDS, AND THE THREE ANSWERS ARE NOT TWO.
+    //
+    // null is "nothing we read said either way" and it is NOT "no". A dash for
+    // both would tell a reviewer an order was fine when all we know is that we
+    // never found out — and a returned order is never paid, so that is the one
+    // place a silence must not read as an all-clear. The true case is loud on
+    // purpose.
+    function sentBack(value) {
+      // Through pill(), which is the ONE place that knows how a pill is built.
+      // This file has already been caught rendering a class name as text by
+      // hand-building one, and the render check catches a MISSING helper rather
+      // than a misused one.
+      if (value === true) return pill("RETURNED", "bad");
+      if (value === false) return "No";
+      return h("span", { class: "muted" }, "Not known");
+    }
+
     function factCell(label, value) {
       return h("div", null,
         h("div", { class: "nav-head", style: "padding:0 0 2px" }, label),

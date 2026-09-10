@@ -405,6 +405,62 @@ describe('Staff quantity confirmation (e2e)', () => {
   });
 
   describe('the queue a reviewer works from', () => {
+    it('SHOWS WHETHER IT WENT BACK, and when it arrived, before a figure is typed', async () => {
+      // THE ROW WHERE MONEY IS TYPED SHOWED NEITHER. A reviewer on this queue
+      // names a figure that becomes somebody's refund, and A RETURNED ORDER IS
+      // NEVER PAID — the refund gate refuses one. So they were being asked for an
+      // amount without the one fact that makes the whole question moot.
+      //
+      // The gate still decides. This is so the person is not deciding blind, and
+      // so a returned order is obvious BEFORE they type rather than after they
+      // are refused.
+      //
+      // NULL IS NOT FALSE, and the null is the case checked here: nothing this
+      // task carries says either way, and "we did not look" is a different fact
+      // from "we looked and it was not returned".
+      const user = await newUser();
+      await ticketsSvc.grantSignup(user.id);
+      const { taskId } = await taskHeldOnQuantity(user.token);
+      const support = await tokenFor('SUPPORT');
+
+      const res = await request(server())
+        .get('/admin/tasks/awaiting-amount')
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      const item = res.body.items[0];
+      expect(item.taskId).toBe(taskId);
+      // Both fields are THERE, which is the half a missing-field mistake breaks.
+      expect(Object.prototype.hasOwnProperty.call(item, 'returned')).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(item, 'deliveredAt')).toBe(true);
+      expect(item.returned).toBeNull();
+      expect(item.deliveredAt).toBeNull();
+
+      // AND WHEN THE TASK REALLY SAYS SO, IT SAYS SO. Written straight onto the
+      // task's own promoted columns, which is where the evidence funnel puts
+      // them, so this reads the same route the row does.
+      await prisma.task.update({
+        where: { id: taskId },
+        data: { returned: true, deliveredAt: new Date('2026-06-05T00:00:00.000Z') },
+      });
+      const after = await request(server())
+        .get('/admin/tasks/awaiting-amount')
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      expect(after.body.items[0].returned).toBe(true);
+      expect(after.body.items[0].deliveredAt).toBe('2026-06-05T00:00:00.000Z');
+
+      // And false is its own answer, distinct from the null above.
+      await prisma.task.update({
+        where: { id: taskId },
+        data: { returned: false },
+      });
+      const notReturned = await request(server())
+        .get('/admin/tasks/awaiting-amount')
+        .set('authorization', `Bearer ${support.token}`)
+        .expect(200);
+      expect(notReturned.body.items[0].returned).toBe(false);
+    });
+
     it('lists a task whose refund is held on the unit count, with what the reader saw', async () => {
       const user = await newUser();
       await ticketsSvc.grantSignup(user.id);

@@ -1312,5 +1312,71 @@ console.log('\n=== the practice window mark, actually run ===');
   }
 }
 
+console.log('\n=== whether it went back, actually run ===');
+{
+  // ── WHY THIS IS RUN AND NOT READ, and it is the same lesson as the mark above ──
+  //
+  // A staff member on the amounts queue types a figure that becomes somebody's
+  // refund, and the row showed neither when the order arrived nor whether it went
+  // back. A RETURNED ORDER IS NEVER PAID — the refund gate refuses one — so a
+  // reviewer was being asked to name an amount without the one fact that makes
+  // the question moot.
+  //
+  // THE THREE ANSWERS ARE NOT TWO, and that is the whole subject of this block. A
+  // dash for both false and null would tell a reviewer an order was fine when all
+  // we know is that we never found out. Silence must not read as an all-clear on
+  // the one row where money is typed.
+  const src = (script.match(/function sentBack\(value\)[\s\S]*?\n    \}/) || [])[0] || '';
+  ok(src.length > 0, 'sentBack was found in the panel');
+
+  const run = new Function(`
+    function h(tag, attrs, kids) { return { tag: tag, attrs: attrs, kids: kids }; }
+    function pill(text, tone) { return { pill: true, text: text, tone: tone }; }
+    ${src}
+    return sentBack;
+  `)();
+
+  // READ SAFELY, BECAUSE A CRASH IS NOT A CATCH. Reading .text off a returned
+  // string would kill the process before any summary printed, and the harness
+  // would read a dead process as a catch.
+  const shown = (value) => {
+    const got = run(value);
+    if (typeof got === 'string') return { word: got };
+    return got && typeof got === 'object' ? got : { word: null };
+  };
+
+  ok(shown(true).pill === true,
+    'A RETURNED ORDER IS A PILL, not a word — it has to be seen before a figure '
+    + 'is typed');
+  ok(shown(true).text === 'RETURNED', 'and it says so in one word');
+  ok(shown(true).tone === 'bad',
+    'AND IT IS LOUD, because the refund gate will refuse this order anyway');
+  ok(shown(false).word === 'No', 'a page that said it was not returned reads "No"');
+  ok(shown(false).pill !== true, 'and that is quiet, because it is the ordinary case');
+
+  // THE NULL, WHICH IS THE POINT.
+  for (const nothing of [null, undefined]) {
+    const got = shown(nothing);
+    ok(got.pill !== true, `${String(nothing)} is not shown as a return`);
+    ok(got.word !== 'No',
+      `${String(nothing)} does NOT read as "No" — we never found out, and that is `
+      + 'not the same as finding out it was fine');
+  }
+  ok(JSON.stringify(shown(null)).toLowerCase().includes('not known'),
+    'it says plainly that it is not known');
+
+  // ── AND THE ROW ACTUALLY USES IT ────────────────────────────────────────
+  //
+  // The block above proves sentBack answers correctly. It says nothing about
+  // whether anything CALLS it — deleting both fact cells from the amounts row
+  // left every check above green, because a helper can be perfect and orphaned.
+  // This is the other half.
+  ok(/factCell\("Sent back", sentBack\(it\.returned\)\)/.test(script),
+    'THE AMOUNTS ROW SHOWS IT — a correct helper nothing calls shows nobody '
+    + 'anything');
+  ok(/factCell\("Delivered", fmtDay\(it\.deliveredAt\)\)/.test(script),
+    'and the row shows when it arrived, through the one day formatter');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

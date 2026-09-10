@@ -109,6 +109,8 @@ export class OrderCandidatesService {
           orderNumber: j.orderNumber,
           orderDate: j.orderDate,
           totalPaise: j.totalPaise,
+          deliveryDate: j.deliveryDate,
+          returned: j.returned,
           items: itemsToJson(j.items),
           shipments: j.shipments,
           matches: j.matches,
@@ -181,14 +183,9 @@ export class OrderCandidatesService {
     // holds the refund for a staff member rather than guessing at somebody's
     // money. See itemPriceIsCertain.
     const certain = itemPriceIsCertain(
-      {
-        orderNumber: row.orderNumber,
-        orderDate: null,
-        totalPaise: row.totalPaise,
-        itemTotalPaise: null,
-        shipments: row.shipments,
-        items,
-      },
+      // The three fields the answer really depends on, and no invented nulls
+      // beside them: itemPriceIsCertain now asks for exactly what it reads.
+      { totalPaise: row.totalPaise, shipments: row.shipments, items },
       answer.item,
     );
     const price = typeof answer.item.pricePaise === 'bigint'
