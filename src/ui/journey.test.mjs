@@ -461,6 +461,54 @@ console.log('\n=== 11. EACH OF THE THIRTEEN CHECKS MOVED TO THE FILE THAT OWNS I
   );
   const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
+  // ── THE INBOX IS NOT OFFERED ON THE SCREENSHOT SCREEN ──────────────────
+  //
+  // The owner's instruction, 11 September 2026: the "Skip screenshots — connect
+  // your inbox" card goes from proofprimer, and not as a coming-soon, a greyed
+  // out card or a reworded one. NOT SHOWN AT ALL.
+  //
+  // A check rather than a deletion alone, because "not ready yet" is exactly the
+  // shape this came back in once already — the card was there with a line saying
+  // it was not built. Wording it more softly is the failure mode, so the rule is
+  // about the WORDS ON THE SCREEN and the ROUTE, not about one card's markup.
+  //
+  // Somebody lands here having just watched a turning ring come back with
+  // nothing. An offer to connect an inbox reads as a change of subject at the
+  // one moment they are owed a plain answer.
+  {
+    const primer = strip(read('proofprimer'));
+    ok(!/navigate\(\s*['"`]emailconnect['"`]/.test(primer),
+      'proofprimer does not open the inbox screen');
+    ok(!/emailconnect|emailcode/.test(primer),
+      'proofprimer does not name the inbox screens at all');
+    // THE WORDS A PERSON WOULD SEE, which is the half a route check misses: a
+    // card that merely SAYS "connect your inbox" with no route is still the card.
+    const written = [...primer.matchAll(/'([^'\n]*)'|"([^"\n]*)"|>([^<>{}]+)</g)]
+      .map((m) => m[1] ?? m[2] ?? m[3] ?? '')
+      .filter((t) => t.trim() !== '');
+    const FORBIDDEN = ['inbox', 'email', 'e-mail', 'mail', 'gmail'];
+    const guilty = [];
+    for (const text of written) {
+      for (const word of FORBIDDEN) {
+        if (text.toLowerCase().includes(word)) guilty.push(`"${text.trim()}" has "${word}"`);
+      }
+    }
+    ok(guilty.length === 0,
+      `proofprimer says nothing about an inbox (found: ${guilty.join('; ')})`);
+
+    // AND IT SAYS THE TRUE THING INSTEAD. Removing the card without replacing it
+    // would open the screen on a bare instruction, with no word about why Fayr is
+    // asking — which is the thing they actually want to know.
+    ok(/couldn’t spot this one ourselves|could not spot this one ourselves/.test(primer),
+      'proofprimer opens by saying Fayr looked and did not find it');
+
+    // THE INBOX SCREEN ITSELF IS NOT DELETED. Only this screen stops offering it.
+    // A check that passed because somebody removed the whole feature would be
+    // reading the wrong success.
+    const connect = strip(read('emailconnect'));
+    ok(/<Screen\b/.test(connect), 'the inbox screen still exists');
+  }
+
   // THE PICTURE IS REAL. The design's upload button on the review-proof screen has
   // nothing behind it; this one opens the phone's photos.
   const reviewproof = strip(read('reviewproof'));

@@ -4,10 +4,9 @@
 // Split out of src/journey/JourneyScreen.js on 1 September 2026, where it was one
 // page of ten inside one file.
 //
-// THE DESIGN'S OWN CONTENT, IN THE DESIGN'S ORDER: the inbox card at the top, the
-// "or upload manually" divider, the heading, the sentence naming the shop's orders
-// page, the sample card with the order number circled, the red line about the order
-// number, and the one button.
+// THE DESIGN'S OWN CONTENT, IN THE DESIGN'S ORDER: the heading, the sentence
+// naming the shop's orders page, the sample card with the order number circled,
+// the red line about the order number, and the one button.
 //
 // TWO DEPARTURES:
 //
@@ -15,14 +14,23 @@
 //    Amazon order number into the file. Showing a made-up number in a picture of
 //    what to send is the fastest way to have somebody send us that number, so the
 //    sample shows the SHAPE and says in words what belongs there.
-//  * THE INBOX CARD OPENS THE DESIGN'S OWN INBOX SCREEN, which was built later the
-//    same day and is the page the owner asked about by name. Connecting an inbox is
-//    the strongest evidence Fayr can hold, because the shop signs its own email and
-//    a person cannot forge one, and that screen says on itself that Fayr has
-//    nowhere to connect one to yet. The card says the same in one line, so nobody
-//    taps it expecting it to work.
+//  * THE INBOX CARD IS GONE FROM THIS SCREEN, on the owner's instruction, 11
+//    September 2026. The design opens with a card offering to read order emails
+//    instead of taking screenshots, and this screen carried it with a line saying
+//    it was not ready yet. He does not want it offered here in any form — not as
+//    a coming-soon, not as a greyed-out card, not at all.
+//
+//    IT IS REMOVED, NOT HIDDEN. No flag, no wrapper that could be switched back
+//    on by accident, no styles left behind for it. The screen that connects an
+//    inbox still exists and is still reachable from the walk through
+//    (src/screens/emailconnect.js); what is gone is this screen OFFERING it.
+//
+//    In its place is the true thing, said warmly and in two lines: Fayr looked
+//    for the order itself, did not find it, and is asking. Somebody who lands
+//    here has just watched a turning ring come back with nothing, and a screen
+//    that opened with an unrelated offer read as a change of subject.
 import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
@@ -43,27 +51,17 @@ export default function ProofPrimerScreen({ navigation, route }) {
     <Screen bg={COLOR.cream}>
       <TopBar title="Order proof" onBack={() => goBackOrHome(navigation)} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
-        {/* The inbox card, where the design puts it: at the moment of need. */}
-        <TouchableOpacity
-          style={styles.inbox}
-          activeOpacity={0.85}
-          onPress={() => navigation.navigate('emailconnect', { campaignId })}
-          accessibilityRole="button"
-        >
-          <View style={styles.inboxIcon}><Text style={styles.inboxEmoji}>📧</Text></View>
-          <View style={styles.flex}>
-            <Text style={styles.inboxTitle}>Skip screenshots — connect your inbox</Text>
-            <Text style={styles.inboxBody}>
-              We would read only order emails from {shop} and the other shops we
-              work with, never your personal mail.
-            </Text>
-            <Text style={styles.inboxSoon}>
-              Not ready yet. Tap to see what it will do, then send a screenshot below.
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        <Text style={styles.divider}>or send a screenshot</Text>
+        {/* WHY THEY ARE HERE, SAID WARMLY AND SAID FIRST. They have just watched a
+            turning ring come back with nothing, so the honest opening is that
+            Fayr looked, did not find it, and is asking. It names no shop, no
+            account and no reason — there is nothing here a person could act on
+            beyond the screenshot the rest of the screen asks for. */}
+        <View style={styles.lead}>
+          <Text style={styles.leadTitle}>We couldn’t spot this one ourselves</Text>
+          <Text style={styles.leadBody}>
+            Send over a screenshot of your order and we’ll take it from there.
+          </Text>
+        </View>
 
         <Text style={[hTitle, styles.title]}>Grab a screenshot of your order</Text>
         <Text style={hSub}>
@@ -131,29 +129,13 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   body: { paddingHorizontal: SPACE.xl, paddingTop: 4, paddingBottom: SPACE.xl },
 
-  inbox: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-    backgroundColor: '#fff', borderWidth: 1.5, borderColor: COLOR.line,
-    borderRadius: RADIUS.lg, paddingHorizontal: 14, paddingVertical: 13,
-    ...SHADOW.card,
-  },
-  inboxIcon: {
-    width: 40, height: 40, borderRadius: 11, backgroundColor: COLOR.creamDeep,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  inboxEmoji: { fontSize: 20 },
-  inboxTitle: { fontFamily: FONT.bodyBold, fontSize: 13.5, color: COLOR.ink2 },
-  inboxBody: {
-    fontFamily: FONT.bodyMed, fontSize: 11, lineHeight: 16, color: COLOR.sub,
-    marginTop: 2,
-  },
-  inboxSoon: {
-    fontFamily: FONT.bodyBold, fontSize: 11, color: '#8A5A00', marginTop: 6,
-  },
-
-  divider: {
-    textAlign: 'center', fontFamily: FONT.bodyMed, fontSize: 11,
-    color: '#A9AA9C', marginVertical: 12,
+  // The lead. Quiet on purpose: it is a friendly word before the instruction,
+  // not a second heading competing with the one under it.
+  lead: { marginTop: 6, marginBottom: SPACE.lg },
+  leadTitle: { fontFamily: FONT.bodyBold, fontSize: 14, color: COLOR.ink2 },
+  leadBody: {
+    fontFamily: FONT.bodyMed, fontSize: 12.5, lineHeight: 18, color: COLOR.sub,
+    marginTop: 3,
   },
 
   title: { fontSize: 23, lineHeight: 28 },
