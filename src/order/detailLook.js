@@ -131,6 +131,45 @@ export function harvestOrderNumbers(html) {
 }
 
 /**
+ * HOW MANY ORDER CARDS THE PAGE CARRIED AT ALL, whatever was written in them.
+ *
+ * ── THE ONE QUESTION harvestOrderNumbers CANNOT ANSWER ────────────────────
+ *
+ * An empty answer from harvestOrderNumbers has two completely different
+ * meanings, and the screen cannot tell them apart today:
+ *
+ *   slots = 0   the page was not an orders page at all. A sign in wall, a dead
+ *               end, a shell that arrived with nothing in it. The fix is about
+ *               the session or the address.
+ *   slots > 0   the cards were there and every id in them was refused. So the
+ *               attribute still exists and the SHAPE has moved — a different
+ *               prefix, a different number of digits, a new kind of card. The
+ *               fix is one regular expression, and nothing is wrong with the
+ *               session at all.
+ *
+ * Those are opposite problems with opposite fixes, and an afternoon went into
+ * not being able to tell which one had happened. So the count is its own
+ * question, deliberately asked WITHOUT the shape test.
+ *
+ * IT RETURNS A NUMBER AND NEVER THE TEXT IT MATCHED. That is the whole point of
+ * it being a separate function rather than a length taken off a list of ids: an
+ * order number is a strong identifier tied to somebody's account, and a count
+ * answers the question without carrying one anywhere.
+ */
+export function countOrderCardSlots(html) {
+  if (typeof html !== 'string' || html === '') return 0;
+  // A fresh expression, for the reason recorded on the harvest above.
+  const pattern = new RegExp(SLOT_ID_ATTRIBUTE.source, 'gi');
+  let howMany = 0;
+  let guard = 0;
+  while (pattern.exec(html) !== null && guard < 500) {
+    howMany += 1;
+    guard += 1;
+  }
+  return howMany;
+}
+
+/**
  * The address of one order's own page, or null when the number is not one.
  *
  * NULL RATHER THAN A GUESS. A number that is not an order number is not made

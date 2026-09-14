@@ -50,9 +50,10 @@ import {
   buildOrderListScript, orderListPageFor, readDetailOutcome, readListOutcome,
 } from '../orderhistory.js';
 import {
-  harvestOrderNumbers, orderDetailPageFor, pagesToOpen, readsOrderPages,
-  waitBeforeFetch,
+  countOrderCardSlots, harvestOrderNumbers, orderDetailPageFor, pagesToOpen,
+  readsOrderPages, waitBeforeFetch,
 } from './detailLook.js';
+import { logLook } from './lookLog.js';
 import { sendFoundOrders } from '../backend/orderCandidatesApi';
 import { useMotion } from '../ui/celebration';
 import { COLOR, FONT, SPACE } from '../ui/theme';
@@ -216,6 +217,17 @@ export default function LookingForItScreen({ navigation, route }) {
 
       const outcome = readListOutcome(answer);
 
+      // ── WHAT THE SHOP'S LIST ACTUALLY ANSWERED ───────────────────────────
+      //
+      // COUNTS AND STATUS WORDS ONLY. `bytes` is the page's LENGTH and never the
+      // page: an order list carries the buyer's name and address, and a length
+      // answers the only question asked of it — was there a page at all, and was
+      // it a real one or a stub. See the note at the top of lookLog.js.
+      logLook('list', `status=${answer && answer.status} `
+        + `bytes=${(answer && typeof answer.html === 'string' ? answer.html.length : 0)} `
+        + `looked=${outcome.looked} whyNot=${outcome.whyNot} `
+        + `wantsSignIn=${outcome.wantsSignIn}`);
+
       // ── THE SHOP REFUSED, AND THAT IS NOT "WE COULD NOT FIND YOUR ORDER" ──
       //
       // Three faces of one meaning, all measured from the owner's own log on 9
@@ -257,6 +269,23 @@ export default function LookingForItScreen({ navigation, route }) {
       /** Hand the text of everything opened so far to the server, and ask. */
       const askTheServer = async (pages) => {
         const sent = await sendFoundOrders(taskId, pages);
+
+        // ── DID THE REQUEST EVEN LEAVE THE PHONE ─────────────────────────
+        //
+        // THE LINE THE WHOLE POSTMORTEM TURNED ON. `ok:false` and "the server
+        // looked and matched nothing" both end as an empty list one line below,
+        // and on 11 September that made a backend which was not running
+        // indistinguishable from a real empty answer. status=0 means it never
+        // left the phone; a 200 with matched=0 means the server read the pages
+        // and none of them was the product.
+        //
+        // PAGE COUNT, NEVER PAGE TEXT. What was sent is an order's own page and
+        // it carries the buyer's name and address.
+        logLook('post', `pages=${Array.isArray(pages) ? pages.length : 0} `
+          + `ok=${sent.ok} status=${sent.status} `
+          + `matched=${sent.ok ? sent.orders.filter((o) => o && o.matches === true).length : 0} `
+          + `why=${sent.why == null ? 'null' : `"${sent.why}"`}`);
+
         if (!sent.ok) return [];
         return sent.orders.filter((o) => o && o.matches === true && !o.chosenAt);
       };
@@ -291,7 +320,22 @@ export default function LookingForItScreen({ navigation, route }) {
       // holds every piece of text in it to that rule. src/order/detailLook.js
       // knows which shops are read this way; this only asks.
       if (readsOrderPages(platformKey)) {
-        const numbers = pagesToOpen(harvestOrderNumbers(answer && answer.html));
+        const html = answer && typeof answer.html === 'string' ? answer.html : '';
+        const numbers = pagesToOpen(harvestOrderNumbers(html));
+
+        // ── THE ONE LINE THAT TELLS THE TWO EMPTY ANSWERS APART ────────────
+        //
+        // slots=0 means the page was not an orders page at all. slots>0 with
+        // shaped=0 means the cards were there and every id in them was refused,
+        // so the SHAPE has moved and the fix is one regular expression. Opposite
+        // problems, opposite fixes, and without this count they are one silence.
+        //
+        // THE NUMBERS THEMSELVES ARE NOT LOGGED. An order number is a strong
+        // identifier tied to the account, it is already kept server side, and a
+        // count is what the question needs.
+        logLook('numbers', `slots=${countOrderCardSlots(html)} `
+          + `shaped=${harvestOrderNumbers(html).length} opening=${numbers.length}`);
+
         const pages = [];
         for (let i = 0; i < numbers.length; i += 1) {
           const gap = waitBeforeFetch(i);

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
@@ -576,6 +576,87 @@ describe('The orders the phone found (e2e)', () => {
       expect(sql).not.toMatch(/DEFAULT/i);
       expect(sql).not.toMatch(/\bDROP\b/i);
       expect(sql).not.toMatch(/\bUPDATE\b/i);
+    });
+  });
+
+  /**
+   * ── THE TWO LINES THAT WOULD HAVE ANSWERED THE 11 SEPTEMBER QUESTION ─────
+   *
+   * record() deletes the old candidates and then returns BEFORE createMany when
+   * nothing was judged. So a request that ARRIVED carrying no readable pages
+   * leaves the database in exactly the state of a request that NEVER ARRIVED:
+   * no order_candidates row, no task event, nothing at all. On 11 September that
+   * was the whole difficulty — the database could not say whether the phone had
+   * spoken to the server.
+   *
+   * RUN, NOT READ. A string match in a spec would pass with a `return;` inserted
+   * at the top of the method, which is how the practice-window mark was once
+   * switchable off with everything green. The logger is spied on, so the lines
+   * have to really be emitted.
+   */
+  describe('it says out loud that a request arrived', () => {
+    const AMAZON_ORDER_PAGE = [
+      'Order placed', '2 June 2026',
+      'Order # 408-5094957-4481129',
+      'Headband', '1 x ₹149',
+      'Order Summary', 'Order Total ₹149',
+    ].join('\n');
+
+    it('records how many pages arrived, and what it made of them', async () => {
+      const { token, taskId } = await ready();
+      const said: string[] = [];
+      const spy = jest
+        .spyOn(Logger.prototype, 'log')
+        .mockImplementation((m: unknown) => { said.push(String(m)); });
+      try {
+        await request(server())
+          .post(`/tasks/${taskId}/orders-found`)
+          .set('Authorization', bearer(token))
+          .send({ pages: [AMAZON_ORDER_PAGE] })
+          .expect(200);
+      } finally {
+        spy.mockRestore();
+      }
+
+      const arrived = said.find((l) => l.includes('pages='));
+      const judged = said.find((l) => l.includes('judged='));
+      expect(arrived).toBeDefined();
+      expect(judged).toBeDefined();
+      expect(arrived).toContain(`task=${taskId}`);
+      expect(arrived).toContain('pages=1');
+      // THE LENGTH OF EACH PAGE, NEVER THE PAGE. What arrived is somebody's
+      // order page and it carries their name and their delivery address.
+      expect(arrived).toContain(`lens=[${AMAZON_ORDER_PAGE.length}]`);
+      expect(arrived).not.toContain('Headband');
+      expect(judged).toContain('judged=1');
+      expect(judged).toContain('matched=1');
+      expect(judged).toContain('reasons=[matched]');
+      expect(judged).not.toContain('408-5094957-4481129');
+    });
+
+    it('AND IT SAYS SO WHEN NOTHING READABLE ARRIVED, which is the silent case', async () => {
+      // The exact shape that leaves no database row at all. Without this line
+      // there is nothing anywhere to say the phone ever spoke.
+      const { token, taskId } = await ready();
+      const said: string[] = [];
+      const spy = jest
+        .spyOn(Logger.prototype, 'log')
+        .mockImplementation((m: unknown) => { said.push(String(m)); });
+      try {
+        await request(server())
+          .post(`/tasks/${taskId}/orders-found`)
+          .set('Authorization', bearer(token))
+          .send({ pages: [] })
+          .expect(200);
+      } finally {
+        spy.mockRestore();
+      }
+
+      expect(said.some((l) => l.includes('pages=0'))).toBe(true);
+      expect(said.some((l) => l.includes('judged=0') && l.includes('matched=0'))).toBe(true);
+      // And the database really is empty, which is the point: the log line is
+      // the ONLY record that this request happened.
+      expect(await prisma.orderCandidate.count({ where: { taskId } })).toBe(0);
     });
   });
 });

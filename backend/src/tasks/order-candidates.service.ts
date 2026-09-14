@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -52,6 +53,23 @@ import type { SubmitEvidenceDto } from './dto/submit-evidence.dto';
  */
 @Injectable()
 export class OrderCandidatesService {
+  /**
+   * THE ONE HOLE THE DATABASE CANNOT COVER, and it is exactly the hole the
+   * owner's 11 September attempt fell into.
+   *
+   * record() deletes the old candidates and then returns BEFORE createMany when
+   * nothing was judged. So a request that arrived carrying no readable pages
+   * leaves the database in precisely the state of a request that never arrived:
+   * no order_candidates row, no task event, nothing. These two lines are the
+   * only place that difference is ever written down.
+   *
+   * COUNTS AND REASON NAMES ONLY. The argument in hand is the TEXT of somebody's
+   * order pages, carrying their name and their delivery address, and none of it
+   * goes anywhere near this — only each page's character count and the reader's
+   * own one word verdict.
+   */
+  private readonly log = new Logger(OrderCandidatesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tasks: TaskService,
@@ -93,10 +111,21 @@ export class OrderCandidatesService {
     });
     if (already) return this.list(userId, taskId);
 
+    this.log.log(
+      `orders-found task=${taskId} pages=${pages.length} `
+      + `lens=[${pages.map((p) => (typeof p === 'string' ? p.length : 0)).join(',')}]`,
+    );
+
     const judged = judgeFoundOrders(pages, {
       productName: task.campaign.productName,
       productPricePaise: task.campaign.productPricePaise,
     });
+
+    this.log.log(
+      `orders-found task=${taskId} judged=${judged.length} `
+      + `matched=${judged.filter((j) => j.matches).length} `
+      + `reasons=[${judged.map((j) => j.reason).join(',')}]`,
+    );
 
     await this.prisma.$transaction(async (tx) => {
       await tx.orderCandidate.deleteMany({ where: { taskId } });

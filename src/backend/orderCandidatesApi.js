@@ -13,18 +13,44 @@
 // exactly the defect this project keeps finding.
 import { authedFetch } from './http.js';
 
-/** Hand over the text of every order the phone found. Never throws. */
+/**
+ * Hand over the text of every order the phone found. Never throws.
+ *
+ * ── IT NO LONGER THROWS THE REASON AWAY ───────────────────────────────────
+ *
+ * It used to answer `{ok:false, status, orders:[]}` and nothing else, and that
+ * cost an afternoon. THREE different failures all arrive here as status 0 and
+ * were indistinguishable from each other AND from a request that worked and
+ * matched nothing:
+ *
+ *   the backend is not running — http.js catches the fetch itself and answers
+ *     status 0 with the runtime's own words ("Network request failed")
+ *   the walk through is open — showing.js refuses every write before it leaves
+ *     the phone, with a sentence saying so
+ *   the address is wrong — the same catch, a different message
+ *
+ * `why` carries whatever the failure said. It is not shown to anybody: the one
+ * caller puts it in a development log line, and the screen this is called from
+ * is forbidden from naming the shop or the reason at all.
+ */
 export async function sendFoundOrders(taskId, pages) {
-  if (!taskId) return { ok: false, status: 0, orders: [] };
+  if (!taskId) return { ok: false, status: 0, orders: [], why: 'no task' };
   const list = Array.isArray(pages) ? pages.filter((p) => typeof p === 'string') : [];
   const res = await authedFetch(`/tasks/${taskId}/orders-found`, {
     method: 'POST',
     body: JSON.stringify({ pages: list }),
   });
   if (res.ok && Array.isArray(res.body)) {
-    return { ok: true, status: res.status, orders: res.body };
+    return { ok: true, status: res.status, orders: res.body, why: null };
   }
-  return { ok: false, status: res.status, orders: [] };
+  return {
+    ok: false,
+    status: res.status,
+    orders: [],
+    // The server's own words, or the runtime's, beat any guess this side could
+    // make. Null rather than a made up sentence when it said nothing at all.
+    why: (res.body && (res.body.message || res.body.error)) || null,
+  };
 }
 
 /** What we have already asked about, newest first. Never throws. */
