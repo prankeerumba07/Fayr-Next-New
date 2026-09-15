@@ -1399,4 +1399,53 @@ t('and the running commentary is development only, and says so', () => {
     + 'in the app is built to be deleted and this is');
 });
 
+t('the page having spoken at all is remembered, and remembered before it is read', () => {
+  // ── THE BUG, FROM THE OWNER'S DEVICE, 15 SEPTEMBER 2026, 19:31 AND 19:35 ──
+  //
+  // Zepto drew its orders page, our watcher read it twice, every signal was
+  // false, and nothing changed again for thirteen seconds. whatTheShopSaid reads
+  // no signal out of that and throws the message away, so the screen went on
+  // believing the shop had never answered, and the fifteen seconds put "The shop
+  // did not open" over a page that plainly had. Three attempts, every time.
+  ok(/const pageHasSpoken = useRef\(false\);/.test(connectScreen),
+    'THE SCREEN REMEMBERS WHETHER THE PAGE EVER SPOKE, separately from whether a '
+    + 'sign in was ever up, because they are different facts about a shop');
+  ok(/A REF FOR THE SAME REASON THE ONE ABOVE IS/.test(connectScreen),
+    'and it says why it is a ref: a page with nothing conclusive on it sets no '
+    + 'state, so no render happens when it speaks');
+
+  // ── BEFORE THE READING, AND THAT IS THE WHOLE FIX ────────────────────────
+  //
+  // Recorded after whatTheShopSaid, this fact would be false for exactly the shop
+  // that needs it, because that line is the one that throws the message away.
+  const spoke = connectScreen.indexOf('if (thePageHasSpoken(msg)) pageHasSpoken.current = true;');
+  const read = connectScreen.indexOf('const said = whatTheShopSaid(msg, signInWasUp.current);');
+  ok(spoke !== -1, 'the screen asks whether the page has spoken');
+  ok(read !== -1, 'and still reads the page for signals');
+  ok(spoke < read,
+    'AND IT ASKS BEFORE IT READS. After the reading, the one message shape this '
+    + 'exists for — a page that says nothing conclusive — is already gone');
+  ok(!/pageHasSpoken\.current = true;[\s\S]{0,400}?if \(said == null\) \{[\s\S]{0,200}?pageHasSpoken/
+    .test(connectScreen),
+  'and it is recorded once, not again inside the branch that gives up on the message');
+
+  // ── IT REACHES THE GATE, BOTH TIMES THE GATE IS ASKED ────────────────────
+  const times = (what) => (connectScreen.match(what) || []).length;
+  ok(times(/pageHasSpoken: pageHasSpoken\.current/g) === 2,
+    'the memory reaches the screen the gate decides AND the log line that names '
+    + 'the reason, and a gate asked without it would blame the clock again');
+  ok(/pageHasSpoken=\$\{pageHasSpoken\.current\}/.test(connectScreen),
+    'and the phone log says what it was, because that is the line that would have '
+    + 'shown this bug on the first run instead of the fifth');
+
+  // ── AND A NEW VIEW HAS SPOKEN NOTHING ────────────────────────────────────
+  const again = blockAt(connectScreen, connectScreen.indexOf('const tryAgain = useCallback('));
+  ok(/pageHasSpoken\.current = false;/.test(again),
+    'TRY AGAIN FORGETS IT, in the one function that counts the attempt up. Left '
+    + 'set, the next attempt would be handed a cannot-tell screen on the strength '
+    + 'of a page that is already gone');
+  ok(/signInWasUp\.current = false;/.test(again),
+    'and it still forgets the sign in it saw, beside it, so the two cannot drift');
+});
+
 console.log(`  ${passed} checks passed`);

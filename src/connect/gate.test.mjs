@@ -27,6 +27,7 @@ import {
   BECAUSE_THE_SHOP_SAID_SO,
   BECAUSE_THE_SIGN_IN_IS_UP,
   BECAUSE_THE_SIGN_IN_WENT,
+  BECAUSE_NOTHING_WAS_CONCLUSIVE,
   BECAUSE_THE_SHOP_WENT_QUIET,
   BECAUSE_TIME_RAN_OUT,
   CANNOT_TELL,
@@ -55,6 +56,7 @@ import {
   pathOf,
   ranOutOfTime,
   shopMayBeSeen,
+  thePageHasSpoken,
   shopViewKey,
   whatIsOnScreen,
   whatThePageShows,
@@ -529,6 +531,146 @@ console.log('\n=== 9b. BUG. A SHOP WHOSE SIGN IN IS A PANEL, AND THE COVER OVER 
   }
 }
 
+console.log('\n=== 9c. BUG. THE PAGE SPOKE, SAID NOTHING CONCLUSIVE, AND WAS BLAMED ===');
+{
+  // ── THE OWNER'S OWN DEVICE, 15 SEPTEMBER 2026, THE 19:31 AND 19:35 RUNS ───
+  //
+  //   PAGE SAID {"fieldIsThere":false,"signInControlIsThere":false,
+  //              "signOutIsThere":false,"looksLikeAGreeting":false,
+  //              "path":"/account/orders","looksInARow":2,"greeting":""}
+  //   PAGE SAID — NO SIGNAL IN IT   weSawASignIn=false
+  //   (nothing at all for the next thirteen seconds)
+  //   GATE opening -> failed because ranOutOfTime [15082ms of 15000]
+  //
+  // Three attempts in each run, the same three lines every time. THIS IS NOT THE
+  // "Please Login" CASE two sections up: signInControlIsThere is FALSE here and
+  // the greeting is empty. Every one of the five signals was false, held steady
+  // for two looks, and the page never changed again.
+  const theShopDrewAndSaidNothing = {
+    __fayrPage: {
+      fieldIsThere: false,
+      signInControlIsThere: false,
+      signOutIsThere: false,
+      looksLikeAGreeting: false,
+      path: '/account/orders',
+      looksInARow: 2,
+      greeting: '',
+    },
+  };
+  // FIRST, THAT NOTHING ABOVE READS A SIGNAL OUT OF IT. This is what made the
+  // clock the only thing left to answer, and it is still the right reading.
+  ok(whatTheShopSaid(theShopDrewAndSaidNothing, false) === null,
+    'nothing conclusive really is nothing conclusive, and that reading is unchanged');
+  ok(whatThePageShows(theShopDrewAndSaidNothing.__fayrPage) === null,
+    'and the page shows nothing that settles anything');
+  // AND YET THE PAGE HAS PLAINLY SPOKEN.
+  ok(thePageHasSpoken(theShopDrewAndSaidNothing) === true,
+    'THE SHOP DREW A PAGE AND OUR OWN WATCHER READ IT TWICE, which is speaking');
+
+  // ── WHAT THAT NOW DECIDES, AT THE FIFTEEN SECOND MARK ────────────────────
+  const at15 = { startedAt: OPENED_AT, now: OPENED_AT + SHOP_HAS_THIS_LONG_MS };
+  ok(whatDecidedIt({ ...at15, pageHasSpoken: true }) === BECAUSE_NOTHING_WAS_CONCLUSIVE,
+    'the reason is that nothing it said was conclusive, and it is named as itself');
+  ok(whatIsOnScreen({ ...at15, pageHasSpoken: true }) === CANNOT_TELL,
+    'A GATE THAT CANNOT TELL MUST NOT SAY THE SHOP REFUSED');
+  ok(whatIsOnScreen({ ...at15, pageHasSpoken: true }) !== FAILED,
+    'and never the screen whose only control is Try again, which he could not get past');
+  // AND THE ONE CONTROL THAT SCREEN CARRIES IS THE WHOLE POINT OF IT. Offered
+  // there and nowhere else, and only ever taken by somebody tapping it — which
+  // is the difference between the two screens and the whole of why this bug
+  // mattered. He was on the one that cannot be uncovered at all.
+  ok(shopMayBeSeen(CANNOT_TELL, true) === true,
+    'because that screen lets somebody ask to look at the shop with their own eyes');
+  ok(shopMayBeSeen(FAILED, true) === false,
+    'and the screen he was being sent to cannot be uncovered even when asked');
+  ok(shopMayBeSeen(CANNOT_TELL) === false,
+    'and it is still never uncovered FOR somebody who did not ask');
+
+  // ── AND A SHOP THAT NEVER SPOKE STILL FAILS AT FIFTEEN SECONDS ───────────
+  //
+  // This is the only thing the fifteen seconds were ever for, and it is not
+  // touched. If this line ever goes red, the clock has stopped catching the shop
+  // that genuinely never answers.
+  ok(whatDecidedIt({ ...at15, pageHasSpoken: false }) === BECAUSE_TIME_RAN_OUT,
+    'a shop that never posted anything is still out of time at fifteen seconds');
+  ok(whatIsOnScreen({ ...at15, pageHasSpoken: false }) === FAILED,
+    'and is still told so, in the sentence that is true about it');
+
+  // ── AND IT IS A FLOOR OF TWO LOOKS, NOT ONE ──────────────────────────────
+  //
+  // The same floor the rest of this file uses: a page rebuilt in pieces can be
+  // photographed mid-rebuild, and one look is that photograph.
+  const afterOneLook = { __fayrPage: { ...theShopDrewAndSaidNothing.__fayrPage, looksInARow: 1 } };
+  ok(thePageHasSpoken(afterOneLook) === false,
+    'one look is a page halfway through being drawn, and is not the page speaking');
+  ok(thePageHasSpoken({ __fayrPage: { looksInARow: LOOKS_IN_A_ROW_BEFORE_WE_ASK } }) === true,
+    'and the floor is the file own floor, not a second number beside it');
+
+  // ── AND IT IS ASKED OF THE MESSAGE, NEVER OF OUR READING OF IT ───────────
+  //
+  // The whole defect was that the reading throws this page away. Anything that
+  // makes this question depend on the reading puts the bug straight back.
+  //
+  // AND ASKED THROUGH A GUARD, so that a question which THROWS on a shape fails
+  // here instead of killing the file. Found by a mutation on 15 September 2026:
+  // dropping the isForTheGate guard made this whole section die with a TypeError,
+  // the runner printed no summary, and every section after it never ran — which
+  // is the exact shape this project has been bitten by before.
+  const spoke = (m) => {
+    try { return thePageHasSpoken(m); } catch (e) { return `it threw ${e.name}`; }
+  };
+  ok(spoke(null) === false, 'nothing is not a page speaking');
+  ok(spoke(undefined) === false, 'and neither is nothing at all');
+  ok(spoke({}) === false, 'and neither is a message with no page in it');
+  ok(spoke({ __fayrPage: null }) === false, 'and neither is a page that is not there');
+  ok(spoke({ __fayrPage: 'orders' }) === false, 'and neither is a page that is a word');
+  ok(spoke({ __fayrPage: {} }) === false,
+    'and neither is a page that counted no looks at all');
+  ok(spoke({ __fayrPage: { looksInARow: '2' } }) === false,
+    'and the count has to be a number, because this one crosses JSON.parse');
+  ok(spoke({ __fayrPage: { looksInARow: Infinity } }) === false,
+    'and a real one');
+  ok(spoke({ __fayrPage: { looksInARow: 2 } }) === true,
+    'and a page that counted two really is one, so the guard above refuses shapes '
+    + 'rather than refusing everything');
+
+  // ── AND EVERYTHING THAT OUTRANKS THE CLOCK STILL DOES ────────────────────
+  //
+  // The new reason sits at the very bottom, under both clocks. Anything that
+  // reordered it above these would be a page saying nothing outranking a person
+  // who is plainly signed in.
+  ok(whatDecidedIt({ ...at15, pageHasSpoken: true, theyAreIn: true }) === BECAUSE_THEY_ARE_IN,
+    'being in still wins over a page that said nothing');
+  ok(whatDecidedIt({ ...at15, pageHasSpoken: true, itWillNotOpen: true })
+    === BECAUSE_THE_SHOP_SAID_SO,
+    'and the shop saying out loud that it will not open still wins');
+  ok(whatDecidedIt({ ...at15, pageHasSpoken: true, signInIsUp: true })
+    === BECAUSE_THE_SIGN_IN_IS_UP,
+    'and a sign in on screen still wins');
+  ok(whatDecidedIt({ ...at15, pageHasSpoken: true, signInIsGone: true })
+    === BECAUSE_THE_SIGN_IN_WENT,
+    'and a sign in that went still wins');
+  // AND IT IS NEVER AN ANSWER BEFORE THE TIME IS UP. A page that speaks at three
+  // seconds must leave the cover on and go on waiting, exactly as it does today.
+  ok(whatDecidedIt({
+    startedAt: OPENED_AT, now: OPENED_AT + 3000, pageHasSpoken: true,
+  }) === BECAUSE_NOTHING_YET,
+    'and a page that has spoken but still has time left is simply still opening');
+
+  // ── AND IT IS NOT THE QUIET-SHOP REASON, WHICH MEANS SOMETHING ELSE ──────
+  //
+  // Both end on the same screen, which is exactly why they must not share a name:
+  // shopWentQuiet says a sign in was once up and then went silent. Nothing was
+  // ever up here. A log naming that would send the next person hunting for a sign
+  // in that never existed.
+  ok(BECAUSE_NOTHING_WAS_CONCLUSIVE !== BECAUSE_THE_SHOP_WENT_QUIET,
+    'the two reasons that share the cannot-tell screen have names of their own');
+  ok(whatDecidedIt({
+    ...at15, pageHasSpoken: true, shopHasAnswered: true, quietSince: OPENED_AT,
+  }) === BECAUSE_THE_SHOP_WENT_QUIET,
+    'and a shop that DID show its sign in and then went quiet still says so');
+}
+
 console.log('\n=== 10. every combination of the facts, and the rules that must hold ===');
 {
   const greetings = ['', 'Hello, sign in Account & Lists', 'Hello, Manisha Dahiya'];
@@ -958,6 +1100,7 @@ console.log('\n=== 16. TEST THREE. which of the five inputs decided it ===');
     [BECAUSE_THE_SIGN_IN_IS_UP]: SHOP,
     [BECAUSE_TIME_RAN_OUT]: FAILED,
     [BECAUSE_THE_SHOP_WENT_QUIET]: CANNOT_TELL,
+    [BECAUSE_NOTHING_WAS_CONCLUSIVE]: CANNOT_TELL,
     [BECAUSE_NOTHING_YET]: OPENING_UP,
   };
   // AND A SILENCE THAT NEVER BEGAN IS NOT A LONG SILENCE. Written out rather than
@@ -979,7 +1122,14 @@ console.log('\n=== 16. TEST THREE. which of the five inputs decided it ===');
     // fifteen seconds are not a true statement about it however long ago they
     // expired. Without this clause the table below would happily accept
     // "ranOutOfTime" on an attempt where the shop answered in five seconds.
+    // AND THE CLOCK MAY NOT BE BLAMED FOR A PAGE THAT SPOKE EITHER. "The shop
+    // did not open" is a statement about a shop that never answered, and a page
+    // our own watcher read twice in a row has answered whatever it said.
     [BECAUSE_TIME_RAN_OUT]: (f) => f.shopHasAnswered !== true
+      && f.pageHasSpoken !== true
+      && f.now - f.startedAt >= SHOP_HAS_THIS_LONG_MS,
+    [BECAUSE_NOTHING_WAS_CONCLUSIVE]: (f) => f.shopHasAnswered !== true
+      && f.pageHasSpoken === true
       && f.now - f.startedAt >= SHOP_HAS_THIS_LONG_MS,
     // AND "NOTHING YET" IS NOW A CLAIM AND NOT A SHRUG. It used to answer true
     // for anything, which meant a gate that wrongly fell through to the loading
@@ -1010,22 +1160,25 @@ console.log('\n=== 16. TEST THREE. which of the five inputs decided it ===');
       for (const signInIsGone of [false, true]) {
         for (const signInIsUp of [false, true]) {
           for (const shopHasAnswered of [false, true]) {
-            for (const quietSince of [null, OPENED_AT]) {
-              for (const now of [STILL_IN_TIME, OUT_OF_TIME]) {
-                const facts = {
-                  theyAreIn,
-                  itWillNotOpen,
-                  signInIsGone,
-                  signInIsUp,
-                  shopHasAnswered,
-                  startedAt: OPENED_AT,
-                  quietSince,
-                  now,
-                };
-                const why = whatDecidedIt(facts);
-                walked += 1;
-                if (STATE_OF[why] === whatIsOnScreen(facts)) agreed += 1;
-                if (isReallyTrue(why, facts)) named += 1;
+            for (const pageHasSpoken of [false, true]) {
+              for (const quietSince of [null, OPENED_AT]) {
+                for (const now of [STILL_IN_TIME, OUT_OF_TIME]) {
+                  const facts = {
+                    theyAreIn,
+                    itWillNotOpen,
+                    signInIsGone,
+                    signInIsUp,
+                    shopHasAnswered,
+                    pageHasSpoken,
+                    startedAt: OPENED_AT,
+                    quietSince,
+                    now,
+                  };
+                  const why = whatDecidedIt(facts);
+                  walked += 1;
+                  if (STATE_OF[why] === whatIsOnScreen(facts)) agreed += 1;
+                  if (isReallyTrue(why, facts)) named += 1;
+                }
               }
             }
           }
@@ -1033,7 +1186,7 @@ console.log('\n=== 16. TEST THREE. which of the five inputs decided it ===');
       }
     }
   }
-  ok(walked === 128, `a hundred and twenty eight combinations walked (${walked})`);
+  ok(walked === 256, `two hundred and fifty six combinations walked (${walked})`);
   ok(agreed === walked,
     `THE REASON AND THE SCREEN AGREE IN ALL ${walked} COMBINATIONS (${agreed}). They cannot `
     + 'drift, because whatIsOnScreen is a lookup over this same answer rather than a '

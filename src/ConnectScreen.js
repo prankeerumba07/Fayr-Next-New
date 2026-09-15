@@ -26,6 +26,7 @@ import { MarketplaceTag } from './ui/primitives';
 import {
   ASK_THE_SHOP_AGAIN, FAILED, OPENING_UP, SHOP_HAS_THIS_LONG_MS, SIGNED_IN_SHOWS_FOR_MS,
   THEY_SAY_THEY_ARE_IN, UNCOVER_THE_SHOP, isForTheGate, isTheShopsOwnSignInPage, pathOf,
+  thePageHasSpoken,
   shopMayBeSeen, shopViewKey, shopViewMayExist, shouldActOnFailure, whatDecidedIt,
   whatIsOnScreen, whatTheShopSaid, whatWeSay,
   CANNOT_TELL, HOLD_CANNOT_TELL_MS, holdBackCannotTell,
@@ -208,6 +209,18 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
   // ref and not state, because nothing on screen depends on it and it must be
   // right the instant a message arrives rather than after the next draw.
   const signInWasUp = useRef(false);
+  // AND HAS THE PAGE SPOKEN AT ALL THIS ATTEMPT, whatever it said? A separate
+  // memory from the one above and a narrower one: that remembers the shop showing
+  // its own SIGN IN, this remembers the shop drawing anything our watcher could
+  // read twice. A page saying nothing conclusive sets this and never sets that,
+  // and telling those two apart is the difference between "we cannot tell" and
+  // "the shop did not open". See BECAUSE_NOTHING_WAS_CONCLUSIVE in connect/gate.js.
+  //
+  // A REF FOR THE SAME REASON THE ONE ABOVE IS: nothing on screen depends on it
+  // at the moment it changes, and it must be right the instant a message arrives.
+  // A page with nothing conclusive on it sets no state at all, so no render
+  // happens when it speaks — and the clock that reads this is already ticking.
+  const pageHasSpoken = useRef(false);
   // AND THE FAILURE ITSELF, kept as a ref as well as state. The state is what the
   // screen is drawn from; this is what the save handler reads, because the two run
   // in one batch for the same failed load and a state set in one is not yet
@@ -252,6 +265,7 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
       // a second copy of it would be a second thing to keep right. See
       // whatDecidedIt in connect/gate.js for the Amazon sign in this cost.
       shopHasAnswered: signInWasUp.current,
+      pageHasSpoken: pageHasSpoken.current,
       quietSince,
     })
     : null;
@@ -318,12 +332,14 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     const why = whatDecidedIt({
       signInIsUp, signInIsGone, theyAreIn, itWillNotOpen, startedAt: askedAt, now: nowIs,
       shopHasAnswered: signInWasUp.current,
+      pageHasSpoken: pageHasSpoken.current,
       quietSince,
     });
     logGate(attempt, 'GATE',
       `${gateWas.current == null ? '(first)' : gateWas.current} -> ${gate}  because ${why}`
       + `  [signInIsUp=${signInIsUp} signInIsGone=${signInIsGone} theyAreIn=${theyAreIn}`
       + ` itWillNotOpen=${itWillNotOpen} shopHasAnswered=${signInWasUp.current}`
+      + ` pageHasSpoken=${pageHasSpoken.current}`
       + ` waited=${nowIs - askedAt}ms of ${SHOP_HAS_THIS_LONG_MS}`
       + ` quiet=${quietSince == null ? 'no' : `${nowIs - quietSince}ms`}]`);
     gateWas.current = gate;
@@ -383,6 +399,10 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     // could then wait on a shop that says nothing for ever. It sits here, in the
     // one function that counts the attempt up, so the two cannot be separated.
     signInWasUp.current = false;
+    // AND SO IS WHETHER IT EVER SPOKE. A new view has drawn nothing yet, and an
+    // inherited "it spoke" would hand the next attempt a cannot-tell screen on
+    // the strength of a page that is already gone.
+    pageHasSpoken.current = false;
   }, []);
 
   /**
@@ -615,6 +635,11 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
       // not our reading of it: if the reading is the thing that is wrong, a line
       // showing only the reading cannot tell anybody that.
       logGate(attemptNow.current, 'PAGE SAID', event.nativeEvent.data);
+      // BEFORE THE READING, AND THAT IS THE WHOLE POINT OF ITS BEING HERE. The
+      // line below throws away every message it cannot read a signal out of, and
+      // a shop whose page says nothing conclusive sends only those. Recorded
+      // after it, this fact would be false for exactly the shop that needs it.
+      if (thePageHasSpoken(msg)) pageHasSpoken.current = true;
       const said = whatTheShopSaid(msg, signInWasUp.current);
       if (said == null) {
         logGate(attemptNow.current, 'PAGE SAID — NO SIGNAL IN IT',

@@ -175,6 +175,45 @@ export const BECAUSE_TIME_RAN_OUT = 'ranOutOfTime';
  * a name of its own — see the note above about the last two.
  */
 export const BECAUSE_THE_SHOP_WENT_QUIET = 'shopWentQuiet';
+/**
+ * THE PAGE SPOKE, STEADILY, AND NOTHING IT SAID DECIDED ANYTHING.
+ *
+ * ── FROM THE OWNER'S OWN DEVICE, 15 SEPTEMBER 2026, 19:31 AND 19:35 ────────
+ *
+ *   PAGE SAID {"fieldIsThere":false,"signInControlIsThere":false,
+ *              "signOutIsThere":false,"looksLikeAGreeting":false,
+ *              "path":"/account/orders","looksInARow":2,"greeting":""}
+ *   PAGE SAID — NO SIGNAL IN IT   weSawASignIn=false
+ *   (nothing at all for the next thirteen seconds)
+ *   GATE opening -> failed because ranOutOfTime [15082ms of 15000]
+ *
+ * Three attempts in each run, the same three lines every time. Every one of the
+ * five signals false, held for two looks, and then a page that never changed
+ * again. whatThePageShows answers null to that, so the shop was never recorded
+ * as having answered, so the first clock stayed alive and bit at fifteen
+ * seconds, and he was told "The shop did not open. Please try again."
+ *
+ * THE SHOP DID OPEN. It drew a page and our own watcher read it twice. What it
+ * did not do is say anything that settles whether he is signed in — and that is
+ * not the same fact as a shop that never answered at all, which is the only
+ * thing the fifteen seconds were ever meant to catch.
+ *
+ * A GATE THAT CANNOT TELL MUST NOT SAY THE SHOP REFUSED. So this reason exists,
+ * and it puts up the screen that says exactly that, carrying the one control
+ * that lets somebody look with their own eyes.
+ *
+ * ── AND WHY IT IS NOT shopWentQuiet, WHICH ALSO ENDS ON THAT SCREEN ────────
+ *
+ * For the same reason those two above have separate names while sharing one
+ * screen, written out where they are defined: a log that names the wrong input
+ * is worse than no log at all. shopWentQuiet means the shop SHOWED US ITS OWN
+ * SIGN IN and then went silent, and its clock is counted from the moment that
+ * sign in left. This one never saw a sign in at all. Folding them together
+ * would put "shopWentQuiet" on a phone's log for an attempt where nothing was
+ * ever up to go quiet, and the next person reading that log would hunt for a
+ * sign in that never existed.
+ */
+export const BECAUSE_NOTHING_WAS_CONCLUSIVE = 'nothingConclusive';
 export const BECAUSE_NOTHING_YET = 'stillOpening';
 
 /**
@@ -195,6 +234,10 @@ const STATE_FOR_REASON = {
   // tell: they watched it open and they signed in on it. The screen that says we
   // cannot tell is the true one, and it is the one that carries controls.
   [BECAUSE_THE_SHOP_WENT_QUIET]: CANNOT_TELL,
+  // AND NOT FAILED EITHER, for the same reason and a stronger one: this page is
+  // still on screen under our cover, drawn and readable, and the one control
+  // that screen carries hands it to the person who can read it.
+  [BECAUSE_NOTHING_WAS_CONCLUSIVE]: CANNOT_TELL,
   [BECAUSE_NOTHING_YET]: OPENING_UP,
 };
 
@@ -353,6 +396,12 @@ export function whatDecidedIt({
   theyAreIn = false,
   itWillNotOpen = false,
   shopHasAnswered = false,
+  // HAS THE PAGE POSTED SETTLED FACTS AT ALL THIS ATTEMPT? Narrower than the
+  // line above it and deliberately so: shopHasAnswered means the shop showed us
+  // its own SIGN IN, and this means only that the shop drew something our
+  // watcher could read twice in a row. A page that says nothing conclusive
+  // satisfies this and never satisfies that. See thePageHasSpoken below.
+  pageHasSpoken = false,
   startedAt = null,
   quietSince = null,
   now = null,
@@ -436,7 +485,21 @@ export function whatDecidedIt({
   if (shopHasAnswered === true && ranOutOfTime(quietSince, now)) {
     return BECAUSE_THE_SHOP_WENT_QUIET;
   }
-  if (shopHasAnswered !== true && ranOutOfTime(startedAt, now)) return BECAUSE_TIME_RAN_OUT;
+  // ── AND THE FIFTEEN SECONDS ONLY BLAME A SHOP THAT NEVER SPOKE ───────────
+  //
+  // Both roads out of here end the attempt at fifteen seconds. They differ in
+  // what they say about it, and one of them was saying something untrue.
+  //
+  // A PAGE THAT DREW AND WAS READ TWICE HAS SPOKEN, even when nothing it said
+  // settles anything. Blaming the clock there puts "The shop did not open" over
+  // a shop that plainly did, on a page still sitting under our own cover — see
+  // BECAUSE_NOTHING_WAS_CONCLUSIVE above for the three attempts this cost him.
+  //
+  // A SHOP THAT NEVER POSTED ANYTHING STILL FAILS AT FIFTEEN SECONDS, unchanged,
+  // which is the whole of what that number was ever for.
+  if (shopHasAnswered !== true && ranOutOfTime(startedAt, now)) {
+    return pageHasSpoken === true ? BECAUSE_NOTHING_WAS_CONCLUSIVE : BECAUSE_TIME_RAN_OUT;
+  }
   return BECAUSE_NOTHING_YET;
 }
 
@@ -875,4 +938,27 @@ export function isForTheGate(message) {
     && typeof message === 'object'
     && message.__fayrPage != null
     && typeof message.__fayrPage === 'object';
+}
+
+/**
+ * HAS THE SHOP'S PAGE SPOKEN, AND SETTLED, WHATEVER IT SAID?
+ *
+ * Answered from the message itself rather than from our reading of it, and that
+ * is the entire point: whatTheShopSaid returns null for a page with nothing
+ * conclusive on it, and a screen that only counted the readings would go on
+ * believing such a shop had never answered at all. See
+ * BECAUSE_NOTHING_WAS_CONCLUSIVE.
+ *
+ * TWO LOOKS AND NOT ONE, the same floor the rest of this file uses and for the
+ * same reason: a shop's own page is rebuilt in pieces, and one look taken in
+ * the middle of that is a photograph of a page that does not exist yet. The
+ * count comes from the page's own script, which is the only thing that can see
+ * its own looks in a row.
+ */
+export function thePageHasSpoken(message) {
+  if (!isForTheGate(message)) return false;
+  const looks = message.__fayrPage.looksInARow;
+  return typeof looks === 'number'
+    && Number.isFinite(looks)
+    && looks >= LOOKS_IN_A_ROW_BEFORE_WE_ASK;
 }
