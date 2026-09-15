@@ -68,6 +68,10 @@ import {
 // THE ONE PLACE A REASON BECOMES WORDS. Read here so a reason added without words
 // fails, rather than printing its own name at somebody trying to read a phone.
 import { whyInWords } from './gateLog.js';
+// THE QUESTION THE NEW RULE IN SECTION 9b RESTS ON. Its two guarantees — a WHOLE
+// label and a control that is really on screen — are what keep a shopping page
+// covered, so they are held to here rather than trusted. See that section.
+import { A_WAY_IN, A_WAY_OUT, WHOLE_LABEL } from './pageQuestions.js';
 import { SIGN_IN_PATH } from './pageQuestions.js';
 import { PAGE_TIMEOUT_MS } from '../livecheck.js';
 import { LIST_TIMEOUT_MS } from '../orderhistory.js';
@@ -347,7 +351,7 @@ console.log('\n=== 9. BUG TWO. what a shop own page is really showing ===');
   ok(whatThePageShows({ ...gone, isAPuzzle: true }) === null,
     'and never on a puzzle asking whether they are a person');
   ok(whatThePageShows({ ...gone, signInControlIsThere: true }) === null,
-    'and never while the shop is offering a way in');
+    'and never while the shop is still offering a way in, so nothing is said');
   ok(whatThePageShows({ ...gone, looksInARow: 1 }) === null,
     'and never on one look, so a page halfway through being rebuilt cannot count');
   ok(whatThePageShows({ ...gone, looksInARow: undefined }) === null,
@@ -356,21 +360,173 @@ console.log('\n=== 9. BUG TWO. what a shop own page is really showing ===');
     'and still after five looks, because two is a floor and not a window');
 
   // ── THE REAL PAGES, MEASURED ON 6 SEPTEMBER 2026 ─────────────────────────
-  // Flipkart own account page, signed out: it really does print "Log In". This
-  // is what keeps somebody who backed out of the sign in from being read as in.
+  // Flipkart own account page, signed out: it really does print "Log In". Once a
+  // sign in HAS been seen in this attempt, a page still printing a way in is a
+  // page somebody has moved on to, and nothing is said about it.
   ok(whatThePageShows({
     signInWasUp: true, signInControlIsThere: true, path: '/my-account', looksInARow: 9,
-  }) === null, 'Flipkart own account page offers a way in, so nothing is said about it');
-  // Zepto own orders page, signed out: it really does print "Login".
+  }) === null, 'Flipkart own account page, after a sign in was seen, is not called gone');
+  // Zepto own orders page, signed out: it really does print "Login". THE PAIR
+  // BELOW IS THE WHOLE RULE IN TWO LINES, and the only thing that differs
+  // between them is whether a sign in had already been up in this attempt.
+  ok(whatThePageShows({
+    signInWasUp: false, signInControlIsThere: true, path: '/account/orders', looksInARow: 9,
+  }) === 'up', 'Zepto own orders page, before any sign in was seen, IS the sign in being up');
   ok(whatThePageShows({
     signInWasUp: true, signInControlIsThere: true, path: '/account/orders', looksInARow: 9,
-  }) === null, 'Zepto own orders page offers a way in, so nothing is said about it');
+  }) === null, 'and after one was seen, it is a page moved on to, so nothing is said');
   // Flipkart own home page, signed out OR signed in: no way in either way. This
   // is the page the owner was abandoned on, and it is why "gone" is a question
   // and never a claim that somebody is signed in.
   ok(whatThePageShows({
     signInWasUp: true, signInControlIsThere: false, path: '/', looksInARow: 2,
   }) === 'gone', 'Flipkart own home page ends in the question and not in a claim');
+}
+
+console.log('\n=== 9b. BUG. A SHOP WHOSE SIGN IN IS A PANEL, AND THE COVER OVER IT ===');
+{
+  // ── THE OWNER'S OWN DEVICE, 15 SEPTEMBER 2026, 19:21 ──────────────────────
+  //
+  //   PAGE SAID {"fieldIsThere":false,"signInControlIsThere":true,
+  //              "signOutIsThere":false,"path":"/account/orders",
+  //              "greeting":"Please Login\nPlease login to check orders.\n\nLogin\n"}
+  //   PAGE SAID — NO SIGNAL IN IT   weSawASignIn=false
+  //   GATE opening -> failed because ranOutOfTime [15062ms of 15000]
+  //
+  // Three attempts, the same three lines each time. The shop was printing its own
+  // way in and asking him in its own words to use it, and our cover stayed on
+  // over it until the clock ran out. He could not get past it, ever, on that shop.
+  const theShopSaidPleaseLogin = {
+    fieldIsThere: false,
+    signInControlIsThere: true,
+    signOutIsThere: false,
+    path: '/account/orders',
+    greeting: 'Please Login\nPlease login to check orders.\n\nLogin\n',
+    looksInARow: 1,
+    signInWasUp: false,
+    isAPuzzle: false,
+  };
+  ok(whatThePageShows(theShopSaidPleaseLogin) === 'up',
+    'THE SHOP IS OFFERING ITS OWN WAY IN, WHICH IS ITS SIGN IN BEING UP');
+  // ...and it does not have to have been up before, which is what made this
+  // unreachable: the panel has never been on screen, so nothing had ever seen
+  // one. The log line above says weSawASignIn=false on every one of the three
+  // attempts, so this is the fact the shop actually presented.
+  ok(whatThePageShows({ ...theShopSaidPleaseLogin, signInWasUp: true }) === null,
+    'and ONLY before one has been seen \u2014 see the Amazon storefront below for why');
+  // AND AT THE NEXT STEP OF THE SAME SEQUENCE. Tapping Login opens the panel, a
+  // box appears, and the older rule takes over and keeps the cover off.
+  ok(whatThePageShows({
+    ...theShopSaidPleaseLogin, fieldIsThere: true, signInWasUp: true,
+  }) === 'up', 'and once the panel is open its box answers, whatever was seen before');
+  ok(whatThePageShows({ ...theShopSaidPleaseLogin, looksInARow: 9 }) === 'up',
+    'and on every look, not only the first');
+  // AND THE FACT HAS TO BE THE WORD true AND NOT MERELY SOMETHING TRUE-ISH.
+  // This one crosses JSON.parse out of a shop's own page, so what arrives is
+  // whatever that page chose to send. The string "false" is a true-ish thing.
+  ok(whatThePageShows({ ...theShopSaidPleaseLogin, signInControlIsThere: 'false' }) === null,
+    'and the word "false" sent as text is not a control, whatever it would be to an if');
+  ok(whatThePageShows({ ...theShopSaidPleaseLogin, signInControlIsThere: 1 }) === null,
+    'and neither is a one');
+  // AND NOTHING RECORDED MEANS NOTHING SEEN, which is the sentence the rule is
+  // written in. whatTheShopSaid hands this one down as a real true or false and
+  // defaults it to false, so today the two readings agree; this holds them to
+  // agreeing, because a rule that reads "before a sign in has been seen" must
+  // not change its mind when nobody has written down that none was.
+  ok(whatThePageShows({ ...theShopSaidPleaseLogin, signInWasUp: undefined }) === 'up',
+    'and a sign in nobody recorded is a sign in nobody saw');
+
+  // ── AND THE PAGE THIS COVER EXISTS FOR STAYS COVERED ──────────────────────
+  //
+  // Amazon's own shopping home page, SIGNED OUT, as a real browser measured it
+  // on 15 September 2026 carrying this app's own DESKTOP_UA at a phone's width:
+  // it prints "Hello, sign in" at the top of itself AND it carries six separate
+  // controls whose whole label is exactly "Sign in" with a real width and
+  // height. Four of those are the "See personalized recommendations" card, which
+  // is not hidden by anything \u2014 it is simply below the fold.
+  //
+  // THE `true` BELOW IS THE MEASUREMENT AND NOT A CONVENIENCE. It used to say
+  // false here, read off device log samples of this page that were all SIGNED
+  // IN, and while it said false the two checks under it were tautologies: they
+  // asked whether a page with no control was uncovered. They are the reason the
+  // first version of this rule nearly shipped.
+  const amazonShopping = {
+    fieldIsThere: false,
+    signInControlIsThere: true,
+    signOutIsThere: false,
+    path: '/',
+    greeting: '.in\nDeliver to\nAll\nEN\nHello, sign in\nAccount & Lists\n\nReturns\n'
+      + '& Orders\nCart\nAll\n\nFresh\nMobiles\nAmazon Pay\nToday\u2019s Deals\nGift Ideas',
+    looksInARow: 9,
+    signInWasUp: false,
+    isAPuzzle: false,
+  };
+  // Fayr opens Amazon on its own sign in address, which answers "up" on the
+  // address alone before any other page of Amazon's can be reached \u2014 so by the
+  // time this storefront is in front of anybody, a sign in has been seen.
+  ok(whatThePageShows({ ...amazonShopping, signInWasUp: true }) !== 'up',
+    'A SHOPPING PAGE CARRYING A WAY IN IS STILL NOT A SIGN IN, and the cover stays on');
+  ok(whatThePageShows({ ...amazonShopping, signInWasUp: true }) === null,
+    'it says nothing at all about it, which is what it said before');
+  // AND THE RISK THAT IS LEFT, PINNED WHERE IT CAN BE SEEN RATHER THAN WRITTEN
+  // UP AS SAFETY. Reached before any sign in has been seen, this storefront
+  // WOULD be uncovered. Amazon is out of reach of that only because of where
+  // Fayr opens it. If this line ever starts failing, that is what changed.
+  ok(whatThePageShows({ ...amazonShopping, signInWasUp: false }) === 'up',
+    'and the honest cost: reached first, a storefront printing a way in is uncovered');
+  // AND THE WORDS ARE NOT THE SIGNAL, WHICH IS WHY. Both pages ask somebody to
+  // sign in IN WORDS. Only one of them offers a control whose whole label is one.
+  ok(/sign in/i.test(amazonShopping.greeting) && /login/i.test(theShopSaidPleaseLogin.greeting),
+    'both pages really do say it in words, so the words cannot be what tells them apart');
+
+  // ── AND THE THINGS THAT OUTRANK IT STILL DO ───────────────────────────────
+  ok(whatThePageShows({ ...theShopSaidPleaseLogin, isAPuzzle: true }) === null,
+    'nothing is said about a puzzle, whatever else is on it');
+  ok(whatThePageShows({ ...theShopSaidPleaseLogin, path: '/checkout' }) === null,
+    'and nothing about a paying page');
+  ok(whatThePageShows({ ...theShopSaidPleaseLogin, signOutIsThere: true }) === 'in',
+    'and a shop showing a way OUT is still a shop that let them in');
+  ok(whatThePageShows({
+    ...theShopSaidPleaseLogin, greeting: 'Hello, Manisha Dahiya Orders',
+  }) === 'in', 'and so is one greeting somebody by name');
+
+  // ── AND THE TWO GUARANTEES THE WHOLE RULE RESTS ON ────────────────────────
+  //
+  // "up" takes our cover off. The reason a shopping page does not get uncovered
+  // is not this file at all — it is what fayrWholeLabel asks of a control. Until
+  // now NOTHING held that question to those two promises, so the safety of the
+  // rule above lived in a script's prose. It lives here now.
+  //
+  // ONE: THE WHOLE LABEL, NEVER A PART OF ONE. Amazon prints "Hello, sign in"
+  // in a single control on its shopping page. A question that asked whether a
+  // label CONTAINED a way in would match it, and would uncover that page.
+  ok(/text !== words\[w\] && aria !== words\[w\]/.test(WHOLE_LABEL),
+    'the label must EQUAL the word, never contain it');
+  for (const loose of ['indexOf(', '.includes(', '.match(', 'startsWith(', 'RegExp']) {
+    ok(!WHOLE_LABEL.includes(loose),
+      `fayrWholeLabel uses ${loose}, which can match a part of a label`);
+  }
+  ok(WHOLE_LABEL.includes('if (el.children.length > 1) continue;'),
+    'and at most one thing inside it, so a wrapper holding the page cannot match');
+
+  // TWO: IT HAS TO BE ON SCREEN. This is the one that does the work on Amazon.
+  // Its markup really does carry nodes whose whole label is exactly "Sign in" —
+  // the account flyout and the sign in tooltip — and the shop keeps both hidden
+  // until somebody hovers. A question that did not ask for a size would find
+  // them, and the cover would come off Amazon's shopping page.
+  ok(WHOLE_LABEL.includes('getBoundingClientRect'), 'it asks the control for its size');
+  ok(/box\.width > 0 && box\.height > 0/.test(WHOLE_LABEL),
+    'and a control with no size is not a control anybody can tap');
+
+  // AND THE FOUR WORDS ARE FOUR WORDS. Not "account", not "hello", not a phrase
+  // a shopping page puts in its menu.
+  ok(A_WAY_IN.length === 4 && A_WAY_IN.every((w) => w === w.toLowerCase() && w.length <= 7),
+    `the ways in are four short words: ${A_WAY_IN.join(', ')}`);
+  for (const word of A_WAY_IN) {
+    ok(!A_WAY_OUT.includes(word), `"${word}" must not also be a way OUT`);
+    ok(!/hello|account|orders|profile|menu/.test(word),
+      `"${word}" is a word a shopping page puts in its own menu`);
+  }
 }
 
 console.log('\n=== 10. every combination of the facts, and the rules that must hold ===');
@@ -413,6 +569,23 @@ console.log('\n=== 10. every combination of the facts, and the rules that must h
       ([f, a]) => !(isAPayingPage(f.path) && a !== null)],
     ['the sign in is never called gone while the shop offers a way in',
       ([f, a]) => !(a === 'gone' && f.signInControlIsThere)],
+    // THE ONE THAT KEEPS THE COVER ON A SHOPPING PAGE. "up" takes our cover off,
+    // so it must always have a REASON on the page: a box, the shop's own sign in
+    // address, or a control whose whole label is a way in. Words in a greeting
+    // are not a reason — Amazon's shopping page says "Hello, sign in" to somebody
+    // who is not signed in, and uncovering that is the thing the cover exists to
+    // prevent.
+    ['the sign in is never called up without a box, an address or a control',
+      ([f, a]) => !(a === 'up' && !f.fieldIsThere && !f.signInControlIsThere
+        && !isTheShopsOwnSignInPage(f.path))],
+    // AND THE ONE THAT WOULD HAVE CAUGHT THE FIRST VERSION OF THAT RULE. A
+    // control on its own may only ever speak for the FIRST page of an attempt.
+    // Once a sign in has been seen, a control is somebody having moved on, and
+    // a shopping page carrying one must not be uncovered on the strength of it
+    // \u2014 which Amazon's signed out home page, measured, really does carry.
+    ['a control alone never calls the sign in up once one has already been seen',
+      ([f, a]) => !(a === 'up' && f.signInControlIsThere && !f.fieldIsThere
+        && !isTheShopsOwnSignInPage(f.path) && f.signInWasUp)],
     ['the sign in is never called gone on the shop own sign in page',
       ([f, a]) => !(a === 'gone' && isTheShopsOwnSignInPage(f.path))],
     ['the sign in is never called gone when it was never up',

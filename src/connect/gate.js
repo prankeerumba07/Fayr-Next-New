@@ -711,13 +711,110 @@ export function whatThePageShows(facts) {
   // THE SIGN IN IS UP. Either the shop's own address, or a box on its own page.
   if (f.fieldIsThere === true || onItsSignIn) return 'up';
 
+  // ── AND SO IS A SHOP OFFERING ITS OWN WAY IN ─────────────────────────────
+  //
+  // ── FROM THE OWNER'S OWN DEVICE, 15 SEPTEMBER 2026, 19:21 ───────────────
+  //
+  //   PAGE SAID {"fieldIsThere":false,"signInControlIsThere":true,
+  //              "signOutIsThere":false,"path":"/account/orders",
+  //              "greeting":"Please Login\nPlease login to check orders.\n\nLogin\n"}
+  //   PAGE SAID — NO SIGNAL IN IT   weSawASignIn=false
+  //   GATE opening -> failed because ranOutOfTime [15062ms of 15000]
+  //
+  // Three attempts, the same three lines each time. The shop was printing its
+  // own way in and asking him, in its own words, to use it — and everything
+  // above this line said nothing at all about the page. On a shop whose sign in
+  // is a PANEL, the box does not exist until the control is tapped, and tapping
+  // it leaves the address exactly where it was, so neither of the two older
+  // tests for "up" can ever be true on it. Our own cover stayed on over the one
+  // control he needed to tap, the fifteen seconds ran out, and he was told the
+  // shop had not opened. He could not get past it. Not on that attempt, not on
+  // the next one, not ever on that shop.
+  //
+  // A PERSON HAS TO BE ABLE TO SEE A CONTROL IN ORDER TO TAP IT. That is the
+  // whole of the reason, and it is the entire point of taking the cover off.
+  //
+  // ── AND WHY THIS IS NOT "A PAGE MENTIONING SIGNING IN IS A SIGN IN" ─────
+  //
+  // That would be wrong, and this file already records why: Amazon prints
+  // "Hello, sign in" at the top of its own SHOPPING page to somebody who is not
+  // signed in, and uncovering a whole shopping home page is precisely what the
+  // cover exists to prevent. Four things keep this narrower than that.
+  //
+  //   IT IS A WHOLE LABEL AND NEVER A PART OF ONE. fayrWholeLabel asks for a
+  //   control whose ENTIRE visible text is exactly "log in", "login", "sign in"
+  //   or "signin", with at most one thing inside it so a wrapper holding the
+  //   page cannot match, and with a real width and height. "Hello, sign in
+  //   Account & Lists" is not one of those four words and never will be.
+  //
+  //   BUT THE WHOLE LABEL IS NOT ENOUGH ON ITS OWN, AND THAT IS MEASURED. The
+  //   first version of this line had no other condition on it, and a real
+  //   browser refuted it the same day. Amazon's own SHOPPING home page, signed
+  //   out, carrying the DESKTOP_UA this app gives it, laid out at a phone's
+  //   width: SIX separate nodes whose whole label is exactly "Sign in" and whose
+  //   box has a real width and height. Two are a menu the shop keeps off to the
+  //   side, which still reports a size. The other four are the "See personalized
+  //   recommendations" card — an ordinary visible button, nothing hidden about
+  //   it at all, simply further down the page than the screen is tall. On the
+  //   whole label alone, that storefront answers "up" and the cover comes off it.
+  //
+  //   AND THE DEVICE LOG DOES NOT SAY OTHERWISE, though it was read that way
+  //   once and that reading is what this line nearly shipped on. Every sample of
+  //   Amazon's home page in it reports the control absent — and every one of
+  //   those samples is of a page that was SIGNED IN, greeting him by name. A
+  //   signed in shopping page has no way in on it to find. The signed out one
+  //   has never once been in front of this app's own watcher.
+  //
+  //   SO IT ONLY EVER ANSWERS BEFORE A SIGN IN HAS BEEN SEEN. That is the other
+  //   condition on the line, and it is what makes it safe rather than lucky. The
+  //   first time anything in this attempt answers "up", our own side latches it
+  //   — signInWasUp, above. So a control can only ever take the cover off the
+  //   FIRST page the shop drew, the one Fayr itself asked for. Never off a page
+  //   somebody walked to afterwards, and never off the storefront reached by
+  //   tapping a shop's own logo out of its sign in. Three of the seven open on
+  //   their own sign in address, which latches "up" before any other page of
+  //   theirs can be reached at all.
+  //
+  //   EVERYTHING ABOVE HAS ALREADY RUN. A shop showing a way OUT answered "in"
+  //   four lines up. A shop greeting somebody BY NAME answered "in" three lines
+  //   up. So this is only ever reached on a page showing neither, and writing
+  //   those two in here as conditions would be decoration that reads as safety.
+  //
+  //   AND THE QUESTION IS ONLY EVER ASKED ON A SIGN IN VISIT. The watcher that
+  //   produces these facts is injected only when somebody has gone to the shop
+  //   in order to sign in — see toSignIn in src/ConnectScreen.js. It does not
+  //   run while Fayr is reading anything.
+  //
+  // ── THE RISK THAT IS LEFT, SAID PLAINLY RATHER THAN HEDGED ──────────────
+  //
+  // A shop whose FIRST page — the one Fayr opened, before anything has answered
+  // "up" — is a place to shop AND carries a visible control whose whole label is
+  // exactly a way in, would have our cover taken off it. Amazon is exactly such
+  // a page and is out of reach only because Fayr opens it on its own sign in
+  // address instead; if that address ever stopped being a sign in, the
+  // measurement above says the storefront underneath would answer "up". Of the
+  // other two that open somewhere else, both home pages have been measured to
+  // carry no such control, and this shop opens on its own orders page.
+  //
+  // That is a real risk, it is the price of somebody being able to sign in at
+  // all on a shop whose sign in is a panel, and the condition on the line above
+  // is what holds it to one page instead of every page of the visit.
+  if (f.signInWasUp !== true && f.signInControlIsThere === true) return 'up';
+
   // AND THE SIGN IN HAS GONE. Every one of these has to hold.
   if (f.signInWasUp !== true) return null;
   // Still on the shop's own sign in, so it has not gone anywhere.
   if (onItsSignIn) return null;
-  // The shop is offering a way in, which is a shop saying they are not in. This
-  // is what keeps somebody who backed out onto Flipkart's own account page, or
-  // Zepto's own orders page, where the shop really does print a way in.
+  // AND THE SHOP IS STILL OFFERING A WAY IN. The rule above answered "up" to this
+  // same fact while nothing had been seen yet; reaching here means a sign in HAS
+  // already been up in this attempt, so this is somebody who has moved on from
+  // it — onto a shop's own account page, or onto a storefront that prints a way
+  // in. Calling that gone would be a plain untruth about a page still offering
+  // one, so nothing is said and the quiet clock is left to decide.
+  //
+  // THIS IS ALSO THE LINE THAT KEEPS AMAZON'S STOREFRONT COVERED, and the
+  // measurement written out above is why it has to be here rather than folded
+  // into the rule above as a tidier single test.
   if (f.signInControlIsThere === true) return null;
   // Held for long enough that a page halfway through being rebuilt cannot count.
   const looks = typeof f.looksInARow === 'number' ? f.looksInARow : 0;
