@@ -61,6 +61,32 @@ ok(buildOrderListScript('"); alert(1); ("').includes('\\"'),
 for (const word of ['token', 'password', 'Bearer', 'cookie', 'authorization']) {
   ok(!new RegExp(word, 'i').test(script), `the script never mentions ${word}`);
 }
+// ── AND FAYR TYPES NOTHING INTO A SHOP'S PAGE ────────────────────────────────
+//
+// The standing rule, and nothing checked it for THIS script until now. The
+// plain-language check on the backend holds a fixed list of five files and this
+// is not one of them, so a page script here carrying a click passed everything.
+// The same walk runs against the drawn-list script next door.
+for (const typing of [
+  '.click(', '.focus(', '.blur(', '.submit(', '.value', 'dispatchEvent',
+  'document.forms', 'execCommand', 'KeyboardEvent', 'MouseEvent', 'PointerEvent',
+  'scrollTo', 'scrollIntoView', 'requestSubmit', 'localStorage', 'sessionStorage',
+]) {
+  ok(!script.includes(typing), `the script contains "${typing}", which is typing or tapping`);
+}
+// ── AND EVERY ANSWER CARRIES THE NAME OF THE LOOK THAT ASKED FOR IT ─────────
+//
+// The web view now sits on a shop's own page for part of a look rather than on
+// its front door, and every frame on that page posts into the one handler with
+// nothing to say who sent it. See anAnswerTag in src/order/drawnList.js.
+const named = buildOrderListScript('https://www.zepto.com/account/orders', 'look-7-abc');
+ok(named.includes('o.tag = "look-7-abc"'), 'the answer says which look it belongs to');
+// STAMPED INSIDE send(), which is the one place every answer passes through, so
+// it cannot matter which of the four ways out a future edit adds a fifth beside.
+eq((named.match(/o\.tag = /g) || []).length, 1, 'and it is stamped in one place only');
+ok(buildOrderListScript('https://x/', '"); alert(1); ("').includes('\\"'),
+  'the name is quoted too, so nothing in it can run');
+ok(script.includes('o.tag = ""'), 'and a look with no name says so rather than guessing');
 
 // ── 4. a page becomes the lines a person would see ───────────────────────────
 eq(pageToLines('<div>Hello</div><div>World</div>'), ['Hello', 'World'],

@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import {
   A_DIGIT, LONGEST_VALUE_WORTH_SEEING, MOST_SHAPES_REPORTED, NOT_A_SHAPE,
   WORDS_WORTH_COUNTING, attributeNames, attributesIn, dataShapes, isAShape,
-  logPageShape, maskDigits, shapeLines, wordCounts,
+  logPageShape, maskDigits, shapeLines, withoutCode, wordCounts,
 } from './pageShape.js';
 
 const { ok, equal, deepEqual } = assert;
@@ -64,6 +64,28 @@ const PAGE = [
   `  <li data-contact="${A_PHONE}" data-email="${AN_EMAIL}">x</li>`,
   '</div>',
   '<span data-testid="order-info">x</span>',
+  // ── AND A SCRIPT, BECAUSE EVERY REAL PAGE HAS ONE AND THIS FILE READ IT ────
+  //
+  // Minified code is full of `a<b` and `c>d`, so an expression looking for "a <
+  // then a letter, then anything, up to a >" finds pseudo tags all the way
+  // through it and reports whatever is inside them as markup. From the owner's
+  // own device, 15 September 2026:
+  //
+  //   shape names class(542) a(483) e(432) function(429) ... var(278) ...
+  //                                        return(185) ... typeof(83)
+  //
+  // Those are JavaScript keywords being printed as HTML attribute names. On a
+  // page the shop has DRAWN — which is the page this now reads — the same
+  // expression reaches the personalisation the shop's own code writes, and
+  // attributeNames does not mask what it reports because a name is markup and
+  // markup is not a person. So this line puts a real one exactly where one of
+  // those pseudo tags picks it up, and the walk above fails on it.
+  `<script>var t='<li data-greeting-name="Prakash">'+x;if(a<b){return c>d}</script>`,
+  // A STYLE BLOCK, WHOSE CONTENT IS ALSO FULL OF < AND >. The `>` in a child
+  // rule and a quoted string of markup in a content property are both enough for
+  // the same expression to find a tag that is not there.
+  '<style>.a > .b { content: "<i data-css-name=\'Prakash\'>" }</style>',
+  `<!-- <div title="${A_NAME}" data-old-city="${A_CITY}"> -->`,
 ].join('\n');
 
 const REPORT = shapeLines(PAGE).join('\n');
@@ -128,6 +150,64 @@ it('but a value with no space in it is still masked, so nothing rides on the rul
   ok(!isAShape('one,two'), 'nor a comma, which is how an address is written');
   ok(isAShape('amzn1.yourorders.order-card.403-1234567-8901234'),
     'while Amazon\u2019s own identifier passes, which is the point of the list');
+});
+
+console.log('\nand the page\u2019s own code is not read as markup');
+
+it('NOT ONE JAVASCRIPT WORD IS REPORTED AS AN ATTRIBUTE NAME', () => {
+  const names = attributeNames(PAGE).map((n) => n.name);
+  for (const word of ['function', 'var', 'return', 'typeof', 'if', 'catch', 'x', 'b', 'c', 'd']) {
+    ok(!names.includes(word), `"${word}" came out of a script and was called an attribute`);
+  }
+});
+
+it('and neither is anything a script wrote into a string of markup', () => {
+  const shapes = dataShapes(PAGE).map((s) => s.shape).join(' ');
+  ok(!shapes.includes('data-greeting-name'),
+    'a data attribute written inside a script reached the report');
+});
+
+it('a style block and a comment are not markup either', () => {
+  const names = attributeNames(PAGE).map((n) => n.name);
+  ok(!names.includes('data-css-name'), 'a CSS rule is not a tag');
+  ok(!names.includes('data-old-city'), 'a commented out tag is not on the page');
+  const shapes = dataShapes(PAGE).map((x) => x.shape).join(' ');
+  ok(!shapes.includes('data-css-name'), 'and nothing written inside one is reported');
+  ok(!shapes.includes('data-old-city'), 'nor anything inside a comment');
+});
+
+it('withoutCode takes out exactly the four things and nothing else', () => {
+  equal(withoutCode('<b>keep</b>'), '<b>keep</b>');
+  ok(!withoutCode('<b>a</b><script>gone</script>').includes('gone'));
+  ok(!withoutCode('<b>a</b><style>gone</style>').includes('gone'));
+  ok(!withoutCode('<b>a</b><noscript>gone</noscript>').includes('gone'));
+  ok(!withoutCode('<b>a</b><!-- gone -->').includes('gone'));
+  ok(withoutCode('<b>a</b><script>x</script><i>keep</i>').includes('keep'),
+    'and it carries on past the end of one');
+  // ── AND PAST THE END OF EACH OF THE OTHERS, WHICH IS NOT THE SAME CHECK ───
+  //
+  // Found by breaking this file on purpose: taking the style rule out changes
+  // nothing visible, because the LAST rule — the one that drops an unclosed tag
+  // and everything after it — then eats the style block too, and the page with
+  // it. The two guards overlap, so each one needs the case that separates them:
+  // a CLOSED block must leave what follows it alone.
+  ok(withoutCode('<b>a</b><style>x</style><i>keep</i>').includes('keep'),
+    'a closed style block does not take the rest of the page with it');
+  ok(withoutCode('<b>a</b><noscript>x</noscript><i>keep</i>').includes('keep'),
+    'and neither does a closed noscript');
+  // A PAGE CUT OFF HALFWAY is exactly where this would go wrong otherwise:
+  // there is nothing after an unclosed script that can be trusted to be markup.
+  ok(!withoutCode('<b>a</b><script>var x=1;y<z>w').includes('z'),
+    'an unclosed script takes the rest of the page with it');
+  for (const junk of [null, undefined, 5, {}, '']) equal(withoutCode(junk), '');
+});
+
+it('and the tags count counts markup, which is what the word means', () => {
+  const line = shapeLines('<b>x</b><script>if(a<b){c>d}</script>')[0];
+  ok(line.includes('tags=1'), `one tag on that page, not three: ${line}`);
+  // BYTES IS STILL THE WHOLE PAGE. It answers "was there a page at all", and
+  // what arrived includes its code.
+  ok(line.includes('bytes=37'), `bytes is the whole page: ${line}`);
 });
 
 console.log('\nand the shape it DOES report is the one being looked for');

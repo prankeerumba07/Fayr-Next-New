@@ -135,16 +135,67 @@ export function isAShape(value) {
 }
 
 /**
+ * THE PAGE WITH ITS OWN CODE TAKEN OUT, BEFORE ANYTHING IS READ AS MARKUP.
+ *
+ * ── THIS FILE WAS WRONG, AND THE OWNER'S OWN REPORT SAID SO IN PLAIN SIGHT ──
+ *
+ * From his device, 15 September 2026:
+ *
+ *   shape names class(542) a(483) e(432) function(429) b(374) n(359) c(355)
+ *               t(333) var(278) d(232) r(226) return(185) ... typeof(83) ...
+ *
+ * `function`, `var`, `return`, `typeof`, `if`, `for`, `catch`. Those are not
+ * attribute names. They are JavaScript, read as markup, because the expression
+ * below looks for `<` then a letter then anything up to a `>` and a minified
+ * script is full of exactly that: `if(a<b){return c>a}` offers up the pseudo tag
+ * `<b){return c>` and the "attributes" `return` and `c`.
+ *
+ * MEASURED ON A REAL PAGE AMAZON SERVED, the same day: 2337 distinct attribute
+ * names as sent, 43 once script and style are taken out. Fifty four times too
+ * many, and the `names` line — whose whole job is to show a person what to write
+ * the next selector from — was almost entirely noise. So was `tags=`.
+ *
+ * ── AND ON A PAGE THE SHOP HAS DRAWN IT IS A LEAK, NOT ONLY NOISE ───────────
+ *
+ * attributeNames reports NAMES without masking them, because a name is markup
+ * and markup is not a person. That is true of real attribute names. It is not
+ * true of whatever a regular expression scrapes out of the middle of a script —
+ * and the page this now reads is the one carrying the buyer's own orders, where
+ * the shop's own code writes their name into its own variables.
+ *
+ * THE SAME THREE REPLACES src/orderhistory.js ALREADY DOES at pageToLines. A
+ * second copy, and said out loud rather than left to be found: that file is
+ * pinned by several checks and is not opened for this.
+ *
+ * AN UNCLOSED SCRIPT TAKES THE REST OF THE PAGE WITH IT. A page cut off halfway
+ * is exactly where this would otherwise go wrong, and there is nothing after an
+ * unclosed script tag that can be trusted to be markup.
+ */
+export function withoutCode(html) {
+  if (typeof html !== 'string' || html === '') return '';
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    // Whatever is left open runs to the end of what we were given.
+    .replace(/<(script|style|noscript)\b[\s\S]*$/i, ' ');
+}
+
+/**
  * EVERY ATTRIBUTE, TAKEN FROM INSIDE TAGS ONLY.
  *
  * Answers a list of { name, value }. Nothing between two tags is ever visited,
  * which is what keeps a buyer's name and address out of this by construction
  * rather than by filtering afterwards.
+ *
+ * AND NOTHING INSIDE THE PAGE'S OWN CODE IS VISITED EITHER. See withoutCode
+ * above for what that was doing to this report before it was there.
  */
 export function attributesIn(html) {
   if (typeof html !== 'string' || html === '') return [];
   const found = [];
-  const tags = html.match(/<[a-zA-Z][^>]*>/g) || [];
+  const tags = withoutCode(html).match(/<[a-zA-Z][^>]*>/g) || [];
   for (const tag of tags) {
     const inside = tag.slice(1, -1);
     const pattern = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
@@ -216,7 +267,12 @@ export function shapeLines(html) {
   const shapes = dataShapes(html);
   const words = wordCounts(html);
   const lines = [
-    `bytes=${bytes} tags=${(typeof html === 'string' ? html.match(/<[a-zA-Z][^>]*>/g) || [] : []).length}`
+    // BYTES IS THE WHOLE PAGE AND TAGS IS ONLY ITS MARKUP, and the two are
+    // deliberately measured over different things. A page's length is a fact
+    // about what arrived. A tag count taken over the same string would count a
+    // minified script's `if(a<b){return c>` as a tag, which is what it used to
+    // do — see withoutCode.
+    `bytes=${bytes} tags=${(withoutCode(html).match(/<[a-zA-Z][^>]*>/g) || []).length}`
     + ` attrNames=${names.length} dataShapes=${shapes.length}`,
     `words ${WORDS_WORTH_COUNTING.map((w) => `${w}=${words[w]}`).join(' ')}`,
     `names ${names.slice(0, MOST_SHAPES_REPORTED).map((n) => `${n.name}(${n.count})`).join(' ')}`,

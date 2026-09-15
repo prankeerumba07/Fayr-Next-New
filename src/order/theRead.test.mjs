@@ -475,5 +475,57 @@ console.log('\n=== 10. AND THE LINE SAYS WHICH PAGE IT LANDED ON ===');
     'the order page read reports its landing too, from the one shared reader');
 }
 
+console.log('\n=== 11. THE LOOK GOES TO THE PAGE, AND STAYS THERE WHILE IT READS ===');
+{
+  const screen = read('src/order/LookingForItScreen.js');
+  const code = screen
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+
+  // ── THE BUG THAT MEANT NO ORDER PAGE HAS EVER REACHED THE SERVER ────────
+  //
+  // onMessage cleared `job`; the web view was rendered on `job`; so the FIRST
+  // answer unmounted the only view there was, and askAgain — which begins by
+  // asking whether the view is still there — resolved null for every order page
+  // after it. Every one of them read as "nothing on this page", the loop ran to
+  // the end, and the person was asked for a photograph. It was written under a
+  // comment promising one mount for the whole look.
+  ok(!/setJob\(null\)/.test(code),
+    'THE VIEW MUST NOT BE TORN DOWN ON THE FIRST ANSWER: every order page after '
+    + 'it resolves null against a ref that has gone');
+  ok(/if \(!web\.current\) \{ resolve\(null\); return; \}/.test(code),
+    'and the guard that made it silent is still there, now that it is reachable');
+
+  // WHERE THE VIEW GOES IS THE STEP'S ANSWER, not this screen's. A shop that
+  // draws its own list is opened AT the list; the rest keep the front door and
+  // the fetch. The screen may not know which is which — it may not write a
+  // shop's name anywhere — so it asks.
+  ok(/openTheListWith\(/.test(code), 'the screen asks where to go rather than deciding');
+  ok(/source=\{\{ uri: job\.uri \}\}/.test(code), 'and points the view at the answer');
+  ok(/injectedJavaScript=\{job\.script\}/.test(code), 'and runs the script that came with it');
+  ok(!/source=\{\{ uri: platform\.startUrl \}\}/.test(code),
+    'and the front door is no longer wired straight into the view');
+
+  // AND AN ANSWER HAS TO BE OURS. The view sits on the shop's own page now.
+  ok(/isOurAnswer\(payload, answerTag\.current\)/.test(code),
+    'every message is checked against this look\u2019s own name');
+  const handler = (code.match(/const onMessage[\s\S]*?\}, \[\]\);/) || [''])[0];
+  ok(handler.indexOf('isOurAnswer') < handler.indexOf('waiting.current = null'),
+    'and it is asked BEFORE the waiter is cleared, or a stranger loses the answer');
+  ok(!/nativeEvent: \{ data: '\{"ok":false/.test(code),
+    'and nothing on our own side pretends to be the page any more');
+
+  // A PAGE CANNOT SEE ITS OWN STATUS CODE. The view says instead.
+  ok(/onHttpError=/.test(code) && /httpStatus\.current/.test(code),
+    'the view reports a failing status for the page it was sent to');
+  ok(/answerWithStatus\(payload, httpStatus\.current\)/.test(code),
+    'and it is put back into the answer on our side, where it can be checked');
+
+  // AND IT IS NOT IN ANYBODY'S WAY. One point across, see through, off the side
+  // of the screen — and now holding somebody's own orders.
+  ok(/accessibilityElementsHidden/.test(code), 'it is out of the reading order');
+  ok(/importantForAccessibility="no-hide-descendants"/.test(code), 'and everything in it');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

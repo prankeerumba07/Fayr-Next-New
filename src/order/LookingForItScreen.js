@@ -46,16 +46,18 @@ import { WebView } from 'react-native-webview';
 import * as campaignStore from '../backend/campaignStore';
 import { getTaskId, refreshFromBackend } from '../taskStore';
 import { PLATFORMS } from '../platforms';
+import { buildOrderListScript, readDetailOutcome } from '../orderhistory.js';
 import {
-  buildOrderListScript, orderListPageFor, readDetailOutcome, readListOutcome,
-} from '../orderhistory.js';
-import {
-  countOrderCardSlots, harvestOrderNumbers, orderDetailPageFor, pagesToOpen,
+  countOrderCardSlots, harvestRendered, orderDetailPageFor, pagesToOpen,
   readsOrderPages, waitBeforeFetch,
 } from './detailLook.js';
+import {
+  anAnswerTag, answerWithStatus, drawFacts, isOurAnswer, openTheListWith, readListStep,
+} from './drawnList.js';
 import { restoreSession } from '../session';
 import { logLook } from './lookLog.js';
 import { logPageShape } from './pageShape.js';
+import { logRowShape } from './rowShape.js';
 import { sendFoundOrders } from '../backend/orderCandidatesApi';
 import { useMotion } from '../ui/celebration';
 import { COLOR, FONT, SPACE } from '../ui/theme';
@@ -103,21 +105,27 @@ export default function LookingForItScreen({ navigation, route }) {
   const [job, setJob] = useState(null);
   // ── THE SHOP SESSION, PUT BACK BEFORE ANYTHING IS ASKED OF THE SHOP ───────
   //
-  // ── FIVE DAYS OF "IT FETCHED NOTHING", AND THIS WAS ALL OF IT ────────────
+  // ── AND A CORRECTION, BECAUSE THIS WAS WRITTEN DOWN WRONG ────────────────
   //
-  // The look ran in a web view that had never been handed the login the connect
-  // screen saved. The fetch itself was right — it asks with credentials — but
-  // there was no cookie to send, so Amazon served the page it serves a stranger:
-  // its home page shell. Three hundred and seventy four kilobytes of it, a clean
-  // 200, no refusal and no sign in wall, which is why every line written about it
-  // said the page was fine. The shape report of 15 September settled it: eight
-  // hundred and seventy seven tags, every slot id on the page a nav_cs_ one, and
-  // not a single order card. The markup had not moved. We were reading the wrong
-  // page, signed out.
+  // This said, on 15 September 2026, that five days of "it came back with
+  // nothing" were all one thing: a view that had never been handed the login,
+  // reading a stranger's page. THAT WAS NOT TRUE, and the owner's own log says
+  // so if the three runs are laid side by side. The run at 17:44, BEFORE any of
+  // this existed, came back with the same three hundred and seventy four
+  // kilobytes and a report identical to the run at 18:01 with it in. A look
+  // asking as a stranger is redirected — measured since, asking exactly the way
+  // the page's own fetch asks: 302 to the sign in wall, eighty four kilobytes,
+  // and wantsSignIn would have read true. It never did. The read was already
+  // signed in, out of the web view's own cookie store.
   //
-  // src/ConnectScreen.js has done this since the day it was written and this
-  // screen never did. THE SAME PATTERN AND NOT A SECOND ONE: restore, hold the
-  // view back until it has finished, and let the shop be asked only after that.
+  // IT STAYS, AND THE REASON IS NOW THE HONEST ONE. Being signed in because a
+  // store happened to be warm is not the same as being signed in on purpose,
+  // and the day that store is cold — a fresh install, a phone that cleared it —
+  // this is the difference between a read and a sign in wall. It is also what
+  // src/ConnectScreen.js has done since the day it was written.
+  //
+  // THE SAME PATTERN AND NOT A SECOND ONE: restore, hold the view back until it
+  // has finished, and let the shop be asked only after that.
   //
   // ── AND IT DOES NOT SAVE ONE ON THE WAY OUT. A DECISION, NOT AN OVERSIGHT ─
   //
@@ -126,9 +134,11 @@ export default function LookingForItScreen({ navigation, route }) {
   // one. This screen only reads. It creates nothing, so it has nothing to save
   // that the connect screen did not already save.
   //
-  // AND SAVING FROM HERE COULD DESTROY A GOOD LOGIN. The thing this bug proves is
-  // that this screen can land signed out; ConnectScreen already guards the same
-  // hazard by refusing to write a snapshot after a failed load, in its own words,
+  // AND SAVING FROM HERE COULD DESTROY A GOOD LOGIN. This screen can land on a
+  // refusal, a puzzle or a sign in wall — all three are measured, and the wall is
+  // the ORDINARY case here, because the shop asks for a fresh password for this
+  // one page. ConnectScreen already guards the same hazard by refusing to write a
+  // snapshot after a failed load, in its own words,
   // "A FAILED LOAD MUST NOT SAVE A SIGNED OUT SNAPSHOT OVER A GOOD ONE". This
   // screen has no equivalent signal at the moment it is torn down — the look may
   // have ended on a refusal, a puzzle, or a stranger's home page — so a save here
@@ -149,6 +159,17 @@ export default function LookingForItScreen({ navigation, route }) {
   // THE WEB VIEW ITSELF, so the second and later fetches can be injected into
   // the page that is already open instead of loading a fresh one each time.
   const web = useRef(null);
+  // THE NAME ON THIS LOOK'S OWN ANSWERS. The view now sits on the shop's page
+  // rather than on its front door, so an answer has to say it is ours.
+  const answerTag = useRef('');
+  // HOW MANY ANSWERS CAME BACK THAT WE DID NOT ASK FOR. A count, on the line,
+  // because a page talking to us is worth knowing about and is never worth
+  // quoting.
+  const strangers = useRef(0);
+  // WHAT THE SHOP ANSWERED FOR THE PAGE ITSELF. A page that has been navigated
+  // to cannot see its own status code, so the view reports it and this holds it
+  // until the answer arrives. See answerWithStatus in drawnList.js.
+  const httpStatus = useRef(200);
   const spin = useRef(new Animated.Value(0)).current;
 
   // ── the words change, so the screen does not read as stuck ────────────────
@@ -191,12 +212,40 @@ export default function LookingForItScreen({ navigation, route }) {
   }, [navigation, campaignId]);
 
   const onMessage = useCallback((event) => {
-    const resolve = waiting.current;
-    waiting.current = null;
     let payload = null;
     try { payload = JSON.parse(event.nativeEvent.data); } catch (e) { payload = null; }
-    setJob(null);
-    if (resolve) resolve(payload);
+    // ── IS THIS OURS, OR DID THE PAGE WRITE IT? ASKED BEFORE ANYTHING ELSE ──
+    //
+    // Before the waiter is cleared and before a single field is read out of it.
+    // The view sits on the shop's own page now, with whatever the shop put in
+    // it, and every frame on that page posts into this one handler with nothing
+    // to say who sent it. An answer nobody asked for is counted and dropped, and
+    // the look carries on waiting for the real one.
+    if (!isOurAnswer(payload, answerTag.current)) {
+      strangers.current += 1;
+      return;
+    }
+    const resolve = waiting.current;
+    waiting.current = null;
+    // AND THE VIEW IS NOT TORN DOWN HERE. It used to be — setJob(null) on the
+    // first answer, with the view rendered on `job` — so the very first message
+    // unmounted the only web view there was, and every order page after it
+    // resolved null against a ref that had already gone. Not one order's own
+    // page has ever reached the server. The comment below the render about one
+    // mount for the whole look is true from here on.
+    if (resolve) resolve(answerWithStatus(payload, httpStatus.current));
+  }, []);
+
+  /**
+   * THE PAGE ITSELF WOULD NOT OPEN. Answered here rather than by pretending to
+   * be the page: a made up answer now has to carry this look's own name, and
+   * the honest thing for the view to say is nothing at all. `null` reads as "we
+   * could not look", which is exactly what it was before.
+   */
+  const givenUpOn = useCallback(() => {
+    const resolve = waiting.current;
+    waiting.current = null;
+    if (resolve) resolve(null);
   }, []);
 
   useEffect(() => {
@@ -228,12 +277,20 @@ export default function LookingForItScreen({ navigation, route }) {
 
     (async () => {
       const taskId = campaignId ? getTaskId(campaignId) : null;
-      const page = orderListPageFor(platformKey);
+      // THE NAME ON THIS LOOK'S ANSWERS, made once and kept for all of them.
+      answerTag.current = anAnswerTag(startedAt, Math.random());
+      // WHERE TO POINT THE VIEW AND WHAT TO RUN IN IT. Some shops draw their own
+      // list and have to be waited for; the rest are fetched exactly as before.
+      // WHICH is which lives next door, because this screen may not know a shop's
+      // name — see SHOPS_WHOSE_LIST_THE_PAGE_DRAWS.
+      const step = platform
+        ? openTheListWith(platformKey, platform.startUrl, startedAt, answerTag.current)
+        : null;
 
       // NOTHING TO LOOK AT is not an error and is never explained. Some shops
       // keep their list of orders somewhere a page of text cannot reach, and the
       // person is simply asked instead.
-      if (!taskId || !page || !platform) {
+      if (!taskId || !step || !platform) {
         await settle();
         if (alive) moveOn('Journey');
         return;
@@ -253,21 +310,24 @@ export default function LookingForItScreen({ navigation, route }) {
        * every run that needed more than a page or two. It is also six page loads
        * asked of a shop that rate-limits us, for nothing.
        */
-      const openTheShop = (url) => new Promise((resolve) => {
+      const openTheShop = () => new Promise((resolve) => {
         waiting.current = resolve;
-        setJob({ url });
+        setJob(step);
       });
       const askAgain = (url) => new Promise((resolve) => {
         if (!web.current) { resolve(null); return; }
         waiting.current = resolve;
-        web.current.injectJavaScript(buildOrderListScript(url));
+        web.current.injectJavaScript(buildOrderListScript(url, answerTag.current));
       });
       const pause = (ms) => new Promise((done) => { setTimeout(done, ms); });
 
-      const answer = await openTheShop(page);
+      const answer = await openTheShop();
       if (!alive) return;
 
-      const outcome = readListOutcome(answer);
+      const outcome = readListStep(step, answer);
+      // WHAT THE PAGE SAID ABOUT ITS OWN DRAWING, every field made safe first: a
+      // page can put anything at all in these and they end up on a line.
+      const drawn = drawFacts(answer);
 
       // ── WHAT THE SHOP'S LIST ACTUALLY ANSWERED ───────────────────────────
       //
@@ -279,11 +339,24 @@ export default function LookingForItScreen({ navigation, route }) {
       // days of "it fetched nothing" all said 200, a real size, and no refusal,
       // and not one of them said the page was Amazon's home shell. The PATH only:
       // a shop's address carries tokens in its query and this goes into a log.
+      // AND WHETHER THE SHOP EVER DREW THE THING WE CAME FOR. `drew=true` means
+      // the orders appeared and were still there a look later. `drew=false` with
+      // a `waited` at the deadline means they never appeared at all. Those are
+      // different problems and without this they are one silence — which is the
+      // whole lesson of the five days before this.
+      // `rows=` is the two counts the wait watched, `nodes=` is how much the page
+      // grew while we watched, and `strangers=` is how many answers came back
+      // that nobody asked for. Counts only, every one of them.
       logLook('list', `status=${answer && answer.status} `
         + `bytes=${(answer && typeof answer.html === 'string' ? answer.html.length : 0)} `
         + `landed=${outcome.landed == null ? 'null' : outcome.landed} `
         + `looked=${outcome.looked} whyNot=${outcome.whyNot} `
-        + `wantsSignIn=${outcome.wantsSignIn}`);
+        + `wantsSignIn=${outcome.wantsSignIn} `
+        + `drawn=${step.drawn} drew=${drawn.drew} settled=${drawn.settled} `
+        + `waited=${drawn.waited} looks=${drawn.looks} `
+        + `rows=${drawn.linked}/${drawn.marked} `
+        + `nodes=${drawn.nodesFirst}/${drawn.nodesNow} `
+        + `strangers=${strangers.current}`);
 
       // ── THE SHOP REFUSED, AND THAT IS NOT "WE COULD NOT FIND YOUR ORDER" ──
       //
@@ -378,7 +451,11 @@ export default function LookingForItScreen({ navigation, route }) {
       // knows which shops are read this way; this only asks.
       if (readsOrderPages(platformKey)) {
         const html = answer && typeof answer.html === 'string' ? answer.html : '';
-        const numbers = pagesToOpen(harvestOrderNumbers(html));
+        // THREE RUNGS, STRONGEST FIRST, and `how` says which one answered. See
+        // harvestRendered: the card attribute, then the order's own link, then
+        // the number's own shape. No new marker is guessed anywhere in it.
+        const harvest = harvestRendered(html);
+        const numbers = pagesToOpen(harvest.numbers);
 
         // ── THE ONE LINE THAT TELLS THE TWO EMPTY ANSWERS APART ────────────
         //
@@ -391,7 +468,8 @@ export default function LookingForItScreen({ navigation, route }) {
         // identifier tied to the account, it is already kept server side, and a
         // count is what the question needs.
         logLook('numbers', `slots=${countOrderCardSlots(html)} `
-          + `shaped=${harvestOrderNumbers(html).length} opening=${numbers.length}`);
+          + `marked=${harvest.marked} linked=${harvest.linked} `
+          + `shaped=${harvest.shaped} opening=${numbers.length} how=${harvest.how}`);
 
         // ── AND WHEN THERE ARE NO SLOTS AT ALL, SAY WHAT THE PAGE IS MADE OF ──
         //
@@ -407,6 +485,16 @@ export default function LookingForItScreen({ navigation, route }) {
         // It is counts, attribute names and digit-masked shapes — never a word off
         // the page. See src/order/pageShape.js for what it may and may not say.
         if (countOrderCardSlots(html) === 0) logPageShape(html);
+        // ── AND WHAT AN ORDER ROW IS ACTUALLY MARKED WITH ───────────────────
+        //
+        // The report above says what the whole page is made of, which answered
+        // the question when the page had no orders on it at all. This one asks
+        // the narrower question the next selector is written from: find every
+        // place an order number appears and say what is WRAPPED AROUND IT — the
+        // tag, its classes, its id, its data attributes, and the same for the
+        // few elements above it. Identical surroundings collapse into one line
+        // with a count. Never a word off the page, never a real order number.
+        if (countOrderCardSlots(html) === 0) logRowShape(html);
 
         const pages = [];
         for (let i = 0; i < numbers.length; i += 1) {
@@ -422,6 +510,27 @@ export default function LookingForItScreen({ navigation, route }) {
           const one = await askAgain(url);
           if (!alive) return;
           const detail = readDetailOutcome(one);
+
+          // ── AND WHICH PAGE THE ORDER READ ACTUALLY LANDED ON ─────────────
+          //
+          // The order's own page is BELIEVED to be sent whole by the shop's own
+          // server, which is the belief the whole one-page-at-a-time design
+          // rests on, and nothing has ever measured it. It could not have: every
+          // one of these answers resolved null against a view that had already
+          // been torn down, so not one of them ever reached the shop.
+          //
+          // It matters more than it did. The address this asks for is retired —
+          // the shop answers it with a redirect to a page in the same rebuilt
+          // area the LIST moved into. `landed=` says where it ended up; `bytes=`
+          // and `looked=` together say whether what arrived was a whole page or
+          // another empty frame. Before the refusal branches below, because
+          // those are the answers that stop the look and never reach the server
+          // line.
+          logLook('detail', `n=${i + 1} status=${one && one.status} `
+            + `bytes=${(one && typeof one.html === 'string' ? one.html.length : 0)} `
+            + `landed=${detail.landed == null ? 'null' : detail.landed} `
+            + `looked=${detail.looked} whyNot=${detail.whyNot} `
+            + `wantsSignIn=${detail.wantsSignIn}`);
 
           // ── ANY REFUSAL STOPS THE WHOLE LOOK, NOT JUST THIS PAGE ────────
           //
@@ -564,21 +673,43 @@ export default function LookingForItScreen({ navigation, route }) {
       {job && sessionReady ? (
         <WebView
           /* ONE MOUNT FOR THE WHOLE LOOK. The key is deliberately NOT the
-             address: keying on it would reload the shop's home page before every
-             fetch, which is six page loads asked of a shop that rate-limits us
-             and comfortably past this screen's own twenty second ceiling. Later
-             fetches are injected into the page already open. */
+             address: keying on it would reload a page before every fetch, which
+             is six page loads asked of a shop that rate-limits us and comfortably
+             past this screen's own twenty second ceiling. Later fetches are
+             injected into the page already open.
+             AND IT IS TRUE NOW. It was written before it was: the first answer
+             used to clear `job`, which unmounted this, which made every fetch
+             after it resolve null. See onMessage. */
           key="the-look"
           ref={web}
-          source={{ uri: platform.startUrl }}
+          /* WHERE THE LOOK GOES. For a shop that draws its own list this is the
+             list itself, so the shop's code runs and there is something to read;
+             for the rest it is the front door and the list is fetched from
+             inside it, exactly as before. The step decides, next door, because
+             this screen may not know a shop's name. */
+          source={{ uri: job.uri }}
           userAgent={platform.userAgent}
           sharedCookiesEnabled
           thirdPartyCookiesEnabled
           javaScriptEnabled
           domStorageEnabled
-          injectedJavaScript={buildOrderListScript(job.url)}
+          injectedJavaScript={job.script}
           onMessage={onMessage}
-          onError={() => onMessage({ nativeEvent: { data: '{"ok":false,"status":0,"html":""}' } })}
+          /* A PAGE CANNOT SEE ITS OWN STATUS CODE, so the view says. Reset when a
+             navigation starts, overwritten when the shop answers with an error,
+             and put back into the answer on our own side. */
+          onLoadStart={() => { httpStatus.current = 200; }}
+          onHttpError={(e) => {
+            const said = e && e.nativeEvent ? Number(e.nativeEvent.statusCode) : 0;
+            httpStatus.current = Number.isFinite(said) ? said : 0;
+          }}
+          onError={givenUpOn}
+          /* NOTHING HERE IS FOR ANYBODY TO READ OR REACH. It is one point across,
+             fully see through and off the side of the screen, and it now holds
+             somebody's own orders — so it is taken out of the reading order as
+             well, rather than relying on being invisible. */
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
           style={styles.away}
         />
       ) : null}

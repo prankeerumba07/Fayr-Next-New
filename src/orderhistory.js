@@ -103,13 +103,20 @@ export function orderListPageFor(platformKey) {
  * posts once whatever happens. It reads and nothing else. No clicking, no form,
  * no second request.
  */
-export function buildOrderListScript(url) {
+export function buildOrderListScript(url, tag) {
   const safeUrl = JSON.stringify(String(url));
+  const name = JSON.stringify(String(tag == null ? '' : tag));
   return `
 (function(){
   var sent = false;
   function send(o){
     if (sent) return; sent = true;
+    // THE NAME GOES ON HERE, INSIDE THE ONE PLACE EVERY ANSWER PASSES THROUGH,
+    // for the same reason lookLog masks its line as its last act: it cannot then
+    // matter which of the three send() calls below a future edit adds a fourth
+    // beside. See anAnswerTag in src/order/drawnList.js for why an answer needs
+    // a name at all now that the view sits on the shop's own page.
+    o.tag = ${name};
     try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch(e){}
   }
   var done = setTimeout(function(){ send({ ok:false, status:0, html:'', url:'', error:'timed out' }); }, ${LIST_TIMEOUT_MS});

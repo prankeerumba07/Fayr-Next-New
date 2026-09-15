@@ -120,10 +120,55 @@ console.log('\nthe call sites: counts and status words, never a page');
 
 const screen = withoutComments(read('./LookingForItScreen.js'));
 
-it('all three lines are there', () => {
+it('all four lines are there', () => {
   ok(/logLook\('list',/.test(screen), 'the list line');
   ok(/logLook\('numbers',/.test(screen), 'the harvest line');
+  ok(/logLook\('detail',/.test(screen), 'the order page line');
   ok(/logLook\('post',/.test(screen), 'the server line');
+});
+
+it('THE LIST LINE SAYS WHETHER THE SHOP EVER DREW THE LIST', () => {
+  // The whole point of the change that added it. A shop that draws its own list
+  // answers a fetch with an empty frame, so "we read the page" and "the orders
+  // were on it" stopped being the same thing — and every field here exists to
+  // tell those two apart on the next empty answer rather than the next month.
+  const line = (screen.match(/logLook\('list',[\s\S]*?\);/) || [''])[0];
+  for (const field of ['drawn=', 'drew=', 'waited=', 'looks=', 'rows=', 'strangers=']) {
+    ok(line.includes(field), `the list line has no ${field}`);
+  }
+  // AND EVERY ONE OF THEM COMES FROM THE FACTS THE PAGE REPORTED, put through
+  // drawFacts first. A page can write anything at all into these.
+  ok(/drawn\.drew/.test(line), 'drew= must come from the page, through drawFacts');
+  ok(/drawFacts\(/.test(screen), 'the screen must make the page\u2019s facts safe');
+  ok(!/\$\{answer\.drew\}|\$\{answer\.waited\}/.test(line),
+    'a field is read straight off the page without being made safe');
+});
+
+it('THE ORDER PAGE LINE says which page the order read landed on', () => {
+  // The belief this whole one-page-at-a-time design rests on is that an order's
+  // OWN page is sent whole by the shop's server. Nothing had ever measured it —
+  // and could not have, because every one of these answers used to resolve null
+  // against a view that had already been torn down. This is the measurement.
+  const line = (screen.match(/logLook\('detail',[\s\S]*?\);/) || [''])[0];
+  for (const field of ['status=', 'bytes=', 'landed=', 'looked=', 'wantsSignIn=']) {
+    ok(line.includes(field), `the order page line has no ${field}`);
+  }
+  ok(/\.html\.length/.test(line), 'it must log the length, not the page');
+  ok(/detail\.landed/.test(line), 'landed= must come from the reader');
+  // AND NOT THE ORDER NUMBER. It is in the address this line is about, it is a
+  // strong identifier tied to the account, and `n=` answers the question.
+  ok(!/numbers\[|\$\{url\}|orderDetailPageFor/.test(line),
+    'the order page line carries an order number or its address');
+});
+
+it('and the order page line is said BEFORE the two branches that stop the look', () => {
+  // A refusal and a sign in wall both return without ever reaching the server
+  // line, so a line said after them is a line that never appears on exactly the
+  // runs worth explaining.
+  const at = screen.indexOf("logLook('detail',");
+  const stops = screen.indexOf('if (detail.wantsSignIn === true)');
+  ok(at > 0 && stops > 0, 'both the line and the branch are there to compare');
+  ok(at < stops, 'the order page line is said before the look can stop');
 });
 
 it('THE LIST LINE says what came back without carrying it', () => {
@@ -167,7 +212,10 @@ it('THE SERVER LINE says whether the request even left the phone', () => {
 
 it('and NO call site anywhere passes a page or an order text', () => {
   const calls = screen.match(/logLook\([\s\S]*?\);/g) || [];
-  ok(calls.length === 3, `expected three calls, found ${calls.length}`);
+  // FOUR NOW, AND IT IS A DECISION AND NOT A DRIFT. The fourth is the order page
+  // line above. This count exists so that adding a call site is something
+  // somebody has to come here and think about, and that is what it just did.
+  ok(calls.length === 4, `expected four calls, found ${calls.length}`);
   for (const call of calls) {
     ok(!/detail\.text|\.blocks|outcome\.blocks/.test(call),
       `a call site carries page text: ${call.slice(0, 80)}`);

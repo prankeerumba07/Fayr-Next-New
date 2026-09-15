@@ -17,7 +17,8 @@ import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
   AMAZON_ORDER_DETAIL_PAGE, GAP_BETWEEN_FETCHES_MS, MOST_DETAIL_PAGES,
-  ORDER_NUMBER_SHAPE, SHOPS_READ_ONE_ORDER_AT_A_TIME, harvestOrderNumbers,
+  ORDER_ID_PARAM, ORDER_NUMBER_RUN, ORDER_NUMBER_SHAPE, SHOPS_READ_ONE_ORDER_AT_A_TIME,
+  harvestByShape, harvestFromOrderLinks, harvestOrderNumbers, harvestRendered,
   orderDetailPageFor, pagesToOpen, readsOrderPages, waitBeforeFetch,
 } from './detailLook.js';
 import { readDetailOutcome, readListOutcome } from '../orderhistory.js';
@@ -311,6 +312,95 @@ it('is three, seven, seven — the shape proven on a real account', () => {
   ok(!ORDER_NUMBER_SHAPE.test('408-5094957-448112'));
   ok(!ORDER_NUMBER_SHAPE.test('x408-5094957-4481129'));
   ok(!ORDER_NUMBER_SHAPE.test('408-5094957-4481129x'));
+});
+
+console.log('\nthe ladder: three ways to find a number, strongest first');
+
+// A row as the shop DRAWS it: the number in the words, and in a link to the
+// order's own page. Neither is in the markup a fetch brings back.
+const drawnRow = (number) =>
+  `<li class="order-card a-box-group"><span>ORDER # ${number}</span>`
+  + `<a href="/your-orders/order-details?orderID=${number}">Details</a></li>`;
+
+it('THE SHAPE IS DERIVED FROM THE ONE DEFINITION AND NOT TYPED OUT AGAIN', () => {
+  // The day an order number changes shape, every rung, every address and the
+  // ceiling all change together — because there is one source and everything
+  // points at it. A second copy typed here is how those drift apart.
+  equal(new RegExp(`^${ORDER_NUMBER_RUN}$`).source, ORDER_NUMBER_SHAPE.source);
+  equal(ORDER_ID_PARAM, 'orderID=');
+  ok(AMAZON_ORDER_DETAIL_PAGE.endsWith(ORDER_ID_PARAM),
+    'and the word comes off the address this file builds');
+});
+
+it('RUNG ONE, the card attribute, is completely unchanged', () => {
+  deepEqual(harvestOrderNumbers(listPage('408-5094957-4481129')), ['408-5094957-4481129']);
+  // The distinction this rung exists for: the cards are there and the ids in
+  // them are refused. A shape-only harvest would quietly lose it.
+  const wrongKind =
+    '<div data-csa-c-slot-id="amzn1.yourorders.filter.408-5094957-4481129"></div>';
+  deepEqual(harvestOrderNumbers(wrongKind), [], 'a filter is not an order card');
+});
+
+it('RUNG TWO takes the number the shop itself wrote into a link to the order', () => {
+  deepEqual(harvestFromOrderLinks(drawnRow('402-3925017-7784521')), ['402-3925017-7784521']);
+  deepEqual(harvestFromOrderLinks('<a href="/x?orderID=nonsense">y</a>'), [],
+    'and a link to nonsense builds no address');
+  deepEqual(harvestFromOrderLinks('<a href="/x?orderID=408-5094957-44811299">y</a>'), [],
+    'nor a run that is part of a longer one');
+  deepEqual(harvestFromOrderLinks('<a href="/x?ORDERID=402-3925017-7784521">y</a>'),
+    ['402-3925017-7784521'], 'however the shop happens to spell it');
+  deepEqual(harvestFromOrderLinks(''), []);
+});
+
+it('RUNG THREE takes the number\u2019s own shape, which no markup change can move', () => {
+  deepEqual(harvestByShape('<span>ORDER # 403-1234567-8901234</span>'), ['403-1234567-8901234']);
+  deepEqual(harvestByShape('<span>1408-5094957-44811299</span>'), [],
+    'a piece of a longer run is not an order number');
+  deepEqual(harvestByShape('<span>408-509495-4481129</span>'), [], 'and neither is a near miss');
+  // THE PAGE'S OWN CODE IS NOT THE PAGE. A drawn page carries its orders twice,
+  // once as markup and once inside the data its script was handed, and the
+  // second copy is in a different order from the one a person sees.
+  deepEqual(harvestByShape('<script>var o=["409-1111111-2222222"]</script>'), [],
+    'a number inside a script is not on the page');
+});
+
+it('THE LADDER SAYS WHICH RUNG ANSWERED, and that one word is the finding', () => {
+  const slot = harvestRendered(listPage('408-5094957-4481129'));
+  equal(slot.how, 'slot', 'the old marker still being there is the best news there is');
+  const link = harvestRendered('<a href="/o?orderID=402-3925017-7784521">x</a>');
+  equal(link.how, 'link');
+  const shape = harvestRendered('<span>403-1234567-8901234</span>');
+  equal(shape.how, 'shape', 'and this one says go and read the row report');
+  equal(harvestRendered('<html><body>Sign in</body></html>').how, 'none');
+  for (const junk of [null, undefined, 5, {}, '']) {
+    equal(harvestRendered(junk).how, 'none', `${String(junk)} finds nothing`);
+  }
+});
+
+it('and the strongest rung is asked first, so a decoy cannot displace a real card', () => {
+  const page = listPage('408-5094957-4481129') + '<span>403-1234567-8901234</span>';
+  const found = harvestRendered(page);
+  equal(found.how, 'slot', 'the card is what answered');
+  equal(found.numbers[0], '408-5094957-4481129', 'and its number comes first');
+});
+
+it('one number found twice is opened once', () => {
+  const both = listPage('408-5094957-4481129') + drawnRow('408-5094957-4481129');
+  const found = harvestRendered(both);
+  deepEqual(found.numbers, ['408-5094957-4481129']);
+  equal(found.marked, 1);
+  equal(found.linked, 1, 'and the counts still say it was seen by two rungs');
+  equal(found.shaped, 1);
+});
+
+it('and the page order is kept, because the shop lists its orders newest first', () => {
+  const page = drawnRow('408-5094957-4481129') + drawnRow('402-3925017-7784521');
+  deepEqual(harvestRendered(page).numbers, ['408-5094957-4481129', '402-3925017-7784521']);
+});
+
+it('nothing found anywhere still builds no address', () => {
+  const found = harvestRendered('<html><body>nothing here</body></html>');
+  deepEqual(pagesToOpen(found.numbers), []);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

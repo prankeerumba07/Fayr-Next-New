@@ -40,6 +40,13 @@
 // FAYR TYPES NOTHING INTO ANY OF THESE PAGES. It fetches and reads. There is no
 // form, no click and no puzzle anywhere in this file.
 
+// THE PURE STRING HALF OF THE SHAPE REPORTER, AND ONLY THAT HALF. Nothing in
+// that file writes anything anywhere unless logPageShape is called, and this
+// never calls it. Importing it here is what stops a THIRD copy of "take the
+// page's own code out before reading it as markup" existing — there are already
+// two, here and at pageToLines in src/orderhistory.js.
+import { withoutCode } from './pageShape.js';
+
 /**
  * HOW MANY ORDER PAGES ONE LOOK MAY OPEN. The owner's number.
  *
@@ -167,6 +174,160 @@ export function countOrderCardSlots(html) {
     guard += 1;
   }
   return howMany;
+}
+
+/**
+ * AN ORDER NUMBER AS IT APPEARS IN THE MIDDLE OF A PAGE, rather than on its own.
+ *
+ * ORDER_NUMBER_SHAPE with its two anchors taken off, DERIVED and not retyped.
+ * The day the shape changes — a fourth group, an eighth digit — every rung of
+ * the ladder below, every address built by orderDetailPageFor and pagesToOpen
+ * all change together, because there is one definition and everything else
+ * points at it. A second copy typed out here is how those drift apart.
+ */
+export const ORDER_NUMBER_RUN = ORDER_NUMBER_SHAPE.source.replace(/^\^/, '').replace(/\$$/, '');
+
+/**
+ * HOW AN ORDER'S OWN PAGE NAMES THE ORDER IT IS SHOWING. Taken off the address
+ * this file already builds, so it cannot be a different word from the one we
+ * ask with.
+ */
+export const ORDER_ID_PARAM = AMAZON_ORDER_DETAIL_PAGE.slice(
+  AMAZON_ORDER_DETAIL_PAGE.indexOf('?') + 1,
+);
+
+/**
+ * THE WHOLE NUMBER AND NOT A PIECE OF A LONGER ONE.
+ *
+ * `\b` on both ends, which is enough here and is worth writing down why: a dash
+ * is not a word character, so the boundaries fall where they should around the
+ * two dashes, and a run sitting inside a longer digit string —
+ * 1408-5094957-44811299 — has a word character on each side and matches nothing
+ * at all. No lookbehind, which Hermes does not have.
+ */
+function everyRunIn(text) {
+  const found = [];
+  if (typeof text !== 'string' || text === '') return found;
+  const pattern = new RegExp(`\\b${ORDER_NUMBER_RUN}\\b`, 'g');
+  let match = pattern.exec(text);
+  let guard = 0;
+  while (match !== null && guard < 500) {
+    guard += 1;
+    found.push(match[0]);
+    match = pattern.exec(text);
+  }
+  return found;
+}
+
+/**
+ * ── RUNG TWO: THE NUMBER AMAZON ITSELF PUT IN A LINK TO THE ORDER ───────────
+ *
+ * A string that a page writes as the orderID of a link to an order's own page IS
+ * an order number, by the page's own account. That is the strongest evidence
+ * short of the card attribute itself, and it is not a guessed marker: the word
+ * comes off the address THIS FILE ALREADY BUILDS.
+ *
+ * Still put through ORDER_NUMBER_SHAPE afterwards. A page that writes
+ * `orderID=nonsense` gets nothing, because this value ends up in an address.
+ */
+export function harvestFromOrderLinks(html) {
+  if (typeof html !== 'string' || html === '') return [];
+  const found = [];
+  const seen = new Set();
+  const pattern = new RegExp(`${ORDER_ID_PARAM}(${ORDER_NUMBER_RUN})\\b`, 'gi');
+  let match = pattern.exec(html);
+  let guard = 0;
+  while (match !== null && guard < 500) {
+    guard += 1;
+    const number = String(match[1]).trim();
+    if (ORDER_NUMBER_SHAPE.test(number) && !seen.has(number)) {
+      seen.add(number);
+      found.push(number);
+    }
+    match = pattern.exec(html);
+  }
+  return found;
+}
+
+/**
+ * ── RUNG THREE: THE NUMBER'S OWN SHAPE, WHICH NO MARKUP CHANGE CAN MOVE ─────
+ *
+ * ── AND WHY THIS IS NOT THE GUESS THE OWNER FORBADE ────────────────────────
+ *
+ * He said: do not guess a new marker, report what the rows are marked with
+ * first. This guesses no marker at all. It does not ask what wraps the number,
+ * what class the row has or what attribute holds it. It looks for THE NUMBER
+ * ITSELF, in the shape this file has always meant by "an order number" —
+ * ORDER_NUMBER_SHAPE, the same definition that decides whether an address may be
+ * built at all. There is nothing here to be wrong about that was not already
+ * load bearing.
+ *
+ * WHAT IT COSTS, SAID PLAINLY. A three seven seven run that is not somebody's
+ * order is one wasted fetch and one wasted ask of the server, which declines it:
+ * orderDetailPageFor still refuses anything off shape so no invented address is
+ * ever opened, MOST_DETAIL_PAGES still caps it, and the server still decides
+ * what matched. And a real order number from somewhere else on the page — a
+ * "buy it again" rail — can push a real one past the sixth. That is why the
+ * report exists and why `how` is on the line: a look that keeps coming back
+ * `how=shape` is a look waiting for a proper selector.
+ *
+ * THE PAGE'S OWN CODE IS TAKEN OUT FIRST. A drawn page carries its orders twice,
+ * once as markup and once inside the JSON its own script was handed, and a
+ * number read out of the second is a number in a different order from the one a
+ * person sees.
+ */
+export function harvestByShape(html) {
+  const found = [];
+  const seen = new Set();
+  for (const number of everyRunIn(withoutCode(html))) {
+    if (ORDER_NUMBER_SHAPE.test(number) && !seen.has(number)) {
+      seen.add(number);
+      found.push(number);
+    }
+  }
+  return found;
+}
+
+/**
+ * EVERY ORDER NUMBER A DRAWN PAGE OFFERS, BY THE STRONGEST EVIDENCE FIRST.
+ *
+ * ── A LADDER, AND THE ORDER OF IT IS THE WHOLE DESIGN ──────────────────────
+ *
+ *   slot   the card attribute this file has always read. Most precise thing we
+ *          hold, and a drawn page may well still carry it — the answer to "did
+ *          the old marker come back" has to keep being askable.
+ *   link   the number Amazon wrote as the orderID of a link to the order.
+ *   shape  the number's own shape, which survives any markup move at all.
+ *
+ * `how` says WHICH ONE ANSWERED, and that one word is the finding this whole
+ * change exists to produce. `slot` means nothing moved. `link` means the cards
+ * were rebuilt and the links were not. `shape` means we are reading a page
+ * nothing in this file recognises any more.
+ *
+ * The counts are kept separately from the numbers because they are what goes in
+ * a line: an order number is a strong identifier tied to somebody's account and
+ * is never logged.
+ */
+export function harvestRendered(html) {
+  const marked = harvestOrderNumbers(html);
+  const linked = harvestFromOrderLinks(html);
+  const shaped = harvestByShape(html);
+  const numbers = [];
+  const seen = new Set();
+  for (const number of [...marked, ...linked, ...shaped]) {
+    if (!seen.has(number)) { seen.add(number); numbers.push(number); }
+  }
+  let how = 'none';
+  if (marked.length > 0) how = 'slot';
+  else if (linked.length > 0) how = 'link';
+  else if (shaped.length > 0) how = 'shape';
+  return {
+    numbers,
+    how,
+    marked: marked.length,
+    linked: linked.length,
+    shaped: shaped.length,
+  };
 }
 
 /**
