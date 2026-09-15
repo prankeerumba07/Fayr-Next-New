@@ -46,13 +46,13 @@ import { WebView } from 'react-native-webview';
 import * as campaignStore from '../backend/campaignStore';
 import { getTaskId, refreshFromBackend } from '../taskStore';
 import { PLATFORMS } from '../platforms';
-import { buildOrderListScript, readDetailOutcome } from '../orderhistory.js';
 import {
   countOrderCardSlots, harvestRendered, orderDetailPageFor, pagesToOpen,
   readsOrderPages, waitBeforeFetch,
 } from './detailLook.js';
 import {
-  anAnswerTag, answerWithStatus, drawFacts, isOurAnswer, openTheListWith, readListStep,
+  LEAST_A_DRAW_CAN_TAKE_MS, anAnswerTag, answerWithStatus, drawFacts, isOurAnswer,
+  openOneOrderWith, openTheListWith, readDetailStep, readListStep, theOrderPagesAreDrawn,
 } from './drawnList.js';
 import { restoreSession } from '../session';
 import { logLook } from './lookLog.js';
@@ -268,6 +268,25 @@ export default function LookingForItScreen({ navigation, route }) {
     // second later. That is why the refusal clears it directly.
     const stopTheClock = () => clearTimeout(giveUp);
 
+    /**
+     * WHAT IS LEFT OF THE LOOK, RIGHT NOW.
+     *
+     * ── WHY THE BUDGET IS READ AND NOT SHARED OUT IN ADVANCE ─────────────
+     *
+     * Twenty seconds used to divide cleanly: one list, then six FETCHES with a
+     * real gap between them, and the gaps were the big number. A page that has
+     * to be DRAWN has neither cost — going there IS the gap, and somebody
+     * reading their own order one page at a time is not pushing against a shop —
+     * but its worst case is a whole deadline instead of one round trip, and two
+     * of those do not fit in what any fixed share would leave.
+     *
+     * So nothing is shared out. Each page is handed what is really left when it
+     * starts: smaller than a share on a slow run, larger on a fast one, and a
+     * page that drew in two seconds gives the whole of the rest back to the next
+     * one. The ceiling itself does not move.
+     */
+    const whatIsLeft = () => MOST_TIME_MS - (Date.now() - startedAt);
+
     /** Wait until the screen has been up long enough to have been seen. */
     const settle = () => new Promise((done) => {
       const left = LEAST_TIME_MS - (Date.now() - startedAt);
@@ -277,20 +296,36 @@ export default function LookingForItScreen({ navigation, route }) {
 
     (async () => {
       const taskId = campaignId ? getTaskId(campaignId) : null;
-      // THE NAME ON THIS LOOK'S ANSWERS, made once and kept for all of them.
-      answerTag.current = anAnswerTag(startedAt, Math.random());
+      // ── THE NAME ON AN ANSWER, MADE FRESH FOR EVERY PAGE THIS LOOK OPENS ─
+      //
+      // It used to be one name for the whole look, and that was right while
+      // there was one document: the fetches inside it were strictly one after
+      // another, so there was never a second thing that could answer.
+      //
+      // A SHOP WHOSE ORDER PAGES ARE NAVIGATED TO BREAKS THAT. Page k is still
+      // in the view while page k+1 is being asked for, and one name would let a
+      // late answer from the first resolve the wait for the second — one order's
+      // words handed over as another order's. anAnswerTag takes the number of
+      // the page for exactly this, and is pure so it can be asked twice without
+      // a clock.
+      let pageNumber = 0;
+      const aFreshName = () => {
+        pageNumber += 1;
+        answerTag.current = anAnswerTag(pageNumber, Math.random());
+        return answerTag.current;
+      };
       // WHERE TO POINT THE VIEW AND WHAT TO RUN IN IT. Some shops draw their own
       // list and have to be waited for; the rest are fetched exactly as before.
       // WHICH is which lives next door, because this screen may not know a shop's
       // name — see SHOPS_WHOSE_LIST_THE_PAGE_DRAWS.
-      const step = platform
-        ? openTheListWith(platformKey, platform.startUrl, startedAt, answerTag.current)
+      const theList = platform
+        ? openTheListWith(platformKey, platform.startUrl, startedAt, aFreshName())
         : null;
 
       // NOTHING TO LOOK AT is not an error and is never explained. Some shops
       // keep their list of orders somewhere a page of text cannot reach, and the
       // person is simply asked instead.
-      if (!taskId || !step || !platform) {
+      if (!taskId || !theList || !platform) {
         await settle();
         if (alive) moveOn('Journey');
         return;
@@ -310,21 +345,47 @@ export default function LookingForItScreen({ navigation, route }) {
        * every run that needed more than a page or two. It is also six page loads
        * asked of a shop that rate-limits us, for nothing.
        */
-      const openTheShop = () => new Promise((resolve) => {
+      /**
+       * ── AND WHAT HAPPENS INSIDE THAT ONE MOUNT DEPENDS ON THE STEP ──────
+       *
+       * A FETCHED STEP IS INJECTED into the page already open, exactly as it
+       * always was. Its address never changes — and setting an address the view
+       * is already on does nothing at all, so a fetched step handed over as an
+       * address would install a script that never runs and a wait that never
+       * ends.
+       *
+       * A DRAWN STEP IS AN ADDRESS, because it is the shop's own code that has
+       * to run and there is no way to run it but to go there. The view is NOT
+       * rebuilt for it: the key is fixed, so this is a navigation inside the one
+       * view and the cookies, the process and the warm session all stay. The
+       * script comes with it and the view runs it when that page has loaded.
+       *
+       * THE FIRST STEP OF A LOOK FALLS THROUGH TO THE ADDRESS whichever kind it
+       * is, because there is no view yet to inject into. That is what mounts it.
+       */
+      const openWith = (next) => new Promise((resolve) => {
+        // A STEP WITH NOWHERE TO GO IS RUN WHERE WE ALREADY ARE, which is every
+        // page a shop sends whole: one page load for the whole look, and the
+        // fetch happens inside it. If that view has gone there is nothing to run
+        // it in, and saying so is the only honest answer — see the note above.
+        if (next.uri == null) {
+          if (!web.current) { resolve(null); return; }
+          waiting.current = resolve;
+          web.current.injectJavaScript(next.script);
+          return;
+        }
+        // AND A STEP WITH AN ADDRESS IS GONE TO. The first step of any look
+        // mounts the view this way; a page that has to be drawn navigates the
+        // view that is already up, keeping its cookies and its warm session.
         waiting.current = resolve;
-        setJob(step);
-      });
-      const askAgain = (url) => new Promise((resolve) => {
-        if (!web.current) { resolve(null); return; }
-        waiting.current = resolve;
-        web.current.injectJavaScript(buildOrderListScript(url, answerTag.current));
+        setJob(next);
       });
       const pause = (ms) => new Promise((done) => { setTimeout(done, ms); });
 
-      const answer = await openTheShop();
+      const answer = await openWith(theList);
       if (!alive) return;
 
-      const outcome = readListStep(step, answer);
+      const outcome = readListStep(theList, answer);
       // WHAT THE PAGE SAID ABOUT ITS OWN DRAWING, every field made safe first: a
       // page can put anything at all in these and they end up on a line.
       const drawn = drawFacts(answer);
@@ -500,9 +561,21 @@ export default function LookingForItScreen({ navigation, route }) {
         // with a count. Never a word off the page, never a real order number.
         if (countOrderCardSlots(html, platformKey) === 0) logRowShape(html);
 
+        // ── WHETHER THIS SHOP'S ORDER PAGES HAVE TO BE DRAWN, ASKED ONCE ───
+        //
+        // NOT THE SAME QUESTION AS WHETHER ITS LIST IS, and the difference is
+        // load bearing: one shop draws its list and sends its order pages whole,
+        // which is the whole reason those are fetched one at a time and the
+        // reason the gap between them exists. Keying any of the three lines
+        // below on the LIST would take that gap away from it.
+        const ordersAreDrawn = theOrderPagesAreDrawn(platformKey);
+
         const pages = [];
         for (let i = 0; i < numbers.length; i += 1) {
-          const gap = waitBeforeFetch(i);
+          // A PAGE THAT IS GONE TO IS ITS OWN GAP. There is no fetch to be
+          // polite about: the view loads one page, and the person is reading
+          // their own orders at the speed a person reads them.
+          const gap = ordersAreDrawn ? 0 : waitBeforeFetch(i);
           if (gap > 0) await pause(gap);
           if (!alive) return;
           const url = orderDetailPageFor(platformKey, numbers[i]);
@@ -510,10 +583,23 @@ export default function LookingForItScreen({ navigation, route }) {
           // order number — and it is still asked, because the day that stops
           // being true the answer must be "do not fetch it" and not a guess.
           if (url == null) continue;
+          // ── AND WE DO NOT START A PAGE WE HAVE ALREADY LOST ──────────────
+          //
+          // Below this there is not enough of the look left for any page to be
+          // called drawn, however fast the shop is. Opening one anyway buys a
+          // deadline, a shell handed to the server, and one more request asked
+          // of a shop for nothing.
+          if (ordersAreDrawn && whatIsLeft() < LEAST_A_DRAW_CAN_TAKE_MS) break;
 
-          const one = await askAgain(url);
+          const next = openOneOrderWith(
+            platformKey, url, Date.now(), aFreshName(), numbers[i],
+            ordersAreDrawn ? whatIsLeft() : undefined,
+          );
+          const one = await openWith(next);
           if (!alive) return;
-          const detail = readDetailOutcome(one);
+          // READ THE WAY THIS STEP WAS OPENED, never the way the shop usually
+          // is. The step knows; asking twice is how two answers disagree.
+          const detail = readDetailStep(next, one);
 
           // ── AND WHICH PAGE THE ORDER READ ACTUALLY LANDED ON ─────────────
           //

@@ -62,7 +62,8 @@ import {
   GAP_BETWEEN_FETCHES_MS, MOST_DETAIL_PAGES, howThisShopNamesAnOrder,
 } from './detailLook.js';
 import {
-  buildOrderListScript, landedPath, orderListPageFor, readListOutcome, readPageRefusal,
+  buildOrderListScript, landedPath, orderListPageFor, readDetailOutcome, readListOutcome,
+  readPageRefusal,
 } from '../orderhistory.js';
 
 /**
@@ -141,6 +142,43 @@ export const STEADY_LOOKS_BEFORE_WE_READ = LOOKS_IN_A_ROW_BEFORE_WE_ASK;
  * this is what stops a poll running forever if Date.now goes backwards.
  */
 export const MOST_LOOKS = Math.ceil(DRAW_DEADLINE_MS / LOOK_AGAIN_MS);
+
+/**
+ * THE SHORTEST SPAN IN WHICH A PAGE COULD POSSIBLY READ AS DRAWN.
+ *
+ * Two looks, one interval apart: this app's own rule that a page halfway through
+ * changing is not a page that has changed, multiplied by how often it looks.
+ * Arithmetic on two numbers already argued for, and not a new floor of its own.
+ *
+ * BELOW THIS, OPENING ONE MORE PAGE IS GUARANTEED WASTE. Not likely to be —
+ * guaranteed: however fast the shop is, the page cannot be called drawn in the
+ * time left, so the only possible outcome is a deadline, a shell handed to the
+ * server, and one more request asked of a shop for nothing. The loop stops here
+ * instead of starting a page it has already lost.
+ */
+export const LEAST_A_DRAW_CAN_TAKE_MS = LOOK_AGAIN_MS * STEADY_LOOKS_BEFORE_WE_READ;
+
+/**
+ * WHICH SHOPS' ORDER PAGES HAVE TO BE DRAWN, WHICH IS NOT THE LIST QUESTION.
+ *
+ * ── AND AMAZON IS THE LIVING PROOF THEY ARE DIFFERENT FACTS ───────────────
+ *
+ * Amazon DRAWS ITS LIST and SENDS ITS ORDER PAGES WHOLE. That is the whole
+ * reason its orders are fetched one page at a time from inside the page already
+ * open, and the reason the gap between those fetches exists at all.
+ *
+ * So this is a third list, deliberately, for the reason written at the top of
+ * this file about the second one. Sharing one would turn Amazon's fetches into
+ * navigations the day somebody added a shop — six page loads instead of six
+ * fetches, past the ceiling, and its politeness gaps silently gone with them.
+ */
+export const SHOPS_WHOSE_ORDER_PAGES_ARE_DRAWN = ['zepto'];
+
+/** Whether this shop's order pages have to be drawn before they can be read. */
+export function theOrderPagesAreDrawn(platformKey) {
+  const key = String(platformKey || '').toLowerCase();
+  return SHOPS_WHOSE_ORDER_PAGES_ARE_DRAWN.indexOf(key) !== -1;
+}
 
 /**
  * WHAT EACH DRAWN SHOP IS COUNTING WHILE IT WAITS, and not one of these is a
@@ -408,6 +446,137 @@ export function readDrawnOutcome(answer) {
  * script and a flag, and the waiting screen is forbidden from writing a shop's
  * name anywhere in it.
  */
+/**
+ * THE SCRIPT THAT WAITS FOR ONE ORDER'S OWN PAGE TO DRAW, AND THEN READS IT.
+ *
+ * ── WHY THERE IS A SECOND ONE OF THESE ─────────────────────────────────────
+ *
+ * The list poller waits for ROWS and hands back the markup. An order's own page
+ * has no rows to count, and what the server reads off it is its WORDS.
+ *
+ * ── AND WHY IT GOES THERE RATHER THAN FETCHING ─────────────────────────────
+ *
+ * Measured on the owner's own account, 15 September 2026, and all four of the
+ * cheaper ways are ruled out rather than untried: a fetch of a Zepto order page
+ * comes back a shell with nothing in it; a same-origin frame hydrates, draws the
+ * header, and never shows the order body at either position tried; the server
+ * rendered answer carries neither the order number nor any product name; and the
+ * data address answers 401 for a token that is in no storage this app can read.
+ * So the view goes to the page, exactly as it goes to the list.
+ *
+ * ── innerText, AND THE FILE NEXT DOOR SAYS NEVER innerText ────────────────
+ *
+ * It says never innerText FOR THE LIST, and both of its reasons are answered
+ * here rather than waved past.
+ *
+ * THE FIRST IS ESCAPING: a serialised document cannot carry a stray `<`, which
+ * is what the shape report's promise rests on. So this posts `html` AS WELL, and
+ * every refusal, the status, the landing and the shape reports all go on reading
+ * that, unchanged. The words are an addition and not a replacement.
+ *
+ * THE SECOND IS COST: innerText makes the page lay itself out. So it is read
+ * ONCE, in send(), and never in a look. What a look watches is textContent's
+ * LENGTH, which reads off the tree and lays nothing out.
+ *
+ * AND IT IS THE TEXT THE SERVER IS ALREADY PROVEN AGAINST. parseOrderText was
+ * written and checked against this exact page's own words. Handing it markup to
+ * cut up instead would be a second reader of the same page.
+ *
+ * ── AND ITS CLOCK IS ITS OWN ──────────────────────────────────────────────
+ *
+ * `beganAt` is the moment THIS page was opened, never the moment the look began.
+ * Sharing the look's start would put the second order page already past its
+ * deadline at its first look — which reads as "it never drew" about a page
+ * nobody ever waited for.
+ */
+export function buildDrawnOrderScript({
+  beganAt, tag, wantedPath, deadlineMs,
+} = {}) {
+  const startedAt = Number.isFinite(Number(beganAt)) ? Math.trunc(Number(beganAt)) : 0;
+  const name = JSON.stringify(String(tag == null ? '' : tag));
+  const wanted = JSON.stringify(String(wantedPath == null ? '' : wantedPath));
+  // WHAT IS LEFT OF THE LOOK, AND NEVER MORE THAN ONE PAGE'S SHARE. A page may
+  // be given LESS than the standing deadline when the look is nearly over, and
+  // never more, so a slow first page cannot eat the whole ceiling by itself.
+  const asked = Number.isFinite(Number(deadlineMs)) && Number(deadlineMs) > 0
+    ? Math.trunc(Number(deadlineMs))
+    : DRAW_DEADLINE_MS;
+  const deadline = Math.min(asked, DRAW_DEADLINE_MS);
+  const mostLooks = Math.ceil(deadline / LOOK_AGAIN_MS);
+  return `
+(function(){
+  if (window.__fayrReading) return;
+  window.__fayrReading = true;
+  var sent = false, ticker = null, looks = 0, steady = -1, same = 0, first = -1;
+  function stop(){ if (ticker !== null) { clearInterval(ticker); ticker = null; } }
+  function send(o){
+    if (sent) return; sent = true; stop();
+    o.tag = ${name};
+    o.fromTheDrawnPage = true;
+    o.ok = true;
+    o.status = 0;
+    try { o.html = document.documentElement ? document.documentElement.outerHTML : ''; } catch(e){ o.html = ''; }
+    try { o.text = document.body ? document.body.innerText : ''; } catch(e){ o.text = ''; }
+    try { o.url = String(location.href); } catch(e){ o.url = ''; }
+    try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch(e){}
+  }
+  function howMuch(){ try { return document.body ? document.body.textContent.length : 0; } catch(e){ return 0; } }
+  function howBig(){ try { return document.getElementsByTagName("*").length; } catch(e){ return 0; } }
+  function look(){
+    looks = looks + 1;
+    var chars = howMuch();
+    var now = howBig();
+    if (first < 0) first = now;
+    var waited = Date.now() - ${startedAt};
+    var settled = false, elsewhere = false;
+    try { settled = document.readyState === "complete"; } catch(e){}
+    try { elsewhere = ${wanted} !== "" && location.pathname !== ${wanted}; } catch(e){}
+    if (chars > 0 && chars === steady) { same = same + 1; } else { steady = chars; same = 1; }
+    var wrote = settled && chars > 0 && same >= ${STEADY_LOOKS_BEFORE_WE_READ};
+    var out = waited >= ${deadline} || looks >= ${mostLooks};
+    if (wrote || out || (elsewhere && settled)) {
+      send({ drew: wrote, settled: settled, waited: waited, looks: looks,
+             linked: 0, marked: 0, nodesFirst: first, nodesNow: now });
+    }
+  }
+  look();
+  if (!sent) { ticker = setInterval(look, ${LOOK_AGAIN_MS}); }
+})();
+true;`;
+}
+
+/**
+ * HOW ONE ORDER'S OWN PAGE IS OPENED FOR THIS SHOP: where to point the view, or
+ * what to run where it already is.
+ *
+ * A SHOP WHOSE ORDER PAGES ARE SENT WHOLE is fetched from inside the page
+ * already open, exactly as before — one page load for a whole look, which is the
+ * promise that makes six order pages fit inside the ceiling at all. Its address
+ * is null because there is nowhere to go.
+ *
+ * A SHOP WHOSE ORDER PAGES ARE DRAWN cannot be fetched: there is nothing in what
+ * comes back. That one goes there.
+ *
+ * THE SCREEN STILL NEVER LEARNS A SHOP'S NAME. It gets an address or no address,
+ * a script, and the same flag it already reads.
+ */
+export function openOneOrderWith(platformKey, url, beganAt, tag, number, deadlineMs) {
+  if (!theOrderPagesAreDrawn(platformKey)) {
+    return {
+      uri: null, script: buildOrderListScript(url, tag), drawn: false, tag, number,
+    };
+  }
+  return {
+    uri: String(url || ''),
+    script: buildDrawnOrderScript({
+      beganAt, tag, wantedPath: landedPath(url), deadlineMs,
+    }),
+    drawn: true,
+    tag,
+    number,
+  };
+}
+
 export function openTheListWith(platformKey, startUrl, beganAt, tag) {
   const list = orderListPageFor(platformKey);
   if (list == null) return null;
@@ -438,6 +607,61 @@ export function openTheListWith(platformKey, startUrl, beganAt, tag) {
  * or means it had orders written on it — and everything else about them is the
  * same shared reader.
  */
+/**
+ * WHERE WE LANDED, WITH THE ORDER'S OWN ID TAKEN OUT OF IT.
+ *
+ * ── AND WHY THIS IS NOT PARANOIA ──────────────────────────────────────────
+ *
+ * A fetched order page keeps its number in the QUERY, and landedPath already
+ * drops the query, so this never came up. A drawn one carries the number in the
+ * PATH — and `landed=` is precisely the field somebody copies into a message
+ * when a look goes wrong.
+ *
+ * An order id is a strong identifier tied to somebody's account, and maskNumbers
+ * cannot hide one that is mostly letters. So it comes out HERE, at the reader
+ * every landing passes through, rather than being remembered at a call site.
+ */
+export function landedWithoutTheOrder(path, orderNumber) {
+  if (typeof path !== 'string' || path === '') return path;
+  if (typeof orderNumber !== 'string' || orderNumber === '') return path;
+  return path.split(orderNumber).join('<order>');
+}
+
+/**
+ * ONE ORDER'S OWN PAGE, READ BY WHICHEVER READER THE STEP IT CAME FROM CALLS FOR.
+ *
+ * The refusals, the status, the landing and "did the shop answer at all" all
+ * come from readPageRefusal, shared with the list and with the fetched order
+ * page, so there is ONE idea of a dead end across all three. The only thing that
+ * differs is where the TEXT comes from: a fetched page is markup and gets cut
+ * up, a drawn one has already handed us its words.
+ *
+ * IT DISPATCHES ON THE STEP AND NEVER ON THE SHOP. The step knows how it was
+ * opened; asking the shop again here would be a second answer to a question
+ * already settled, and the two could disagree.
+ */
+export function readDetailStep(step, answer) {
+  if (!(step && step.drawn === true)) return readDetailOutcome(answer);
+  const {
+    whyNot, wantsSignIn, answered, landed,
+  } = readPageRefusal(answer);
+  const where = landedWithoutTheOrder(landed, step.number);
+  if (!answered || whyNot != null || wantsSignIn === true) {
+    return {
+      looked: false, text: '', whyNot, wantsSignIn, landed: where,
+    };
+  }
+  // AND A PAGE THAT NEVER DREW IS NOT A PAGE WE READ, for the reason the list
+  // says the same thing: there is a whole document here and nothing of the
+  // person's in it, and calling that "we looked" is how "we found nothing" and
+  // "we never saw it" became one silence for five days.
+  const drew = answer && typeof answer === 'object' && answer.drew === true;
+  const text = answer && typeof answer.text === 'string' ? answer.text : '';
+  return {
+    looked: drew === true && text !== '', text, whyNot, wantsSignIn, landed: where,
+  };
+}
+
 export function readListStep(step, answer) {
   return step && step.drawn === true
     ? readDrawnOutcome(answer)

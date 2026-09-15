@@ -25,10 +25,12 @@
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
-  DRAW_DEADLINE_MS, LOOK_AGAIN_MS, MOST_LOOKS, SHOPS_WHOSE_LIST_THE_PAGE_DRAWS,
+  DRAW_DEADLINE_MS, LEAST_A_DRAW_CAN_TAKE_MS, LOOK_AGAIN_MS, MOST_LOOKS,
+  SHOPS_WHOSE_LIST_THE_PAGE_DRAWS, SHOPS_WHOSE_ORDER_PAGES_ARE_DRAWN,
   STEADY_LOOKS_BEFORE_WE_READ, WHAT_EACH_SHOP_DRAWS, anAnswerTag,
-  answerWithStatus, buildDrawnListScript, drawFacts, isOurAnswer, openTheListWith,
-  readDrawnOutcome, readListStep, theListIsDrawn, whatThisShopDraws,
+  answerWithStatus, buildDrawnListScript, buildDrawnOrderScript, drawFacts, isOurAnswer,
+  landedWithoutTheOrder, openOneOrderWith, openTheListWith, readDetailStep,
+  readDrawnOutcome, readListStep, theListIsDrawn, theOrderPagesAreDrawn, whatThisShopDraws,
 } from './drawnList.js';
 import { ORDER_LIST_PAGES } from '../orderhistory.js';
 import { A_DEAD_END, A_PUZZLE, TOO_MANY_ASKS } from '../connect/shopRefusing.js';
@@ -375,6 +377,161 @@ it('the step decides which reader, so there is one place that chooses', () => {
   // orders written on it. There are not.
   equal(readListStep(fetchedStep, answer).looked, false);
   equal(readListStep(null, answer).looked, false, 'no step reads as the fetched one');
+});
+
+console.log('\nand one ORDER page, for a shop that draws those too');
+
+it('the list being drawn and the ORDER PAGES being drawn are different facts', () => {
+  // ── AND ONE SHOP IS THE LIVING PROOF OF IT ────────────────────────────────
+  //
+  // Amazon DRAWS ITS LIST and SENDS ITS ORDER PAGES WHOLE. That is the whole
+  // reason its orders are fetched one at a time from inside the page already
+  // open, and the reason the politeness gap between those fetches exists.
+  // Sharing one list would turn those fetches into navigations: six page loads
+  // instead of six fetches, past the ceiling, and the gap silently gone.
+  deepEqual(SHOPS_WHOSE_ORDER_PAGES_ARE_DRAWN, ['zepto']);
+  ok(theListIsDrawn('amazon'), 'Amazon draws its list');
+  ok(!theOrderPagesAreDrawn('amazon'), 'AND SENDS ITS ORDER PAGES WHOLE');
+  ok(theListIsDrawn('zepto') && theOrderPagesAreDrawn('zepto'), 'Zepto draws both');
+  for (const other of ['meesho', 'flipkart', 'blinkit', 'instamart', 'myntra',
+    '', null, undefined, 7]) {
+    ok(!theOrderPagesAreDrawn(other), `${String(other)} does not draw its order pages`);
+  }
+});
+
+it('a shop that sends its pages whole is still FETCHED, from where it already is', () => {
+  const one = openOneOrderWith('amazon', 'https://www.amazon.in/gp/x?orderID=408-5094957-4481129',
+    5000, 'tag-1', '408-5094957-4481129');
+  equal(one.drawn, false);
+  equal(one.uri, null, 'THERE IS NOWHERE TO GO: it runs where the view already is');
+  ok(one.script.includes('fetch('), 'and it fetches, exactly as it always did');
+  ok(!one.script.includes('setInterval'), 'with no waiting loop in it');
+  equal(one.number, '408-5094957-4481129');
+});
+
+it('and a shop that draws them is GONE TO, and waited for', () => {
+  const url = 'https://www.zepto.com/order/01a0397a-bbb4-7cd7-b611-0e68227a15f1?isArchived=false';
+  const one = openOneOrderWith('zepto', url, 5000, 'tag-2', '01a0397a-bbb4-7cd7-b611-0e68227a15f1');
+  equal(one.drawn, true);
+  equal(one.uri, url, 'the view is pointed at the order own page');
+  ok(!one.script.includes('fetch('),
+    'AND IT DOES NOT FETCH THE PAGE IT IS STANDING ON, which is what came back empty');
+  ok(one.script.includes('setInterval'), 'it waits for the page to draw');
+});
+
+it('the order page hands back its WORDS as well as its markup, and never instead', () => {
+  const script = buildDrawnOrderScript({ beganAt: 1, tag: 'n', wantedPath: '/order/x' });
+  // ── THE ONE THAT WOULD HAVE BEEN SILENT ─────────────────────────────────
+  //
+  // readPageRefusal answers `answered` only when the status is not nought, and a
+  // page cannot see its own status. Without this flag answerWithStatus passes
+  // the payload straight through, the nought stands, every order page reads as
+  // "nothing on this page", and the loop runs to the end and asks for a
+  // photograph. That is the shape of the five silent days.
+  ok(script.includes('o.fromTheDrawnPage = true;'),
+    'THE ANSWER SAYS IT CAME FROM A DRAWN PAGE, so our side can put the status back');
+  ok(script.includes('o.text = document.body ? document.body.innerText : \'\';'),
+    'it hands back the words, which is what the server reads');
+  ok(script.includes('o.html = document.documentElement ? document.documentElement.outerHTML : \'\';'),
+    'AND THE MARKUP AS WELL, because every refusal and the byte count still read that');
+  ok(script.includes('o.url = String(location.href);'), 'and where it ended up');
+
+  // ── innerText IS READ ONCE, AND NEVER IN A LOOK ─────────────────────────
+  //
+  // It makes the page lay itself out. What a look watches is textContent length,
+  // which reads off the tree and lays nothing out.
+  const send = script.slice(script.indexOf('function send('), script.indexOf('function howMuch('));
+  const look = script.slice(script.indexOf('function look()'));
+  ok(send.includes('innerText'), 'the words are taken in send');
+  ok(!look.includes('innerText'), 'AND NEVER IN A LOOK, because laying out on a timer is a cost');
+  ok(script.includes('document.body.textContent.length'),
+    'what a look watches is a length off the tree');
+
+  // AND IT WAITS FOR THE PAGE TO BE FINISHED, not merely steady. On a list a
+  // steady row count is enough; on a page whose whole content IS the thing being
+  // waited for, a shell steady at nothing would read as done at the second look.
+  ok(/var wrote = settled && chars > 0 && same >= 2;/.test(script),
+    'a page is only read when it has settled AND held its text');
+
+  // AND ITS GUARD IS ITS OWN NAME. Two scripts sharing one would let whichever
+  // ran first lock the other out of a document it had already touched.
+  ok(script.includes('window.__fayrReading'), 'it has its own re-entry guard');
+  ok(!script.includes('__fayrLooking'), 'and never the list poller one');
+});
+
+it('and an order page is handed what is LEFT of the look, never more', () => {
+  const short = buildDrawnOrderScript({ beganAt: 1, tag: 'n', wantedPath: '/p', deadlineMs: 2400 });
+  ok(short.includes(`waited >= 2400`), 'a page near the end of a look gets only what is left');
+  ok(short.includes('looks >= 8'), 'and its look count follows its own deadline');
+  const greedy = buildDrawnOrderScript({ beganAt: 1, tag: 'n', wantedPath: '/p', deadlineMs: 999999 });
+  ok(greedy.includes(`waited >= ${DRAW_DEADLINE_MS}`),
+    'AND NEVER MORE THAN THE STANDING DEADLINE, so one slow page cannot eat the ceiling');
+  const plain = buildDrawnOrderScript({ beganAt: 1, tag: 'n', wantedPath: '/p' });
+  ok(plain.includes(`waited >= ${DRAW_DEADLINE_MS}`), 'and asked for nothing, it gets the standing one');
+  // AND THE FLOOR UNDER OPENING ONE MORE AT ALL IS DERIVED, not typed.
+  equal(LEAST_A_DRAW_CAN_TAKE_MS, LOOK_AGAIN_MS * STEADY_LOOKS_BEFORE_WE_READ);
+  ok(LEAST_A_DRAW_CAN_TAKE_MS < DRAW_DEADLINE_MS, 'and it is a floor, not a second deadline');
+});
+
+it('the order id never reaches a line, and it is taken out at the reader', () => {
+  // ── WHY THIS IS NOT PARANOIA ─────────────────────────────────────────────
+  //
+  // A fetched order page keeps its number in the QUERY and landedPath drops the
+  // query, so this never came up. A drawn one carries it in the PATH — and
+  // `landed=` is exactly the field somebody copies into a message when a look
+  // goes wrong. maskNumbers cannot hide an id that is mostly letters.
+  const id = '01a0397a-bbb4-7cd7-b611-0e68227a15f1';
+  equal(landedWithoutTheOrder(`/order/${id}`, id), '/order/<order>');
+  equal(landedWithoutTheOrder(`/order/${id}/again/${id}`, id), '/order/<order>/again/<order>');
+  equal(landedWithoutTheOrder('/order/other', id), '/order/other', 'and nothing else is touched');
+  for (const junk of [null, undefined, 7, '']) {
+    equal(landedWithoutTheOrder(junk, id), junk);
+    equal(landedWithoutTheOrder('/order/x', junk), '/order/x');
+  }
+  // AND THROUGH THE READER, WHICH IS WHERE EVERY LANDING PASSES.
+  const step = { drawn: true, number: id };
+  const answer = {
+    ok: true, status: 200, drew: true, text: 'Order #SOSIJGGRL26770', html: '<html></html>',
+    url: `https://www.zepto.com/order/${id}?isArchived=false`,
+  };
+  const read = readDetailStep(step, answer);
+  equal(read.landed, '/order/<order>');
+  ok(!read.landed.includes(id), 'THE ID IS NOT IN THE LANDING, whatever else is');
+  equal(read.looked, true);
+  equal(read.text, 'Order #SOSIJGGRL26770');
+});
+
+it('and a page that never drew is not a page we read', () => {
+  const id = '01a0397a-bbb4-7cd7-b611-0e68227a15f1';
+  const step = { drawn: true, number: id };
+  const shell = {
+    ok: true, status: 200, drew: false, text: '', html: '<html></html>',
+    url: `https://www.zepto.com/order/${id}`,
+  };
+  equal(readDetailStep(step, shell).looked, false,
+    'a whole document with nothing of the person in it is not a page we looked at');
+  const drewButEmpty = { ...shell, drew: true };
+  equal(readDetailStep(step, drewButEmpty).looked, false, 'and neither is one with no words');
+  // ── AND THE ONE THAT MATTERS: WORDS, BUT NEVER DRAWN ────────────────────
+  //
+  // This is the shape a shell really arrives in. It is not empty — it carries
+  // the shop's own chrome, a header, a menu, a footer — so a reader that asked
+  // only "were there any words" would call it a page we read, hand that chrome
+  // to the server as an order, and report looked=true about a page that never
+  // showed the order at all. THE DRAW IS THE EVIDENCE, not the length.
+  const chromeOnly = { ...shell, drew: false, text: 'Zepto\nHome\nCart\nAccount' };
+  equal(readDetailStep(step, chromeOnly).looked, false,
+    'A PAGE THAT NEVER DREW IS NOT A PAGE WE READ, however many words are on it');
+  equal(readDetailStep(step, { ...chromeOnly, drew: true }).looked, true,
+    'and the same words once it really drew are a page we read');
+  // AND A STATUS OF NOUGHT IS STILL NOT AN ANSWER, which is what the flag is for.
+  equal(readDetailStep(step, { ...shell, status: 0, drew: true, text: 'x' }).looked, false);
+  // AND THE READER DISPATCHES ON THE STEP, never on the shop. A fetched step
+  // goes to the reader it always went to, whatever the shop does elsewhere.
+  const fetched = readDetailStep({ drawn: false, number: id }, {
+    ok: true, status: 200, html: '<html><body>Order # 408-5094957-4481129</body></html>', url: 'https://x/',
+  });
+  ok(Object.prototype.hasOwnProperty.call(fetched, 'text'), 'a fetched step is read as it always was');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

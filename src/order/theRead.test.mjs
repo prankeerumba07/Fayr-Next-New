@@ -560,5 +560,73 @@ console.log('\n=== 12. every reader is told WHICH SHOP, and told it by the scree
   'and platformKey is derived from what the screen was handed');
 }
 
+console.log('\n=== 13. a shop whose ORDER pages are drawn is gone to, one at a time ===');
+{
+  const screen = read('src/order/LookingForItScreen.js');
+  const code = screen.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  // ── ONE OPENER, AND WHAT IT DOES DEPENDS ON THE STEP ────────────────────
+  //
+  // A step with NOWHERE TO GO is run where the view already is — every page a
+  // shop sends whole, one page load for the whole look. A step WITH an address
+  // is gone to. Setting an address the view is already on does nothing at all,
+  // so a fetched step handed over as an address would install a script that
+  // never runs and a wait that never ends.
+  ok(/const openWith = \(next\) => new Promise/.test(code),
+    'there is one opener and the step decides what it does');
+  ok(/if \(next\.uri == null\) \{/.test(code),
+    'a step with no address is injected into the page already open');
+  ok(/web\.current\.injectJavaScript\(next\.script\)/.test(code),
+    'and it runs the script that came with that step');
+  ok(/waiting\.current = resolve;\s*setJob\(next\);/.test(code),
+    'and a step with an address is gone to');
+  ok(!/setJob\(null\)/.test(code), 'and the view is still never torn down mid-look');
+  ok(/if \(!web\.current\) \{ resolve\(null\); return; \}/.test(code),
+    'and the guard that made the old bug silent is still there');
+
+  // ── THE ORDER PAGES ARE ASKED ABOUT SEPARATELY FROM THE LIST ────────────
+  //
+  // The two are different facts and one shop is the proof: it draws its list and
+  // sends its order pages whole. Keying the loop on the LIST would take away its
+  // politeness gaps, which is the promise that exists because an account got
+  // blocked.
+  ok(/const ordersAreDrawn = theOrderPagesAreDrawn\(platformKey\);/.test(code),
+    'the screen asks whether THIS shop order pages are drawn');
+  ok(!/theListIsDrawn\(platformKey\)/.test(code),
+    'and never answers that question with the LIST one');
+  ok(/const gap = ordersAreDrawn \? 0 : waitBeforeFetch\(i\);/.test(code),
+    'a page that is gone to is its own gap, and a page that is fetched keeps its own');
+  ok(/ordersAreDrawn && whatIsLeft\(\) < LEAST_A_DRAW_CAN_TAKE_MS/.test(code),
+    'AND A PAGE THAT CANNOT POSSIBLY FINISH IS NOT STARTED: below that floor the '
+    + 'only outcome is a deadline, a shell sent to the server and one more request '
+    + 'asked of a shop for nothing');
+
+  // ── AND EVERY PAGE GETS WHAT IS REALLY LEFT ─────────────────────────────
+  ok(/const whatIsLeft = \(\) => MOST_TIME_MS - \(Date\.now\(\) - startedAt\);/.test(code),
+    'the budget is read from the one ceiling rather than shared out in advance');
+  ok(/ordersAreDrawn \? whatIsLeft\(\) : undefined/.test(code),
+    'and handed to the page that is about to be opened');
+  ok(/openOneOrderWith\(/.test(code), 'which is built next door, where the addresses live');
+  ok(/readDetailStep\(next, one\)/.test(code),
+    'AND READ THE WAY THAT STEP WAS OPENED, not the way the shop usually is');
+
+  // ── A NAME PER PAGE, OR ONE ORDER WORDS ARRIVE AS ANOTHER ORDER ─────────
+  //
+  // One name for the whole look was right while there was one document and the
+  // fetches inside it were strictly one after another. With pages navigated to,
+  // page k is still in the view while page k+1 is asked for, and a late answer
+  // from the first would resolve the wait for the second.
+  ok(/const aFreshName = \(\) => \{/.test(code), 'every page opened gets its own name');
+  ok(/pageNumber \+= 1;\s*answerTag\.current = anAnswerTag\(pageNumber, Math\.random\(\)\);/
+    .test(code), 'numbered, so two names in the same millisecond are still two names');
+  const opens = (code.match(/aFreshName\(\)/g) || []).length;
+  ok(opens === 2,
+    `and it is called wherever a page is opened (${opens}) — the list, and each order page`);
+  ok(!/anAnswerTag\(startedAt/.test(code),
+    'and the one name for the whole look is gone, not merely unused');
+  ok(/isOurAnswer\(payload, answerTag\.current\)/.test(code),
+    'and an answer is still matched against the name before anything reads it');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
