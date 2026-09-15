@@ -245,8 +245,30 @@ const ORDER_DATE_LABEL =
  * higher on that page as a status with no date under it — which is why the loop
  * that uses this keeps going while the date is still null, and why it has to.
  */
+/*
+ * ── AND A SHIPMENT MAY ARRIVE INSTEAD OF AN ORDER ─────────────────────────
+ *
+ * An order split into two parcels does not print "Order Arrived at" anywhere.
+ * From the owner's own Zepto order of 21 July 2026, the one carrying the
+ * campaign product:
+ *
+ *   Order Placed at / 21 Jul 2026, 5:07 PM
+ *   Shipment 1 Arrived at / 21 Jul 2026, 5:32 PM
+ *   Shipment 2 Arrived at / 21 Jul 2026, 5:46 PM
+ *
+ * The word "Delivered" is on that page twice, as a status under each shipment
+ * heading with no date beside it. So without this the delivery date was null on
+ * an order that states the minute each half of it turned up — and that is the
+ * field the whole delivery question is answered from.
+ *
+ * THE FIRST ARRIVAL IS THE ONE TAKEN, because the loop stops at the first date
+ * it can read. Said plainly rather than left to be discovered: for an order in
+ * two parcels that is the EARLIER arrival. Both of his were the same evening,
+ * so nothing here measures which is the right one for a return window. When a
+ * real order arrives on two different days, this is the line to argue about.
+ */
 const DELIVERY_LABEL =
-  /^(?:order\s+)?(?:delivered|arrived)\b\s*(?:on|at)?\s*[:\-]?\s*(.*)$/i;
+  /^(?:order\s+|shipment\s*\d*\s*(?:of\s*\d+\s*)?)?(?:delivered|arrived)\b\s*(?:on|at)?\s*[:\-]?\s*(.*)$/i;
 
 /**
  * A RETURN THAT REALLY HAPPENED. The completed forms only.
@@ -269,8 +291,37 @@ const RETURN_COMPLETED =
  */
 const RETURN_MENTIONED = /\b(?:return|refund|cancel)[a-z]*\b/i;
 
-/** A shipment heading — "Shipment 1 of 2". */
+/** A shipment heading — "Shipment 1 of 2", "Shipment 1", "SHIPMENT 2". */
 const SHIPMENT_HEADING = /^shipment\b/i;
+
+/** The number on a shipment heading, when it carries one. */
+const SHIPMENT_NUMBER = /^shipment\s*(\d+)\b/i;
+
+/**
+ * HOW MANY PARCELS THIS ORDER CAME IN, COUNTED BY NUMBER AND NOT BY HEADING.
+ *
+ * ── MEASURED: COUNTING HEADINGS SAID SIX FOR AN ORDER IN TWO ──────────────
+ *
+ * A screenshot writes each shipment's heading once, so counting lines was right
+ * for as long as screenshots were the only thing being read. The page Zepto
+ * draws writes the same two shipments SIX times — a tab strip at the top
+ * ("Shipment 1", "Shipment 2"), a heading over each block ("SHIPMENT 1",
+ * "SHIPMENT 2"), and an arrival line for each ("Shipment 1 Arrived at").
+ *
+ * So the NUMBERS are counted rather than the lines, which reads both layouts
+ * correctly: "Shipment 1 of 2" and "Shipment 2 of 2" is two, and so is the
+ * same order drawn six times. A heading with no number on it counts as its own
+ * parcel, because there is nothing else it could be.
+ */
+function countShipments(lines: readonly string[]): number {
+  const seen = new Set<string>();
+  lines.forEach((line, at) => {
+    if (!SHIPMENT_HEADING.test(line)) return;
+    const numbered = SHIPMENT_NUMBER.exec(line);
+    seen.add(numbered ? `n${Number(numbered[1])}` : `line${at}`);
+  });
+  return seen.size;
+}
 
 /** Lines that describe what is happening to the parcel, never a product. */
 const STATUS_LINE =
@@ -586,7 +637,7 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     : (RETURN_MENTIONED.test(whole) ? false : null);
 
   // ── how many shipments the screen showed ──────────────────────────────────
-  const shipments = lines.filter((l) => SHIPMENT_HEADING.test(l)).length;
+  const shipments = countShipments(lines);
 
   // ── the products ──────────────────────────────────────────────────────────
   const items: ParsedOrderItem[] = [];

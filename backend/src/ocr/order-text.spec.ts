@@ -637,5 +637,71 @@ describe('reading an order screen that holds several shipments', () => {
       expect(parseOrderText(['Order Total', '₹30'].join('\n')).totalPaise).toBe(3000n);
     });
   });
+
+  /**
+   * ── THE ORDER THE CAMPAIGN IS ACTUALLY FOR, AS ZEPTO DRAWS IT ───────────
+   *
+   * The Boldfit headband campaign's real purchase, found on the owner's account
+   * on 15 September 2026 behind seven presses of "Load More": order
+   * SOSIJGGRL26770, placed 21 July 2026, two parcels, headband at ₹149 with
+   * ₹325 struck through beside it.
+   *
+   * THERE IS AN OLDER FIXTURE OF THIS SAME ORDER NEXT DOOR, and it is kept.
+   * That one is the order as a SCREENSHOT of it read: "Shipment 1 of 2" and
+   * "Delivered on 21 Aug 2026, 8:04 PM". This is the same order as the PAGE
+   * draws it, and the two are laid out differently enough that the reader was
+   * wrong on this one while being right on that one:
+   *
+   *   delivery date  null   the page never writes "Order Arrived at" on an
+   *                         order in two parcels. It writes "Shipment 1
+   *                         Arrived at", and this was anchored at "delivered".
+   *   shipments      6      the drawn page names the same two shipments six
+   *                         times — a tab each, a heading each, an arrival
+   *                         line each — and they were being counted as lines.
+   */
+  describe('the campaign order itself, in two parcels, as the shop draws it', () => {
+    const TWO = readFileSync(
+      join(__dirname, '..', '..', 'test', 'fixtures',
+        'zepto-order-page-drawn-two-shipments.txt'),
+      'utf8',
+    );
+    const order = parseOrderText(TWO);
+
+    it('reads the day it arrived off a SHIPMENT line, not an order line', () => {
+      expect(order.deliveryDate).toBe('2026-07-21');
+    });
+
+    it('counts two parcels on a page that names them six times', () => {
+      expect(order.shipments).toBe(2);
+    });
+
+    it('reads the campaign product at the price the campaign states', () => {
+      const band = order.items.find((i) => /Boldfit/i.test(i.name));
+      expect(band).toBeDefined();
+      // ₹149 paid, ₹325 struck through. The campaign is written at ₹149 and the
+      // match is exact, so reading the struck price would have refused a real
+      // purchase as "price_differs".
+      expect(band?.pricePaise).toBe(14900n);
+    });
+
+    it('reads the order number and the day it was placed', () => {
+      expect(order.orderNumber).toBe('SOSIJGGRL26770');
+      expect(order.orderDate).toBe('2026-07-21');
+    });
+
+    it('keeps both parcels\' products, and nothing else', () => {
+      expect(order.items).toHaveLength(2);
+    });
+  });
+
+  /**
+   * THE SCREENSHOT LAYOUT OF THE SAME ORDER MUST NOT HAVE MOVED.
+   *
+   * "Shipment 1 of 2" carries a number and an "of", and the count now reads
+   * numbers rather than lines. Two layouts, one answer.
+   */
+  it('still counts "Shipment 1 of 2" and "Shipment 2 of 2" as two', () => {
+    expect(parseOrderText(ZEPTO).shipments).toBe(2);
+  });
 });
 });

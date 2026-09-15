@@ -1,0 +1,156 @@
+#!/usr/bin/env node
+/*
+ * ONE REAL ZEPTO ORDER PAGE, HANDED TO THE RUNNING SERVER, AND WHAT IT SAID.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────
+ *
+ * The app cannot yet READ a page Zepto draws — that work is in ZEPTO-BRIEF.md
+ * and has not been done. Everything AFTER the reading has been, and this is the
+ * only way to exercise it end to end today: the real server, the real database,
+ * the real campaign, and the text of a real order page off the owner's own
+ * account.
+ *
+ * It types nothing, buys nothing and changes no money. It signs in as the owner
+ * the same way the app does, finds his own claimed task, posts the page, and
+ * prints what the server decided.
+ *
+ * ── AND IT IS NOT A DEMO OF THE APP ────────────────────────────────────────
+ *
+ * Said plainly so nobody mistakes it for one. The screen that shows a found
+ * order is reached only by the look, and the look would post an EMPTY list of
+ * pages over the top of this one — record() clears the old candidates first. So
+ * after running this, do not tap "Check Zepto" until the read is built, or this
+ * result is wiped.
+ *
+ * Usage:  ./zepto-order-test <your mobile number>
+ */
+const fs = require('fs');
+const path = require('path');
+
+const BASE = process.env.FAYR_API || 'http://localhost:3001';
+const PAGE = path.join(
+  __dirname, 'backend', 'test', 'fixtures', 'zepto-order-page-drawn-two-shipments.txt',
+);
+const mobile = (process.argv[2] || '').replace(/\D/g, '');
+
+const die = (why) => { console.error('\n  STOPPED: ' + why + '\n'); process.exit(1); };
+
+async function ask(route, options) {
+  let res;
+  try {
+    res = await fetch(BASE + route, options);
+  } catch (e) {
+    die(`could not reach the server at ${BASE}. Is ./start running?  (${e.message})`);
+  }
+  const text = await res.text();
+  let body = null;
+  try { body = JSON.parse(text); } catch (e) { body = text; }
+  return { status: res.status, body };
+}
+
+/**
+ * ASK THE PERSON FOR THE CODE ON THEIR OWN PHONE.
+ *
+ * This copy is configured with SMS_PROVIDER=twilio and SMS_MUST_BE_REAL=true, so
+ * the code is TEXTED and is deliberately never written into any log. Reading it
+ * off a log would only work on a copy that had been made less safe.
+ */
+function askForTheCode() {
+  return new Promise((done) => {
+    process.stdout.write('  type the six digit code from the text message: ');
+    process.stdin.setEncoding('utf8');
+    process.stdin.once('data', (typed) => {
+      process.stdin.pause();
+      done(String(typed).replace(/\D/g, ''));
+    });
+  });
+}
+(async () => {
+  if (!/^\d{10}$/.test(mobile)) {
+    die('give me your ten digit mobile number:  ./zepto-order-test 9876543210');
+  }
+  if (!fs.existsSync(PAGE)) die(`the order page text is missing at ${PAGE}`);
+
+  console.log(`\n  server   ${BASE}`);
+  console.log(`  page     ${path.basename(PAGE)}\n`);
+
+  // ── sign in, the same two steps the app takes ────────────────────────────
+  const asked = await ask('/auth/otp/request', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mobile }),
+  });
+  if (asked.status >= 400) die(`the server refused to send a code (${asked.status}) ${JSON.stringify(asked.body)}`);
+
+  console.log('  a code has been texted to that number.\n');
+  const code = await askForTheCode();
+  if (!/^\d{4,8}$/.test(code)) die('that did not look like a code.');
+
+  const verified = await ask('/auth/otp/verify', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mobile, code }),
+  });
+  const token = verified.body && (verified.body.token || verified.body.accessToken
+    || (verified.body.tokens && verified.body.tokens.access));
+  if (!token) die(`could not sign in (${verified.status}) ${JSON.stringify(verified.body).slice(0, 300)}`);
+
+  const authed = (route, options) => ask(route, {
+    ...options,
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+      ...(options && options.headers),
+    },
+  });
+
+  // ── find the claimed task ────────────────────────────────────────────────
+  const mine = await authed('/tasks');
+  const tasks = Array.isArray(mine.body) ? mine.body : [];
+  if (tasks.length === 0) {
+    die('you have no claimed tasks. Claim the Boldfit headband campaign in the app\n'
+      + '  first, then run this again.');
+  }
+  const says = (t) => JSON.stringify(t).toLowerCase();
+  const task = tasks.find((t) => says(t).includes('boldfit'))
+    || tasks.find((t) => says(t).includes('zepto'));
+  if (!task) {
+    console.log('  your claimed tasks:');
+    tasks.forEach((t) => console.log('    ' + (t.campaign?.title || t.campaignTitle || t.id)));
+    die('none of them is the Boldfit headband. Claim it in the app first.');
+  }
+  console.log(`  task     ${task.id}`);
+  console.log(`  campaign ${task.campaign?.productName || task.campaign?.title || '(unnamed)'}\n`);
+
+  // ── hand over the page, exactly as the phone would ───────────────────────
+  const page = fs.readFileSync(PAGE, 'utf8');
+  const sent = await authed(`/tasks/${task.id}/orders-found`, {
+    method: 'POST',
+    body: JSON.stringify({ pages: [page] }),
+  });
+  if (sent.status >= 400) {
+    die(`the server refused the page (${sent.status}) ${JSON.stringify(sent.body).slice(0, 400)}`);
+  }
+  const found = Array.isArray(sent.body) ? sent.body : [];
+  if (found.length === 0) die('the server read the page and found no order on it at all.');
+
+  // ── what it decided ──────────────────────────────────────────────────────
+  const rupees = (p) => (p == null ? '—' : '₹' + (Number(p) / 100).toLocaleString('en-IN'));
+  for (const o of found) {
+    console.log('  ─────────────────────────────────────────────────────────────');
+    console.log(`  MATCHES THE CAMPAIGN   ${o.matches ? 'YES' : 'no  (' + o.reason + ')'}`);
+    console.log(`  order id               ${o.orderNumber || '—'}`);
+    console.log(`  ordered on             ${o.orderDate || '—'}`);
+    console.log(`  delivered on           ${o.deliveryDate || '—'}`);
+    console.log(`  order amount           ${rupees(o.totalPaise)}`);
+    console.log(`  parcels                ${o.shipments}`);
+    console.log(`  sent back              ${o.returned == null ? 'the page did not say' : o.returned}`);
+    console.log('  products on the order');
+    (o.items || []).forEach((it) => {
+      console.log(`    ${rupees(it.pricePaise).padEnd(10)} ${it.name}`);
+    });
+  }
+  console.log('  ─────────────────────────────────────────────────────────────\n');
+  console.log('  Do NOT tap "Check Zepto" in the app now — the look would post an empty');
+  console.log('  list of pages and wipe this.\n');
+})();
