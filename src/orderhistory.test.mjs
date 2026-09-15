@@ -219,4 +219,20 @@ for (const word of ['pricePaise', 'totalPaise', 'matchOrderToCampaign', 'paiseFr
 ok(code.includes("from './platforms.js'"), 'it reads platforms.js');
 ok(!code.includes('fetchScript'), 'it does not use or change the shop scripts');
 
+// ── THREE MONTHS OF LOOKING AT AN EMPTY LIST ────────────────────────────────
+//
+// Measured on the owner's own signed-in account, 15 September 2026. Without a
+// time filter the shop answers "0 orders placed in past 3 months"; with
+// ?timeFilter=year-2026 the SAME address answers with thirteen, including the
+// order the campaign was written for. Every drew=false and rows=0/0 in five days
+// of logs was a correct reading of a page that had nothing on it.
+ok(/[?&]timeFilter=year-\d{4}\b/.test(ORDER_LIST_PAGES.amazon),
+  'THE LIST ASKS FOR A WHOLE YEAR. Without it the shop shows the last three '
+  + 'months, which is empty for anybody who has not bought recently');
+ok(ORDER_LIST_PAGES.amazon.includes(`year-${new Date().getFullYear()}`),
+  'and the year comes off the clock, not out of the file — a written down year '
+  + 'starts showing nothing again on the first of January');
+ok(ORDER_LIST_PAGES.amazon.startsWith('https://www.amazon.in/your-orders/orders'),
+  'and it is still the same page, with one more question asked of it');
+
 console.log(`orderhistory: ${checks} checks passed`);

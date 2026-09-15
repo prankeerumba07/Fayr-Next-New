@@ -96,4 +96,43 @@ for (const word of ['matches', 'productPricePaise', 'expectedPrice', 'campaign.'
   ok(!code.includes(word), `orderCard.js must not judge anything: it mentions ${word}`);
 }
 
+// ── ONE ORDER, TWO PRODUCTS, AND ONLY ONE OF THEM IS THE OFFER'S ───────────
+//
+// Measured on the owner's own Amazon order, 15 September 2026: order
+// 408-…-3524313, grand total 1331, a garment rack at 938 and a bathroom shelf
+// at 388. The card showed 1331 — a number nobody is paid a share of — and named
+// the product "… and 1 more thing". The server already decided which product the
+// offer is about; these two rows now show that one.
+{
+  const twoThings = {
+    orderNumber: '408-1509645-3524313',
+    orderDate: '2026-06-02',
+    totalPaise: '133100',
+    matchedPricePaise: '93800',
+    matchedName: 'Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf',
+    items: [
+      { name: 'Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf', pricePaise: '93800' },
+      { name: 'SR 2 PES Plastic Self-Adhesive Wall-Mount Bathroom Corner Shelf', pricePaise: '38800' },
+    ],
+  };
+  const rows = orderCardRows(twoThings, {});
+  const amount = rows.find((r) => /amount/i.test(r.label));
+  ok(amount && amount.value === '₹938',
+    `THE PRODUCT'S OWN PRICE, not the order's total (${amount && amount.value})`);
+  ok(!rows.some((r) => String(r.value).includes('1,331')),
+    'and the order total is nowhere on the card');
+  const named = rows.find((r) => /product/i.test(r.label));
+  ok(named && /Lukzer/.test(String(named.value)) && !/more thing/.test(String(named.value)),
+    'and the product row names the one the amount is for');
+
+  // AND AN ORDER OF ONE PRODUCT IS UNCHANGED, which is every order until now.
+  const oneThing = {
+    orderNumber: '408-5094957-4481129', orderDate: '2026-06-02', totalPaise: '25065',
+    items: [{ name: 'boAt Rockerz', pricePaise: '25065' }],
+  };
+  const plain = orderCardRows(oneThing, {});
+  ok(plain.find((r) => /amount/i.test(r.label)).value === '₹250',
+    'an order with nothing matched still shows what the order came to');
+}
+
 console.log(`orderCard: ${checks} checks passed`);

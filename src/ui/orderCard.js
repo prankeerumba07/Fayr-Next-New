@@ -71,8 +71,28 @@ export function orderCardRows(order, options) {
   const number = typeof o.orderNumber === 'string' && o.orderNumber.trim() !== ''
     ? o.orderNumber.trim() : null;
   const day = dayInWords(o.orderDate);
-  const amount = amountInWords(o.totalPaise);
-  const product = productInWords(o.items, opts.productFallback);
+  // ── THE PRODUCT'S OWN PRICE, AND THE ORDER'S TOTAL ONLY WHEN THERE IS NO ──
+  //
+  // MEASURED ON THE OWNER'S OWN ORDER, 15 SEPTEMBER 2026. One order number, two
+  // products, two delivery dates:
+  //
+  //   1331   the whole order
+  //     938  the thing the offer is for
+  //     388  a bathroom shelf that has nothing to do with it
+  //
+  // The card said 1331. The offer pays a share of what the PRODUCT cost, the
+  // server matched on that product's own price, and 1331 is a number nobody is
+  // going to be paid a share of. On an order of one product the two are the same
+  // figure, which is why this was invisible until an order had two.
+  //
+  // THE SERVER WORKS OUT WHICH PRODUCT. This only prefers what it sent.
+  const amount = amountInWords(o.matchedPricePaise ?? o.totalPaise);
+  // AND THE PRODUCT ROW NAMES THE SAME ONE THE AMOUNT IS FOR, as the SHOP wrote
+  // it. "Lukzer | … and 1 more thing" is true of the order and says nothing about
+  // which of the two the figure above belongs to.
+  const matchedName = typeof o.matchedName === 'string' && o.matchedName.trim() !== ''
+    ? o.matchedName.trim() : null;
+  const product = matchedName ?? productInWords(o.items, opts.productFallback);
 
   return [
     {

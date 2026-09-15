@@ -81,7 +81,20 @@ it('and each drawn shop is counted by its OWN marker, never by another shop\'s',
   // AMAZON, UNCHANGED. Both markers, and the link's word still comes off the
   // address detailLook.js builds rather than being typed here.
   equal(amazon.link, 'a[href*="orderID="]');
-  equal(amazon.card, '[data-csa-c-slot-id]');
+  // ── THE ORDER CARD'S OWN SLOT, AND NOT ANY SLOT ─────────────────────────
+  //
+  // MEASURED, 15 SEPTEMBER 2026, 22:25, on the owner's real orders page: the
+  // bare attribute matched FIFTY-SIX nodes and not one was an order. Amazon's
+  // navigation carries it too — nav_cs_books, nav_cs_electronics — and the
+  // navigation is there from the first paint. The poll counted those fifty-six
+  // as rows, watched them hold still, and called a page drawn 2.7 seconds in
+  // while it was still growing from 816 nodes to 1257. One order number
+  // survived, by its bare shape, so ONE order page was opened out of many.
+  equal(amazon.card, '[data-csa-c-slot-id^="amzn1.yourorders.order-card"]');
+  ok(amazon.card.includes('amzn1.yourorders.order-card'),
+    'and the prefix is the one detailLook.js already harvests from, not a new guess');
+  ok(!/\[data-csa-c-slot-id\]/.test(amazon.card),
+    'AND NEVER THE BARE ATTRIBUTE, which is what the shop own menu wears');
   // ZEPTO. MEASURED: eight of these on his list page, none on the front page.
   equal(zepto.link, 'a[href^="/order/"]');
   // AND NO SECOND MARKER, AS null RATHER THAN A SELECTOR THAT MATCHES NOTHING.
@@ -100,8 +113,11 @@ it('and what each shop counts is what really goes into its own script', () => {
   });
   ok(forAmazon.includes('var linked = howMany("a[href*=\\"orderID=\\"]");'),
     'Amazon counts its order links, exactly as it always did');
-  ok(forAmazon.includes('var marked = howMany("[data-csa-c-slot-id]");'),
-    'and its order cards');
+  ok(forAmazon.includes(
+    'var marked = howMany("[data-csa-c-slot-id^=\\"amzn1.yourorders.order-card\\"]");',
+  ), 'and its order cards, by the slot an ORDER wears and not the one its menu does');
+  ok(!forAmazon.includes('howMany("[data-csa-c-slot-id]")'),
+    'and the bare attribute is gone from the script, not merely unused');
 
   const forZepto = buildDrawnListScript({
     beganAt: 1, tag: 't', wantedPath: '/p', counts: whatThisShopDraws('zepto'),

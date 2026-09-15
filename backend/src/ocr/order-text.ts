@@ -102,6 +102,21 @@ export const BILL_LABELS: readonly string[] = [
   'sub total',
   'handling charge',
   'handling fee',
+  // ── AND THE ONES AMAZON PRINTS, MEASURED ON A REAL ORDER PAGE ───────────
+  //
+  // 15 September 2026. Without these, "Shipping: ₹80.00" and "Marketplace Fee:
+  // ₹5.00" were read as two PRODUCTS on his order — a name with a price under
+  // it is exactly what a product looks like, and nothing said these were the
+  // bill. The list had 'shipping fee' and 'shipping charge' but not the bare
+  // word this page uses.
+  'shipping',
+  'marketplace fee',
+  'promotion applied',
+  'promotions applied',
+  'free delivery',
+  'cashback',
+  'total mrp',
+  'convenience fee',
   'delivery fee',
   'delivery charge',
   'shipping fee',
@@ -173,6 +188,26 @@ const BILL_HEADINGS: readonly RegExp[] = [
 
 /** "Order ID SOSIJGGRL26770", "Order ID: 12345678", "Order Number 998877". */
 const ORDER_NUMBER_LABEL = /^order\s*(?:id|no\.?|number)\b\s*[:#-]?\s*(.*)$/i;
+
+/**
+ * THE SAME LABEL, ANYWHERE ON THE LINE RATHER THAN AT THE START OF IT.
+ *
+ * Measured on the owner's own Amazon order page, 15 September 2026. It writes
+ * both facts on ONE line:
+ *
+ *   Order placed 2 June 2026  Order number 408-1509645-3524313
+ *
+ * so the line begins "Order placed", the anchored test above never matches, and
+ * the order number — the single field this whole read exists to produce — came
+ * back null on a page that prints it in full.
+ *
+ * ANCHORED ONE REMAINS AND IS ASKED FIRST, because a line that begins with the
+ * label is the stronger statement. This is the fallback, and it takes only the
+ * run of non-space characters after the label so a sentence mentioning an order
+ * number cannot drag the rest of itself in.
+ */
+const ORDER_NUMBER_ANYWHERE =
+  /\border\s*(?:id|no\.?|number|#)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9-]{4,})/i;
 /** "Order# 402-3925017-7784521", which is how Amazon writes it. */
 const ORDER_HASH_LABEL = /^order\s*#\s*(.*)$/i;
 
@@ -416,6 +451,38 @@ function measureOnly(line: string): boolean {
 }
 
 /**
+ * THE SHOP'S OWN WORDS ABOUT A PRODUCT, WHICH ARE NOT THE PRODUCT.
+ *
+ * ── MEASURED, AND IT COST EVERY ITEM ON AN AMAZON ORDER ───────────────────
+ *
+ * From the owner's own order page, 15 September 2026, one product:
+ *
+ *   Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf & ...
+ *   Sold by: Lukzer
+ *   Return window closed on 19 June 2026
+ *   ₹938.00
+ *   ₹938.00
+ *   Buy It Again
+ *
+ * Three lines between the name and its price, and every one of them passes for a
+ * name: they are prose, they are long enough, and none of them is a measure. So
+ * the reader walked past the real name looking for money, and the LAST line
+ * before the price — "Return window closed on 19 June 2026" — is what it would
+ * have called the product if anything had matched at all.
+ *
+ * These are the shop's furniture around an item, listed as the openings of
+ * lines rather than as words anywhere in them, so a product whose NAME happens
+ * to contain one of these words is untouched.
+ */
+const AROUND_A_PRODUCT =
+  /^(?:sold\s+by|shipped\s+by|dispatched\s+by|fulfilled\s+by|return\s+window|return\s+or\s+replace|returns?\s+closed|buy\s+it\s+again|view\s+your\s+item|write\s+a\s+product\s+review|ask\s+product\s+question|get\s+product\s+support|leave\s+seller\s+feedback|archive\s+order|track\s+package|problem\s+with\s+order|package\s+was\s+handed|your\s+package)\b/i;
+
+/** Is this the shop talking about a product, rather than naming one? */
+function aroundAProduct(line: string): boolean {
+  return AROUND_A_PRODUCT.test(line.trim());
+}
+
+/**
  * Could this line be a product's name?
  *
  * Everything a product name is not: a heading, a shipment, a status, a bill line,
@@ -428,6 +495,7 @@ function looksLikeAName(line: string): boolean {
   if (letters < 2) return false;
   if (SHIPMENT_HEADING.test(text)) return false;
   if (measureOnly(text)) return false;
+  if (aroundAProduct(text)) return false;
   if (STATUS_LINE.test(text)) return false;
   if (isBillLabel(text)) return false;
   if (ORDER_NUMBER_LABEL.test(text)) return false;
@@ -496,6 +564,18 @@ function dayUnder(line: string): string | null {
   return dayFromText(parts.slice(0, -1).join(',').trim());
 }
 
+/**
+ * THE DAY AT THE FRONT OF A PIECE OF TEXT, WITH WHATEVER FOLLOWS IT DROPPED.
+ *
+ * Only the shapes dayFromText already accepts, and only from the very start, so
+ * this can never turn a number further down a sentence into a date.
+ */
+function theDayAtTheFront(text: string): string {
+  const t = String(text ?? '').trim();
+  const front = t.match(/^(\d{1,2}\s+[A-Za-z]{3,}\s+\d{4}|[A-Za-z]{3,}\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})/);
+  return front ? front[1] : t;
+}
+
 /** The empty answer, so "we read nothing" is one shape and not several. */
 function nothing(): ParsedOrder {
   return {
@@ -553,13 +633,41 @@ function amountPaidAt(
 }
 
 /** The money on a labelled bill line, or on the line under it. */
+/**
+ * ── THE MORE SPECIFIC LABEL WINS, WHEREVER IT SITS ON THE PAGE ─────────────
+ *
+ * This used to walk the LINES and take the first one carrying any of the labels.
+ * Measured on the owner's own Amazon order page, 15 September 2026:
+ *
+ *   Total:         ₹1,411.00
+ *   Promotion Applied: -₹80.00
+ *   Grand Total:   ₹1,331.00
+ *
+ * "Total" comes first on the page, so it won, and the order was read as ₹1,411
+ * when ₹1,331 left his account. Eighty rupees, in the field a refund is paid
+ * from. The list is already written most specific first, with bare "total" last
+ * and a comment saying why — it just was not being read in that order.
+ */
 function moneyForLabels(
   lines: readonly string[],
   from: number,
   labels: readonly string[],
 ): bigint | null {
+  for (const label of labels) {
+    const found = moneyForOneLabel(lines, from, label);
+    if (found != null) return found;
+  }
+  return null;
+}
+
+function moneyForOneLabel(
+  lines: readonly string[],
+  from: number,
+  label: string,
+): bigint | null {
+  const labels = [label];
   for (let i = from; i < lines.length; i += 1) {
-    if (!labels.some((label) => startsWithLabel(lines[i], label))) continue;
+    if (!labels.some((l) => startsWithLabel(lines[i], l))) continue;
     const sameLine = NAME_AND_MONEY.exec(lines[i].trim());
     if (sameLine) {
       const p = paise(sameLine[2]);
@@ -598,7 +706,9 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
   // ── the order number ──────────────────────────────────────────────────────
   let orderNumber: string | null = null;
   for (let i = 0; i < lines.length && orderNumber == null; i += 1) {
-    const m = ORDER_NUMBER_LABEL.exec(lines[i]) ?? ORDER_HASH_LABEL.exec(lines[i]);
+    const m = ORDER_NUMBER_LABEL.exec(lines[i])
+      ?? ORDER_HASH_LABEL.exec(lines[i])
+      ?? ORDER_NUMBER_ANYWHERE.exec(lines[i]);
     if (!m) continue;
     orderNumber = acceptableOrderNumber(m[1] ?? '')
       ?? acceptableOrderNumber(lines[i + 1] ?? '');
@@ -612,7 +722,10 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     // A quick commerce screen writes the time after a comma. The time is not
     // wanted and the date reader is deliberately narrow, so it is cut off here
     // rather than taught to ignore it.
-    const written = (m[1] ?? '').split(',')[0].trim();
+    // AND ONLY THE DATE OUT OF IT. Amazon writes "2 June 2026  Order number
+    // 408-…" on one line, so the captured tail carries the next fact with it and
+    // the date reader — which is deliberately strict — refused the whole thing.
+    const written = theDayAtTheFront((m[1] ?? '').split(',')[0].trim());
     orderDate = dayFromText(written) ?? dayUnder(lines[i + 1] ?? '');
   }
 
@@ -640,9 +753,25 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
   const shipments = countShipments(lines);
 
   // ── the products ──────────────────────────────────────────────────────────
+  // ── AND THE PRODUCTS ARE LOOKED FOR OVER THE WHOLE PAGE ─────────────────
+  //
+  // It used to stop at the bill heading, because on a quick commerce screen the
+  // bill is printed UNDER the products and "Item Total ₹368" has exactly the
+  // shape of a product with a price beside it.
+  //
+  // AMAZON PRINTS IT THE OTHER WAY ROUND. Measured, 15 September 2026: Order
+  // Summary, then the totals, and THEN the two things he bought. Stopping at the
+  // heading meant the scan covered the address and the payment method and not
+  // one product, and the answer was an order with no items on it.
+  //
+  // WHAT KEPT THE BILL OUT IS NOT THE CUT, AND NEVER WAS. looksLikeAName already
+  // refuses every bill label, every heading and every bare figure by name, which
+  // is why the fixtures that print their bill last read exactly as before. The
+  // cut was a second guard doing the same job in a way that happened to also cut
+  // off half of Amazon's page.
   const items: ParsedOrderItem[] = [];
   let i = 0;
-  while (i < billStart) {
+  while (i < lines.length) {
     const line = lines[i];
 
     // The name and the price on one line.
@@ -659,7 +788,8 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
       // figure. A shop that puts the price directly under the name skips
       // nothing and behaves exactly as it did.
       let at = i + 1;
-      while (at < billStart && measureOnly(lines[at])) at += 1;
+      while (at < lines.length
+        && (measureOnly(lines[at]) || aroundAProduct(lines[at]))) at += 1;
 
       // A name, then "1 x ₹149", then often the line's own total underneath. The
       // count and price line is the item's OWN price, which is the figure a

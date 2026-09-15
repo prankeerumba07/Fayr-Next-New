@@ -51,6 +51,37 @@ import type { SubmitEvidenceDto } from './dto/submit-evidence.dto';
  * the order window rule, the plausibility gate, the promoted columns and the
  * refund gate all still apply, unchanged.
  */
+/**
+ * THE ONE PRODUCT ON THIS ORDER THAT THE OFFER IS ABOUT, AND WHAT IT COST.
+ *
+ * Asked of the SAME function that decided whether the order matched at all, so
+ * the figure on the card and the figure the match was made on cannot be two
+ * different numbers. Nothing is stored: the products are already on the row and
+ * which product an offer is for is already on the campaign, so this is a reading
+ * of two things we have rather than a third copy of either.
+ *
+ * ANSWERS THE CARD UNCHANGED when no product on the order is the campaign's.
+ */
+function theCampaignsOwnProduct(
+  card: OrderCandidateResponse,
+  items: { name: string; pricePaise: bigint }[],
+  campaign: { productName: string | null; productPricePaise: bigint | null },
+): OrderCandidateResponse {
+  const answer = matchOrderToCampaign(
+    { items },
+    {
+      productName: campaign.productName,
+      expectedPricePaise: campaign.productPricePaise,
+    },
+  );
+  if (answer.item == null) return card;
+  return {
+    ...card,
+    matchedPricePaise: String(answer.item.pricePaise),
+    matchedName: answer.item.name,
+  };
+}
+
 @Injectable()
 export class OrderCandidatesService {
   /**
@@ -156,12 +187,14 @@ export class OrderCandidatesService {
     userId: string,
     taskId: string,
   ): Promise<OrderCandidateResponse[]> {
-    await this.ownTask(userId, taskId);
+    const task = await this.ownTask(userId, taskId);
     const rows = await this.prisma.orderCandidate.findMany({
       where: { taskId },
       orderBy: { position: 'asc' },
     });
-    return rows.map(toOrderCandidateResponse);
+    return rows.map((row) => theCampaignsOwnProduct(
+      toOrderCandidateResponse(row), itemsFromJson(row.items), task.campaign,
+    ));
   }
 
   /**

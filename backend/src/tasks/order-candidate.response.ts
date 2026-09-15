@@ -35,6 +35,29 @@ export interface OrderCandidateResponse {
   /** TRI-STATE as the page said it: true, false, or null for "it did not say". */
   returned: boolean | null;
   totalPaise: string | null;
+  /**
+   * WHAT THE CAMPAIGN'S OWN PRODUCT COST ON THIS ORDER, when one of the products
+   * on it is the campaign's.
+   *
+   * ── WHY THE ORDER'S TOTAL IS THE WRONG NUMBER TO SHOW ─────────────────────
+   *
+   * Measured on the owner's own Amazon order, 15 September 2026. One order
+   * number, two products, two delivery dates:
+   *
+   *   Grand Total  1331 rupees
+   *     938        the garment rack the offer is for
+   *     388        a bathroom shelf that has nothing to do with it
+   *
+   * The card showed 1331. The offer pays a share of what the PRODUCT cost, the
+   * server already matched on that product's own price, and showing the order's
+   * total puts a number on screen that nobody is going to be paid a share of.
+   *
+   * Null when no product on the order is the campaign's, and null on an order of
+   * one product is impossible — it is the same figure either way.
+   */
+  matchedPricePaise: string | null;
+  /** The name of that product, as the SHOP wrote it, not as the offer did. */
+  matchedName: string | null;
   items: { name: string; pricePaise: string }[];
   shipments: number;
   matches: boolean;
@@ -69,6 +92,10 @@ export function toOrderCandidateResponse(
     deliveryDate: day(row.deliveryDate),
     returned: row.returned,
     totalPaise: row.totalPaise == null ? null : String(row.totalPaise),
+    // FILLED IN BY THE CALLER THAT KNOWS THE CAMPAIGN. This function is handed a
+    // row and nothing else, and which product an offer is for is not on the row.
+    matchedPricePaise: null,
+    matchedName: null,
     items: itemsFromJson(row.items).map((i) => ({
       name: i.name,
       pricePaise: String(i.pricePaise),

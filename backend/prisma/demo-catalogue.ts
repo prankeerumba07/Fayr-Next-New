@@ -310,7 +310,7 @@ export const DEMO_CAMPAIGNS: SeededCampaign[] = [
     title: 'Hang It Up, Get 85% Back - Lukzer Garment Rack',
     productName: 'Lukzer Heavy-Duty Metal Garment Rack with Bottom Storage Shelf & 4 Side Hooks',
     category: null,
-    productPricePaise: 133100n,
+    productPricePaise: 93800n,
     payoutPercent: 85,
     payoutCapPaise: null,
     ticketCost: 5,

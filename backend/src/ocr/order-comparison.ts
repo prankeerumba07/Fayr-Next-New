@@ -95,11 +95,29 @@ export interface UserFieldRow {
 }
 
 /** Collapse case, whitespace and punctuation that carries no meaning. */
+/**
+ * ── AND THE SEPARATORS A SHOP DECORATES A TITLE WITH ───────────────────────
+ *
+ * Measured on the owner's own Amazon order, 15 September 2026. The offer names
+ * the product exactly as its listing does, and the order page prints the same
+ * words with the shop's own pipes between them:
+ *
+ *   offer  Lukzer Heavy-Duty Metal Garment Rack with Bottom Storage Shelf ...
+ *   order  Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf ...
+ *
+ * One character, in one place, and neither string contains the other — so a
+ * product he really bought read as "that product is not on this order". A
+ * shop's punctuation now falls away on both sides before they are compared, and
+ * what is left is the words.
+ *
+ * THE PRICE STILL HAS TO BE EXACT. Loosening a NAME is safe here precisely
+ * because the name only chooses WHICH line is looked at; what decides the money
+ * is an exact figure on that line, and that has not moved.
+ */
 function loose(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[\s ]+/g, ' ')
-    .replace(/[.,;:!?'"()[\]]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 }
 

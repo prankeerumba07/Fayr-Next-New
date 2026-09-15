@@ -80,7 +80,34 @@ export const LIST_TIMEOUT_MS = 15000;
  * person is asked instead, which is a path that always works.
  */
 export const ORDER_LIST_PAGES = {
-  amazon: 'https://www.amazon.in/your-orders/orders?_encoding=UTF8',
+  // ── AND THE YEAR, WHICH IS THE WHOLE OF WHY THIS NEVER FOUND ANYTHING ────
+  //
+  // MEASURED ON THE OWNER'S OWN ACCOUNT, 15 SEPTEMBER 2026, SIGNED IN, IN A
+  // BROWSER. Without a time filter, this address shows:
+  //
+  //   "0 orders placed in past 3 months"
+  //   "Looks like you haven't placed an order in the last 3 months."
+  //
+  // and with ?timeFilter=year-2026 the same address shows THIRTEEN, including
+  // the one the campaign is for. The page defaults to the last three months, he
+  // had bought nothing in three months, and so the list our side waited for was
+  // an EMPTY list that had finished drawing correctly.
+  //
+  // That is what every reading of this has been looking at. drew=false, rows=0/0
+  // and "we could not spot this one" were all true and all correct: there was
+  // nothing on the page. Three months of looking at the wrong page.
+  //
+  // THE YEAR IS ASKED OF THE CLOCK rather than written down, or this line would
+  // quietly start showing nothing again on the first of January. The values come
+  // off the shop's own menu, which offers months-3 and year-<n> and nothing in
+  // between — so a year it is.
+  //
+  // AND IT IS STILL ONE YEAR. An order placed in late December and looked for in
+  // early January is in last year's list and this will not see it. Fayr looks
+  // days after a purchase, so that is a narrow window rather than a common one —
+  // but it is real, and the fix is to look at the year before as well when the
+  // first look finds nothing.
+  amazon: `https://www.amazon.in/your-orders/orders?_encoding=UTF8&timeFilter=year-${new Date().getFullYear()}`,
   meesho: 'https://www.meesho.com/orders',
   zepto: 'https://www.zepto.com/account/orders',
 };

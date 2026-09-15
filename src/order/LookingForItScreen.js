@@ -413,7 +413,7 @@ export default function LookingForItScreen({ navigation, route }) {
         + `landed=${outcome.landed == null ? 'null' : outcome.landed} `
         + `looked=${outcome.looked} whyNot=${outcome.whyNot} `
         + `wantsSignIn=${outcome.wantsSignIn} `
-        + `drawn=${step.drawn} drew=${drawn.drew} settled=${drawn.settled} `
+        + `drawn=${theList.drawn} drew=${drawn.drew} settled=${drawn.settled} `
         + `waited=${drawn.waited} looks=${drawn.looks} `
         + `rows=${drawn.linked}/${drawn.marked} `
         + `nodes=${drawn.nodesFirst}/${drawn.nodesNow} `

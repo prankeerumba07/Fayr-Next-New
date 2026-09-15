@@ -198,7 +198,32 @@ export function theOrderPagesAreDrawn(platformKey) {
 export const WHAT_EACH_SHOP_DRAWS = {
   amazon: {
     link: `a[href*="${howThisShopNamesAnOrder('amazon').param}"]`,
-    card: '[data-csa-c-slot-id]',
+    // ── AND THE CARD MARKER IS THE ORDER CARD'S OWN SLOT, NOT ANY SLOT ──────
+    //
+    // MEASURED ON THE OWNER'S DEVICE, 15 SEPTEMBER 2026, 22:25. The bare
+    // attribute matched FIFTY-SIX things on his orders page and not one of them
+    // was an order:
+    //
+    //   list    drew=true settled=false waited=2763 looks=3 rows=0/56
+    //                                               nodes=816/1257
+    //   numbers slots=0 marked=0 linked=0 shaped=1 opening=1 how=shape
+    //
+    // Amazon's own NAVIGATION carries data-csa-c-slot-id — nav_cs_electronics,
+    // nav_cs_books, fifty-odd of them — and the navigation is in the markup from
+    // the first paint. So the poll counted fifty-six "rows" before a single
+    // order existed, saw that number hold still for two looks, and declared the
+    // page drawn after 2.7 seconds. The page was still growing: 816 nodes when
+    // it started, 1257 when it gave up, and readyState was not even complete.
+    //
+    // ONE order number survived, found by its bare shape, so one order page was
+    // opened out of a list of many and the campaign's order was never looked at.
+    // The read did not fail. It was cut off before it began.
+    //
+    // THE PREFIX IS NOT A NEW GUESS. It is the same one detailLook.js has always
+    // harvested from — data-csa-c-slot-id="amzn1.yourorders.order-card.<number>"
+    // — asked as a selector instead of as a regular expression. A nav slot is
+    // named nav_cs_* and can never match it.
+    card: '[data-csa-c-slot-id^="amzn1.yourorders.order-card"]',
   },
   zepto: {
     // MEASURED, 15 September 2026: eight of these on the owner's own list page
