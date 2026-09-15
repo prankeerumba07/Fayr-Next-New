@@ -981,6 +981,67 @@ t('the screen tells the gate the shop has answered, or the fifteen seconds bite 
     'and the three second hold on "we cannot tell" is untouched');
 });
 
+// ── 5f. BUG FIVE. THE FAILURE LANDED THE INSTANT CONTINUE WAS TAPPED ────────
+//
+// Simulator, 15 September 2026. Amazon's sign in was on screen, he typed his
+// mobile number, tapped Continue, and "The shop did not open. Please try again."
+// arrived at once — before the password step, every time.
+//
+// The web view reports a navigation at its START, carrying the address it is
+// going TO, before a byte of the answer exists. So the tap told the screen about
+// a page that had not loaded, the cover went back on because that address is not
+// the shop's own sign in, and signInIsUp was false. Amazon's answer then arrived
+// with an error on it, and the guard that exists to stop exactly this — "the
+// sign in is on screen, so the shop plainly did open" — had already gone false.
+t('the failure handler asks the whole attempt, not the instant the error arrived', () => {
+  const fn = blockAt(connectScreen, connectScreen.indexOf('const shopWillNotOpen = useCallback('));
+  ok(fn, 'the failure handler must be one block');
+  ok(/shouldActOnFailure\(\{/.test(fn),
+    'and it must not decide for itself — connect/gate.js decides, where it can be walked');
+
+  // THE REF, NOT THE STATE, AND THAT IS THE WHOLE FIX. State is what this handler
+  // was built with; the ref is what is true at the moment the failure lands. It
+  // is the identical reason attemptNow is a ref two lines above it.
+  ok(/shopHasAnswered: signInWasUp\.current/.test(fn),
+    'THE FAILURE HANDLER IS HANDED THE MEMORY. Without it a shop that has already '
+    + 'shown its own sign in is thrown away by an error arriving one navigation later');
+  ok(/attemptNow: attemptNow\.current/.test(fn),
+    'and the stamp is still read from its own ref, for the same reason');
+  ok(!/shopHasAnswered: signInIsUp\b/.test(fn),
+    'and it is NOT handed the state, which is the value that had already gone false');
+
+  // ALL THREE CALL SITES, AND NO FOURTH. The same words now appear three times —
+  // the screen the gate decides, the log line that names the reason, and this
+  // handler. A check anchored to the wrong one would pass while the one that
+  // matters went missing, which is how a regex in this project passed for a week
+  // by matching a different function further down its own file.
+  const times = (what) => (connectScreen.match(what) || []).length;
+  ok(times(/shopHasAnswered: signInWasUp\.current/g) === 3,
+    'the memory reaches all three places that ask about it — the screen, the log '
+    + 'and the failure handler — and nowhere else is asking without it');
+
+  // AND THE GATE STILL PUTS THE STAMP FIRST. Sliding the new question above it
+  // would let a dying view's last word be ignored for the wrong reason, and the
+  // 7 September failure came back once already when that ordering was wrong.
+  // NOT blockAt HERE, and the first draft of this check used it and proved
+  // nothing. blockAt takes the first `{` after the anchor, and for this function
+  // that is the `({` of its own argument list — so it returned the arguments, both
+  // lookups below answered -1, and `-1 < -1` is false. The slice is taken to the
+  // function's closing brace instead, and it is asserted to really hold the body
+  // before anything is read out of it.
+  const from = gate.indexOf('export function shouldActOnFailure({');
+  ok(from > 0, 'the decision must be findable in the gate at all');
+  const decides = gate.slice(from, gate.indexOf('\n}\n', from));
+  ok(decides.includes('THE_SHOP_REALLY_WILL_NOT_OPEN') && decides.includes('act: true'),
+    'and the slice must really be the function body, or the order below is read '
+    + 'out of the argument list and every comparison is -1 against -1');
+  ok(decides.indexOf('A_DEAD_VIEW_SPOKE') < decides.indexOf('THE_SIGN_IN_WAS_UP'),
+    'the dead view is still asked about BEFORE what this attempt has seen');
+  ok(decides.indexOf('WE_ARE_ASKING_THEM') < decides.indexOf('THE_SIGN_IN_WAS_UP'),
+    'and so is the question already on screen, or that reason could never be given '
+    + 'again — a sign in can only have GONE if it was once up');
+});
+
 t('and saying they signed in is recorded as their word, not as ours', () => {
   const fn = connectScreen.slice(
     connectScreen.indexOf('const theySayTheyAreIn = useCallback('),

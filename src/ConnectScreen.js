@@ -497,6 +497,14 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
       theyAreIn,
       signInIsUp,
       signInIsGone,
+      // FROM THE REF AND NOT FROM THE STATE, for the same reason attemptNow above
+      // is a ref. signInIsUp is a piece of state, and this handler is built from
+      // whatever it was at the render that built it; worse, the web view tells us
+      // about a navigation the instant it STARTS, so by the time the shop's error
+      // arrives the state has already been set false for a page that has not
+      // loaded. The ref is set the instant the sign in is really seen and read the
+      // instant the failure really arrives, so nothing in between can lose it.
+      shopHasAnswered: signInWasUp.current,
     });
     if (!act) {
       logGate(attemptNow.current, 'SHOP WILL NOT OPEN — IGNORED',

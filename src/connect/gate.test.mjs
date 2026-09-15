@@ -34,6 +34,7 @@ import {
   THEY_ARE_ALREADY_IN,
   THE_SHOP_REALLY_WILL_NOT_OPEN,
   THE_SIGN_IN_IS_UP,
+  THE_SIGN_IN_WAS_UP,
   WE_ARE_ASKING_THEM,
   shopViewMayExist,
   shouldActOnFailure,
@@ -61,6 +62,9 @@ import {
 import {
   DID_NOT_OPEN, EVERY_SENTENCE, I_HAVE_SIGNED_IN, NOT_SURE, OPENING, SIGNED_IN, TRY_AGAIN,
 } from './gateWords.js';
+// THE ONE PLACE A REASON BECOMES WORDS. Read here so a reason added without words
+// fails, rather than printing its own name at somebody trying to read a phone.
+import { whyInWords } from './gateLog.js';
 import { PAGE_TIMEOUT_MS } from '../livecheck.js';
 import { LIST_TIMEOUT_MS } from '../orderhistory.js';
 
@@ -598,6 +602,108 @@ console.log('\n=== 14. TEST THREE. the dying view last word, which is why Try ag
     'and a reading visit is not gated at all, so nothing here touches it');
   ok(shouldActOnFailure().act === false,
     'and asked nothing at all it acts on nothing');
+
+  // ── BUG FIVE. "THE SHOP DID NOT OPEN" THE INSTANT CONTINUE IS TAPPED ──────
+  //
+  // WHAT HE SAW, ON THE SIMULATOR, 15 SEPTEMBER 2026. Amazon's own sign in was on
+  // screen. He typed his mobile number, tapped Continue, and the failure sentence
+  // arrived at once — before the password step, every time, for ever.
+  //
+  // THE LINE ABOVE ABOUT THE SIGN IN BEING UP WAS MEANT TO STOP THIS and was
+  // already false by the time the failure arrived. The web view reports a
+  // navigation at its START, carrying the address it is going TO, before a byte of
+  // the answer exists. So tapping Continue tells the screen about a page that has
+  // not loaded; the cover goes back on because that address is not the shop's own
+  // sign in; signInIsUp is false. Amazon's answer then arrives with an error on
+  // it, and a sign in still sitting on screen in front of the person counts for
+  // nothing.
+  const midSignIn = { ...live, signInIsUp: false, shopHasAnswered: true };
+  ok(shouldActOnFailure(midSignIn).act === false,
+    'A FAILURE ARRIVING AFTER THE COVER WENT BACK ON IS IGNORED while this attempt '
+    + 'has seen the shop\'s own sign in, which is the whole of what he saw');
+  ok(shouldActOnFailure(midSignIn).why === THE_SIGN_IN_WAS_UP,
+    'and it says WHICH reason, so this is never confused in a log with the sign in '
+    + 'being up right now, or with a dead view talking');
+
+  // AND IT IS THE MEMORY DOING IT. The identical failure with nothing ever seen is
+  // still acted on, so this cannot pass by accident on some other guard.
+  ok(shouldActOnFailure({ ...live, signInIsUp: false, shopHasAnswered: false }).act === true,
+    'the very same failure on an attempt that never saw a sign in IS still acted '
+    + 'on, and the person still gets the sentence and the control');
+
+  // THE STAMP STILL WINS, AND IT MUST. A dead view's last word is ignored as a
+  // dead view's last word, with its own reason. Sliding the new question above the
+  // stamp would bring the 7 September failure back wearing a different name.
+  ok(shouldActOnFailure({ ...live, fromAttempt: 0, shopHasAnswered: true }).why
+    === A_DEAD_VIEW_SPOKE,
+    'a dead view talking is still a dead view talking, whatever this attempt has seen');
+  ok(shouldActOnFailure({ ...live, toSignIn: false, shopHasAnswered: true }).why
+    === NOT_A_SIGN_IN_VISIT,
+    'and a reading visit is still not gated at all');
+
+  // EVERY REASON IS STILL REACHABLE. The new question sits below the others on
+  // purpose: put it higher and "we are already asking them" could never be the
+  // answer again, because a sign in can only have GONE if it was once up. A reason
+  // no input can produce is a reason that has quietly left the log.
+  const REACHED = {
+    [NOT_A_SIGN_IN_VISIT]: { toSignIn: false },
+    [A_DEAD_VIEW_SPOKE]: { ...live, fromAttempt: 0 },
+    [THEY_ARE_ALREADY_IN]: { ...live, theyAreIn: true, shopHasAnswered: true },
+    [THE_SIGN_IN_IS_UP]: { ...live, signInIsUp: true, shopHasAnswered: true },
+    [WE_ARE_ASKING_THEM]: { ...live, signInIsGone: true, shopHasAnswered: true },
+    [THE_SIGN_IN_WAS_UP]: { ...live, shopHasAnswered: true },
+    [THE_SHOP_REALLY_WILL_NOT_OPEN]: live,
+  };
+  for (const [reason, facts] of Object.entries(REACHED)) {
+    ok(shouldActOnFailure(facts).why === reason,
+      `${reason} is still an answer something can actually produce`);
+    ok(whyInWords(reason) !== reason,
+      `and ${reason} has words of its own in connect/gateLog.js, so a phone's window `
+      + 'never shows somebody a bare name it cannot act on');
+  }
+
+  // AND EVERY COMBINATION, because the order of authority is the whole function.
+  const ORDER = [
+    ['toSignIn', (f) => f.toSignIn !== true, NOT_A_SIGN_IN_VISIT],
+    ['stamp', (f) => f.fromAttempt !== f.attemptNow, A_DEAD_VIEW_SPOKE],
+    ['theyAreIn', (f) => f.theyAreIn === true, THEY_ARE_ALREADY_IN],
+    ['signInIsUp', (f) => f.signInIsUp === true, THE_SIGN_IN_IS_UP],
+    ['signInIsGone', (f) => f.signInIsGone === true, WE_ARE_ASKING_THEM],
+    ['shopHasAnswered', (f) => f.shopHasAnswered === true, THE_SIGN_IN_WAS_UP],
+  ];
+  let walked = 0;
+  let agreedOnFailure = 0;
+  for (const toSignIn of [false, true]) {
+    for (const sameStamp of [false, true]) {
+      for (const theyAreIn of [false, true]) {
+        for (const signInIsUp of [false, true]) {
+          for (const signInIsGone of [false, true]) {
+            for (const shopHasAnswered of [false, true]) {
+              const facts = {
+                toSignIn,
+                fromAttempt: 1,
+                attemptNow: sameStamp ? 1 : 0,
+                theyAreIn,
+                signInIsUp,
+                signInIsGone,
+                shopHasAnswered,
+              };
+              const first = ORDER.find(([, holds]) => holds(facts));
+              const want = first ? first[2] : THE_SHOP_REALLY_WILL_NOT_OPEN;
+              const got = shouldActOnFailure(facts);
+              walked += 1;
+              if (got.why === want && got.act === (first == null)) agreedOnFailure += 1;
+            }
+          }
+        }
+      }
+    }
+  }
+  ok(walked === 64, `sixty four combinations walked (${walked}), not a sample`);
+  ok(agreedOnFailure === 64,
+    `AND ALL SIXTY FOUR ANSWER WITH THE FIRST REASON THAT IS REALLY TRUE (${agreedOnFailure}), `
+    + 'and act on nothing else. The order of authority is the whole of this function, '
+    + 'so a reordering that looks harmless is caught here rather than on a phone');
 }
 
 console.log('\n=== 15. TEST THREE. while the failure is up, the shop view does not exist ===');

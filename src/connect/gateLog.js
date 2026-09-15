@@ -121,6 +121,7 @@ const IN_WORDS = {
   alreadyIn: 'they are already signed in',
   theSignInIsUp: 'the shop\'s own sign in is on screen, so it plainly did open',
   weAreAsking: 'we are already asking them whether it worked',
+  theSignInWasUp: 'the shop showed its own sign in earlier in this attempt, so it did open',
   reallyWillNotOpen: 'the shop really will not open',
 };
 

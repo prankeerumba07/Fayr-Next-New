@@ -462,7 +462,7 @@ export function shopViewMayExist(toSignIn, state) {
  * back over a shop that is loading perfectly well.
  *
  * IT IS A FUNCTION AND NOT A LINE IN THE SCREEN because a phone cannot be made to
- * produce a dying view's last word on demand. Here it is six arguments and a
+ * produce a dying view's last word on demand. Here it is seven arguments and a
  * plain answer, and every combination of them can be checked under node - which
  * is the same reason the rest of this file is shaped the way it is.
  *
@@ -476,6 +476,7 @@ export function shouldActOnFailure({
   theyAreIn = false,
   signInIsUp = false,
   signInIsGone = false,
+  shopHasAnswered = false,
 } = {}) {
   // A reading visit is not gated at all, and its own error handling is unchanged.
   if (toSignIn !== true) return { act: false, why: NOT_A_SIGN_IN_VISIT };
@@ -489,6 +490,34 @@ export function shouldActOnFailure({
   // We are already asking them a question, and must not replace it with a
   // sentence that is no longer true.
   if (signInIsGone === true) return { act: false, why: WE_ARE_ASKING_THEM };
+  // ── AND THE SIGN IN HAVING BEEN UP COUNTS, NOT ONLY ITS BEING UP NOW ──────
+  //
+  // THE BUG THIS CLOSES, AND IT IS THE ONE HE ACTUALLY REPORTED. Tap Continue on
+  // Amazon's sign in and "The shop did not open. Please try again." lands at
+  // once, before the password step. The line above about the sign in being on
+  // screen was supposed to stop exactly that, and it was already false by the
+  // time the failure arrived.
+  //
+  // WHY IT WAS ALREADY FALSE, MEASURED IN THE LIBRARY AND NOT GUESSED. The web
+  // view reports a navigation at its START, carrying the address it is going TO,
+  // before a single byte of the answer has come back — it is raised from
+  // decidePolicyForNavigationAction and handed to the screen as a navigation
+  // change. So the instant Continue is tapped the screen is told about a page
+  // that has not loaded, takes the cover back on because that address is not the
+  // shop's own sign in, and signInIsUp is false. The shop's answer then arrives
+  // with an error on it, this question is asked, and the sign in that is still
+  // sitting on screen in front of the person no longer counts for anything.
+  //
+  // SO IT IS ASKED OF THE WHOLE ATTEMPT AND NOT OF THIS INSTANT. A shop that has
+  // shown us its own sign in has opened, and no error arriving afterwards can
+  // make that untrue. This is the same shape as the stamp above: a fact the
+  // screen holds in its own hand, read at the moment the failure arrives rather
+  // than captured whenever the handler happened to be built.
+  //
+  // AND IT IS DELIBERATELY BELOW THE STAMP. A dead view's last word must still be
+  // ignored as a dead view's last word, with its own reason, or the 7 September
+  // failure comes back wearing a different name in the log.
+  if (shopHasAnswered === true) return { act: false, why: THE_SIGN_IN_WAS_UP };
   return { act: true, why: THE_SHOP_REALLY_WILL_NOT_OPEN };
 }
 
@@ -508,6 +537,7 @@ export const A_DEAD_VIEW_SPOKE = 'staleAttempt';
 export const THEY_ARE_ALREADY_IN = 'alreadyIn';
 export const THE_SIGN_IN_IS_UP = 'theSignInIsUp';
 export const WE_ARE_ASKING_THEM = 'weAreAsking';
+export const THE_SIGN_IN_WAS_UP = 'theSignInWasUp';
 export const THE_SHOP_REALLY_WILL_NOT_OPEN = 'reallyWillNotOpen';
 
 /**
