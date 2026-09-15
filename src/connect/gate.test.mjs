@@ -90,59 +90,91 @@ console.log('=== 1. nothing known yet ===');
 
 console.log('\n=== 2. every combination of every signal, and the clock ===');
 {
-  // FOUR SIGNALS AND A CLOCK. Sixteen combinations of the signals, each of them
-  // both in time and out of time, so thirty two rows and not one left to
-  // judgement. The order of authority the gate keeps, top first:
+  // FOUR SIGNALS, A MEMORY AND A CLOCK. Thirty two combinations of the signals,
+  // each of them both in time and out of time, so SIXTY FOUR rows and not one
+  // left to judgement. The order of authority the gate keeps, top first:
   //
   //   they are in       the job is done, nothing else matters
   //   it will not open  the shop said so out loud
   //   the sign in has gone   our own screen, and a question
   //   the sign in is up the one and only thing that uncovers the shop
-  //   the clock ran out
+  //   the clock ran out AND the shop never answered
   //   otherwise         our own loading screen
+  //
+  // THE FIFTH LINE GREW A CLAUSE ON 15 SEPTEMBER 2026 and this table grew with
+  // it. It was thirty two rows while there were five inputs; a sixth input left
+  // it walking half of what it claims to walk, which is the one thing a table
+  // calling itself exhaustive must never do.
   const rows = [];
   for (const up of [false, true]) {
     for (const gone of [false, true]) {
       for (const areIn of [false, true]) {
         for (const willNot of [false, true]) {
-          for (const late of [false, true]) {
-            const want = areIn ? SIGNED_IN_NOW
-              : willNot ? FAILED
-                : gone ? CANNOT_TELL
-                  : up ? SHOP
-                    : late ? FAILED : OPENING_UP;
-            rows.push([up, gone, areIn, willNot, late, want]);
+          for (const answered of [false, true]) {
+            for (const late of [false, true]) {
+              const want = areIn ? SIGNED_IN_NOW
+                : willNot ? FAILED
+                  : gone ? CANNOT_TELL
+                    : up ? SHOP
+                      : (late && !answered) ? FAILED : OPENING_UP;
+              rows.push([up, gone, areIn, willNot, answered, late, want]);
+            }
           }
         }
       }
     }
   }
-  ok(rows.length === 32, 'thirty two rows, which is every combination and not a sample');
+  ok(rows.length === 64, 'sixty four rows, which is every combination and not a sample');
   let wrong = 0;
-  for (const [up, gone, areIn, willNot, late, want] of rows) {
+  for (const [up, gone, areIn, willNot, answered, late, want] of rows) {
     const got = whatIsOnScreen({
       signInIsUp: up,
       signInIsGone: gone,
       theyAreIn: areIn,
       itWillNotOpen: willNot,
+      shopHasAnswered: answered,
       startedAt: OPENED_AT,
       now: late ? OUT_OF_TIME : STILL_IN_TIME,
     });
     if (got !== want) {
       wrong += 1;
-      console.log(`       up=${up} gone=${gone} in=${areIn} willNot=${willNot} late=${late}`
-        + ` wanted ${want} got ${got}`);
+      console.log(`       up=${up} gone=${gone} in=${areIn} willNot=${willNot}`
+        + ` answered=${answered} late=${late} wanted ${want} got ${got}`);
     }
   }
-  ok(wrong === 0, 'and every one of the thirty two answers is the one the order of authority gives');
+  ok(wrong === 0, 'and every one of the sixty four answers is the one the order of authority gives');
+
+  // AND THE MEMORY MOVES EXACTLY ONE ANSWER AND NO OTHER. If it changed anything
+  // but the clock's own row it would be a second rule wearing the first one's
+  // name, and this counts the rows it is allowed to move: the eight where the
+  // clock was the thing deciding, and not one more.
+  let moved = 0;
+  for (const [up, gone, areIn, willNot, answered, late] of rows) {
+    if (answered) continue;
+    const off = whatIsOnScreen({
+      signInIsUp: up, signInIsGone: gone, theyAreIn: areIn, itWillNotOpen: willNot,
+      shopHasAnswered: false, startedAt: OPENED_AT, now: late ? OUT_OF_TIME : STILL_IN_TIME,
+    });
+    const on = whatIsOnScreen({
+      signInIsUp: up, signInIsGone: gone, theyAreIn: areIn, itWillNotOpen: willNot,
+      shopHasAnswered: true, startedAt: OPENED_AT, now: late ? OUT_OF_TIME : STILL_IN_TIME,
+    });
+    if (off !== on) moved += 1;
+  }
+  ok(moved === 1,
+    `THE MEMORY CHANGES EXACTLY ONE ROW OF THE THIRTY TWO (${moved}), and that row is `
+    + 'the only one the clock ever decided: all four signals false and the fifteen '
+    + 'seconds gone. Being in, the shop refusing, the sign in going away and the sign '
+    + 'in being up are every one of them untouched by it. Counted rather than claimed '
+    + '— the first number written here was eight, and this measured it as one');
 
   // The two that must never happen, said again on their own, because they are the
   // ones that put a shop's page in front of somebody.
   let uncovered = 0;
-  for (const [up, gone, areIn, willNot, late] of rows) {
+  for (const [up, gone, areIn, willNot, answered, late] of rows) {
     const got = whatIsOnScreen({
       signInIsUp: up, signInIsGone: gone, theyAreIn: areIn, itWillNotOpen: willNot,
-      startedAt: OPENED_AT, now: late ? OUT_OF_TIME : STILL_IN_TIME,
+      shopHasAnswered: answered, startedAt: OPENED_AT, now: late ? OUT_OF_TIME : STILL_IN_TIME,
     });
     if (shopMayBeSeen(got) && !up) uncovered += 1;
   }
@@ -632,8 +664,22 @@ console.log('\n=== 16. TEST THREE. which of the five inputs decided it ===');
     [BECAUSE_THE_SHOP_SAID_SO]: (f) => f.itWillNotOpen === true,
     [BECAUSE_THE_SIGN_IN_WENT]: (f) => f.signInIsGone === true,
     [BECAUSE_THE_SIGN_IN_IS_UP]: (f) => f.signInIsUp === true,
-    [BECAUSE_TIME_RAN_OUT]: (f) => f.now - f.startedAt >= SHOP_HAS_THIS_LONG_MS,
-    [BECAUSE_NOTHING_YET]: () => true,
+    // AND THE CLOCK MAY ONLY BE BLAMED WHEN IT IS REALLY THE THING THAT ENDED
+    // IT. A shop that has already shown us its own sign in has answered, so the
+    // fifteen seconds are not a true statement about it however long ago they
+    // expired. Without this clause the table below would happily accept
+    // "ranOutOfTime" on an attempt where the shop answered in five seconds.
+    [BECAUSE_TIME_RAN_OUT]: (f) => f.shopHasAnswered !== true
+      && f.now - f.startedAt >= SHOP_HAS_THIS_LONG_MS,
+    // AND "NOTHING YET" IS NOW A CLAIM AND NOT A SHRUG. It used to answer true
+    // for anything, which meant a gate that wrongly fell through to the loading
+    // screen was counted as honest. With a latch in the file that is the exact
+    // mistake worth catching: a latch that fires when it should not lands here.
+    [BECAUSE_NOTHING_YET]: (f) => f.theyAreIn !== true
+      && f.itWillNotOpen !== true
+      && f.signInIsGone !== true
+      && f.signInIsUp !== true
+      && (f.shopHasAnswered === true || f.now - f.startedAt < SHOP_HAS_THIS_LONG_MS),
   };
   let agreed = 0;
   let named = 0;
@@ -641,23 +687,31 @@ console.log('\n=== 16. TEST THREE. which of the five inputs decided it ===');
     for (const itWillNotOpen of [false, true]) {
       for (const signInIsGone of [false, true]) {
         for (const signInIsUp of [false, true]) {
-          for (const now of [STILL_IN_TIME, OUT_OF_TIME]) {
-            const facts = {
-              theyAreIn, itWillNotOpen, signInIsGone, signInIsUp, startedAt: OPENED_AT, now,
-            };
-            const why = whatDecidedIt(facts);
-            if (STATE_OF[why] === whatIsOnScreen(facts)) agreed += 1;
-            if (IS_REALLY_TRUE[why](facts)) named += 1;
+          for (const shopHasAnswered of [false, true]) {
+            for (const now of [STILL_IN_TIME, OUT_OF_TIME]) {
+              const facts = {
+                theyAreIn,
+                itWillNotOpen,
+                signInIsGone,
+                signInIsUp,
+                shopHasAnswered,
+                startedAt: OPENED_AT,
+                now,
+              };
+              const why = whatDecidedIt(facts);
+              if (STATE_OF[why] === whatIsOnScreen(facts)) agreed += 1;
+              if (IS_REALLY_TRUE[why](facts)) named += 1;
+            }
           }
         }
       }
     }
   }
-  ok(agreed === 32,
-    `THE REASON AND THE SCREEN AGREE IN ALL 32 COMBINATIONS (${agreed}). They cannot `
+  ok(agreed === 64,
+    `THE REASON AND THE SCREEN AGREE IN ALL 64 COMBINATIONS (${agreed}). They cannot `
     + 'drift, because whatIsOnScreen is a lookup over this same answer rather than a '
     + 'second copy of the same five questions in the same order');
-  ok(named === 32,
+  ok(named === 64,
     `AND THE REASON NAMED IS ALWAYS AN INPUT THAT IS REALLY TRUE (${named}). A log `
     + 'that blames an input which was false is worse than no log at all');
 }
@@ -687,6 +741,124 @@ console.log('\n=== 17. TEST THREE. three Try agains in a row are three different
   ok(whatIsOnScreen({ startedAt: OPENED_AT, now: OPENED_AT + 20_000 }) === FAILED,
     'because an attempt still holding the FIRST moment would be failed before it '
     + 'began, which is exactly what a Try again that forgot to move the clock does');
+}
+
+console.log('\n=== 18. BUG FOUR. "The shop did not open" landed in the MIDDLE of a sign in ===');
+{
+  // ── WHAT HE SAW, ON THE SIMULATOR, 15 SEPTEMBER 2026 ──────────────────────
+  //
+  // Connecting an Amazon account was impossible. Amazon's own sign in appeared,
+  // he typed his mobile number, tapped Continue, and "The shop did not open.
+  // Please try again." landed before Amazon's password or code step ever came.
+  // Try again built a new view and it happened again, for ever.
+  //
+  // THE FIFTEEN SECONDS WERE BEING ASKED THE WRONG QUESTION. They run from the
+  // start of the attempt, and typing a phone number takes far longer than that,
+  // so the clock had already expired while he typed. It only failed to bite
+  // because signInIsUp is asked first and was true while the box was on screen.
+  // The moment anything made that false for a single look, the next question was
+  // a clock that expired while somebody was typing.
+  const TYPED_FOR = 40_000;
+  const SAW_THE_SIGN_IN_AT = OPENED_AT + 5_000;
+
+  // THE ONE THAT WAS BROKEN. A sign in seen at five seconds, gone from view at
+  // forty. Forty is well past fifteen, and this must not be the failure screen.
+  const midSignIn = {
+    signInIsUp: false,
+    shopHasAnswered: true,
+    startedAt: OPENED_AT,
+    now: OPENED_AT + TYPED_FOR,
+  };
+  ok(whatDecidedIt(midSignIn) === BECAUSE_NOTHING_YET,
+    'a shop that showed its own sign in at five seconds is not blamed on the clock '
+    + 'at forty, because the clock only ever meant "it never answered at all"');
+  ok(whatIsOnScreen(midSignIn) !== FAILED,
+    'AND THE FAILURE SENTENCE DOES NOT LAND IN THE MIDDLE OF A WORKING SIGN IN, '
+    + 'which is the whole of what he saw');
+  ok(whatIsOnScreen(midSignIn) === OPENING_UP,
+    'our own cover is what is up instead, which is the honest thing to show while '
+    + 'the shop is between two of its own pages');
+
+  // AND IT IS THE LATCH DOING IT, not the moment. The identical facts with the
+  // latch off are still the failure, so this check cannot pass by accident on a
+  // clock that was never expired in the first place.
+  ok(whatIsOnScreen({ ...midSignIn, shopHasAnswered: false }) === FAILED,
+    'the very same forty seconds with no sign in ever seen IS still the failure, '
+    + 'so what changed the answer is the shop having answered and nothing else');
+
+  // THE THING THE FIFTEEN SECONDS ARE ACTUALLY FOR, and it is untouched. A shop
+  // that never shows a sign in at all still gives up at fifteen, to the
+  // millisecond, and the person still gets the one control they can use.
+  ok(whatIsOnScreen({ shopHasAnswered: false, startedAt: OPENED_AT, now: STILL_IN_TIME })
+    === OPENING_UP,
+    'a shop that has never answered is still being waited for at 14.999 seconds');
+  ok(whatIsOnScreen({ shopHasAnswered: false, startedAt: OPENED_AT, now: OUT_OF_TIME })
+    === FAILED,
+    'AND STILL GIVES UP ON THE FIFTEENTH SECOND. The number was not lengthened, '
+    + 'because lengthening it only moves the same failure onto whoever types slowest');
+  ok(whatDecidedIt({ shopHasAnswered: false, startedAt: OPENED_AT, now: OUT_OF_TIME })
+    === BECAUSE_TIME_RAN_OUT,
+    'and it is still named as the clock, so a phone log still tells the two roads apart');
+  ok(SHOP_HAS_THIS_LONG_MS === 15000,
+    'and the fifteen seconds really are still fifteen seconds, not quietly widened');
+
+  // THE LATCH IS PER ATTEMPT AND MUST NOT CARRY. Try again throws the view away
+  // and builds a new one, and a new view has been shown nothing. If the memory
+  // came with it, a second attempt at a shop that says NOTHING would wait for
+  // ever and the person would never get the failure or the control.
+  const SECOND_TRY_AT = OPENED_AT + 60_000;
+  ok(whatIsOnScreen({
+    shopHasAnswered: false, startedAt: SECOND_TRY_AT, now: SECOND_TRY_AT + SHOP_HAS_THIS_LONG_MS,
+  }) === FAILED,
+    'A SECOND ATTEMPT GETS ITS OWN FRESH FIFTEEN SECONDS AND ITS OWN FAILURE. The '
+    + 'memory of the first attempt having seen a sign in must not survive the tap '
+    + 'that threw that view away — src/connect/connect.test.mjs pins the one line '
+    + 'in tryAgain that forgets it');
+  ok(whatIsOnScreen({
+    shopHasAnswered: true, startedAt: SECOND_TRY_AT, now: SECOND_TRY_AT + SHOP_HAS_THIS_LONG_MS,
+  }) !== FAILED,
+    'and that really is the thing that decides it, because carrying the memory over '
+    + 'would have left this one waiting instead');
+
+  // NOTHING ELSE MOVED. The latch stops ONE branch and no other, and these are
+  // the three that must still end an attempt however long the shop has been up.
+  for (const answered of [false, true]) {
+    ok(whatDecidedIt({
+      shopHasAnswered: answered, itWillNotOpen: true, startedAt: OPENED_AT, now: OUT_OF_TIME,
+    }) === BECAUSE_THE_SHOP_SAID_SO,
+      `the shop saying it will not open still ends it with the sign in seen=${answered}`);
+    ok(whatDecidedIt({
+      shopHasAnswered: answered, theyAreIn: true, startedAt: OPENED_AT, now: OUT_OF_TIME,
+    }) === BECAUSE_THEY_ARE_IN,
+      `and being in still ends it with the sign in seen=${answered}`);
+    ok(whatDecidedIt({
+      shopHasAnswered: answered, signInIsGone: true, startedAt: OPENED_AT, now: OUT_OF_TIME,
+    }) === BECAUSE_THE_SIGN_IN_WENT,
+      `and the sign in going away still asks the question with the sign in seen=${answered}`);
+    ok(whatDecidedIt({
+      shopHasAnswered: answered, signInIsUp: true, startedAt: OPENED_AT, now: OUT_OF_TIME,
+    }) === BECAUSE_THE_SIGN_IN_IS_UP,
+      `and a sign in on screen is still the shop's own page with the sign in seen=${answered}`);
+  }
+
+  // ── AND THE COST, WRITTEN DOWN RATHER THAN LEFT TO BE DISCOVERED ──────────
+  //
+  // This is a real change and not a free one. A shop that shows its own sign in
+  // and is THEN killed silently — the network dies, the page never speaks again,
+  // and the web view raises nothing — leaves the person on our own covered
+  // loading screen with no failure and no control, where before they would have
+  // been given the failure at fifteen seconds.
+  //
+  // THE OWNER CHOSE THAT, in these words: once the shop's own sign in has been
+  // seen even once, only an explicit refusal or success may end the attempt. It
+  // is the right way round, because the other way round ends a sign in that is
+  // WORKING, and that is the bug above. Asserted so the trade is a decision in
+  // the file and not a surprise on somebody's phone.
+  ok(whatIsOnScreen({
+    shopHasAnswered: true, startedAt: OPENED_AT, now: OPENED_AT + 10 * 60 * 1000,
+  }) === OPENING_UP,
+    'KNOWN AND CHOSEN: a shop that answered and then went silent leaves our own '
+    + 'cover up rather than the failure, for as long as it stays silent');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

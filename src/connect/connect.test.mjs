@@ -666,9 +666,22 @@ t('and tryAgain throws the view away rather than asking it to reload', () => {
   // THE CLOCK MUST BE ABLE TO FIRE AGAIN. Without the count among the things the
   // waiting effect watches, two taps inside one millisecond leave askedAt
   // unchanged, React skips the render, and the second attempt gets no wait at all.
+  // THE END ANCHOR WAS DEAD AND NOBODY KNEW, found on 15 September 2026. The
+  // screen says `const gateSays = toSignIn`, never `const gate = toSignIn`, so
+  // indexOf answered -1, and slice(start, -1) is not "up to nothing" — it is "up
+  // to the last character of the file". This check had been reading twenty
+  // kilobytes of screen and passing on the first two-space `}, [...]);` it met,
+  // which happened to still be the right one. It is the same class as the
+  // sendFoundOrders regex that matched a different function further down its
+  // file. So the anchor is asserted before it is used, and a dead one now fails
+  // here instead of quietly widening the thing it was meant to narrow.
+  const clockEndsAt = connectScreen.indexOf('const gateSays = toSignIn');
+  ok(clockEndsAt > 0,
+    'the slice that holds the waiting clock must really end where it says it does, '
+    + 'or this check silently reads the whole screen and proves nothing');
   const waiter = connectScreen.slice(
     connectScreen.indexOf('// THE ONE CLOCK THAT MAKES THE WAIT REAL'),
-    connectScreen.indexOf('const gate = toSignIn'),
+    clockEndsAt,
   );
   // THE DEPENDENCY LIST ITSELF, and not the effect around it. A first attempt at
   // this check read the whole effect, and the comment inside it names the very
@@ -886,6 +899,86 @@ t('and our own side remembers the sign in, because the shop’s page cannot', ()
   ok(fn.includes('signInWasUp.current = false'),
     'and a new attempt forgets what the last one saw, or a fresh view would start '
     + 'believing a sign in it has never shown');
+});
+
+// ── 5e. BUG FOUR. THE FAILURE SENTENCE LANDED IN THE MIDDLE OF A SIGN IN ────
+//
+// Simulator, 15 September 2026. Amazon's own sign in appeared, he typed his
+// mobile number, tapped Continue, and "The shop did not open. Please try again."
+// arrived before Amazon's password or code step ever did. The fifteen seconds
+// run from the start of the attempt and typing a number takes longer than that,
+// so the clock had expired while he typed; it only failed to bite while the box
+// was on screen, and bit the instant anything took it off for one look.
+//
+// THE RULE ITSELF IS IN src/connect/gate.js AND WALKED UNDER NODE. What can only
+// be checked here is that this screen actually HANDS the gate the memory. A rule
+// nobody passes an input to is a rule that is switched off, and the gate's own
+// default is false — which is exactly the value that brings the bug back.
+t('the screen tells the gate the shop has answered, or the fifteen seconds bite again', () => {
+  // THE SCREEN THE GATE DECIDES. Anchored to this one call: the same words
+  // appear in the log line below it, and a check that matched either would pass
+  // with the one that matters missing.
+  const decides = blockAt(connectScreen, connectScreen.indexOf('const gateSays = toSignIn'));
+  ok(decides, 'the screen must work out what the gate says in one place');
+  ok(/whatIsOnScreen\(\{/.test(decides), 'and it is the gate that works it out, not the screen');
+  ok(/shopHasAnswered: signInWasUp\.current/.test(decides),
+    'AND THE MEMORY IS HANDED IN. Without it the gate falls back to its own false, '
+    + 'the clock is live again, and "The shop did not open" lands on a working sign in');
+
+  // AND THE LOG MUST BE HANDED THE SAME THING, or the line on a phone would name
+  // a reason the screen never acted on — which is worse than no line at all.
+  const named = blockAt(connectScreen, connectScreen.indexOf('const why = whatDecidedIt('));
+  ok(named, 'the log works out which input decided, in a block of its own');
+  ok(/shopHasAnswered: signInWasUp\.current/.test(named),
+    'and it is given the same memory, so the reason it names is the one that decided');
+
+  // THE MEMORY IS PER ATTEMPT, AND THE FORGETTING LIVES WITH THE COUNTING UP.
+  // A new view has been shown nothing, so it must get its own fresh fifteen
+  // seconds; a memory that survived the tap would leave a second attempt at a
+  // silent shop waiting for ever, with no failure and no control.
+  const fn = connectScreen.slice(
+    connectScreen.indexOf('const tryAgain = useCallback('),
+    connectScreen.indexOf('const theySayTheyAreIn = useCallback('),
+  );
+  ok(fn.includes('setAttempt((n) => n + 1)'), 'Try again is what counts the attempt up');
+  ok(fn.includes('signInWasUp.current = false'),
+    'AND THE SAME FUNCTION FORGETS THE SIGN IN, so the count and the memory cannot '
+    + 'be moved apart and a new attempt can never inherit an answer it was not given');
+
+  // ── AND IT IS ONE SWITCH, WITH ONE HAND ON EACH END ─────────────────────
+  //
+  // EVERY ONE OF THESE HOLDS TODAY AND NOTHING WAS MAKING IT HOLD. Being inside
+  // tryAgain is not the property that matters; being the ONLY one is. A second
+  // reset dropped anywhere else — the likeliest place being onNav, which already
+  // clears signInIsUp when the cover goes back on — would disarm the latch on a
+  // page change and put "The shop did not open" back over a working sign in,
+  // with every check in this file still green.
+  const times = (what) => (connectScreen.match(what) || []).length;
+  ok(times(/signInWasUp\.current = false/g) === 1,
+    'THE MEMORY IS FORGOTTEN IN EXACTLY ONE PLACE, and a second one anywhere would '
+    + 'switch the fifteen seconds back on in the middle of somebody signing in');
+  ok(times(/signInWasUp\.current = true/g) === 1,
+    'and it is remembered in exactly one place too');
+  ok(times(/setSignInIsUp\(true\)/g) === 1,
+    'THE SIGN IN IS DECLARED UP IN EXACTLY ONE PLACE. A second one that forgot to '
+    + 'set the memory beside it would leave the clock live on the attempt that '
+    + 'needed it dead, which is the whole bug');
+  ok(/signInWasUp\.current = true; setSignInIsUp\(true\)/.test(connectScreen),
+    'and that one place sets the memory FIRST, in the same statement, so no render '
+    + 'can ever see the sign in up with the shop not yet counted as having answered');
+  ok(times(/setAttempt\(/g) === 1,
+    'AND THE ATTEMPT IS COUNTED UP IN EXACTLY ONE PLACE, which is what makes '
+    + '"the memory is forgotten when the attempt changes" true rather than merely '
+    + 'true today. A second setAttempt would build a new view on a stale answer');
+
+  // AND NOBODY LENGTHENED THE TIMEOUT INSTEAD. The latch is the fix; a bigger
+  // number would only move the same failure onto whoever types slowest, and would
+  // make a shop that really never answers keep somebody waiting longer for a
+  // sentence they could have had at fifteen seconds.
+  ok(/export const SHOP_HAS_THIS_LONG_MS = 15000;/.test(gate),
+    'the fifteen seconds are still fifteen seconds');
+  ok(/export const HOLD_CANNOT_TELL_MS = 3000;/.test(gate),
+    'and the three second hold on "we cannot tell" is untouched');
 });
 
 t('and saying they signed in is recorded as their word, not as ours', () => {

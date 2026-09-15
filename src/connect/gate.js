@@ -303,6 +303,10 @@ export function isAPayingPage(path) {
  *   theyAreIn      the shop's own page says this person is signed in. Never a
  *                  guess: see whatThePageShows.
  *   itWillNotOpen  the shop said it could not.
+ *   shopHasAnswered  OUR OWN SIDE, and not the page: has signInIsUp been true at
+ *                  any point in THIS attempt. Once it has, the shop has answered
+ *                  and the fifteen seconds below are dead for the rest of the
+ *                  attempt. See whatDecidedIt for the sign in this cost somebody.
  *   startedAt      when the shop was asked to open, so the wait can be counted.
  */
 export function whatIsOnScreen(facts = {}) {
@@ -332,6 +336,7 @@ export function whatDecidedIt({
   signInIsGone = false,
   theyAreIn = false,
   itWillNotOpen = false,
+  shopHasAnswered = false,
   startedAt = null,
   now = null,
 } = {}) {
@@ -355,7 +360,40 @@ export function whatDecidedIt({
   // order put "The shop did not open" over a working sign in page for ever,
   // because nothing ever moved the clock back.
   if (signInIsUp === true) return BECAUSE_THE_SIGN_IN_IS_UP;
-  if (ranOutOfTime(startedAt, now)) return BECAUSE_TIME_RAN_OUT;
+  // ── AND ONCE THE SHOP HAS ANSWERED, THE CLOCK IS DEAD FOR THIS ATTEMPT ────
+  //
+  // THE BUG THIS CLOSES, REPRODUCED ON THE SIMULATOR ON 15 SEPTEMBER 2026:
+  // connecting an Amazon account was impossible. Amazon's own sign in appeared,
+  // the person typed their mobile number, tapped Continue, and "The shop did not
+  // open. Please try again." landed on them before Amazon's password or code step
+  // ever arrived. Try again built a new view and it happened again, for ever.
+  //
+  // THE FIFTEEN SECONDS WERE BEING ASKED THE WRONG QUESTION. They are counted
+  // from the start of the attempt, and a person typing a phone number takes far
+  // longer than fifteen seconds, so by the time they tap Continue the clock has
+  // long since expired. It did not bite only because the line above is asked
+  // first and was true while Amazon's box was on screen. The moment anything made
+  // that line false for a single look - a page halfway through changing, a step
+  // whose address our side does not read as a sign in - the very next question
+  // was a clock that expired while somebody was typing, and the screen locked to
+  // the failure in the middle of a sign in that was working.
+  //
+  // SO THE FIFTEEN SECONDS MEAN "THE SHOP NEVER ANSWERED AT ALL", which is what
+  // they were always for, and not "the sign in must be finished within fifteen
+  // seconds", which is not a thing anybody can do. A shop that has shown us its
+  // own sign in even once HAS answered. After that only the shop saying it will
+  // not open, or this person being in, may end the attempt.
+  //
+  // A LATCH AND NOT A LONGER TIMEOUT, and the difference matters. Lengthening the
+  // number would only move the same failure later, onto whoever is slowest to
+  // type - and a shop that really never answers would then leave somebody waiting
+  // that much longer for a sentence they could have had at fifteen seconds. This
+  // way the shop that never answers still fails at fifteen, unchanged.
+  //
+  // IT IS PER ATTEMPT, and the caller resets it when it counts the attempt up.
+  // Try again throws the view away and builds a new one, and a new view has shown
+  // us nothing, so it gets its own fresh fifteen seconds.
+  if (shopHasAnswered !== true && ranOutOfTime(startedAt, now)) return BECAUSE_TIME_RAN_OUT;
   return BECAUSE_NOTHING_YET;
 }
 

@@ -235,6 +235,12 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
   const gateSays = toSignIn
     ? whatIsOnScreen({
       signInIsUp, signInIsGone, theyAreIn, itWillNotOpen, startedAt: askedAt, now: nowIs,
+      // ONCE THE SHOP HAS SHOWN US ITS OWN SIGN IN, THE FIFTEEN SECONDS ARE DEAD
+      // for the rest of this attempt. The same memory that tells the gate a sign
+      // in has GONE tells it the shop ANSWERED, because they are the same fact and
+      // a second copy of it would be a second thing to keep right. See
+      // whatDecidedIt in connect/gate.js for the Amazon sign in this cost.
+      shopHasAnswered: signInWasUp.current,
     })
     : null;
 
@@ -299,11 +305,13 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     if (gate === gateWas.current) return;
     const why = whatDecidedIt({
       signInIsUp, signInIsGone, theyAreIn, itWillNotOpen, startedAt: askedAt, now: nowIs,
+      shopHasAnswered: signInWasUp.current,
     });
     logGate(attempt, 'GATE',
       `${gateWas.current == null ? '(first)' : gateWas.current} -> ${gate}  because ${why}`
       + `  [signInIsUp=${signInIsUp} signInIsGone=${signInIsGone} theyAreIn=${theyAreIn}`
-      + ` itWillNotOpen=${itWillNotOpen} waited=${nowIs - askedAt}ms of ${SHOP_HAS_THIS_LONG_MS}]`);
+      + ` itWillNotOpen=${itWillNotOpen} shopHasAnswered=${signInWasUp.current}`
+      + ` waited=${nowIs - askedAt}ms of ${SHOP_HAS_THIS_LONG_MS}]`);
     gateWas.current = gate;
   }, [gate, attempt, toSignIn, signInIsUp, signInIsGone, theyAreIn, itWillNotOpen, askedAt, nowIs]);
 
@@ -347,6 +355,13 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     // because both add one to the same number.
     setAttempt((n) => n + 1);
     // A NEW VIEW IS A NEW ATTEMPT, so what the last one saw is forgotten too.
+    //
+    // AND THIS LINE IS NOW THE THING THAT GIVES A NEW ATTEMPT ITS OWN FIFTEEN
+    // SECONDS. The same memory is handed to the gate as shopHasAnswered, and a
+    // shop that has answered stops the clock for the rest of ITS attempt. Left
+    // set, the next attempt would inherit an answer it has never been given and
+    // could then wait on a shop that says nothing for ever. It sits here, in the
+    // one function that counts the attempt up, so the two cannot be separated.
     signInWasUp.current = false;
   }, []);
 
