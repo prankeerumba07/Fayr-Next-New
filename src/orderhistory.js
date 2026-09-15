@@ -322,6 +322,35 @@ function looksLikeAPuzzle(html) {
  * words cannot match. A second idea of what a sign in page looks like is how the
  * two drift apart.
  */
+/**
+ * THE PATH THE FETCH ACTUALLY LANDED ON. Never the query, which carries tokens.
+ *
+ * ── WHY THIS EXISTS, AND IT COST FIVE DAYS ─────────────────────────────────
+ *
+ * The look came back with nothing, over and over, and every line written about
+ * it said the page was fine: a 200, three hundred and seventy four kilobytes, no
+ * refusal, no sign in wall. What none of them said was WHICH PAGE. It was
+ * Amazon's home page shell, served to a visitor it did not recognise, because
+ * the screen doing the reading had never been handed the shop session — and the
+ * one field that would have shown it at a glance was already being fetched,
+ * carried all the way back through readListOutcome, and thrown away.
+ *
+ * THE PATH AND NOT THE ADDRESS. A shop's own address carries session tokens and
+ * identifiers in its query, and this goes into a log. The path answers the
+ * question - "were we even on the orders page" - and carries none of that.
+ *
+ * Answers null when there is no address to read, rather than a guess or an empty
+ * string, so a line can say plainly that nothing came back.
+ */
+export function landedPath(url) {
+  if (typeof url !== 'string' || url === '') return null;
+  try {
+    return new URL(url).pathname || '/';
+  } catch (e) {
+    return null;
+  }
+}
+
 function wantsASignIn(url) {
   if (typeof url !== 'string' || url === '') return false;
   let path = null;
@@ -368,6 +397,9 @@ export function readPageRefusal(answer) {
     // A sign in wall arrives as a 200 carrying the sign in page, so the final
     // address is the only honest signal.
     wantsSignIn: wantsASignIn(typeof a.url === 'string' ? a.url : ''),
+    // WHICH PAGE WE ACTUALLY ENDED UP ON. The one fact that was being fetched,
+    // carried all the way to here, and dropped. See landedPath.
+    landed: landedPath(typeof a.url === 'string' ? a.url : ''),
     answered: a.ok === true && status !== 0 && status < 400,
   };
 }
@@ -391,29 +423,37 @@ export function readPageRefusal(answer) {
  * recognise a heading would be this file deciding a money question.
  */
 export function readDetailOutcome(answer) {
-  const { html, whyNot, wantsSignIn, answered } = readPageRefusal(answer);
+  const {
+    html, whyNot, wantsSignIn, answered, landed,
+  } = readPageRefusal(answer);
   // A REFUSED PAGE NEVER COUNTS AS HAVING LOOKED, and this is not tidiness. The
   // dead end page carries a sentence, so its text is not empty and it would come
   // back as an order with something on it. A caller that asked "did we look?"
   // before "was it refused?" would then post Amazon's own apology to the server
   // as though it were somebody's order.
   if (!answered || whyNot != null || wantsSignIn === true) {
-    return { looked: false, text: '', whyNot, wantsSignIn };
+    return { looked: false, text: '', whyNot, wantsSignIn, landed };
   }
   const blocks = readOrderBlocks(html);
   const text = blocks.length > 0 ? blocks[0] : pageToLines(html).join('\n');
-  return { looked: text !== '', text, whyNot, wantsSignIn };
+  return { looked: text !== '', text, whyNot, wantsSignIn, landed };
 }
 
 export function readListOutcome(answer) {
   // THE REFUSALS COME FROM ONE PLACE, shared with the order-page read above, so
   // the two cannot end up with different ideas of what a dead end is.
-  const { html, whyNot, wantsSignIn, answered } = readPageRefusal(answer);
+  const {
+    html, whyNot, wantsSignIn, answered, landed,
+  } = readPageRefusal(answer);
   // The same rule as the order-page read above, for the same reason: a refused
   // page has not been looked at, whatever words happen to be on it.
+  //
+  // AND `landed` COMES OUT OF EVERY ONE OF THESE, including the refused ones.
+  // The answer that needs explaining most is the one that returns early, and
+  // "which page was this?" is the question five days of silence turned on.
   if (!answered || whyNot != null || wantsSignIn === true) {
-    return { looked: false, blocks: [], whyNot, wantsSignIn };
+    return { looked: false, blocks: [], whyNot, wantsSignIn, landed };
   }
   const blocks = readOrderBlocks(html);
-  return { looked: blocks.length > 0, blocks, whyNot, wantsSignIn };
+  return { looked: blocks.length > 0, blocks, whyNot, wantsSignIn, landed };
 }

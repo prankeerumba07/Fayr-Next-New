@@ -53,6 +53,7 @@ import {
   countOrderCardSlots, harvestOrderNumbers, orderDetailPageFor, pagesToOpen,
   readsOrderPages, waitBeforeFetch,
 } from './detailLook.js';
+import { restoreSession } from '../session';
 import { logLook } from './lookLog.js';
 import { logPageShape } from './pageShape.js';
 import { sendFoundOrders } from '../backend/orderCandidatesApi';
@@ -100,6 +101,49 @@ export default function LookingForItScreen({ navigation, route }) {
   // about it and it is not sending a photograph.
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [job, setJob] = useState(null);
+  // ── THE SHOP SESSION, PUT BACK BEFORE ANYTHING IS ASKED OF THE SHOP ───────
+  //
+  // ── FIVE DAYS OF "IT FETCHED NOTHING", AND THIS WAS ALL OF IT ────────────
+  //
+  // The look ran in a web view that had never been handed the login the connect
+  // screen saved. The fetch itself was right — it asks with credentials — but
+  // there was no cookie to send, so Amazon served the page it serves a stranger:
+  // its home page shell. Three hundred and seventy four kilobytes of it, a clean
+  // 200, no refusal and no sign in wall, which is why every line written about it
+  // said the page was fine. The shape report of 15 September settled it: eight
+  // hundred and seventy seven tags, every slot id on the page a nav_cs_ one, and
+  // not a single order card. The markup had not moved. We were reading the wrong
+  // page, signed out.
+  //
+  // src/ConnectScreen.js has done this since the day it was written and this
+  // screen never did. THE SAME PATTERN AND NOT A SECOND ONE: restore, hold the
+  // view back until it has finished, and let the shop be asked only after that.
+  //
+  // ── AND IT DOES NOT SAVE ONE ON THE WAY OUT. A DECISION, NOT AN OVERSIGHT ─
+  //
+  // ConnectScreen persists on unmount because that is where somebody SIGNS IN:
+  // it is the screen that creates a session, so it is the screen that must save
+  // one. This screen only reads. It creates nothing, so it has nothing to save
+  // that the connect screen did not already save.
+  //
+  // AND SAVING FROM HERE COULD DESTROY A GOOD LOGIN. The thing this bug proves is
+  // that this screen can land signed out; ConnectScreen already guards the same
+  // hazard by refusing to write a snapshot after a failed load, in its own words,
+  // "A FAILED LOAD MUST NOT SAVE A SIGNED OUT SNAPSHOT OVER A GOOD ONE". This
+  // screen has no equivalent signal at the moment it is torn down — the look may
+  // have ended on a refusal, a puzzle, or a stranger's home page — so a save here
+  // would sometimes write exactly that over a working login and sign the person
+  // out of their shop. Reading is not worth that risk, and the cookies a read
+  // refreshes are kept by the web view's own store in the meantime.
+  const [sessionReady, setSessionReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    if (!platform) { setSessionReady(true); return undefined; }
+    restoreSession(platform.key, platform.startUrl).finally(() => {
+      if (alive) setSessionReady(true);
+    });
+    return () => { alive = false; };
+  }, [platform]);
   const answered = useRef(false);
   const waiting = useRef(null);
   // THE WEB VIEW ITSELF, so the second and later fetches can be injected into
@@ -156,6 +200,13 @@ export default function LookingForItScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
+    // ── NOTHING STARTS UNTIL THE SESSION IS BACK ────────────────────────────
+    //
+    // Before the timers and before the first fetch, because a look that began
+    // first would ask the shop as a stranger — which is the whole bug. It also
+    // keeps the twenty second ceiling honest: the budget is for the shop, not
+    // for reading a snapshot off the phone.
+    if (!sessionReady) return undefined;
     let alive = true;
     const startedAt = Date.now();
 
@@ -224,8 +275,13 @@ export default function LookingForItScreen({ navigation, route }) {
       // page: an order list carries the buyer's name and address, and a length
       // answers the only question asked of it — was there a page at all, and was
       // it a real one or a stub. See the note at the top of lookLog.js.
+      // AND WHICH PAGE IT LANDED ON, which is the field that was missing. Five
+      // days of "it fetched nothing" all said 200, a real size, and no refusal,
+      // and not one of them said the page was Amazon's home shell. The PATH only:
+      // a shop's address carries tokens in its query and this goes into a log.
       logLook('list', `status=${answer && answer.status} `
         + `bytes=${(answer && typeof answer.html === 'string' ? answer.html.length : 0)} `
+        + `landed=${outcome.landed == null ? 'null' : outcome.landed} `
         + `looked=${outcome.looked} whyNot=${outcome.whyNot} `
         + `wantsSignIn=${outcome.wantsSignIn}`);
 
@@ -419,7 +475,7 @@ export default function LookingForItScreen({ navigation, route }) {
       clearTimeout(giveUp);
       waiting.current = null;
     };
-  }, [campaignId, platformKey, platform, moveOn]);
+  }, [campaignId, platformKey, platform, moveOn, sessionReady]);
 
   const turn = spin.interpolate({
     inputRange: [0, 1], outputRange: ['0deg', '360deg'],
@@ -505,7 +561,7 @@ export default function LookingForItScreen({ navigation, route }) {
 
       {/* The look itself. Off screen on purpose: there is nothing on it for
           anybody to read, and the person is watching the ring. */}
-      {job ? (
+      {job && sessionReady ? (
         <WebView
           /* ONE MOUNT FOR THE WHOLE LOOK. The key is deliberately NOT the
              address: keying on it would reload the shop's home page before every

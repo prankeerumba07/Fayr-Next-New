@@ -22,7 +22,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readListOutcome } from '../orderhistory.js';
+import { landedPath, readDetailOutcome, readListOutcome } from '../orderhistory.js';
 import { A_DEAD_END, A_PUZZLE, TOO_MANY_ASKS } from '../connect/shopRefusing.js';
 import {
   NOTHING_IS_WRONG_WITH_YOUR_ORDER, SHOP_WILL_NOT_LET_US_LOOK, TAKING_LONGER,
@@ -349,6 +349,130 @@ console.log('\n=== 8. WHAT "MATCHED" MEANS, STATED WHERE THE RULE LIVES ===');
     ok(!code.includes(noSecondOpinion),
       `and it does not ${noSecondOpinion} — a second opinion is the defect class`);
   }
+}
+
+console.log('\n=== 9. THE READ RAN SIGNED OUT, AND THAT WAS THE WHOLE OF IT ===');
+{
+  // ── WHAT FIVE DAYS OF "IT FETCHED NOTHING" ACTUALLY WAS ──────────────────
+  //
+  // The shape report of 15 September 2026, on a page the look had just fetched:
+  //
+  //   bytes=374257 tags=877 attrNames=2377 dataShapes=103
+  //   words order-card=0 yourorders=2 orderCard=0 a-box-group=0 your-orders=8
+  //   shape 23x data-csa-c-slot-id="nav_cs_##"
+  //   shape  1x data-nav-role="signin"
+  //
+  // Eight hundred and seventy seven tags in three hundred and seventy four
+  // kilobytes is a page that is almost all script, every slot id on it belongs to
+  // Amazon's top navigation, and there is a sign in control on it. That is the
+  // home page shell Amazon serves somebody it does not recognise. THE MARKUP HAD
+  // NOT MOVED. The read was running in a web view that had never been handed the
+  // login src/ConnectScreen.js saves.
+  const screen = read('src/order/LookingForItScreen.js');
+
+  ok(/import \{ restoreSession \} from '\.\.\/session';/.test(screen),
+    'THE READ PUTS THE SHOP SESSION BACK. Without it the fetch asks as a stranger '
+    + 'and the shop answers with the page it gives a stranger, which is what it did');
+  ok(/restoreSession\(platform\.key, platform\.startUrl\)/.test(screen),
+    'and it asks for it the same way the connect screen does, rather than a second '
+    + 'idea of what a session is');
+
+  // AND IT WAITS. A restore that has not finished is a restore that did not
+  // happen, and the fetch would be out of the door before the cookie was in.
+  ok(/const \[sessionReady, setSessionReady\] = useState\(false\);/.test(screen),
+    'it holds a word for whether the session is back yet');
+  ok(/if \(!sessionReady\) return undefined;/.test(screen),
+    'AND NOTHING STARTS UNTIL IT IS. Not the timers and not the first fetch');
+  ok(/\{job && sessionReady \? \(/.test(screen),
+    'and the view itself cannot mount before it either, so there is no order in '
+    + 'which the shop gets asked first');
+
+  // THE GATE IS BEFORE THE CLOCK AND NOT AFTER IT. A look whose twenty seconds
+  // were spent reading a snapshot off the phone is a look with less time for the
+  // shop — the same mistake the connect screen made with its own fifteen.
+  const body = screen.slice(screen.indexOf('if (!sessionReady) return undefined;'));
+  const startsCounting = body.indexOf('const startedAt = Date.now();');
+  ok(startsCounting > 0 && startsCounting < body.indexOf('const giveUp'),
+    'and the clock starts after the session is in, so the budget is for the shop');
+
+  // ── AND IT DELIBERATELY DOES NOT SAVE ONE ────────────────────────────────
+  //
+  // This screen creates no session, so it has nothing to save the connect screen
+  // did not already save — and this bug proves it can land signed out, so a save
+  // here would sometimes write a stranger's page over a working login and sign
+  // somebody out of their own shop. ConnectScreen guards the identical hazard in
+  // its own words: a failed load must not save a signed out snapshot over a good
+  // one. A decision, asserted so it cannot be undone by accident.
+  ok(!/persistSession/.test(screen),
+    'THE READ NEVER SAVES A SESSION. It creates none, and it can land signed out, '
+    + 'so saving from here could overwrite a good login with a stranger’s page');
+  ok(/ConnectScreen/.test(screen) && /signed out/i.test(screen),
+    'and the reason is written down in the screen rather than left to be guessed');
+}
+
+console.log('\n=== 10. AND THE LINE SAYS WHICH PAGE IT LANDED ON ===');
+{
+  // ONE FIELD, AND IT WOULD HAVE ENDED THIS IN ONE RUN. Every line written over
+  // five days said status=200, a real byte count, whyNot=null and
+  // wantsSignIn=false — all true, and all of them about the wrong page. The
+  // address was already being fetched and carried all the way back here.
+  const screen = read('src/order/LookingForItScreen.js');
+  ok(/landed=\$\{outcome\.landed == null \? 'null' : outcome\.landed\}/.test(screen),
+    'the list line says which page the fetch really landed on');
+
+  // THE PATH AND NEVER THE QUERY, because a shop's address carries tokens in it
+  // and this goes into a log that gets pasted.
+  const withToken = 'https://www.amazon.in/gp/css/order-history?ref=x&token=SECRETVALUE';
+  ok(landedPath(withToken) === '/gp/css/order-history',
+    'and it is the path only');
+  ok(!String(landedPath(withToken)).includes('SECRETVALUE'),
+    'SO NOTHING FROM THE QUERY SURVIVES, which is where a shop puts a token');
+  ok(!String(landedPath(withToken)).includes('?'),
+    'and there is no question mark left to have anything after it');
+
+  ok(landedPath('https://www.amazon.in/') === '/', 'a bare address is the root');
+  for (const nothing of ['', null, undefined, 'not a url', 42, {}]) {
+    ok(landedPath(nothing) === null,
+      `${JSON.stringify(nothing) ?? String(nothing)} has no path, and says so rather than guessing`);
+  }
+
+  // AND THE OUTCOME CARRIES IT, which is the part that was being thrown away.
+  const home = readListOutcome({
+    ok: true, status: 200, html: '<html></html>', url: 'https://www.amazon.in/?ref=nav',
+  });
+  ok(home.landed === '/',
+    'THE HOME PAGE SHELL READS AS "/" — the one line that would have said, on day '
+    + 'one, that we were not on the orders page at all');
+  const orders = readListOutcome({
+    ok: true, status: 200, html: '<html></html>', url: 'https://www.amazon.in/gp/css/order-history?x=1',
+  });
+  ok(orders.landed === '/gp/css/order-history', 'and a real orders page reads as its own path');
+  ok(readListOutcome({ ok: true, status: 200, html: '' }).landed === null,
+    'and an answer with no address at all says nothing rather than something');
+
+  // AND IT SURVIVES THE EARLY RETURNS, which is where it is needed most. A
+  // refusal and a sign in wall both hand back before anything is read, and
+  // "which page was that?" is exactly the question those two raise.
+  const wall = readListOutcome({
+    ok: true, status: 200, html: '<html></html>', url: 'https://www.amazon.in/ap/signin?x=1',
+  });
+  ok(wall.wantsSignIn === true && wall.landed === '/ap/signin',
+    'a sign in wall still says which page it was');
+  const refused = readListOutcome({
+    ok: false, status: 503, html: '', url: 'https://www.amazon.in/gp/css/order-history',
+  });
+  ok(refused.whyNot != null && refused.landed === '/gp/css/order-history',
+    'and so does a shop that refused');
+
+  // THE ORDER PAGE READ GETS IT FROM THE SAME PLACE, so the two cannot end up
+  // with different ideas of where they landed. It is one field on the shared
+  // reader rather than a copy in each.
+  const detail = readDetailOutcome({
+    ok: true, status: 200, html: '<html></html>',
+    url: 'https://www.amazon.in/gp/your-account/order-details?orderID=1',
+  });
+  ok(detail.landed === '/gp/your-account/order-details',
+    'the order page read reports its landing too, from the one shared reader');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
