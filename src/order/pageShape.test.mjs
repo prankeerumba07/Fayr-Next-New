@@ -325,7 +325,7 @@ it('AND IT ADDS NO SECOND WAY OUT OF THIS FOLDER', () => {
 
 it('and the screen only asks for it when there is nothing to find', () => {
   const screen = read('./LookingForItScreen.js');
-  ok(/if \(countOrderCardSlots\(html\) === 0\) logPageShape\(html\);/.test(screen),
+  ok(/if \(countOrderCardSlots\(html, platformKey\) === 0\) logPageShape\(html\);/.test(screen),
     'a page that is working prints no shape report, so this cannot become noise');
   ok(/import \{ logPageShape \} from '\.\/pageShape\.js';/.test(screen),
     'and it really is wired in');

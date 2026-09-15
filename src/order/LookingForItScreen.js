@@ -454,8 +454,12 @@ export default function LookingForItScreen({ navigation, route }) {
         // THREE RUNGS, STRONGEST FIRST, and `how` says which one answered. See
         // harvestRendered: the card attribute, then the order's own link, then
         // the number's own shape. No new marker is guessed anywhere in it.
-        const harvest = harvestRendered(html);
-        const numbers = pagesToOpen(harvest.numbers);
+        // THE SHOP IS ASKED FOR, NEVER NAMED. Every one of these is handed the
+        // key it was given and looks the shapes up next door. There is no
+        // default shop anywhere in that file, so a page from a shop it does not
+        // know finds nothing rather than being read with somebody else's shapes.
+        const harvest = harvestRendered(html, platformKey);
+        const numbers = pagesToOpen(harvest.numbers, platformKey);
 
         // ── THE ONE LINE THAT TELLS THE TWO EMPTY ANSWERS APART ────────────
         //
@@ -467,7 +471,7 @@ export default function LookingForItScreen({ navigation, route }) {
         // THE NUMBERS THEMSELVES ARE NOT LOGGED. An order number is a strong
         // identifier tied to the account, it is already kept server side, and a
         // count is what the question needs.
-        logLook('numbers', `slots=${countOrderCardSlots(html)} `
+        logLook('numbers', `slots=${countOrderCardSlots(html, platformKey)} `
           + `marked=${harvest.marked} linked=${harvest.linked} `
           + `shaped=${harvest.shaped} opening=${numbers.length} how=${harvest.how}`);
 
@@ -484,7 +488,7 @@ export default function LookingForItScreen({ navigation, route }) {
         // shape report at all, so this cannot become noise on the ordinary path.
         // It is counts, attribute names and digit-masked shapes — never a word off
         // the page. See src/order/pageShape.js for what it may and may not say.
-        if (countOrderCardSlots(html) === 0) logPageShape(html);
+        if (countOrderCardSlots(html, platformKey) === 0) logPageShape(html);
         // ── AND WHAT AN ORDER ROW IS ACTUALLY MARKED WITH ───────────────────
         //
         // The report above says what the whole page is made of, which answered
@@ -494,14 +498,14 @@ export default function LookingForItScreen({ navigation, route }) {
         // tag, its classes, its id, its data attributes, and the same for the
         // few elements above it. Identical surroundings collapse into one line
         // with a count. Never a word off the page, never a real order number.
-        if (countOrderCardSlots(html) === 0) logRowShape(html);
+        if (countOrderCardSlots(html, platformKey) === 0) logRowShape(html);
 
         const pages = [];
         for (let i = 0; i < numbers.length; i += 1) {
           const gap = waitBeforeFetch(i);
           if (gap > 0) await pause(gap);
           if (!alive) return;
-          const url = orderDetailPageFor(numbers[i]);
+          const url = orderDetailPageFor(platformKey, numbers[i]);
           // Cannot be null — pagesToOpen already refused anything that is not an
           // order number — and it is still asked, because the day that stops
           // being true the answer must be "do not fetch it" and not a guess.

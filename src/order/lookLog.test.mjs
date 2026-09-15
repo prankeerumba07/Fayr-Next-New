@@ -228,8 +228,8 @@ const card = (n) => `<div data-csa-c-slot-id="amzn1.yourorders.order-card.${n}">
 
 it('counts the cards on a real page, and the harvest agrees', () => {
   const html = card('408-5094957-4481129') + card('402-3925017-7784521');
-  equal(countOrderCardSlots(html), 2);
-  equal(harvestOrderNumbers(html).length, 2);
+  equal(countOrderCardSlots(html, 'amazon'), 2);
+  equal(harvestOrderNumbers(html, 'amazon').length, 2);
 });
 
 it('SLOTS WITHOUT SHAPES — the case that says the format moved', () => {
@@ -237,8 +237,8 @@ it('SLOTS WITHOUT SHAPES — the case that says the format moved', () => {
   // them was refused, so the fix is one regular expression and there is nothing
   // wrong with the session.
   const html = card('AB12-345') + card('99999');
-  equal(countOrderCardSlots(html), 2);
-  equal(harvestOrderNumbers(html).length, 0);
+  equal(countOrderCardSlots(html, 'amazon'), 2);
+  equal(harvestOrderNumbers(html, 'amazon').length, 0);
 });
 
 it('NO SLOTS AT ALL — the case that says it was not an orders page', () => {
@@ -247,8 +247,8 @@ it('NO SLOTS AT ALL — the case that says it was not an orders page', () => {
     '<html><body>Click the button below to continue shopping</body></html>',
     '',
   ]) {
-    equal(countOrderCardSlots(html), 0);
-    equal(harvestOrderNumbers(html).length, 0);
+    equal(countOrderCardSlots(html, 'amazon'), 0);
+    equal(harvestOrderNumbers(html, 'amazon').length, 0);
   }
 });
 
@@ -256,23 +256,23 @@ it('counts every card, including the duplicates the harvest folds away', () => {
   // The harvest answers each number ONCE. The count answers how many cards the
   // page drew. They are different questions and must not be made one.
   const n = '408-5094957-4481129';
-  equal(countOrderCardSlots(card(n) + card(n) + card(n)), 3);
-  equal(harvestOrderNumbers(card(n) + card(n) + card(n)).length, 1);
+  equal(countOrderCardSlots(card(n) + card(n) + card(n), 'amazon'), 3);
+  equal(harvestOrderNumbers(card(n) + card(n) + card(n), 'amazon').length, 1);
 });
 
 it('ignores a slot id that is not an order card', () => {
   const html = '<div data-csa-c-slot-id="amzn1.yourorders.filter.408-5094957-4481129"></div>';
-  equal(countOrderCardSlots(html), 0);
+  equal(countOrderCardSlots(html, 'amazon'), 0);
 });
 
 it('answers the same twice, and never throws on junk', () => {
   const html = card('408-5094957-4481129');
-  equal(countOrderCardSlots(html), countOrderCardSlots(html));
-  for (const junk of [null, undefined, 42, {}, []]) equal(countOrderCardSlots(junk), 0);
+  equal(countOrderCardSlots(html, 'amazon'), countOrderCardSlots(html, 'amazon'));
+  for (const junk of [null, undefined, 42, {}, []]) equal(countOrderCardSlots(junk, 'amazon'), 0);
 });
 
 it('AND IT RETURNS A NUMBER, never the text it matched', () => {
-  const got = countOrderCardSlots(card('408-5094957-4481129'));
+  const got = countOrderCardSlots(card('408-5094957-4481129'), 'amazon');
   equal(typeof got, 'number');
   ok(!String(got).includes('408'), 'it handed back the order number');
 });

@@ -17,8 +17,10 @@ import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
   AMAZON_ORDER_DETAIL_PAGE, GAP_BETWEEN_FETCHES_MS, MOST_DETAIL_PAGES,
-  ORDER_ID_PARAM, ORDER_NUMBER_RUN, ORDER_NUMBER_SHAPE, SHOPS_READ_ONE_ORDER_AT_A_TIME,
-  harvestByShape, harvestFromOrderLinks, harvestOrderNumbers, harvestRendered,
+  HOW_EACH_SHOP_NAMES_AN_ORDER, ORDER_ID_PARAM, ORDER_NUMBER_RUN,
+  AMAZON_ORDER_NUMBER_SHAPE, SHOPS_READ_ONE_ORDER_AT_A_TIME, howThisShopNamesAnOrder,
+  countOrderCardSlots, harvestByShape, harvestFromOrderLinks, harvestOrderNumbers,
+  harvestRendered,
   orderDetailPageFor, pagesToOpen, readsOrderPages, waitBeforeFetch,
 } from './detailLook.js';
 import { readDetailOutcome, readListOutcome } from '../orderhistory.js';
@@ -44,7 +46,7 @@ console.log('\nharvesting the order numbers out of the empty frames');
 
 it('finds every order number, in the order the page had them', () => {
   const html = listPage('408-5094957-4481129', '402-3925017-7784521');
-  deepEqual(harvestOrderNumbers(html), [
+  deepEqual(harvestOrderNumbers(html, 'amazon'), [
     '408-5094957-4481129', '402-3925017-7784521',
   ]);
 });
@@ -54,12 +56,12 @@ it('NEWEST FIRST, because the page is, and nothing here sorts', () => {
   // date survives on this page to sort by — which is the whole reason the order
   // pages have to be opened at all.
   const html = listPage('403-0000001-0000001', '403-0000002-0000002');
-  equal(harvestOrderNumbers(html)[0], '403-0000001-0000001');
+  equal(harvestOrderNumbers(html, 'amazon')[0], '403-0000001-0000001');
 });
 
 it('each one once, however many times the page names it', () => {
   const n = '408-5094957-4481129';
-  deepEqual(harvestOrderNumbers(listPage(n, n, n)), [n]);
+  deepEqual(harvestOrderNumbers(listPage(n, n, n), 'amazon'), [n]);
 });
 
 it('IGNORES anything that is not an order number rather than fetching it', () => {
@@ -69,23 +71,23 @@ it('IGNORES anything that is not an order number rather than fetching it', () =>
     'junk', '', '408-5094957-4481129', '12345', '../../etc/passwd',
     '408-5094957-448112', '408-5094957-44811299',
   );
-  deepEqual(harvestOrderNumbers(html), ['408-5094957-4481129']);
+  deepEqual(harvestOrderNumbers(html, 'amazon'), ['408-5094957-4481129']);
 });
 
 it('is not fooled by a different slot id on the same page', () => {
   const html = '<div data-csa-c-slot-id="amzn1.yourorders.filter.408-5094957-4481129"></div>'
     + card('402-3925017-7784521');
-  deepEqual(harvestOrderNumbers(html), ['402-3925017-7784521']);
+  deepEqual(harvestOrderNumbers(html, 'amazon'), ['402-3925017-7784521']);
 });
 
 it('reads single quotes as well as double, because a page is written by anything', () => {
   const html = "<div data-csa-c-slot-id='amzn1.yourorders.order-card.408-5094957-4481129'></div>";
-  deepEqual(harvestOrderNumbers(html), ['408-5094957-4481129']);
+  deepEqual(harvestOrderNumbers(html, 'amazon'), ['408-5094957-4481129']);
 });
 
 it('and answers nothing at all for nothing at all', () => {
   for (const junk of [null, undefined, '', 42, {}, [], '<html></html>']) {
-    deepEqual(harvestOrderNumbers(junk), []);
+    deepEqual(harvestOrderNumbers(junk, 'amazon'), []);
   }
 });
 
@@ -93,14 +95,14 @@ it('ANSWERS THE SAME TWICE, so a remembered position cannot change it', () => {
   // A global expression remembers where it stopped. A shared one would give a
   // different answer the second time it was asked about the same page.
   const html = listPage('408-5094957-4481129', '402-3925017-7784521');
-  deepEqual(harvestOrderNumbers(html), harvestOrderNumbers(html));
+  deepEqual(harvestOrderNumbers(html, 'amazon'), harvestOrderNumbers(html, 'amazon'));
 });
 
 console.log('\nthe address of one order');
 
 it('builds the order page address from the number', () => {
   equal(
-    orderDetailPageFor('408-5094957-4481129'),
+    orderDetailPageFor('amazon', '408-5094957-4481129'),
     `${AMAZON_ORDER_DETAIL_PAGE}408-5094957-4481129`,
   );
 });
@@ -115,13 +117,13 @@ it('NULL, never a guessed address, for anything that is not an order number', ()
     null, undefined, '', 'junk', '12345', 42, {},
     '408-5094957-4481129 OR 1=1', 'http://elsewhere.invalid',
   ]) {
-    equal(orderDetailPageFor(junk), null);
+    equal(orderDetailPageFor('amazon', junk), null);
   }
 });
 
 it('and it trims, because a page carries whitespace', () => {
   equal(
-    orderDetailPageFor('  408-5094957-4481129  '),
+    orderDetailPageFor('amazon', '  408-5094957-4481129  '),
     `${AMAZON_ORDER_DETAIL_PAGE}408-5094957-4481129`,
   );
 });
@@ -132,21 +134,21 @@ it('OPENS AT MOST SIX PAGES, whatever the list held', () => {
   const many = Array.from({ length: 20 }, (unused, i) =>
     `40${i % 10}-000000${i % 10}-000000${i % 10}`);
   equal(MOST_DETAIL_PAGES, 6);
-  equal(pagesToOpen(many).length, MOST_DETAIL_PAGES);
+  equal(pagesToOpen(many, 'amazon').length, MOST_DETAIL_PAGES);
 });
 
 it('and it is the FIRST six, which are the newest', () => {
   const numbers = ['401-0000001-0000001', '402-0000002-0000002', '403-0000003-0000003',
     '404-0000004-0000004', '405-0000005-0000005', '406-0000006-0000006',
     '407-0000007-0000007'];
-  deepEqual(pagesToOpen(numbers), numbers.slice(0, 6));
+  deepEqual(pagesToOpen(numbers, 'amazon'), numbers.slice(0, 6));
 });
 
 it('refuses anything that is not an order number even here', () => {
-  deepEqual(pagesToOpen(['junk', '408-5094957-4481129', null, 7]), [
+  deepEqual(pagesToOpen(['junk', '408-5094957-4481129', null, 7], 'amazon'), [
     '408-5094957-4481129',
   ]);
-  deepEqual(pagesToOpen(null), []);
+  deepEqual(pagesToOpen(null, 'amazon'), []);
 });
 
 it('WAITS A REAL GAP between fetches, and never before the first', () => {
@@ -173,14 +175,132 @@ it('junk index waits nothing rather than throwing', () => {
 
 console.log('\nwhich shops are read this way');
 
-it('AMAZON, and only Amazon, because only its list is empty frames', () => {
-  deepEqual(SHOPS_READ_ONE_ORDER_AT_A_TIME, ['amazon']);
+it('the two whose lists are empty frames, and nobody else', () => {
+  // ZEPTO JOINED ON 15 SEPTEMBER 2026. Its list is drawn like Amazon's and
+  // carries no product name at all, so the list alone can never match a
+  // campaign and each order's own page has to be opened.
+  deepEqual(SHOPS_READ_ONE_ORDER_AT_A_TIME, ['amazon', 'zepto']);
   equal(readsOrderPages('amazon'), true);
   equal(readsOrderPages('AMAZON'), true);
-  for (const other of ['meesho', 'zepto', 'flipkart', 'blinkit', 'instamart',
+  equal(readsOrderPages('zepto'), true);
+  equal(readsOrderPages('ZEPTO'), true);
+  // MEESHO'S LIST REALLY DOES CARRY ITS ORDERS AS TEXT, so reading it a page at
+  // a time would be more requests for an answer already in hand. And Myntra is
+  // dormant: its entry is preserved untouched and it is not read at all.
+  for (const other of ['meesho', 'flipkart', 'blinkit', 'instamart',
     'myntra', '', null, undefined, 7]) {
     equal(readsOrderPages(other), false);
   }
+  // AND THE LIST IS THE RECORD'S OWN KEYS, so a shop cannot be remembered in one
+  // place and forgotten in the other.
+  deepEqual(SHOPS_READ_ONE_ORDER_AT_A_TIME, Object.keys(HOW_EACH_SHOP_NAMES_AN_ORDER));
+  // AND IT IS DERIVED IN THE FILE AND NOT TYPED OUT BESIDE IT. Said honestly:
+  // the two spellings give the SAME value today, so nothing a check can call
+  // tells them apart. This reads the file, because the property being kept is
+  // that they cannot drift apart tomorrow.
+  const file = readFileSync(new URL('./detailLook.js', import.meta.url), 'utf8');
+  ok(file.includes(
+    'export const SHOPS_READ_ONE_ORDER_AT_A_TIME = Object.keys(HOW_EACH_SHOP_NAMES_AN_ORDER);',
+  ), 'the list of shops is the record own keys, so one cannot be added to only one of them');
+});
+
+it('and each shop is named by its OWN shape and its OWN address', () => {
+  const amazon = howThisShopNamesAnOrder('amazon');
+  const zepto = howThisShopNamesAnOrder('zepto');
+  // THE WORD WE COUNT WITH COMES OFF THE ADDRESS WE ASK WITH, for both, which is
+  // the rule this file has always followed and the reason neither is typed twice.
+  equal(amazon.param, 'orderID=');
+  ok(amazon.detail.endsWith(amazon.param), 'Amazon names its order in the query');
+  equal(zepto.param, '/order/');
+  ok(zepto.detail.endsWith(zepto.param), 'and Zepto names its order in the path');
+  // THE TWO SHAPES ARE REALLY DIFFERENT, and neither accepts the other's.
+  ok(amazon.shape.test('408-5094957-4481129'));
+  ok(!amazon.shape.test('01a0397a-bbb4-7cd7-b611-0e68227a15f1'));
+  ok(zepto.shape.test('01a0397a-bbb4-7cd7-b611-0e68227a15f1'));
+  ok(!zepto.shape.test('408-5094957-4481129'));
+  // LOWER CASE ONLY, WHICH IS WHAT WAS MEASURED. A case this file has never seen
+  // is a guess, and widening a shape that goes into an address is how a page
+  // nobody asked for gets opened. The tell if the measurement was ever wrong is
+  // a line reading linked=8 opening=0 — every link found, every id refused.
+  ok(!zepto.shape.test('01A0397A-BBB4-7CD7-B611-0E68227A15F1'),
+    'an upper case uuid is not a shape this file has measured');
+  ok(!zepto.shape.test('01a0397a-bbb4-7cd7-b611-0e68227a15f1x'));
+  ok(!zepto.shape.test('x01a0397a-bbb4-7cd7-b611-0e68227a15f1'));
+  // THE ADDRESSES, BOTH HALVES. Zepto's number sits in the MIDDLE of its address.
+  equal(
+    orderDetailPageFor('zepto', '01a0397a-bbb4-7cd7-b611-0e68227a15f1'),
+    'https://www.zepto.com/order/01a0397a-bbb4-7cd7-b611-0e68227a15f1?isArchived=false',
+  );
+  equal(amazon.tail, '', 'and Amazon has no tail, so its address is what it always was');
+  // AND NEITHER SHOP'S NUMBER EVER BUILDS THE OTHER SHOP'S ADDRESS.
+  equal(orderDetailPageFor('zepto', '408-5094957-4481129'), null);
+  equal(orderDetailPageFor('amazon', '01a0397a-bbb4-7cd7-b611-0e68227a15f1'), null);
+  // AND A SHOP THIS FILE DOES NOT KNOW BUILDS NOTHING, rather than being handed
+  // Amazon's shapes. There is no default shop anywhere in this file.
+  for (const other of ['meesho', 'flipkart', '', null, undefined]) {
+    equal(orderDetailPageFor(other, '408-5094957-4481129'), null);
+    equal(howThisShopNamesAnOrder(other), null);
+    deepEqual(harvestRendered('<a href="/o?orderID=402-3925017-7784521">x</a>', other).numbers, []);
+    deepEqual(pagesToOpen(['408-5094957-4481129'], other), []);
+  }
+});
+
+it('and the word before the number is taken as itself, not as an expression', () => {
+  // ── WHY THIS IS NOT THEORETICAL ──────────────────────────────────────────
+  //
+  // The word is sliced off an ADDRESS, and an address is allowed a question
+  // mark. Dropped into an expression unescaped, `orderID?=` would quietly make
+  // the D optional and the word stop meaning what it says. Neither shop's word
+  // has a metacharacter in it today, so nothing else here can tell.
+  //
+  // A SHOP IS ADDED FOR THE LENGTH OF THIS CHECK AND TAKEN OUT AGAIN, which is
+  // the only way to ask the real function a question the real shops cannot pose.
+  const invented = 'a-shop-that-is-not-real';
+  HOW_EACH_SHOP_NAMES_AN_ORDER[invented] = {
+    shape: /^\d{3}$/,
+    run: '\\d{3}',
+    detail: 'https://example.test/o?x+y=',
+    tail: '',
+    param: 'x+y=',
+    card: null,
+    theShapeAloneIsEnough: false,
+  };
+  try {
+    deepEqual(harvestFromOrderLinks('<a href="/o?x+y=123">a</a>', invented), ['123'],
+      'the word matches itself, plus sign and all');
+    deepEqual(harvestFromOrderLinks('<a href="/o?xy=123">a</a>', invented), [],
+      'AND IT IS NOT AN EXPRESSION: a page missing that character matches nothing');
+    deepEqual(harvestFromOrderLinks('<a href="/o?xxxxy=123">a</a>', invented), [],
+      'nor does one repeating the character before it');
+  } finally {
+    delete HOW_EACH_SHOP_NAMES_AN_ORDER[invented];
+  }
+  equal(howThisShopNamesAnOrder(invented), null, 'and the invented shop is gone again');
+});
+
+it('and a uuid is never harvested by its shape alone, only out of a link', () => {
+  // ── THE REFUSAL THIS RECORD EXISTS FOR ────────────────────────────────────
+  //
+  // A Zepto page is full of uuids — products, images, whatever its own code was
+  // handed. Harvesting by shape there would take an image's id, build a real
+  // address out of it, and then open it: a request to a shop for a page nobody
+  // asked for, built out of a string that happened to be lying on another one.
+  const id = '01a0397a-bbb4-7cd7-b611-0e68227a15f1';
+  const stray = `<span>${id}</span>`;
+  deepEqual(harvestByShape(stray, 'zepto'), [], 'a bare uuid on a page is not an order');
+  deepEqual(harvestRendered(stray, 'zepto').numbers, [], 'and the ladder finds nothing in it');
+  equal(howThisShopNamesAnOrder('zepto').theShapeAloneIsEnough, false);
+  // AND OUT OF THE SHOP'S OWN LINK IT IS AN ORDER, which is the only rung it has.
+  const row = `<a href="/order/${id}?isArchived=false"></a>`;
+  deepEqual(harvestFromOrderLinks(row, 'zepto'), [id]);
+  const found = harvestRendered(row, 'zepto');
+  deepEqual(found.numbers, [id]);
+  equal(found.how, 'link', 'and the report says which rung answered');
+  equal(found.marked, 0, 'a shop with no card attribute marks nothing');
+  equal(countOrderCardSlots(row, 'zepto'), 0, 'and counts no cards, because it has none');
+  // AND AMAZON KEEPS ALL THREE RUNGS, which is what that flag is protecting.
+  equal(howThisShopNamesAnOrder('amazon').theShapeAloneIsEnough, true);
+  deepEqual(harvestByShape('<span>403-1234567-8901234</span>', 'amazon'), ['403-1234567-8901234']);
 });
 
 it('and THE SCREEN NEVER WRITES A SHOP NAME, it asks this instead', () => {
@@ -305,13 +425,13 @@ it('and both readers give the SAME name to the same refusal', () => {
 console.log('\nthe shape of an order number');
 
 it('is three, seven, seven — the shape proven on a real account', () => {
-  ok(ORDER_NUMBER_SHAPE.test('408-5094957-4481129'));
-  ok(ORDER_NUMBER_SHAPE.test('402-3925017-7784521'));
-  ok(!ORDER_NUMBER_SHAPE.test('40-5094957-4481129'));
-  ok(!ORDER_NUMBER_SHAPE.test('408-509495-4481129'));
-  ok(!ORDER_NUMBER_SHAPE.test('408-5094957-448112'));
-  ok(!ORDER_NUMBER_SHAPE.test('x408-5094957-4481129'));
-  ok(!ORDER_NUMBER_SHAPE.test('408-5094957-4481129x'));
+  ok(AMAZON_ORDER_NUMBER_SHAPE.test('408-5094957-4481129'));
+  ok(AMAZON_ORDER_NUMBER_SHAPE.test('402-3925017-7784521'));
+  ok(!AMAZON_ORDER_NUMBER_SHAPE.test('40-5094957-4481129'));
+  ok(!AMAZON_ORDER_NUMBER_SHAPE.test('408-509495-4481129'));
+  ok(!AMAZON_ORDER_NUMBER_SHAPE.test('408-5094957-448112'));
+  ok(!AMAZON_ORDER_NUMBER_SHAPE.test('x408-5094957-4481129'));
+  ok(!AMAZON_ORDER_NUMBER_SHAPE.test('408-5094957-4481129x'));
 });
 
 console.log('\nthe ladder: three ways to find a number, strongest first');
@@ -326,67 +446,67 @@ it('THE SHAPE IS DERIVED FROM THE ONE DEFINITION AND NOT TYPED OUT AGAIN', () =>
   // The day an order number changes shape, every rung, every address and the
   // ceiling all change together — because there is one source and everything
   // points at it. A second copy typed here is how those drift apart.
-  equal(new RegExp(`^${ORDER_NUMBER_RUN}$`).source, ORDER_NUMBER_SHAPE.source);
+  equal(new RegExp(`^${ORDER_NUMBER_RUN}$`).source, AMAZON_ORDER_NUMBER_SHAPE.source);
   equal(ORDER_ID_PARAM, 'orderID=');
   ok(AMAZON_ORDER_DETAIL_PAGE.endsWith(ORDER_ID_PARAM),
     'and the word comes off the address this file builds');
 });
 
 it('RUNG ONE, the card attribute, is completely unchanged', () => {
-  deepEqual(harvestOrderNumbers(listPage('408-5094957-4481129')), ['408-5094957-4481129']);
+  deepEqual(harvestOrderNumbers(listPage('408-5094957-4481129'), 'amazon'), ['408-5094957-4481129']);
   // The distinction this rung exists for: the cards are there and the ids in
   // them are refused. A shape-only harvest would quietly lose it.
   const wrongKind =
     '<div data-csa-c-slot-id="amzn1.yourorders.filter.408-5094957-4481129"></div>';
-  deepEqual(harvestOrderNumbers(wrongKind), [], 'a filter is not an order card');
+  deepEqual(harvestOrderNumbers(wrongKind, 'amazon'), [], 'a filter is not an order card');
 });
 
 it('RUNG TWO takes the number the shop itself wrote into a link to the order', () => {
-  deepEqual(harvestFromOrderLinks(drawnRow('402-3925017-7784521')), ['402-3925017-7784521']);
-  deepEqual(harvestFromOrderLinks('<a href="/x?orderID=nonsense">y</a>'), [],
+  deepEqual(harvestFromOrderLinks(drawnRow('402-3925017-7784521'), 'amazon'), ['402-3925017-7784521']);
+  deepEqual(harvestFromOrderLinks('<a href="/x?orderID=nonsense">y</a>', 'amazon'), [],
     'and a link to nonsense builds no address');
-  deepEqual(harvestFromOrderLinks('<a href="/x?orderID=408-5094957-44811299">y</a>'), [],
+  deepEqual(harvestFromOrderLinks('<a href="/x?orderID=408-5094957-44811299">y</a>', 'amazon'), [],
     'nor a run that is part of a longer one');
-  deepEqual(harvestFromOrderLinks('<a href="/x?ORDERID=402-3925017-7784521">y</a>'),
+  deepEqual(harvestFromOrderLinks('<a href="/x?ORDERID=402-3925017-7784521">y</a>', 'amazon'),
     ['402-3925017-7784521'], 'however the shop happens to spell it');
-  deepEqual(harvestFromOrderLinks(''), []);
+  deepEqual(harvestFromOrderLinks('', 'amazon'), []);
 });
 
 it('RUNG THREE takes the number\u2019s own shape, which no markup change can move', () => {
-  deepEqual(harvestByShape('<span>ORDER # 403-1234567-8901234</span>'), ['403-1234567-8901234']);
-  deepEqual(harvestByShape('<span>1408-5094957-44811299</span>'), [],
+  deepEqual(harvestByShape('<span>ORDER # 403-1234567-8901234</span>', 'amazon'), ['403-1234567-8901234']);
+  deepEqual(harvestByShape('<span>1408-5094957-44811299</span>', 'amazon'), [],
     'a piece of a longer run is not an order number');
-  deepEqual(harvestByShape('<span>408-509495-4481129</span>'), [], 'and neither is a near miss');
+  deepEqual(harvestByShape('<span>408-509495-4481129</span>', 'amazon'), [], 'and neither is a near miss');
   // THE PAGE'S OWN CODE IS NOT THE PAGE. A drawn page carries its orders twice,
   // once as markup and once inside the data its script was handed, and the
   // second copy is in a different order from the one a person sees.
-  deepEqual(harvestByShape('<script>var o=["409-1111111-2222222"]</script>'), [],
+  deepEqual(harvestByShape('<script>var o=["409-1111111-2222222"]</script>', 'amazon'), [],
     'a number inside a script is not on the page');
 });
 
 it('THE LADDER SAYS WHICH RUNG ANSWERED, and that one word is the finding', () => {
-  const slot = harvestRendered(listPage('408-5094957-4481129'));
+  const slot = harvestRendered(listPage('408-5094957-4481129'), 'amazon');
   equal(slot.how, 'slot', 'the old marker still being there is the best news there is');
-  const link = harvestRendered('<a href="/o?orderID=402-3925017-7784521">x</a>');
+  const link = harvestRendered('<a href="/o?orderID=402-3925017-7784521">x</a>', 'amazon');
   equal(link.how, 'link');
-  const shape = harvestRendered('<span>403-1234567-8901234</span>');
+  const shape = harvestRendered('<span>403-1234567-8901234</span>', 'amazon');
   equal(shape.how, 'shape', 'and this one says go and read the row report');
-  equal(harvestRendered('<html><body>Sign in</body></html>').how, 'none');
+  equal(harvestRendered('<html><body>Sign in</body></html>', 'amazon').how, 'none');
   for (const junk of [null, undefined, 5, {}, '']) {
-    equal(harvestRendered(junk).how, 'none', `${String(junk)} finds nothing`);
+    equal(harvestRendered(junk, 'amazon').how, 'none', `${String(junk)} finds nothing`);
   }
 });
 
 it('and the strongest rung is asked first, so a decoy cannot displace a real card', () => {
   const page = listPage('408-5094957-4481129') + '<span>403-1234567-8901234</span>';
-  const found = harvestRendered(page);
+  const found = harvestRendered(page, 'amazon');
   equal(found.how, 'slot', 'the card is what answered');
   equal(found.numbers[0], '408-5094957-4481129', 'and its number comes first');
 });
 
 it('one number found twice is opened once', () => {
   const both = listPage('408-5094957-4481129') + drawnRow('408-5094957-4481129');
-  const found = harvestRendered(both);
+  const found = harvestRendered(both, 'amazon');
   deepEqual(found.numbers, ['408-5094957-4481129']);
   equal(found.marked, 1);
   equal(found.linked, 1, 'and the counts still say it was seen by two rungs');
@@ -395,12 +515,12 @@ it('one number found twice is opened once', () => {
 
 it('and the page order is kept, because the shop lists its orders newest first', () => {
   const page = drawnRow('408-5094957-4481129') + drawnRow('402-3925017-7784521');
-  deepEqual(harvestRendered(page).numbers, ['408-5094957-4481129', '402-3925017-7784521']);
+  deepEqual(harvestRendered(page, 'amazon').numbers, ['408-5094957-4481129', '402-3925017-7784521']);
 });
 
 it('nothing found anywhere still builds no address', () => {
-  const found = harvestRendered('<html><body>nothing here</body></html>');
-  deepEqual(pagesToOpen(found.numbers), []);
+  const found = harvestRendered('<html><body>nothing here</body></html>', 'amazon');
+  deepEqual(pagesToOpen(found.numbers, 'amazon'), []);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

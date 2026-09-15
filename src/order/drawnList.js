@@ -59,7 +59,7 @@ import {
   HOW_OFTEN_IT_LOOKS_MS, LOOKS_IN_A_ROW_BEFORE_WE_ASK,
 } from '../connect/gate.js';
 import {
-  GAP_BETWEEN_FETCHES_MS, MOST_DETAIL_PAGES, ORDER_ID_PARAM,
+  GAP_BETWEEN_FETCHES_MS, MOST_DETAIL_PAGES, howThisShopNamesAnOrder,
 } from './detailLook.js';
 import {
   buildOrderListScript, landedPath, orderListPageFor, readListOutcome, readPageRefusal,
@@ -76,13 +76,15 @@ import {
  * list is worth only the order numbers" — and the day one of them stops being
  * true, sharing a list means the other changes silently with it.
  */
-export const SHOPS_WHOSE_LIST_THE_PAGE_DRAWS = ['amazon'];
-
-/** Whether this shop draws its own list of orders. */
-export function theListIsDrawn(platformKey) {
-  const key = String(platformKey || '').toLowerCase();
-  return SHOPS_WHOSE_LIST_THE_PAGE_DRAWS.indexOf(key) !== -1;
-}
+/*
+ * ── AND IT IS NOW THE MARKER MAP'S OWN KEYS, WHICH IS STILL NOT THAT LIST ──
+ *
+ * The argument above is unchanged and it is about the file NEXT DOOR. Inside
+ * THIS file, "its list has to be drawn" and "here is what to count while it
+ * draws" are not two facts — you cannot wait for a draw without knowing what you
+ * are waiting for — so a shop cannot be in one and missing from the other.
+ */
+export const SHOPS_WHOSE_LIST_THE_PAGE_DRAWS = ['amazon', 'zepto'];
 
 /**
  * HOW LONG THE PAGE MAY TAKE TO DRAW BEFORE WE STOP WAITING FOR IT.
@@ -141,15 +143,56 @@ export const STEADY_LOOKS_BEFORE_WE_READ = LOOKS_IN_A_ROW_BEFORE_WE_ASK;
 export const MOST_LOOKS = Math.ceil(DRAW_DEADLINE_MS / LOOK_AGAIN_MS);
 
 /**
- * WHAT THE PAGE IS COUNTING WHILE IT WAITS, and neither one is a new guess.
+ * WHAT EACH DRAWN SHOP IS COUNTING WHILE IT WAITS, and not one of these is a
+ * new guess.
  *
- * A link to an order's own page — the word `orderID=` comes off the address
- * detailLook.js builds — and the order card attribute this project has always
- * read. If both are wrong the poll waits out its deadline and the report says so;
- * nothing is harvested from either.
+ * AMAZON. A link to an order's own page — the word `orderID=` comes off the
+ * address detailLook.js builds — and the order card attribute this project has
+ * always read.
+ *
+ * ZEPTO. An overlay anchor to the order's own page, `/order/` coming off the
+ * same file's address for the same reason: the word we count with cannot be a
+ * different word from the one we ask with.
+ *
+ * If a shop's markers are all wrong the poll waits out its deadline and the
+ * report says so; nothing is harvested from either.
  */
-export const A_LINK_TO_AN_ORDER = `a[href*="${ORDER_ID_PARAM}"]`;
-export const AN_ORDER_CARD = '[data-csa-c-slot-id]';
+export const WHAT_EACH_SHOP_DRAWS = {
+  amazon: {
+    link: `a[href*="${howThisShopNamesAnOrder('amazon').param}"]`,
+    card: '[data-csa-c-slot-id]',
+  },
+  zepto: {
+    // MEASURED, 15 September 2026: eight of these on the owner's own list page
+    // and NONE AT ALL on the shop's front page, which is the whole test of a
+    // marker. `^=` and not `*=` because `^=` is what was measured.
+    //
+    // THE ANCHORS ARE EMPTY. The link sits OVER the card rather than around it,
+    // so there is not one word inside it. It is a marker and nothing else, and
+    // nothing is ever read out of it here.
+    link: `a[href^="${howThisShopNamesAnOrder('zepto').param}"]`,
+    // AND THERE IS NO SECOND MARKER, WRITTEN AS null RATHER THAN AS A SELECTOR
+    // THAT HAPPENS TO MATCH NOTHING. `rows` below is the two counts ADDED, so a
+    // second selector picked to count zero is a guess that can start counting
+    // something — and the day it does, `rows` doubles and the poll reads a
+    // half-drawn page as a finished one. Every class on that page is a build
+    // hash, so there was never an honest second one to write.
+    card: null,
+  },
+};
+
+/** What this shop's drawn rows are counted by, or null when its list is not drawn. */
+export function whatThisShopDraws(platformKey) {
+  const key = String(platformKey || '').toLowerCase();
+  return Object.prototype.hasOwnProperty.call(WHAT_EACH_SHOP_DRAWS, key)
+    ? WHAT_EACH_SHOP_DRAWS[key]
+    : null;
+}
+
+/** Whether this shop draws its own list of orders. */
+export function theListIsDrawn(platformKey) {
+  return whatThisShopDraws(platformKey) != null;
+}
 
 /**
  * A NAME FOR ONE ANSWER, so a page cannot answer for us.
@@ -261,10 +304,25 @@ export function answerWithStatus(payload, seen) {
  * wantsASignIn. There is no second idea of what a sign in page looks like in
  * here.
  */
-export function buildDrawnListScript({ beganAt, tag, wantedPath } = {}) {
+export function buildDrawnListScript({
+  beganAt, tag, wantedPath, counts,
+} = {}) {
   const startedAt = Number.isFinite(Number(beganAt)) ? Math.trunc(Number(beganAt)) : 0;
   const name = JSON.stringify(String(tag == null ? '' : tag));
   const wanted = JSON.stringify(String(wantedPath == null ? '' : wantedPath));
+  // WHAT THIS SHOP IS COUNTED BY, WRITTEN AS THE COUNT ITSELF.
+  //
+  // A shop with no second marker gets the literal 0 rather than a selector that
+  // matches nothing, so `rows` below is honestly one count and not two.
+  //
+  // AND A SHOP THIS FILE DOES NOT KNOW GETS 0 AND 0, WHICH IS LOUD. The poll
+  // then waits out its whole deadline and the line reads drew=false rows=0/0 —
+  // rather than quietly counting Amazon's markers on somebody else's page, which
+  // is the one way this could go wrong without anybody noticing.
+  const pair = counts != null && typeof counts === 'object' ? counts : {};
+  const countOf = (sel) => (typeof sel === 'string' && sel !== ''
+    ? `howMany(${JSON.stringify(sel)})`
+    : '0');
   return `
 (function(){
   if (window.__fayrLooking) return;
@@ -285,8 +343,8 @@ export function buildDrawnListScript({ beganAt, tag, wantedPath } = {}) {
   function howBig(){ try { return document.getElementsByTagName("*").length; } catch(e){ return 0; } }
   function look(){
     looks = looks + 1;
-    var linked = howMany(${JSON.stringify(A_LINK_TO_AN_ORDER)});
-    var marked = howMany(${JSON.stringify(AN_ORDER_CARD)});
+    var linked = ${countOf(pair.link)};
+    var marked = ${countOf(pair.card)};
     var rows = linked + marked;
     var now = howBig();
     if (first < 0) first = now;
@@ -363,7 +421,9 @@ export function openTheListWith(platformKey, startUrl, beganAt, tag) {
   }
   return {
     uri: list,
-    script: buildDrawnListScript({ beganAt, tag, wantedPath: landedPath(list) }),
+    script: buildDrawnListScript({
+      beganAt, tag, wantedPath: landedPath(list), counts: whatThisShopDraws(platformKey),
+    }),
     drawn: true,
     tag,
   };

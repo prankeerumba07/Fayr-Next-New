@@ -81,11 +81,37 @@ export const GAP_BETWEEN_FETCHES_MS = 1500;
  * fetched: this value goes into an address, and an address built out of whatever
  * a page happened to contain is the one thing that must not happen here.
  */
-export const ORDER_NUMBER_SHAPE = /^\d{3}-\d{7}-\d{7}$/;
+export const AMAZON_ORDER_NUMBER_SHAPE = /^\d{3}-\d{7}-\d{7}$/;
 
 /** Where an order's own page lives. The half before the number. */
 export const AMAZON_ORDER_DETAIL_PAGE =
   'https://www.amazon.in/gp/your-account/order-details?orderID=';
+
+/**
+ * A ZEPTO ORDER ID, AND IT IS A UUID.
+ *
+ * Measured on 15 September 2026, signed in on the owner's own account. It is
+ * read out of the shop's OWN link to the order's page and never out of the words
+ * printed on it — the words carry a different number, #JMOKSGSNP94115, which is
+ * what the order page calls itself and is not what its address is built from.
+ *
+ * LOWER CASE ONLY, because lower case is what was measured, and a case this file
+ * has never seen is a guess. The tell if that is ever wrong is a line reading
+ * linked=8 opening=0: the links were all found, and every id inside them refused.
+ */
+export const ZEPTO_ORDER_NUMBER_SHAPE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * WHERE ONE ZEPTO ORDER'S OWN PAGE LIVES, in two halves because the number sits
+ * in the MIDDLE of it rather than at the end.
+ *
+ * Measured the same day: https://www.zepto.com/order/<uuid>?isArchived=false.
+ * The tail is part of the address and not decoration — it is what the shop's own
+ * links to the page carry.
+ */
+export const ZEPTO_ORDER_DETAIL_PAGE = 'https://www.zepto.com/order/';
+export const ZEPTO_ORDER_DETAIL_TAIL = '?isArchived=false';
 
 /**
  * The attribute the order card carries, and the number inside it.
@@ -96,7 +122,7 @@ export const AMAZON_ORDER_DETAIL_PAGE =
  *
  * Single or double quotes, because a page is written by whatever wrote it.
  */
-const SLOT_ID_ATTRIBUTE =
+export const AMAZON_ORDER_CARD_ATTRIBUTE =
   /data-csa-c-slot-id\s*=\s*["']amzn1\.yourorders\.order-card\.([^"']{1,64})["']/gi;
 
 /**
@@ -110,7 +136,12 @@ const SLOT_ID_ATTRIBUTE =
  * PURE, and that is the point of it being here: this is the half of the read that
  * can be checked without a phone, and the half most likely to be wrong.
  */
-export function harvestOrderNumbers(html) {
+export function harvestOrderNumbers(html, platformKey) {
+  const shop = howThisShopNamesAnOrder(platformKey);
+  // NO SHOP, NO CARD, NO ANSWER. A shop whose list carries no card attribute at
+  // all says so with null, and asking this of it finds nothing rather than
+  // finding Amazon's cards on somebody else's page.
+  if (shop == null || shop.card == null) return [];
   if (typeof html !== 'string' || html === '') return [];
   const found = [];
   const seen = new Set();
@@ -122,13 +153,13 @@ export function harvestOrderNumbers(html) {
   // moment the loop can end early, which the guard below can already do on a page
   // with five hundred cards on it. A fresh one costs nothing and does not depend
   // on that reasoning staying true.
-  const pattern = new RegExp(SLOT_ID_ATTRIBUTE.source, 'gi');
+  const pattern = new RegExp(shop.card.source, 'gi');
   let match = pattern.exec(html);
   let guard = 0;
   while (match !== null && guard < 500) {
     guard += 1;
     const number = String(match[1]).trim();
-    if (ORDER_NUMBER_SHAPE.test(number) && !seen.has(number)) {
+    if (shop.shape.test(number) && !seen.has(number)) {
       seen.add(number);
       found.push(number);
     }
@@ -163,10 +194,15 @@ export function harvestOrderNumbers(html) {
  * order number is a strong identifier tied to somebody's account, and a count
  * answers the question without carrying one anywhere.
  */
-export function countOrderCardSlots(html) {
+export function countOrderCardSlots(html, platformKey) {
+  const shop = howThisShopNamesAnOrder(platformKey);
+  // A SHOP WITH NO CARDS COUNTS ZERO OF THEM, which is the truth about it, and
+  // the two meanings above collapse into one for such a shop: zero cards is not
+  // evidence that the page was wrong, only that this shop never had cards.
+  if (shop == null || shop.card == null) return 0;
   if (typeof html !== 'string' || html === '') return 0;
   // A fresh expression, for the reason recorded on the harvest above.
-  const pattern = new RegExp(SLOT_ID_ATTRIBUTE.source, 'gi');
+  const pattern = new RegExp(shop.card.source, 'gi');
   let howMany = 0;
   let guard = 0;
   while (pattern.exec(html) !== null && guard < 500) {
@@ -179,22 +215,122 @@ export function countOrderCardSlots(html) {
 /**
  * AN ORDER NUMBER AS IT APPEARS IN THE MIDDLE OF A PAGE, rather than on its own.
  *
- * ORDER_NUMBER_SHAPE with its two anchors taken off, DERIVED and not retyped.
+ * A shop's own shape with its two anchors taken off, DERIVED and not retyped.
  * The day the shape changes — a fourth group, an eighth digit — every rung of
  * the ladder below, every address built by orderDetailPageFor and pagesToOpen
  * all change together, because there is one definition and everything else
  * points at it. A second copy typed out here is how those drift apart.
  */
-export const ORDER_NUMBER_RUN = ORDER_NUMBER_SHAPE.source.replace(/^\^/, '').replace(/\$$/, '');
+/** The middle of an anchored shape, so it can be looked for inside a longer text. */
+function theRunIn(shape) {
+  return shape.source.replace(/^\^/, '').replace(/\$$/, '');
+}
+
+/**
+ * THE TEXT THAT STANDS IMMEDIATELY BEFORE THE NUMBER IN A LINK TO AN ORDER,
+ * TAKEN OFF THE ADDRESS RATHER THAN TYPED OUT.
+ *
+ * This is the rule this file has always followed for Amazon and the reason is
+ * worth keeping as the shops multiply: the word we COUNT rows with, and the word
+ * we HARVEST numbers with, cannot then be a different word from the one we ASK
+ * with. Two shops, two address shapes, one rule.
+ *
+ * A shop whose number sits in the query — Amazon — is named by what follows the
+ * question mark. A shop whose number sits in the PATH — Zepto — is named by the
+ * path itself, taken off the host. Plain string work and no `new URL`, which is
+ * a polyfill on a phone and this runs the moment the module loads.
+ */
+function theWordBeforeTheNumber(address) {
+  const asked = address.indexOf('?');
+  if (asked !== -1) return address.slice(asked + 1);
+  const afterTheHost = address.indexOf('/', address.indexOf('//') + 2);
+  return afterTheHost === -1 ? address : address.slice(afterTheHost);
+}
+
+/**
+ * HOW EACH SHOP NAMES AN ORDER, AND WHERE THAT ORDER'S OWN PAGE IS.
+ *
+ * ── WHAT EACH FIELD IS ─────────────────────────────────────────────────────
+ *
+ *   shape   what one of this shop's order numbers looks like, anchored. Nothing
+ *           off shape is ever made into an address.
+ *   run     the same shape with its anchors off, for looking inside a text.
+ *   detail  the half of the order page's address before the number.
+ *   tail    the half after it, empty for a shop that has none.
+ *   param   the text standing before the number in a link to that page, taken
+ *           off `detail` above and never typed.
+ *   card    the attribute this shop's list cards carry, or null for a shop whose
+ *           list carries none at all.
+ *   theShapeAloneIsEnough
+ *           whether a bare run of this shape, found anywhere on a page, is
+ *           evidence on its own.
+ *
+ * ── AND THAT LAST ONE IS NOT A TIDYING FLAG. IT IS A REFUSAL ──────────────
+ *
+ * Amazon's 408-5094957-4481129 is a shape almost nothing else on a page has, so
+ * a bare run of it is worth one wasted fetch and the report says `how=shape` so
+ * somebody can see it happening.
+ *
+ * A ZEPTO ORDER ID IS A UUID, AND A ZEPTO PAGE IS FULL OF UUIDS — products,
+ * images, whatever its own code was handed. Harvesting by shape there would take
+ * an image's id, build a real address out of it, and then NAVIGATE TO IT: a
+ * request to a shop for a page nobody asked for, built out of a string that
+ * happened to be on another page. That is the exact thing orderDetailPageFor
+ * exists to refuse. So Zepto has TWO rungs and says so, rather than three with
+ * one of them lying.
+ *
+ * ── AND A SHOP THAT IS NOT IN HERE GETS NOTHING, NEVER AMAZON'S ANSWER ────
+ *
+ * Every reader below looks this up and answers empty when it finds nothing.
+ * There is no default shop, and that is deliberate: a default would hand
+ * Amazon's shapes to somebody else's page and the wrongness would be silent.
+ */
+export const HOW_EACH_SHOP_NAMES_AN_ORDER = {
+  amazon: {
+    shape: AMAZON_ORDER_NUMBER_SHAPE,
+    run: theRunIn(AMAZON_ORDER_NUMBER_SHAPE),
+    detail: AMAZON_ORDER_DETAIL_PAGE,
+    tail: '',
+    param: theWordBeforeTheNumber(AMAZON_ORDER_DETAIL_PAGE),
+    card: AMAZON_ORDER_CARD_ATTRIBUTE,
+    theShapeAloneIsEnough: true,
+  },
+  zepto: {
+    shape: ZEPTO_ORDER_NUMBER_SHAPE,
+    run: theRunIn(ZEPTO_ORDER_NUMBER_SHAPE),
+    detail: ZEPTO_ORDER_DETAIL_PAGE,
+    tail: ZEPTO_ORDER_DETAIL_TAIL,
+    param: theWordBeforeTheNumber(ZEPTO_ORDER_DETAIL_PAGE),
+    // MEASURED: there is no second marker on a Zepto row. Every class on that
+    // page is a build hash, and the cards carry no attribute of their own. Null
+    // rather than a selector picked to match nothing, because a selector chosen
+    // to count zero is a guess that can start counting something.
+    card: null,
+    theShapeAloneIsEnough: false,
+  },
+};
+
+/** How this shop names an order, or null when its orders are not read this way. */
+export function howThisShopNamesAnOrder(platformKey) {
+  const key = String(platformKey || '').toLowerCase();
+  return Object.prototype.hasOwnProperty.call(HOW_EACH_SHOP_NAMES_AN_ORDER, key)
+    ? HOW_EACH_SHOP_NAMES_AN_ORDER[key]
+    : null;
+}
+
+/**
+ * AMAZON'S RUN, STILL UNDER ITS OLD NAME, because src/order/rowShape.js reads it
+ * and that instrument is deliberately Amazon-only — see the note where it is
+ * imported there.
+ */
+export const ORDER_NUMBER_RUN = HOW_EACH_SHOP_NAMES_AN_ORDER.amazon.run;
 
 /**
  * HOW AN ORDER'S OWN PAGE NAMES THE ORDER IT IS SHOWING. Taken off the address
  * this file already builds, so it cannot be a different word from the one we
  * ask with.
  */
-export const ORDER_ID_PARAM = AMAZON_ORDER_DETAIL_PAGE.slice(
-  AMAZON_ORDER_DETAIL_PAGE.indexOf('?') + 1,
-);
+export const ORDER_ID_PARAM = HOW_EACH_SHOP_NAMES_AN_ORDER.amazon.param;
 
 /**
  * THE WHOLE NUMBER AND NOT A PIECE OF A LONGER ONE.
@@ -205,10 +341,10 @@ export const ORDER_ID_PARAM = AMAZON_ORDER_DETAIL_PAGE.slice(
  * 1408-5094957-44811299 — has a word character on each side and matches nothing
  * at all. No lookbehind, which Hermes does not have.
  */
-function everyRunIn(text) {
+function everyRunIn(text, run) {
   const found = [];
   if (typeof text !== 'string' || text === '') return found;
-  const pattern = new RegExp(`\\b${ORDER_NUMBER_RUN}\\b`, 'g');
+  const pattern = new RegExp(`\\b${run}\\b`, 'g');
   let match = pattern.exec(text);
   let guard = 0;
   while (match !== null && guard < 500) {
@@ -227,20 +363,27 @@ function everyRunIn(text) {
  * short of the card attribute itself, and it is not a guessed marker: the word
  * comes off the address THIS FILE ALREADY BUILDS.
  *
- * Still put through ORDER_NUMBER_SHAPE afterwards. A page that writes
+ * Still put through the shop's own shape afterwards. A page that writes
  * `orderID=nonsense` gets nothing, because this value ends up in an address.
  */
-export function harvestFromOrderLinks(html) {
+export function harvestFromOrderLinks(html, platformKey) {
+  const shop = howThisShopNamesAnOrder(platformKey);
+  if (shop == null) return [];
   if (typeof html !== 'string' || html === '') return [];
   const found = [];
   const seen = new Set();
-  const pattern = new RegExp(`${ORDER_ID_PARAM}(${ORDER_NUMBER_RUN})\\b`, 'gi');
+  // THE WORD IS PUT INTO AN EXPRESSION, so whatever is in it is taken as itself.
+  // It comes off an address today and an address is allowed a question mark; a
+  // question mark left loose here would quietly make the letter before it
+  // optional and the whole word stop meaning what it says.
+  const word = shop.param.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`${word}(${shop.run})\\b`, 'gi');
   let match = pattern.exec(html);
   let guard = 0;
   while (match !== null && guard < 500) {
     guard += 1;
     const number = String(match[1]).trim();
-    if (ORDER_NUMBER_SHAPE.test(number) && !seen.has(number)) {
+    if (shop.shape.test(number) && !seen.has(number)) {
       seen.add(number);
       found.push(number);
     }
@@ -257,9 +400,8 @@ export function harvestFromOrderLinks(html) {
  * He said: do not guess a new marker, report what the rows are marked with
  * first. This guesses no marker at all. It does not ask what wraps the number,
  * what class the row has or what attribute holds it. It looks for THE NUMBER
- * ITSELF, in the shape this file has always meant by "an order number" —
- * ORDER_NUMBER_SHAPE, the same definition that decides whether an address may be
- * built at all. There is nothing here to be wrong about that was not already
+ * ITSELF, in the shape this file means by "an order number" for THAT SHOP — the
+ * same definition that decides whether an address may be built at all. There is nothing here to be wrong about that was not already
  * load bearing.
  *
  * WHAT IT COSTS, SAID PLAINLY. A three seven seven run that is not somebody's
@@ -276,11 +418,16 @@ export function harvestFromOrderLinks(html) {
  * number read out of the second is a number in a different order from the one a
  * person sees.
  */
-export function harvestByShape(html) {
+export function harvestByShape(html, platformKey) {
+  const shop = howThisShopNamesAnOrder(platformKey);
   const found = [];
+  // AND A SHOP WHOSE SHAPE IS NOT EVIDENCE ON ITS OWN GETS NOTHING FROM HERE.
+  // See theShapeAloneIsEnough on the record: for a shop whose id is a uuid this
+  // rung would turn an image's id into an address and open it.
+  if (shop == null || shop.theShapeAloneIsEnough !== true) return found;
   const seen = new Set();
-  for (const number of everyRunIn(withoutCode(html))) {
-    if (ORDER_NUMBER_SHAPE.test(number) && !seen.has(number)) {
+  for (const number of everyRunIn(withoutCode(html), shop.run)) {
+    if (shop.shape.test(number) && !seen.has(number)) {
       seen.add(number);
       found.push(number);
     }
@@ -308,10 +455,10 @@ export function harvestByShape(html) {
  * a line: an order number is a strong identifier tied to somebody's account and
  * is never logged.
  */
-export function harvestRendered(html) {
-  const marked = harvestOrderNumbers(html);
-  const linked = harvestFromOrderLinks(html);
-  const shaped = harvestByShape(html);
+export function harvestRendered(html, platformKey) {
+  const marked = harvestOrderNumbers(html, platformKey);
+  const linked = harvestFromOrderLinks(html, platformKey);
+  const shaped = harvestByShape(html, platformKey);
   const numbers = [];
   const seen = new Set();
   for (const number of [...marked, ...linked, ...shaped]) {
@@ -337,10 +484,12 @@ export function harvestRendered(html) {
  * into an address and tried anyway — that would be a request to a shop for
  * something nobody asked for, on the strength of a string found in a page.
  */
-export function orderDetailPageFor(orderNumber) {
+export function orderDetailPageFor(platformKey, orderNumber) {
+  const shop = howThisShopNamesAnOrder(platformKey);
+  if (shop == null) return null;
   const number = typeof orderNumber === 'string' ? orderNumber.trim() : '';
-  if (!ORDER_NUMBER_SHAPE.test(number)) return null;
-  return `${AMAZON_ORDER_DETAIL_PAGE}${encodeURIComponent(number)}`;
+  if (!shop.shape.test(number)) return null;
+  return `${shop.detail}${encodeURIComponent(number)}${shop.tail}`;
 }
 
 /**
@@ -361,12 +510,17 @@ export function orderDetailPageFor(orderNumber) {
  * So the screen asks a QUESTION and this file knows the answer, which is also
  * where the addresses already live.
  */
-export const SHOPS_READ_ONE_ORDER_AT_A_TIME = ['amazon'];
+/*
+ * AND IT IS THE RECORD'S OWN KEYS, not a second list beside it. "This shop's
+ * orders are read one page at a time" and "here is where one of its pages is"
+ * are not two facts — you cannot open a page you have no address for — so a
+ * shop can no longer be remembered in one and forgotten in the other.
+ */
+export const SHOPS_READ_ONE_ORDER_AT_A_TIME = Object.keys(HOW_EACH_SHOP_NAMES_AN_ORDER);
 
 /** Whether this shop's orders are read one page at a time. */
 export function readsOrderPages(platformKey) {
-  const key = String(platformKey || '').toLowerCase();
-  return SHOPS_READ_ONE_ORDER_AT_A_TIME.indexOf(key) !== -1;
+  return howThisShopNamesAnOrder(platformKey) != null;
 }
 
 /**
@@ -376,10 +530,12 @@ export function readsOrderPages(platformKey) {
  * the promise this file makes to Amazon and a promise spelled out in the middle
  * of a loop is a promise somebody edits by accident.
  */
-export function pagesToOpen(orderNumbers) {
+export function pagesToOpen(orderNumbers, platformKey) {
+  const shop = howThisShopNamesAnOrder(platformKey);
+  if (shop == null) return [];
   const list = Array.isArray(orderNumbers) ? orderNumbers : [];
   return list
-    .filter((n) => typeof n === 'string' && ORDER_NUMBER_SHAPE.test(n.trim()))
+    .filter((n) => typeof n === 'string' && shop.shape.test(n.trim()))
     .slice(0, MOST_DETAIL_PAGES);
 }
 

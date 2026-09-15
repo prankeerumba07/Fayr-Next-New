@@ -32,7 +32,7 @@ import {
   rowShapeLines, runsInsideCode,
 } from './rowShape.js';
 import { NOT_A_SHAPE } from './pageShape.js';
-import { ORDER_NUMBER_SHAPE } from './detailLook.js';
+import { AMAZON_ORDER_NUMBER_SHAPE } from './detailLook.js';
 
 const { ok, equal } = assert;
 let passed = 0;
@@ -297,12 +297,12 @@ it('and it takes its idea of an order number from the one place that holds it', 
   const source = withoutComments(read('./rowShape.js'));
   ok(/from '\.\/detailLook\.js'/.test(source), 'the shape comes from detailLook');
   ok(!/\\d\{3\}/.test(source), 'and is not typed out a second time here');
-  ok(ORDER_NUMBER_SHAPE.test(FIRST), 'the fixture really uses that shape');
+  ok(AMAZON_ORDER_NUMBER_SHAPE.test(FIRST), 'the fixture really uses that shape');
 });
 
 it('and the screen asks for it when there is nothing to find', () => {
   const screen = read('./LookingForItScreen.js');
-  ok(/if \(countOrderCardSlots\(html\) === 0\) logRowShape\(html\);/.test(screen),
+  ok(/if \(countOrderCardSlots\(html, platformKey\) === 0\) logRowShape\(html\);/.test(screen),
     'a page that is working prints no row report, so this cannot become noise');
   ok(/import \{ logRowShape \} from '\.\/rowShape\.js';/.test(screen),
     'and it really is wired in');

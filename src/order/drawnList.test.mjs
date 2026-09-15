@@ -25,10 +25,10 @@
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
-  A_LINK_TO_AN_ORDER, AN_ORDER_CARD, DRAW_DEADLINE_MS, LOOK_AGAIN_MS, MOST_LOOKS,
-  SHOPS_WHOSE_LIST_THE_PAGE_DRAWS, STEADY_LOOKS_BEFORE_WE_READ, anAnswerTag,
+  DRAW_DEADLINE_MS, LOOK_AGAIN_MS, MOST_LOOKS, SHOPS_WHOSE_LIST_THE_PAGE_DRAWS,
+  STEADY_LOOKS_BEFORE_WE_READ, WHAT_EACH_SHOP_DRAWS, anAnswerTag,
   answerWithStatus, buildDrawnListScript, drawFacts, isOurAnswer, openTheListWith,
-  readDrawnOutcome, readListStep, theListIsDrawn,
+  readDrawnOutcome, readListStep, theListIsDrawn, whatThisShopDraws,
 } from './drawnList.js';
 import { ORDER_LIST_PAGES } from '../orderhistory.js';
 import { A_DEAD_END, A_PUZZLE, TOO_MANY_ASKS } from '../connect/shopRefusing.js';
@@ -49,20 +49,79 @@ const withoutComments = (t) => t
 
 const SCRIPT = buildDrawnListScript({
   beganAt: 1700000000000, tag: 'look-abc', wantedPath: '/your-orders/orders',
+  counts: whatThisShopDraws('amazon'),
 });
 
 console.log('\nwhich shops draw their own list, and which are fetched exactly as before');
 
-it('AMAZON, and only Amazon, because only its list is drawn', () => {
-  deepEqual(SHOPS_WHOSE_LIST_THE_PAGE_DRAWS, ['amazon']);
+it('the two whose lists are drawn, and nobody else', () => {
+  // ZEPTO JOINED ON 15 SEPTEMBER 2026, measured on the owner's own account: its
+  // list is drawn by the page's own code exactly as Amazon's is.
+  deepEqual(SHOPS_WHOSE_LIST_THE_PAGE_DRAWS, ['amazon', 'zepto']);
   ok(theListIsDrawn('amazon'));
   ok(theListIsDrawn('AMAZON'), 'however it is spelled');
-  for (const other of ['meesho', 'zepto', 'flipkart', 'blinkit', 'instamart', 'myntra']) {
+  ok(theListIsDrawn('zepto'));
+  ok(theListIsDrawn('ZEPTO'), 'however it is spelled');
+  for (const other of ['meesho', 'flipkart', 'blinkit', 'instamart', 'myntra']) {
     ok(!theListIsDrawn(other), `${other} is not read this way`);
   }
   for (const junk of [null, undefined, '', 5, {}, 'ebay']) {
     ok(!theListIsDrawn(junk), `${String(junk)} is not a shop`);
   }
+  // AND THE LIST IS THE MARKER MAP'S OWN KEYS, so a shop cannot be waited for
+  // without anybody having said what to wait for.
+  deepEqual(SHOPS_WHOSE_LIST_THE_PAGE_DRAWS, Object.keys(WHAT_EACH_SHOP_DRAWS));
+});
+
+it('and each drawn shop is counted by its OWN marker, never by another shop\'s', () => {
+  const amazon = whatThisShopDraws('amazon');
+  const zepto = whatThisShopDraws('zepto');
+  // AMAZON, UNCHANGED. Both markers, and the link's word still comes off the
+  // address detailLook.js builds rather than being typed here.
+  equal(amazon.link, 'a[href*="orderID="]');
+  equal(amazon.card, '[data-csa-c-slot-id]');
+  // ZEPTO. MEASURED: eight of these on his list page, none on the front page.
+  equal(zepto.link, 'a[href^="/order/"]');
+  // AND NO SECOND MARKER, AS null RATHER THAN A SELECTOR THAT MATCHES NOTHING.
+  // `rows` is the two counts ADDED, so a selector picked to count zero is a guess
+  // that can start counting something and silently double the row count.
+  equal(zepto.card, null);
+  // AND A SHOP THAT DOES NOT DRAW HAS NO MARKERS AT ALL.
+  for (const other of ['meesho', 'flipkart', '', null, undefined, 'ebay']) {
+    equal(whatThisShopDraws(other), null);
+  }
+});
+
+it('and what each shop counts is what really goes into its own script', () => {
+  const forAmazon = buildDrawnListScript({
+    beganAt: 1, tag: 't', wantedPath: '/p', counts: whatThisShopDraws('amazon'),
+  });
+  ok(forAmazon.includes('var linked = howMany("a[href*=\\"orderID=\\"]");'),
+    'Amazon counts its order links, exactly as it always did');
+  ok(forAmazon.includes('var marked = howMany("[data-csa-c-slot-id]");'),
+    'and its order cards');
+
+  const forZepto = buildDrawnListScript({
+    beganAt: 1, tag: 't', wantedPath: '/p', counts: whatThisShopDraws('zepto'),
+  });
+  ok(forZepto.includes('var linked = howMany("a[href^=\\"/order/\\"]");'),
+    'Zepto counts its own overlay anchors');
+  ok(forZepto.includes('var marked = 0;'),
+    'AND COUNTS ITS MISSING SECOND MARKER AS A LITERAL ZERO, not as a selector');
+  ok(!forZepto.includes('data-csa-c-slot-id'),
+    'and Amazon\'s marker is nowhere in another shop\'s script');
+  ok(!forZepto.includes('orderID='),
+    'nor Amazon\'s word');
+
+  // ── AND A SHOP NOBODY DESCRIBED COUNTS NOTHING, WHICH IS LOUD ────────────
+  //
+  // Not Amazon's markers quietly applied to somebody else's page. The poll then
+  // waits out its whole deadline and the line reads drew=false rows=0/0, which
+  // is a thing somebody can see.
+  const forNobody = buildDrawnListScript({ beganAt: 1, tag: 't', wantedPath: '/p' });
+  ok(forNobody.includes('var linked = 0;') && forNobody.includes('var marked = 0;'),
+    'a shop with no markers counts zero of both rather than borrowing');
+  ok(!forNobody.includes('howMany("'), 'and asks the page for nothing at all');
 });
 
 it('a drawn shop is pointed AT its list, and a fetched one at its front door', () => {
@@ -72,7 +131,13 @@ it('a drawn shop is pointed AT its list, and a fetched one at its front door', (
   ok(drawn.script.includes('setInterval'), 'and it waits for the page to draw');
   ok(!drawn.script.includes('fetch('), 'it does not fetch the page it is standing on');
 
-  for (const [key, front] of [['meesho', 'https://www.meesho.com/'], ['zepto', 'https://www.zepto.com/']]) {
+  const drawnZepto = openTheListWith('zepto', 'https://www.zepto.com/', 1000, 't');
+  equal(drawnZepto.uri, ORDER_LIST_PAGES.zepto, 'and so is Zepto');
+  equal(drawnZepto.drawn, true);
+  ok(drawnZepto.script.includes('setInterval'));
+  ok(!drawnZepto.script.includes('fetch('), 'it does not fetch the page it is standing on');
+
+  for (const [key, front] of [['meesho', 'https://www.meesho.com/']]) {
     const step = openTheListWith(key, front, 1000, 't');
     equal(step.uri, front, `${key} still mounts on its front door`);
     equal(step.drawn, false);

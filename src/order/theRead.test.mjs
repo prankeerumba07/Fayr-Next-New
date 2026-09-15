@@ -527,5 +527,38 @@ console.log('\n=== 11. THE LOOK GOES TO THE PAGE, AND STAYS THERE WHILE IT READS
   ok(/importantForAccessibility="no-hide-descendants"/.test(code), 'and everything in it');
 }
 
+console.log('\n=== 12. every reader is told WHICH SHOP, and told it by the screen ===');
+{
+  const screen = read('src/order/LookingForItScreen.js');
+  const code = screen.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  // ── THE HAZARD THIS CLOSES ───────────────────────────────────────────────
+  //
+  // Two shops are now read this way and each has its own number shape and its
+  // own address. A reader called without the shop reads the page with NOTHING —
+  // there is no default shop next door, deliberately — and a reader called with
+  // the WRONG shop reads it with somebody else's shapes. The second is the one
+  // that would be silent, and the screen is the only place that knows which.
+  //
+  // The screen may not write a shop's NAME (src/ui/funnyWait.test.mjs holds it
+  // to that on every piece of text in the file), so the only thing it can pass
+  // is the key it was handed. These lines say it really does.
+  for (const [call, why] of [
+    [/harvestRendered\(html, platformKey\)/, 'the ladder is told which shop'],
+    [/pagesToOpen\(harvest\.numbers, platformKey\)/, 'and so is the cap that refuses off-shape numbers'],
+    [/orderDetailPageFor\(platformKey, numbers\[i\]\)/, 'and so is the thing that builds an address'],
+  ]) ok(call.test(code), why);
+  const slots = (code.match(/countOrderCardSlots\(html, platformKey\)/g) || []).length;
+  ok(slots === 3,
+    `and all three card counts are told too (${slots}) — the line that tells the two `
+    + 'empty answers apart, and the two shape reports under it');
+  ok(!/countOrderCardSlots\(html\)/.test(code),
+    'and not one of them is left asking without a shop');
+
+  // AND THE KEY IS THE ONE THE SCREEN WAS GIVEN, never one it made up.
+  ok(/const \{ platform[\s\S]{0,400}?platformKey/.test(screen)
+    || /platformKey = /.test(code),
+  'and platformKey is derived from what the screen was handed');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
