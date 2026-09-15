@@ -196,8 +196,20 @@ const ORDER_HASH_LABEL = /^order\s*#\s*(.*)$/i;
  * optional. It is the same heading with the same meaning on the list page, where
  * the date sits under it in the same way.
  */
+/*
+ * ── AND "AT", NOT ONLY "ON" ───────────────────────────────────────────────
+ *
+ * Measured on the owner's own Zepto order page, 15 September 2026, signed in:
+ *
+ *   Order Placed at / 25 Aug 2026, 8:42 PM
+ *
+ * The word is "at" and the label ended at "on", so "at" fell into the captured
+ * group, read as the date itself, failed to parse, and the line under it was
+ * never reached in a shape the date reader could take. The read came back with
+ * an order number, a total and no date at all.
+ */
 const ORDER_DATE_LABEL =
-  /^(?:placed\s+on|ordered\s+on|order\s+placed(?:\s+on)?|order(?:ed)?\s+date|placed)\b\s*[:\-]?\s*(.*)$/i;
+  /^(?:placed\s+(?:on|at)|ordered\s+(?:on|at)|order\s+placed(?:\s+(?:on|at))?|order(?:ed)?\s+date|placed)\b\s*[:\-]?\s*(.*)$/i;
 
 /**
  * "Delivered 5 June 2026", "Delivered on 5 Jun 2026", "Delivered" then the date.
@@ -219,8 +231,22 @@ const ORDER_DATE_LABEL =
  * because "delivery" is a subject a page discusses and "delivered" is a thing
  * that happened, and only one of those is a date.
  */
+/*
+ * ── AND THE LINE MAY OPEN WITH "ORDER" ────────────────────────────────────
+ *
+ * This is anchored at the start of the line, which is deliberate and is also
+ * what made it miss the one page that carries the arrival. From the owner's own
+ * Zepto order page, 15 September 2026:
+ *
+ *   Order Arrived at / 25 Aug 2026, 9:02 PM
+ *
+ * "Order" first, so nothing matched, and the delivery date was null on an order
+ * whose page states the minute it turned up. The word "Delivered" DOES appear
+ * higher on that page as a status with no date under it — which is why the loop
+ * that uses this keeps going while the date is still null, and why it has to.
+ */
 const DELIVERY_LABEL =
-  /^(?:delivered|arrived)\b\s*(?:on)?\s*[:\-]?\s*(.*)$/i;
+  /^(?:order\s+)?(?:delivered|arrived)\b\s*(?:on|at)?\s*[:\-]?\s*(.*)$/i;
 
 /**
  * A RETURN THAT REALLY HAPPENED. The completed forms only.
@@ -305,6 +331,40 @@ function isBillLabel(line: string): boolean {
 }
 
 /**
+ * A LINE THAT IS ONLY A COUNT AND A MEASURE — "1 pc", "1 unit", "1 pack (500 g)".
+ *
+ * ── WHY THIS HAD TO EXIST, AND IT COST EVERY PRODUCT NAME ─────────────────
+ *
+ * A quick commerce order page writes a product over several lines. Measured, on
+ * the owner's own Zepto page on 15 September 2026:
+ *
+ *   Gillette Fusion Manual Shaving Razor For Men
+ *   1 pc
+ *   1 unit
+ *   ₹340
+ *   ₹425
+ *
+ * The name is three lines above its price. The reader looked one line under a
+ * name for money, found "1 pc", gave up on that name, walked on, and eventually
+ * found "1 unit" sitting directly above ₹340 — which passed every test for a
+ * name it had. SIX PRODUCTS CAME BACK ALL NAMED "1 unit". Every price was right
+ * and not one name was, so no campaign could ever have matched.
+ *
+ * ── AND IT IS DELIBERATELY NARROW ─────────────────────────────────────────
+ *
+ * The WHOLE line must be a number, a measure, and at most a parenthetical. A
+ * real product called "5 Pack Cotton Socks For Men" carries words after the
+ * measure and is not touched. Anchored at both ends for exactly that reason.
+ */
+const MEASURE_ONLY =
+  /^\d+(?:\.\d+)?\s*(?:pc|pcs|piece|pieces|pack|packs|packet|packets|unit|units|ct|count|nos?|box|boxes|bottle|bottles|kg|g|gm|gms|mg|ml|l|ltr|litre|litres|liter|liters)\s*(?:\([^)]*\))?$/i;
+
+/** Is this line only a count and a measure, and so never a product's name? */
+function measureOnly(line: string): boolean {
+  return MEASURE_ONLY.test(line.trim());
+}
+
+/**
  * Could this line be a product's name?
  *
  * Everything a product name is not: a heading, a shipment, a status, a bill line,
@@ -316,6 +376,7 @@ function looksLikeAName(line: string): boolean {
   const letters = text.replace(/[^a-z]/gi, '').length;
   if (letters < 2) return false;
   if (SHIPMENT_HEADING.test(text)) return false;
+  if (measureOnly(text)) return false;
   if (STATUS_LINE.test(text)) return false;
   if (isBillLabel(text)) return false;
   if (ORDER_NUMBER_LABEL.test(text)) return false;
@@ -362,6 +423,28 @@ function acceptableOrderNumber(value: string): string | null {
   return text;
 }
 
+/**
+ * THE DAY ON THE LINE UNDER A LABEL, WHICH MAY CARRY A TIME AFTER IT.
+ *
+ * The line beside a label already had its time cut off at the comma. The line
+ * UNDER a label did not, and that is where a quick commerce page puts it:
+ * "Order Placed at" on one line and "25 Aug 2026, 8:42 PM" on the next. The
+ * whole string went to a date reader that is deliberately narrow, which refused
+ * it, and the date came back null.
+ *
+ * THE WHOLE LINE IS TRIED FIRST, and the trimmed one only after, because some
+ * shops write "Mon, 25 Aug 2026" — where the comma is inside the date and
+ * cutting at the last one would leave a weekday.
+ */
+function dayUnder(line: string): string | null {
+  const text = String(line ?? '').trim();
+  const whole = dayFromText(text);
+  if (whole != null) return whole;
+  const parts = text.split(',');
+  if (parts.length < 2) return null;
+  return dayFromText(parts.slice(0, -1).join(',').trim());
+}
+
 /** The empty answer, so "we read nothing" is one shape and not several. */
 function nothing(): ParsedOrder {
   return {
@@ -374,6 +457,48 @@ function nothing(): ParsedOrder {
     shipments: 0,
     items: [],
   };
+}
+
+/**
+ * THE AMOUNT ACTUALLY PAID, WHERE A SCREEN PRINTS TWO FIGURES FOR ONE THING.
+ *
+ * ── MEASURED, AND IT WAS SENDING THE WRONG MONEY TO A MONEY DECISION ──────
+ *
+ * A shop that discounts prints the was-price and the paid price next to each
+ * other, and the two are not written in the same order in the two places they
+ * appear. From the owner's own Zepto order page on 15 September 2026:
+ *
+ *   Gillette Fusion Manual Shaving Razor For Men   Total Bill
+ *   1 pc                                           ₹1739
+ *   1 unit                                         ₹1079
+ *   ₹340      <- paid, FIRST
+ *   ₹425      <- was                               paid is SECOND
+ *
+ * Paid first on a product row, paid second on the bill. Taking "the first one"
+ * read ₹1739 as the total of an order that cost ₹1079 — a four hundred rupee
+ * error, in the field a refund is decided from.
+ *
+ * ── SO NEITHER POSITION IS TRUSTED, THE SMALLER IS TAKEN ──────────────────
+ *
+ * Which is not a trick about layout but the only thing a struck pair can mean:
+ * the price that was struck through is the higher one, or striking it through
+ * would say nothing. Two equal figures answer the same either way.
+ *
+ * ONLY EVER AN ADJACENT PAIR. One money line stays one money line, so every
+ * page that prints a single total is read exactly as it was before.
+ *
+ * Answers the figure and the index it read through, so a caller walking a list
+ * of products knows where the next one starts.
+ */
+function amountPaidAt(
+  lines: readonly string[],
+  at: number,
+): { paise: bigint; through: number } | null {
+  const first = moneyOnly(lines[at] ?? '');
+  if (first == null) return null;
+  const second = moneyOnly(lines[at + 1] ?? '');
+  if (second == null) return { paise: first, through: at };
+  return { paise: first <= second ? first : second, through: at + 1 };
 }
 
 /** The money on a labelled bill line, or on the line under it. */
@@ -389,8 +514,8 @@ function moneyForLabels(
       const p = paise(sameLine[2]);
       if (p != null) return p;
     }
-    const under = moneyOnly(lines[i + 1] ?? '');
-    if (under != null) return under;
+    const under = amountPaidAt(lines, i + 1);
+    if (under != null) return under.paise;
   }
   return null;
 }
@@ -437,7 +562,7 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     // wanted and the date reader is deliberately narrow, so it is cut off here
     // rather than taught to ignore it.
     const written = (m[1] ?? '').split(',')[0].trim();
-    orderDate = dayFromText(written) ?? dayFromText(lines[i + 1] ?? '');
+    orderDate = dayFromText(written) ?? dayUnder(lines[i + 1] ?? '');
   }
 
   // ── the day it ARRIVED, which is a different date ─────────────────────────
@@ -447,7 +572,7 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     if (!m) continue;
     // The same comma trick as the order date: a screen writes the time after it.
     const written = (m[1] ?? '').split(',')[0].trim();
-    deliveryDate = dayFromText(written) ?? dayFromText(lines[i + 1] ?? '');
+    deliveryDate = dayFromText(written) ?? dayUnder(lines[i + 1] ?? '');
   }
 
   // ── whether it was sent back ──────────────────────────────────────────────
@@ -474,21 +599,33 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     if (together) { items.push(together); i += 1; continue; }
 
     if (looksLikeAName(line)) {
+      // ── THE SIZE AND THE COUNT SIT BETWEEN THE TWO ────────────────────
+      //
+      // On a quick commerce page a product's price is not the line under its
+      // name; "1 pc" and "1 unit" are in the way. Those lines are stepped over
+      // here and nothing else is: only a line that is ENTIRELY a count and a
+      // measure is skipped, so no prose is ever walked past in search of a
+      // figure. A shop that puts the price directly under the name skips
+      // nothing and behaves exactly as it did.
+      let at = i + 1;
+      while (at < billStart && measureOnly(lines[at])) at += 1;
+
       // A name, then "1 x ₹149", then often the line's own total underneath. The
       // count and price line is the item's OWN price, which is the figure a
       // campaign states, so that is the one kept. What the line came to is part
       // of the bill, and the bill is read separately.
-      const counted = quantityAndPrice(lines[i + 1] ?? '');
+      const counted = quantityAndPrice(lines[at] ?? '');
       if (counted != null && counted > 0n) {
         items.push({ name: line, pricePaise: counted });
-        i += moneyOnly(lines[i + 2] ?? '') != null ? 3 : 2;
+        i = at + (moneyOnly(lines[at + 1] ?? '') != null ? 2 : 1);
         continue;
       }
-      // A name with the price on the line under it.
-      const under = moneyOnly(lines[i + 1] ?? '');
-      if (under != null && under > 0n) {
-        items.push({ name: line, pricePaise: under });
-        i += 2;
+      // A name with the price on the line under it — or the paid price out of a
+      // struck pair, which is the same question asked once, above.
+      const under = amountPaidAt(lines, at);
+      if (under != null && under.paise > 0n) {
+        items.push({ name: line, pricePaise: under.paise });
+        i = under.through + 1;
         continue;
       }
     }

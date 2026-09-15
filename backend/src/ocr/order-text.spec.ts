@@ -514,5 +514,128 @@ describe('reading an order screen that holds several shipments', () => {
       expect(order.totalPaise).toBe(129900n);
     });
   });
+
+  /**
+   * ── THE PAGE ZEPTO ACTUALLY DRAWS, READ OFF THE OWNER'S OWN ACCOUNT ──────
+   *
+   * Everything above this point was read off SCREENSHOTS. This is the other
+   * thing entirely: the text of a real Zepto order page as its own code draws
+   * it, taken from the owner's signed-in account on 15 September 2026 — the
+   * whole page, top to bottom, with the shop's own furniture left in and only
+   * the buyer's name, number and address replaced.
+   *
+   * IT IS HERE BECAUSE THE READER FAILED ON IT IN FOUR OF ITS FIVE FIELDS, and
+   * nobody knew, because this page had never once been read. What it answered
+   * before the change beside this:
+   *
+   *   order number   JMOKSGSNP94115     right
+   *   order date     null               "Order Placed at" — the label ends "on"
+   *   delivery date  null               "Order Arrived at" — anchored at "order"
+   *   total          ₹1739              the STRUCK price. It cost ₹1079.
+   *   products       six, every one named "1 unit"
+   *
+   * The last two are the ones that matter. A total four hundred rupees too high
+   * is the wrong number in the field a refund is paid from, and six products
+   * named "1 unit" cannot match any campaign ever written.
+   */
+  describe('a real Zepto order page, as the shop draws it', () => {
+    const DRAWN = readFileSync(
+      join(__dirname, '..', '..', 'test', 'fixtures', 'zepto-order-page-drawn.txt'),
+      'utf8',
+    );
+    const order = parseOrderText(DRAWN);
+
+    it('reads the order number the page prints twice', () => {
+      expect(order.orderNumber).toBe('JMOKSGSNP94115');
+    });
+
+    it('reads the day it was placed, from a label that says "at" and not "on"', () => {
+      expect(order.orderDate).toBe('2026-08-25');
+    });
+
+    it('reads the day it ARRIVED, off a line that opens with the word Order', () => {
+      // This is the field the whole delivery question is answered from, and it
+      // was null on a page that states the minute the order turned up.
+      expect(order.deliveryDate).toBe('2026-08-25');
+    });
+
+    it('takes the price that was PAID and not the one struck through', () => {
+      // ₹1739 is printed directly above ₹1079 under "Total Bill". The bill was
+      // ₹1079. Reading the first figure overstated this order by ₹660.
+      expect(order.totalPaise).toBe(107900n);
+      expect(order.itemTotalPaise).toBe(107900n);
+    });
+
+    it('names all six products, and the size and count lines are not names', () => {
+      expect(order.items).toHaveLength(6);
+      const names = order.items.map((i) => i.name);
+      expect(names.some((n) => /^\d+\s*(unit|pc|pack)/i.test(n))).toBe(false);
+    });
+
+    it('names the product a campaign would be matched on, with its paid price', () => {
+      const razor = order.items.find((i) => /Gillette/i.test(i.name));
+      expect(razor).toBeDefined();
+      expect(razor?.name).toBe('Gillette Fusion Manual Shaving Razor For Men');
+      // ₹340 paid, ₹425 struck through beside it.
+      expect(razor?.pricePaise).toBe(34000n);
+    });
+
+    it('reads nothing out of the shop\'s own furniture as a product', () => {
+      const names = order.items.map((i) => i.name);
+      // "Available Balance: ₹0", "Add Balance", "Zepto Cash & Gift Card" and the
+      // delivery address all sit on this page. None of them is a thing bought.
+      expect(names.some((n) => /balance|gift card|address|cart/i.test(n))).toBe(false);
+    });
+  });
+
+  /**
+   * A SECOND REAL ONE, because one page is a sample and two is a shape.
+   *
+   * The same account, a different order, 15 September 2026. It carries what the
+   * first did not: a delivery fee that was CHARGED rather than waived, so the
+   * bill total and the item total are genuinely different numbers, and an
+   * "Arrived in / 4 MINS" line sitting above the real arrival date.
+   */
+  describe('a second real Zepto order page, with a fee that was charged', () => {
+    const page = [
+      'Order #LRGSKOMA18669', '1 item', 'Delivered', 'Arrived in', '4 MINS',
+      '1 item in order',
+      "Korean Kab's Jackpot 2x Hot and Spicy Instant Noodles Non Veg",
+      '1 pack (100 g)', '2 units', '₹74', '₹100',
+      'Bill Summary', 'Item Total', '₹100', '₹74',
+      'Delivery Fee', '₹30', 'Handling Fee', '₹10', 'FREE',
+      'Total Bill', '₹140', '₹104',
+      'Order Details', 'Order ID', '#LRGSKOMA18669',
+      'Order Placed at', '23 Aug 2026, 6:04 AM',
+      'Order Arrived at', '23 Aug 2026, 6:09 AM',
+      'Rate Order', 'Order Again',
+    ].join('\n');
+    const order = parseOrderText(page);
+
+    it('keeps the bill and the item total apart when a fee was charged', () => {
+      // The campaign is matched against what the PRODUCT cost, and the product
+      // cost ₹74 of the ₹104 that left his account.
+      expect(order.itemTotalPaise).toBe(7400n);
+      expect(order.totalPaise).toBe(10400n);
+    });
+
+    it('reads the arrival date and not the "4 MINS" above it', () => {
+      expect(order.deliveryDate).toBe('2026-08-23');
+    });
+
+    it('names the one product, with a count line of "2 units" in the way', () => {
+      expect(order.items).toHaveLength(1);
+      expect(order.items[0].name).toBe(
+        "Korean Kab's Jackpot 2x Hot and Spicy Instant Noodles Non Veg",
+      );
+      expect(order.items[0].pricePaise).toBe(7400n);
+    });
+
+    it('a single figure under a label is still read as that figure', () => {
+      // "Delivery Fee / ₹30" has nothing under it. The rule that picks the
+      // smaller of a pair must never turn one figure into something else.
+      expect(parseOrderText(['Order Total', '₹30'].join('\n')).totalPaise).toBe(3000n);
+    });
+  });
 });
 });
