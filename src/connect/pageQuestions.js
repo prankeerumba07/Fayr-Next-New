@@ -54,10 +54,53 @@
  * /ap/register, /ap/forgotpassword, /ap/cvf/request and /ap/challenge are all real
  * paths under it. There is no shopping page anywhere under /ap/.
  *
+ * ── AND /ax/ IS A SECOND WIDENING, FROM THE OWNER'S OWN DEVICE LOG ─────────
+ *
+ * IT HAPPENED AGAIN, AND THE SAME WAY. 15 September 2026, 16:59:02. He typed his
+ * mobile number on /ap/signin, tapped Continue, and Amazon moved him to
+ *
+ *   /ax/claim
+ *
+ * which is not under /ap/ and was not in this pattern. Five milliseconds later
+ * the screen read that as leaving the sign in, put our own cover back over
+ * Amazon's password page, and the watcher then had nothing new to say — so the
+ * quiet clock ran out and he was asked whether it had worked, over a page that
+ * was working. It is the identical failure the paragraph above describes, at a
+ * step Amazon has moved since that paragraph was written.
+ *
+ * WHAT /ax/claim REALLY IS, READ OFF HIS OWN DEVICE AND NOT ASSUMED. The page's
+ * own text on it was: Password, Forgot password?, Sign in with a passkey, Sign in
+ * with Amazon shopping app, Sign in with an OTP. The watcher also found a real
+ * sign in box on it. That is Amazon's password step and nothing else.
+ *
+ * AND WHAT ELSE IS UNDER /ax/, PROBED ON 15 SEPTEMBER 2026 with a desktop user
+ * agent, signed out. /ax/claim and /ax/challenge answer like real addresses that
+ * turn a signed out visitor away, and /ax/signin answers that the request was
+ * wrong rather than that there is no such page. Every SHOPPING shaped address
+ * tried under it — /ax/orders, /ax/account, /ax/cart, /ax/help, /ax/register —
+ * does not exist at all.
+ *
+ * SAID PLAINLY, BECAUSE IT IS NARROWER THAN THE /ap/ PARAGRAPH ABOVE: that one
+ * was read in a browser signed in, and this one could not be. Nobody has walked
+ * /ax/ while signed in. What is established is that the one page we have seen
+ * there is a sign in step, and that nothing to do with shopping answers there.
+ *
+ * SO WHY THE WHOLE PORTAL AND NOT /ax/claim ALONE. Because naming one page is
+ * exactly what broke twice: `ap/signin` alone broke at Amazon's second step, and
+ * this pattern without /ax/ broke the moment Amazon added a step. A page under
+ * /ax/ that we have not seen is far likelier to be another sign in step than a
+ * shopping page, and reading a sign in step as "they left the sign in" is the
+ * failure in front of us.
+ *
+ * AND THE RISK IT CARRIES IS BOUNDED, which is why this is safe to widen at all.
+ * whatThePageShows asks whether the page is a puzzle, and whether it is a paying
+ * page, BEFORE it asks this. So neither a robot check nor a checkout under /ax/
+ * could be uncovered by this, whatever else moves.
+ *
  * Anchored at the start and closed at a word boundary, so a shopping page that
  * merely has one of these words somewhere in it can never match.
  */
-export const SIGN_IN_PATH = String.raw`^\/(login|signin|sign-in|auth|ap\/|gp\/sign-in)\b`;
+export const SIGN_IN_PATH = String.raw`^\/(login|signin|sign-in|auth|ap\/|ax\/|gp\/sign-in)\b`;
 
 /**
  * THE PAGES NOTHING HERE WILL LOOK AT.

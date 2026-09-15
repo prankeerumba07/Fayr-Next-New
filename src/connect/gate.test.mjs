@@ -68,6 +68,7 @@ import {
 // THE ONE PLACE A REASON BECOMES WORDS. Read here so a reason added without words
 // fails, rather than printing its own name at somebody trying to read a phone.
 import { whyInWords } from './gateLog.js';
+import { SIGN_IN_PATH } from './pageQuestions.js';
 import { PAGE_TIMEOUT_MS } from '../livecheck.js';
 import { LIST_TIMEOUT_MS } from '../orderhistory.js';
 
@@ -1153,6 +1154,80 @@ console.log('\n=== 20. BUG SIX. the cover comes off only when the person asks ==
       `the ${state} screen ${state === CANNOT_TELL ? 'offers' : 'does not offer'} `
       + 'the control that takes our cover off');
   }
+}
+
+console.log('\n=== 21. BUG SEVEN. Amazon moved its password step to /ax/ ===');
+{
+  // ── FROM HIS OWN DEVICE LOG, 15 SEPTEMBER 2026 ────────────────────────────
+  //
+  //   16:59:02.657  LOAD STARTED  /ax/claim
+  //   16:59:02.662  GATE shop -> opening   because stillOpening
+  //   16:59:19.531  GATE opening -> cannotTell  because shopWentQuiet
+  //
+  // FIVE MILLISECONDS. He typed his mobile number on /ap/signin, tapped Continue,
+  // and Amazon moved him to /ax/claim — its password step, carrying Password,
+  // Forgot password? and Sign in with an OTP, with a real sign in box on it. That
+  // address was not in the pattern, so the screen read Amazon's own second step as
+  // leaving the sign in and put our cover back over a page that was working.
+  //
+  // THIS IS THE SECOND TIME THE SAME SHAPE HAS BITTEN. The pattern once named
+  // ap/signin alone and broke at Amazon's step two; it named /ap/ and broke when
+  // Amazon added a step outside it.
+  for (const step of ['/ax/claim', '/ax/challenge', '/ax/claim/', '/ax/anything']) {
+    ok(isTheShopsOwnSignInPage(step) === true,
+      `${step} is Amazon's own sign in and the cover stays off it`);
+  }
+
+  // AND THE STEPS THAT ALREADY WORKED STILL DO, because a widening that broke the
+  // old ones would trade one of these bugs for the other.
+  for (const step of ['/ap/signin', '/ap/cvf/request', '/ap/challenge', '/ap/mfa',
+    '/gp/sign-in.html', '/login', '/signin', '/sign-in', '/auth/login']) {
+    ok(isTheShopsOwnSignInPage(step) === true, `${step} is still read as a sign in`);
+  }
+
+  // ── AND THE WORD BOUNDARY REALLY HOLDS, which is the whole reason the pattern
+  // is anchored. "ax" is two letters and they begin a great many ordinary words.
+  for (const notASignIn of ['/ax', '/axe', '/axis-bank', '/axes/blue', '/taxi',
+    '/', '/gp/css/homepage.html', '/dp/B0F16X1NQ7', '/your-orders',
+    '/errors_page/validateCaptcha', '/checkout', '/cart']) {
+    ok(isTheShopsOwnSignInPage(notASignIn) === false,
+      `${notASignIn} is NOT a sign in, so our own cover stays over it`);
+  }
+
+  // ── AND THE ANCHOR ITSELF, WHICH NOTHING HERE HAD BEEN TESTING ────────────
+  //
+  // FOUND BY BREAKING IT: taking the ^ off the pattern changed nothing that any
+  // check noticed, because every address above happens not to contain a sign in
+  // word further along it. The anchor's whole job is the addresses below, so
+  // they have to be here or it is decoration.
+  //
+  // It matters because these read as a sign in ONLY without the anchor, and a
+  // shopping page read as a sign in is a shopping page UNCOVERED — the cover
+  // comes off for it, which is the one thing this gate exists to prevent.
+  for (const deeperIn of ['/gp/product/auth', '/orders/ap/x', '/shop/ax/y',
+    '/help/login', '/dp/B0F16X1NQ7/signin', '/gp/css/gp/sign-in']) {
+    ok(isTheShopsOwnSignInPage(deeperIn) === false,
+      `${deeperIn} has a sign in word in it but does not START with one, so it is `
+      + 'an ordinary page and stays covered');
+  }
+
+  // THE RISK THE WIDENING CARRIES IS BOUNDED, and this is the check that says so.
+  // A puzzle and a paying page are both asked about BEFORE this question, so
+  // neither a robot check nor a checkout under /ax/ can be uncovered by it.
+  ok(whatThePageShows({ path: '/ax/claim', isAPuzzle: true, fieldIsThere: true }) === null,
+    'a robot check under /ax/ is still said nothing about, never uncovered');
+  ok(whatThePageShows({ path: '/checkout', fieldIsThere: true }) === null,
+    'and a paying page is still refused whatever else is on it');
+  ok(whatThePageShows({ path: '/ax/claim', fieldIsThere: false, looksInARow: 9 }) === 'up',
+    'while Amazon’s password step reads as the sign in being up, from its address '
+    + 'alone, which is what stops the cover coming back on between two of its steps');
+
+  // AND THE PATTERN IS STILL ONE PATTERN. src/connect/connect.test.mjs proves no
+  // second copy of it exists anywhere; this proves the gate and the watcher are
+  // really reading the same one rather than each holding its own idea.
+  ok(new RegExp(SIGN_IN_PATH).test('/ax/claim'),
+    'the exported pattern itself matches it, so the watcher inside the shop’s '
+    + 'page and our own side cannot disagree about what a sign in page is');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

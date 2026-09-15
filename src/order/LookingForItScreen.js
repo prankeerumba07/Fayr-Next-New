@@ -54,6 +54,7 @@ import {
   readsOrderPages, waitBeforeFetch,
 } from './detailLook.js';
 import { logLook } from './lookLog.js';
+import { logPageShape } from './pageShape.js';
 import { sendFoundOrders } from '../backend/orderCandidatesApi';
 import { useMotion } from '../ui/celebration';
 import { COLOR, FONT, SPACE } from '../ui/theme';
@@ -335,6 +336,21 @@ export default function LookingForItScreen({ navigation, route }) {
         // count is what the question needs.
         logLook('numbers', `slots=${countOrderCardSlots(html)} `
           + `shaped=${harvestOrderNumbers(html).length} opening=${numbers.length}`);
+
+        // ── AND WHEN THERE ARE NO SLOTS AT ALL, SAY WHAT THE PAGE IS MADE OF ──
+        //
+        // slots=0 on a whole healthy page means the attribute we look for is not
+        // there any more, which is what his log said on 15 September 2026: three
+        // hundred and seventy four kilobytes, signed in, no refusal, and not one
+        // order card slot. That is Amazon having moved the markup, and the only
+        // honest next step is to look at what it sends today rather than guess a
+        // second pattern the way the first one was guessed.
+        //
+        // ONLY WHEN THERE IS NOTHING TO FIND. A page that is working prints no
+        // shape report at all, so this cannot become noise on the ordinary path.
+        // It is counts, attribute names and digit-masked shapes — never a word off
+        // the page. See src/order/pageShape.js for what it may and may not say.
+        if (countOrderCardSlots(html) === 0) logPageShape(html);
 
         const pages = [];
         for (let i = 0; i < numbers.length; i += 1) {
