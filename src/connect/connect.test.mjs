@@ -13,7 +13,10 @@ import { SHEET, sheetWords, verifiedCardWords } from './sheetWords.js';
 import { accountNameFor, forgetAccountNames, rememberAccountName } from './accountName.js';
 import { whereTheySignIn } from '../signin.js';
 import { signInTapScript } from '../signinTap.js';
-import { isTheShopsOwnSignInPage } from './gate.js';
+import {
+  CANNOT_TELL, FAILED, OPENING_UP, SIGNED_IN_NOW, isTheShopsOwnSignInPage, whatWeSay,
+} from './gate.js';
+import { IS_A_PUZZLE } from './pageQuestions.js';
 import { watchSignInScript } from './watchSignIn.js';
 import { I_HAVE_SIGNED_IN, NOT_SURE } from './gateWords.js';
 
@@ -571,10 +574,13 @@ t('our own screen over the shop’s really covers it', () => {
       `${ground[1]} is ${value ? value[1] : 'nothing'}, and it has to be a solid `
       + 'colour with nothing see through about it');
   }
-  ok(/const ourOwnWords = gate != null && !shopMayBeSeen\(gate\) \? whatWeSay\(gate\) : null;/
+  ok(/const ourOwnWords = gate != null && !shopMayBeSeen\(gate, theyAskedToSee\)/
     .test(connectScreen),
     'and the cover lifts on one question asked in one place, so it cannot be '
-    + 'right in one branch and wrong in another');
+    + 'right in one branch and wrong in another — and that one question is now '
+    + 'also handed whether the person asked to see the page');
+  ok(!/shopMayBeSeen\(gate, true\)/.test(connectScreen),
+    'and it is never handed a flat yes, which would uncover a shop nobody asked for');
 });
 
 t('and then the shop’s page closes itself, back to the screen that sent them', () => {
@@ -872,11 +878,25 @@ t('and the whole label matcher and the sign in box question are one copy too', (
 t('the screen hears the sign in going away, and covers the shop again', () => {
   const block = blockAt(connectScreen, connectScreen.indexOf('if (isForTheGate(msg))'));
   ok(block, 'the gate’s own messages must be handled in a block of their own');
-  ok(/if \(said\.signInIsGone\) \{ setSignInIsUp\(false\); setSignInIsGone\(true\); \}/.test(block),
+  ok(/if \(said\.signInIsGone\) \{\s*\n\s*setSignInIsUp\(false\); setSignInIsGone\(true\);/.test(block),
     'a sign in that has gone puts the cover back on and starts the question');
-  ok(/if \(said\.signInIsUp\) \{[^}]*setSignInIsUp\(true\); setSignInIsGone\(false\); \}/.test(block),
+  ok(/if \(said\.signInIsUp\) \{[\s\S]*?setSignInIsUp\(true\); setSignInIsGone\(false\);/.test(block),
     'and a sign in coming back takes the question away again, so a shop that '
     + 'rebuilds its own panel does not leave a stale question on screen');
+
+  // ── AND BOTH OF THEM SAY WHEN THE PAGE WENT QUIET ───────────────────────
+  //
+  // The second clock is counted from the moment the sign in left the screen, and
+  // it can only be right if EVERY place the sign in leaves records that moment.
+  // A page speaking again must clear it, or a shop that is talking would be
+  // timed out as silent.
+  ok(/setSignInIsUp\(false\); setSignInIsGone\(true\);\s*\n[\s\S]{0,400}?setQuietSince\(Date\.now\(\)\);/
+    .test(block),
+    'the sign in going away records when it went');
+  ok(/setSignInIsUp\(true\); setSignInIsGone\(false\);\s*\n[\s\S]{0,200}?setQuietSince\(null\);/
+    .test(block),
+    'AND THE SHOP TALKING AGAIN ENDS THE QUIET, or a shop that is answering '
+    + 'perfectly well would be given the screen that says we cannot tell');
 });
 
 t('and our own side remembers the sign in, because the shop’s page cannot', () => {
@@ -1040,6 +1060,140 @@ t('the failure handler asks the whole attempt, not the instant the error arrived
   ok(decides.indexOf('WE_ARE_ASKING_THEM') < decides.indexOf('THE_SIGN_IN_WAS_UP'),
     'and so is the question already on screen, or that reason could never be given '
     + 'again — a sign in can only have GONE if it was once up');
+});
+
+// ── 5g. BUG SIX. TEN MINUTES ON A COVER WITH NOTHING TO PRESS ───────────────
+t('the screen records when the shop went quiet, and forgets it on a new attempt', () => {
+  // The second clock is counted from the moment the sign in left the screen. It
+  // can only be right if the screen really records that moment, in the one place
+  // the sign in leaves while the attempt carries on.
+  const nav = blockAt(connectScreen, connectScreen.indexOf('const onNav = useCallback('));
+  ok(nav, 'the navigation handler is one block');
+  // BY POSITION AND NOT BY A DISTANCE. A first draft allowed nine hundred
+  // characters between the two lines and failed on the comment that explains
+  // them — a check whose answer depends on how much prose sits in the middle is
+  // a check that will go red for the wrong reason one day.
+  const coverBack = nav.indexOf('setSignInIsUp(false);');
+  const silenceStarts = nav.indexOf('setQuietSince(at);');
+  ok(coverBack > 0 && silenceStarts > coverBack,
+    'THE COVER GOING BACK ON IS WHEN THE SILENCE STARTS, and it is recorded right '
+    + 'there, so the two can never disagree about when it was');
+  ok(nav.indexOf('setAskedAt(at);') > coverBack,
+    'and the wait itself restarts from the very same moment');
+  ok(/const at = Date\.now\(\);/.test(nav) && !/setQuietSince\(Date\.now\(\)\)/.test(nav),
+    'and both read the clock once between them, rather than each taking its own '
+    + 'reading and drifting apart by however long the line took to run');
+
+  const fn = connectScreen.slice(
+    connectScreen.indexOf('const tryAgain = useCallback('),
+    connectScreen.indexOf('/**\n   * THEY ASKED TO SEE'),
+  );
+  ok(fn.includes('setQuietSince(null)'),
+    'A NEW VIEW HAS NOT GONE QUIET — IT HAS NOT SPOKEN YET, which is what the FIRST '
+    + 'clock is for. A second attempt inheriting the last one’s silence would be '
+    + 'timed out on a page it never showed');
+  ok(fn.includes('setTheyAskedToSee(false)'),
+    'and nobody has asked to see a view that does not exist yet');
+
+  // AND THE GATE IS HANDED IT. A clock nothing passes a moment to never fires.
+  const decides = blockAt(connectScreen, connectScreen.indexOf('const gateSays = toSignIn'));
+  ok(/\bquietSince,/.test(decides),
+    'the gate is handed the quiet moment, or the second clock is switched off and '
+    + 'the ten minutes come straight back');
+});
+
+t('the cover comes off only when the person asks, and goes back on by itself', () => {
+  const tap = blockAt(connectScreen, connectScreen.indexOf('const showTheShop = useCallback('));
+  ok(tap, 'there is one handler for the one control');
+  ok(/setTheyAskedToSee\(true\)/.test(tap), 'and tapping it is what asks');
+
+  const times = (what) => (connectScreen.match(what) || []).length;
+  ok(times(/setTheyAskedToSee\(true\)/g) === 1,
+    'AND IT IS THE ONLY THING IN THE WHOLE SCREEN THAT EVER ASKS. A second one '
+    + 'anywhere would be Fayr deciding to show somebody a shop page it has not read');
+
+  // IT IS PUT BACK BY ITSELF. An answer given on one screen must not still be
+  // uncovering a shop after that screen has gone.
+  ok(/if \(gate !== CANNOT_TELL\) setTheyAskedToSee\(false\);/.test(connectScreen),
+    'and the moment the screen is anything but the one that asks, the cover returns');
+
+  // THE CONTROL IS WIRED TO SOMETHING THAT REALLY RUNS.
+  // ── AND NO WORD A PERSON READS IS TYPED INTO THE GATE ──────────────────
+  //
+  // Our side's own rule refuses a literal of four words or more in gate.js, so
+  // the words live in gateWords.js where the plain language check reads them off
+  // disk. A THREE WORD BUTTON SLIPS UNDER THAT FLOOR — "Show me the shop" counts
+  // three by its measure — and a control label typed straight into the gate would
+  // then never go through the rule at all. Found by breaking it on purpose.
+  //
+  // So this asks the gate for every label it can really produce and refuses to
+  // find any of them quoted in gate.js. It walks the answer rather than a list,
+  // so a control added tomorrow is covered without anybody remembering to.
+  for (const state of [OPENING_UP, FAILED, CANNOT_TELL, SIGNED_IN_NOW]) {
+    const words = whatWeSay(state);
+    for (const one of (words == null ? [] : words.controls)) {
+      ok(!gate.includes(`'${one.label}'`) && !gate.includes(`"${one.label}"`),
+        `the label "${one.label}" is not written into gate.js — it comes from `
+        + 'gateWords.js, which is the one file our side reads from disk and puts '
+        + 'through the plain language rule');
+    }
+    if (words != null) {
+      ok(!gate.includes(`'${words.sentence}'`),
+        `and neither is the ${state} sentence itself`);
+    }
+  }
+
+  const wiring = blockAt(connectScreen, connectScreen.indexOf('const whatEachControlDoes = {'));
+  ok(wiring, 'every control the gate can ask for is listed in one place');
+  ok(/\[UNCOVER_THE_SHOP\]: showTheShop,/.test(wiring),
+    'and the one that takes the cover off is wired to the handler that asks');
+  for (const does of ['ASK_THE_SHOP_AGAIN', 'THEY_SAY_THEY_ARE_IN', 'UNCOVER_THE_SHOP']) {
+    ok(new RegExp(`\\[${does}\\]:`).test(wiring),
+      `${does} is wired, so a control the gate offers can never be a dead button`);
+  }
+});
+
+// ── 5h. A HIDDEN CAPTCHA MUST NOT MUTE THE WATCHER FOR A WHOLE PAGE ─────────
+//
+// The watcher returns before gathering a single fact when it thinks it is on a
+// puzzle, and it never speaks again for that page's life. So a question that
+// answers yes for an element nobody can see can silence Fayr on a page where
+// somebody is signing in perfectly well — and with the second clock in, silence
+// now ends an attempt.
+t('the puzzle question only counts a puzzle somebody can actually see', () => {
+  // RUN, NOT READ. The question is a string that goes inside a shop's page, so it
+  // is built here and really called against a page of our own making. Reading it
+  // for the words "getBoundingClientRect" would pass on a call whose answer was
+  // thrown away.
+  // eslint-disable-next-line no-new-func
+  const ask = (nodes, text = '') => new Function('document', `${IS_A_PUZZLE}
+    return fayrIsAPuzzle();`)({
+    body: { innerText: text },
+    querySelectorAll: () => nodes,
+  });
+  const node = (width, height) => ({ getBoundingClientRect: () => ({ width, height }) });
+
+  ok(ask([]) === false, 'a page with nothing on it is not a puzzle');
+  ok(ask([node(300, 74)]) === true, 'a puzzle somebody can see is a puzzle');
+  ok(ask([node(0, 0)]) === false,
+    'A HIDDEN ONE IS NOT. This is the fix: a captcha container sitting in ordinary '
+    + 'markup with no size used to mute the watcher for that page’s whole life');
+  ok(ask([node(300, 0)]) === false, 'and neither is one with no height');
+  ok(ask([node(0, 74)]) === false, 'nor one with no width');
+  ok(ask([node(0, 0), node(300, 74)]) === true,
+    'and a hidden one beside a real one is still a puzzle, because the real one counts');
+
+  // THE WORDS ON THE PAGE ARE UNTOUCHED, and they never needed a box: they are
+  // read off the page's own text, which is the strongest sign of the two.
+  ok(ask([], 'Enter the characters you see below') === true,
+    'and a page that says in words that it is asking is still a puzzle');
+  ok(ask([], 'Sign in to your account') === false,
+    'while an ordinary sign in page is not');
+
+  // AND IT IS THE SAME RULE ITS TWO SIBLINGS KEEP.
+  const questions = readFileSync(join(here, 'pageQuestions.js'), 'utf8');
+  ok((questions.match(/getBoundingClientRect/g) || []).length === 3,
+    'all three questions in that file ask whether the thing is really on screen');
 });
 
 t('and saying they signed in is recorded as their word, not as ours', () => {

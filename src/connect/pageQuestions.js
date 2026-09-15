@@ -97,7 +97,21 @@ export const IS_A_PUZZLE = String.raw`
     try {
       var body = (document.body && document.body.innerText || "").toLowerCase();
       if (/enter the characters you see|type the characters|are you a human|i am not a robot|unusual traffic|verify you are human/.test(body)) return true;
-      if (document.querySelector('iframe[src*="recaptcha"],iframe[title*="challenge"],[id*="captcha"],[class*="captcha"]')) return true;
+      // AND IT HAS TO BE ON SCREEN, which is the rule the other two questions in
+      // this file have always kept and this one did not. querySelector matches a
+      // node that is display:none, so a hidden captcha container sitting in a
+      // shop's ordinary markup read as a puzzle — and the watcher returns before
+      // gathering a single fact on a puzzle, for that page's WHOLE LIFE. One
+      // invisible node could mute Fayr on a page where a person was signing in
+      // perfectly well, and nothing would ever say why.
+      //
+      // Same shape as fayrSignInIsUp and fayrWholeLabel above: a box with real
+      // width and real height, or it does not count.
+      var puzzles = document.querySelectorAll('iframe[src*="recaptcha"],iframe[title*="challenge"],[id*="captcha"],[class*="captcha"]');
+      for (var p=0;p<puzzles.length;p++){
+        var pbox = puzzles[p].getBoundingClientRect();
+        if (pbox.width > 0 && pbox.height > 0) return true;
+      }
       return false;
     } catch(e){ return true; }
   }

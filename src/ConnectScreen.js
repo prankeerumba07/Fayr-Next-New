@@ -25,7 +25,7 @@ import { MarketplaceTag } from './ui/primitives';
 // node, including the failures a phone cannot be made to do on demand.
 import {
   ASK_THE_SHOP_AGAIN, FAILED, OPENING_UP, SHOP_HAS_THIS_LONG_MS, SIGNED_IN_SHOWS_FOR_MS,
-  THEY_SAY_THEY_ARE_IN, isForTheGate, isTheShopsOwnSignInPage, pathOf,
+  THEY_SAY_THEY_ARE_IN, UNCOVER_THE_SHOP, isForTheGate, isTheShopsOwnSignInPage, pathOf,
   shopMayBeSeen, shopViewKey, shopViewMayExist, shouldActOnFailure, whatDecidedIt,
   whatIsOnScreen, whatTheShopSaid, whatWeSay,
   CANNOT_TELL, HOLD_CANNOT_TELL_MS, holdBackCannotTell,
@@ -217,6 +217,16 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
   // clock below has to be able to make the screen draw again.
   const [askedAt, setAskedAt] = useState(() => Date.now());
   const [nowIs, setNowIs] = useState(() => Date.now());
+  // WHEN THE SIGN IN LEFT THE SCREEN, or null while it has not. The second clock
+  // is counted from HERE and not from askedAt, and that is the whole difference
+  // between the two: fifteen seconds of somebody typing is not fifteen seconds of
+  // a shop saying nothing. State and not a ref, because the clock below has to be
+  // able to make the screen draw again. See whatDecidedIt in connect/gate.js.
+  const [quietSince, setQuietSince] = useState(null);
+  // THEY ASKED TO SEE THE SHOP'S OWN PAGE. Starts false, is only ever set by a tap
+  // on the one control that does it, and is put back the moment the screen is
+  // anything but the one that asks. Nothing else in this file may set it true.
+  const [theyAskedToSee, setTheyAskedToSee] = useState(false);
 
   // THE ONE CLOCK THAT MAKES THE WAIT REAL. Without it a shop that never answers
   // leaves the loading screen up for ever, because nothing would ever ask again
@@ -230,7 +240,8 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     // millisecond leave askedAt unchanged, React sees no new value and skips the
     // render, and the second attempt would then get no wait of its own at all.
     // The count always changes.
-  }, [toSignIn, askedAt, attempt, signInIsUp, signInIsGone, theyAreIn, itWillNotOpen]);
+  }, [toSignIn, askedAt, quietSince, attempt,
+    signInIsUp, signInIsGone, theyAreIn, itWillNotOpen]);
 
   const gateSays = toSignIn
     ? whatIsOnScreen({
@@ -241,6 +252,7 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
       // a second copy of it would be a second thing to keep right. See
       // whatDecidedIt in connect/gate.js for the Amazon sign in this cost.
       shopHasAnswered: signInWasUp.current,
+      quietSince,
     })
     : null;
 
@@ -306,12 +318,14 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     const why = whatDecidedIt({
       signInIsUp, signInIsGone, theyAreIn, itWillNotOpen, startedAt: askedAt, now: nowIs,
       shopHasAnswered: signInWasUp.current,
+      quietSince,
     });
     logGate(attempt, 'GATE',
       `${gateWas.current == null ? '(first)' : gateWas.current} -> ${gate}  because ${why}`
       + `  [signInIsUp=${signInIsUp} signInIsGone=${signInIsGone} theyAreIn=${theyAreIn}`
       + ` itWillNotOpen=${itWillNotOpen} shopHasAnswered=${signInWasUp.current}`
-      + ` waited=${nowIs - askedAt}ms of ${SHOP_HAS_THIS_LONG_MS}]`);
+      + ` waited=${nowIs - askedAt}ms of ${SHOP_HAS_THIS_LONG_MS}`
+      + ` quiet=${quietSince == null ? 'no' : `${nowIs - quietSince}ms`}]`);
     gateWas.current = gate;
   }, [gate, attempt, toSignIn, signInIsUp, signInIsGone, theyAreIn, itWillNotOpen, askedAt, nowIs]);
 
@@ -346,6 +360,12 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     setTheyAreIn(false);
     setItWillNotOpen(false);
     itWillNotOpenNow.current = false;
+    // A NEW VIEW HAS NOT GONE QUIET — IT HAS NOT SPOKEN YET, which is a different
+    // thing and is what the FIRST clock is for. Left set, a second attempt would
+    // inherit a silence that belonged to the view before it.
+    setQuietSince(null);
+    // AND NOBODY HAS ASKED TO SEE ANYTHING ON A VIEW THAT DOES NOT EXIST YET.
+    setTheyAskedToSee(false);
     const at = Date.now();
     setAskedAt(at);
     setNowIs(at);
@@ -373,6 +393,30 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
    * our side keeps carries the reason, and this reason is not the same fact as the
    * shop having shown us its own sign out.
    */
+  /**
+   * THEY ASKED TO SEE THE SHOP'S OWN PAGE, AND THAT IS THE ONLY WAY IT COMES OFF.
+   *
+   * He sat on our own cover for ten minutes on 15 September 2026 while Amazon was
+   * almost certainly asking whether he was a robot behind it. Fayr will not read
+   * that page and will not touch it — but covering it meant he could not answer it
+   * either, and answering it is the one thing that would have moved him on.
+   *
+   * IT IS A TAP AND NEVER A DECISION OF OURS. Nothing in this file sets this
+   * anywhere else, the gate offers the control on one screen only, and the default
+   * everywhere is that the shop's page stays covered.
+   */
+  const showTheShop = useCallback(() => {
+    logGate(attemptNow.current, 'SHOW ME THE SHOP TAPPED', 'the person asked to see the page');
+    setTheyAskedToSee(true);
+  }, []);
+
+  // AND IT IS PUT BACK THE MOMENT THE SCREEN IS ANYTHING ELSE. Uncovering belongs
+  // to the one screen that asks, and to the one tap that asked. A shop's page must
+  // never still be showing because of a tap made on a screen that has since gone.
+  useEffect(() => {
+    if (gate !== CANNOT_TELL) setTheyAskedToSee(false);
+  }, [gate]);
+
   const theySayTheyAreIn = useCallback(() => {
     logGate(attemptNow.current, 'THEY SAID THEY ARE IN', 'the person answered our own question');
     setHowWeKnew(THEY_SAID_SO);
@@ -444,6 +488,13 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
         const at = Date.now();
         setAskedAt(at);
         setNowIs(at);
+        // AND THIS IS THE MOMENT THE SECOND CLOCK STARTS. It is the one place the
+        // sign in leaves the screen while the attempt carries on, so it is the one
+        // place that can say when the shop went quiet. Without it a page that says
+        // nothing at all - a shop's robot check, a connection that died - leaves
+        // somebody on our own cover for ever with nothing to press, which is what
+        // happened to him for ten minutes on 15 September 2026.
+        setQuietSince(at);
       }
     }
     saveSession();
@@ -575,11 +626,22 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
       // FROM WHAT THE PAGE REALLY SAID, never a flat true. Being in and having a
       // sign in on screen are different things, and the cover must stay on for a
       // page that is neither.
-      if (said.signInIsUp) { signInWasUp.current = true; setSignInIsUp(true); setSignInIsGone(false); }
+      if (said.signInIsUp) {
+        signInWasUp.current = true; setSignInIsUp(true); setSignInIsGone(false);
+        // THE SHOP IS TALKING AGAIN, so it is not quiet and the second clock stops.
+        setQuietSince(null);
+      }
       // THE SIGN IN HAS GONE AND THE SHOP WILL NOT SAY WHETHER IT WORKED. Our own
       // cover goes back over the page and the person is asked, in one sentence.
       // Nothing is claimed and nothing is written down from this on its own.
-      if (said.signInIsGone) { setSignInIsUp(false); setSignInIsGone(true); }
+      if (said.signInIsGone) {
+        setSignInIsUp(false); setSignInIsGone(true);
+        // THE SAME INVARIANT, KEPT WHOLE: every place the sign in leaves the screen
+        // records when. This one already puts the asking screen up on its own, so
+        // the second clock never gets to decide here - but a rule with one hole in
+        // it is a rule somebody has to remember, and this one has none.
+        setQuietSince(Date.now());
+      }
       if (said.theyAreIn) {
         setHowWeKnew(SAW_IT);
         setTheyAreIn(true);
@@ -853,13 +915,15 @@ export default function ConnectScreen({ platform, campaign, navigation, route })
     return () => clearTimeout(t);
   }, [toSignIn, theyAreIn, navigation, route, platform]);
 
-  const ourOwnWords = gate != null && !shopMayBeSeen(gate) ? whatWeSay(gate) : null;
+  const ourOwnWords = gate != null && !shopMayBeSeen(gate, theyAskedToSee)
+    ? whatWeSay(gate) : null;
   // EVERY CONTROL THE GATE CAN ASK FOR, AND THE ONE THING EACH DOES. Written as a
   // list rather than as a question in the middle of the drawing, so a control the
   // gate adds later cannot quietly land on the wrong one of these.
   const whatEachControlDoes = {
     [ASK_THE_SHOP_AGAIN]: tryAgain,
     [THEY_SAY_THEY_ARE_IN]: theySayTheyAreIn,
+    [UNCOVER_THE_SHOP]: showTheShop,
   };
 
   return (

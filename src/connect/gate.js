@@ -49,7 +49,7 @@
 
 import { readAccountName } from '../signin.js';
 import {
-  DID_NOT_OPEN, I_HAVE_SIGNED_IN, NOT_SURE, OPENING, SIGNED_IN, TRY_AGAIN,
+  DID_NOT_OPEN, I_HAVE_SIGNED_IN, NOT_SURE, OPENING, SHOW_ME_THE_SHOP, SIGNED_IN, TRY_AGAIN,
 } from './gateWords.js';
 import { PAYING_PATH, SIGN_IN_PATH } from './pageQuestions.js';
 
@@ -146,9 +146,15 @@ export const SIGNED_IN_NOW = 'signedIn';
  */
 export const HOLD_CANNOT_TELL_MS = 3000;
 
-/** What a control on our own screen does. Never more than these two. */
+/** What a control on our own screen does. Never more than these three. */
 export const ASK_THE_SHOP_AGAIN = 'tryAgain';
 export const THEY_SAY_THEY_ARE_IN = 'confirm';
+/**
+ * TAKE OUR COVER OFF THE SHOP'S PAGE, and this is the only thing that ever does.
+ * It is offered on ONE screen and it is never done for somebody: see
+ * shopMayBeSeen, and the words for it in gateWords.js.
+ */
+export const UNCOVER_THE_SHOP = 'showTheShop';
 
 /**
  * THE FIVE INPUTS, NAMED, so a log can say which one decided and be believed.
@@ -163,6 +169,12 @@ export const BECAUSE_THE_SHOP_SAID_SO = 'itWillNotOpen';
 export const BECAUSE_THE_SIGN_IN_WENT = 'signInIsGone';
 export const BECAUSE_THE_SIGN_IN_IS_UP = 'signInIsUp';
 export const BECAUSE_TIME_RAN_OUT = 'ranOutOfTime';
+/**
+ * THE SHOP ANSWERED AND THEN STOPPED SAYING ANYTHING. A different fact from the
+ * sign in going away, and it puts the same screen up, which is exactly why it has
+ * a name of its own — see the note above about the last two.
+ */
+export const BECAUSE_THE_SHOP_WENT_QUIET = 'shopWentQuiet';
 export const BECAUSE_NOTHING_YET = 'stillOpening';
 
 /**
@@ -179,6 +191,10 @@ const STATE_FOR_REASON = {
   [BECAUSE_THE_SIGN_IN_WENT]: CANNOT_TELL,
   [BECAUSE_THE_SIGN_IN_IS_UP]: SHOP,
   [BECAUSE_TIME_RAN_OUT]: FAILED,
+  // AND NOT FAILED. "The shop did not open" would be false here and a person can
+  // tell: they watched it open and they signed in on it. The screen that says we
+  // cannot tell is the true one, and it is the one that carries controls.
+  [BECAUSE_THE_SHOP_WENT_QUIET]: CANNOT_TELL,
   [BECAUSE_NOTHING_YET]: OPENING_UP,
 };
 
@@ -338,6 +354,7 @@ export function whatDecidedIt({
   itWillNotOpen = false,
   shopHasAnswered = false,
   startedAt = null,
+  quietSince = null,
   now = null,
 } = {}) {
   // BEING IN WINS OVER EVERYTHING. If the shop's page says this person is signed
@@ -393,6 +410,32 @@ export function whatDecidedIt({
   // IT IS PER ATTEMPT, and the caller resets it when it counts the attempt up.
   // Try again throws the view away and builds a new one, and a new view has shown
   // us nothing, so it gets its own fresh fifteen seconds.
+  // ── AND A SECOND CLOCK, FOR THE SHOP THAT ANSWERED AND THEN WENT QUIET ───
+  //
+  // THE COST OF THE LATCH ABOVE, PAID. Written down when the latch was built and
+  // then found on a real phone on 15 September 2026: he connected Amazon, typed
+  // his mobile number, tapped Continue, and sat on our own loading screen for TEN
+  // MINUTES with nothing to press. Once the shop has answered, the first clock is
+  // dead and only the shop refusing or this person being in could end it — and a
+  // page that says nothing at all does neither, for ever.
+  //
+  // A PAGE CAN GO QUIET AND MEAN IT. The watcher is silent by design on a paying
+  // page and on a puzzle, so a shop asking whether somebody is a robot posts
+  // nothing for that page's whole life. A connection that dies after the sign in
+  // was seen is silent too, now that a late error is ignored.
+  //
+  // SO THE SAME FIFTEEN SECONDS ARE COUNTED AGAIN, FROM A DIFFERENT MOMENT. Not a
+  // new number - this is ranOutOfTime, the one the whole app already shares - and
+  // it starts when the sign in left the screen, not when the attempt began. That
+  // is the difference that made the first clock wrong: fifteen seconds of somebody
+  // typing is not fifteen seconds of a shop saying nothing.
+  //
+  // AND IT PUTS UP THE SCREEN THAT ASKS, NEVER THE ONE THAT BLAMES. See the table
+  // above: this is CANNOT_TELL, which already carries the controls a person needs
+  // and already says the one thing that is true - we cannot tell what happened.
+  if (shopHasAnswered === true && ranOutOfTime(quietSince, now)) {
+    return BECAUSE_THE_SHOP_WENT_QUIET;
+  }
   if (shopHasAnswered !== true && ranOutOfTime(startedAt, now)) return BECAUSE_TIME_RAN_OUT;
   return BECAUSE_NOTHING_YET;
 }
@@ -410,8 +453,20 @@ export function ranOutOfTime(startedAt, now) {
  * The single question the screen asks. One line, so there is one answer and it
  * cannot be got right in one branch and wrong in another.
  */
-export function shopMayBeSeen(state) {
-  return state === SHOP;
+export function shopMayBeSeen(state, theyAskedToSee = false) {
+  if (state === SHOP) return true;
+  // ── AND ON EXACTLY ONE OTHER SCREEN, WHEN THE PERSON ASKED FOR IT ────────
+  //
+  // THE DEFAULT IS FALSE AND EVERY CALLER THAT ASKS NOTHING GETS THE OLD ANSWER.
+  // Nothing in this file ever decides to uncover a page: this is true only when
+  // the screen is handed a yes that came from somebody tapping a control.
+  //
+  // ONLY THE SCREEN THAT ALREADY SAYS WE CANNOT TELL. Not the loading screen, not
+  // the failure, not the moment they are in. It is written as one equality rather
+  // than a list of screens for the same reason holdBackCannotTell is: a list is a
+  // thing somebody adds to, and every screen added to this one would be a shop's
+  // page put in front of somebody who did not ask to see it.
+  return state === CANNOT_TELL && theyAskedToSee === true;
 }
 
 /**
@@ -566,6 +621,11 @@ export function whatWeSay(state) {
       controls: [
         { label: I_HAVE_SIGNED_IN, does: THEY_SAY_THEY_ARE_IN },
         { label: TRY_AGAIN, does: ASK_THE_SHOP_AGAIN },
+        // AND THE THIRD, WHICH IS THE ONLY ONE THAT TAKES OUR COVER OFF. It is
+        // here and on no other screen because this is the only one that admits we
+        // do not know: a person looking at it may be looking away from a shop's
+        // own question they could answer in a second. See gateWords.js.
+        { label: SHOW_ME_THE_SHOP, does: UNCOVER_THE_SHOP },
       ],
     };
   }

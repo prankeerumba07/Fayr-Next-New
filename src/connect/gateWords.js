@@ -19,8 +19,8 @@
 // ── AND WHY THERE ARE SO FEW OF THEM ────────────────────────────────────────
 //
 // A person on this screen is waiting to sign in at a shop. Every extra sentence
-// is a sentence between them and their money. There are four, and one of them is
-// a button.
+// is a sentence between them and their money. There are seven: four things to
+// read, and three buttons.
 
 /** While the shop's own sign in page is on its way. Nothing else is on screen. */
 export const OPENING = 'Opening the shop so you can sign in.';
@@ -64,7 +64,29 @@ export const NOT_SURE =
 /** Their own answer, when Fayr could not see it for itself. */
 export const I_HAVE_SIGNED_IN = 'Yes, I have signed in';
 
+/**
+ * THE THIRD CONTROL, AND IT IS THE ONLY WAY OUR COVER EVER COMES OFF BY HAND.
+ *
+ * ── WHY IT EXISTS, FROM A REAL PHONE ON 15 SEPTEMBER 2026 ──────────────────
+ *
+ * He connected Amazon, typed his mobile number, tapped Continue, and sat on
+ * "Opening the shop so you can sign in." for ten minutes with nothing to press.
+ * Amazon was almost certainly showing its robot check, which is a page Fayr
+ * deliberately refuses to read — and our own cover was sitting over the one page
+ * he could have done something about.
+ *
+ * SO HE CAN ASK TO SEE IT, AND ONLY BY ASKING. The shop's page stays covered by
+ * default and nothing ever uncovers it on its own. This is a tap, made by the
+ * person, on the one screen that already says we cannot tell what happened.
+ *
+ * IT IS NOT AN INSTRUCTION AND IT PROMISES NOTHING. It does not say the shop is
+ * asking anything in particular, because we did not read the page and do not
+ * know. It says what the tap does and no more.
+ */
+export const SHOW_ME_THE_SHOP = 'Show me the shop';
+
 /** Every sentence in this file, for the check on our side that walks them. */
 export const EVERY_SENTENCE = [
   OPENING, DID_NOT_OPEN, TRY_AGAIN, SIGNED_IN, NOT_SURE, I_HAVE_SIGNED_IN,
+  SHOW_ME_THE_SHOP,
 ];

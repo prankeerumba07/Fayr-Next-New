@@ -27,6 +27,7 @@ import {
   BECAUSE_THE_SHOP_SAID_SO,
   BECAUSE_THE_SIGN_IN_IS_UP,
   BECAUSE_THE_SIGN_IN_WENT,
+  BECAUSE_THE_SHOP_WENT_QUIET,
   BECAUSE_TIME_RAN_OUT,
   CANNOT_TELL,
   FAILED,
@@ -47,6 +48,7 @@ import {
   SIGNED_IN_NOW,
   SIGNED_IN_SHOWS_FOR_MS,
   THEY_SAY_THEY_ARE_IN,
+  UNCOVER_THE_SHOP,
   isAPayingPage,
   isForTheGate,
   isTheShopsOwnSignInPage,
@@ -60,7 +62,8 @@ import {
   whatWeSay,
 } from './gate.js';
 import {
-  DID_NOT_OPEN, EVERY_SENTENCE, I_HAVE_SIGNED_IN, NOT_SURE, OPENING, SIGNED_IN, TRY_AGAIN,
+  DID_NOT_OPEN, EVERY_SENTENCE, I_HAVE_SIGNED_IN, NOT_SURE, OPENING, SHOW_ME_THE_SHOP,
+  SIGNED_IN, TRY_AGAIN,
 } from './gateWords.js';
 // THE ONE PLACE A REASON BECOMES WORDS. Read here so a reason added without words
 // fails, rather than printing its own name at somebody trying to read a phone.
@@ -504,7 +507,9 @@ console.log('\n=== 12. what we say, and the controls under it ===');
   ok(asking.sentence === NOT_SURE, 'the question says what we do and do not know');
   ok(!/signed in\.|you are signed in/i.test(asking.sentence),
     'AND NEVER CLAIMS THEY ARE SIGNED IN, because that is the thing we cannot tell');
-  ok(asking.controls.length === 2, 'and offers two controls, one for each thing that may have happened');
+  ok(asking.controls.length === 3,
+    'and offers three controls: one for each thing that may have happened, and one '
+    + 'to look at the page itself');
   // READ THROUGH A HOLE THAT CANNOT THROW. Reading controls[1] straight would
   // CRASH this whole file the moment a control went missing, and a file that
   // crashes never reaches its own summary: every section after this one would
@@ -515,6 +520,8 @@ console.log('\n=== 12. what we say, and the controls under it ===');
   ok(control(0).does === THEY_SAY_THEY_ARE_IN, 'and it records that they said so');
   ok(control(1).label === TRY_AGAIN, 'the second goes back to the shop');
   ok(control(1).does === ASK_THE_SHOP_AGAIN, 'and asks it again from nothing');
+  ok(control(2).label === SHOW_ME_THE_SHOP, 'and the third shows them the page itself');
+  ok(control(2).does === UNCOVER_THE_SHOP, 'and it is the one thing that takes our cover off');
 
   const signedIn = whatWeSay(SIGNED_IN_NOW);
   ok(signedIn.sentence === SIGNED_IN, 'the signed in line says they are signed in');
@@ -526,12 +533,25 @@ console.log('\n=== 12. what we say, and the controls under it ===');
   }
 
   // Every word on screen comes from the one file our side reads from disk.
-  const said = [OPENING, DID_NOT_OPEN, TRY_AGAIN, SIGNED_IN, NOT_SURE, I_HAVE_SIGNED_IN];
-  ok(new Set(said).size === 6, 'the six things a person can read are six different things');
+  const said = [
+    OPENING, DID_NOT_OPEN, TRY_AGAIN, SIGNED_IN, NOT_SURE, I_HAVE_SIGNED_IN, SHOW_ME_THE_SHOP,
+  ];
+  ok(new Set(said).size === 7, 'the seven things a person can read are seven different things');
   for (const one of said) {
     ok(EVERY_SENTENCE.includes(one), `"${one}" is in the one file our side reads`);
   }
-  ok(EVERY_SENTENCE.length === 6, 'and the file holds those six and nothing else');
+  ok(EVERY_SENTENCE.length === 7, 'and the file holds those seven and nothing else');
+  // AND EVERY LABEL A CONTROL CAN CARRY IS ONE OF THEM, walked from the gate's own
+  // answer rather than from a list written here, so a control added with a word
+  // typed straight into gate.js cannot slip past the rule on our side.
+  for (const state of [OPENING_UP, FAILED, CANNOT_TELL, SIGNED_IN_NOW]) {
+    const words = whatWeSay(state);
+    for (const one of words.controls) {
+      ok(EVERY_SENTENCE.includes(one.label),
+        `the control "${one.label}" on the ${state} screen comes from the one file `
+        + 'our side reads from disk, where the plain language rule can reach it');
+    }
+  }
 }
 
 console.log('\n=== 13. BUG THREE. how often the page is looked at ===');
@@ -763,8 +783,18 @@ console.log('\n=== 16. TEST THREE. which of the five inputs decided it ===');
     [BECAUSE_THE_SIGN_IN_WENT]: CANNOT_TELL,
     [BECAUSE_THE_SIGN_IN_IS_UP]: SHOP,
     [BECAUSE_TIME_RAN_OUT]: FAILED,
+    [BECAUSE_THE_SHOP_WENT_QUIET]: CANNOT_TELL,
     [BECAUSE_NOTHING_YET]: OPENING_UP,
   };
+  // AND A SILENCE THAT NEVER BEGAN IS NOT A LONG SILENCE. Written out rather than
+  // subtracted, because `now - null` is `now` in this language, so a quiet moment
+  // of nothing read as a silence that began at the start of time — which made two
+  // of the rows below disagree and was caught by them rather than by reading.
+  // The real ranOutOfTime guards itself the same way, which is the point: this is
+  // a model of the rule and it has to refuse what the rule refuses.
+  const wentQuiet = (f) => typeof f.quietSince === 'number'
+    && Number.isFinite(f.quietSince)
+    && f.now - f.quietSince >= SHOP_HAS_THIS_LONG_MS;
   const IS_REALLY_TRUE = {
     [BECAUSE_THEY_ARE_IN]: (f) => f.theyAreIn === true,
     [BECAUSE_THE_SHOP_SAID_SO]: (f) => f.itWillNotOpen === true,
@@ -781,43 +811,60 @@ console.log('\n=== 16. TEST THREE. which of the five inputs decided it ===');
     // for anything, which meant a gate that wrongly fell through to the loading
     // screen was counted as honest. With a latch in the file that is the exact
     // mistake worth catching: a latch that fires when it should not lands here.
+    [BECAUSE_THE_SHOP_WENT_QUIET]: (f) => f.shopHasAnswered === true && wentQuiet(f),
     [BECAUSE_NOTHING_YET]: (f) => f.theyAreIn !== true
       && f.itWillNotOpen !== true
       && f.signInIsGone !== true
       && f.signInIsUp !== true
+      && !(f.shopHasAnswered === true && wentQuiet(f))
       && (f.shopHasAnswered === true || f.now - f.startedAt < SHOP_HAS_THIS_LONG_MS),
   };
+  // A REASON THIS TABLE HAS NEVER HEARD OF MUST FAIL, NOT KILL THE FILE.
+  //
+  // FOUND BY A MUTATION ON 15 SEPTEMBER 2026, and it is the one this file already
+  // warns about twenty lines up. A new reason was added to gate.js and not to the
+  // table, and `IS_REALLY_TRUE[why](facts)` threw TypeError: not a function — so
+  // the whole file died at this section and sections 17 to 20 never ran at all,
+  // while the runner printed nothing anybody would read as a failure. That is the
+  // shape that once made twelve mutation results worthless.
+  const isReallyTrue = (why, facts) => (IS_REALLY_TRUE[why] ?? (() => false))(facts);
   let agreed = 0;
   let named = 0;
+  let walked = 0;
   for (const theyAreIn of [false, true]) {
     for (const itWillNotOpen of [false, true]) {
       for (const signInIsGone of [false, true]) {
         for (const signInIsUp of [false, true]) {
           for (const shopHasAnswered of [false, true]) {
-            for (const now of [STILL_IN_TIME, OUT_OF_TIME]) {
-              const facts = {
-                theyAreIn,
-                itWillNotOpen,
-                signInIsGone,
-                signInIsUp,
-                shopHasAnswered,
-                startedAt: OPENED_AT,
-                now,
-              };
-              const why = whatDecidedIt(facts);
-              if (STATE_OF[why] === whatIsOnScreen(facts)) agreed += 1;
-              if (IS_REALLY_TRUE[why](facts)) named += 1;
+            for (const quietSince of [null, OPENED_AT]) {
+              for (const now of [STILL_IN_TIME, OUT_OF_TIME]) {
+                const facts = {
+                  theyAreIn,
+                  itWillNotOpen,
+                  signInIsGone,
+                  signInIsUp,
+                  shopHasAnswered,
+                  startedAt: OPENED_AT,
+                  quietSince,
+                  now,
+                };
+                const why = whatDecidedIt(facts);
+                walked += 1;
+                if (STATE_OF[why] === whatIsOnScreen(facts)) agreed += 1;
+                if (isReallyTrue(why, facts)) named += 1;
+              }
             }
           }
         }
       }
     }
   }
-  ok(agreed === 64,
-    `THE REASON AND THE SCREEN AGREE IN ALL 64 COMBINATIONS (${agreed}). They cannot `
+  ok(walked === 128, `a hundred and twenty eight combinations walked (${walked})`);
+  ok(agreed === walked,
+    `THE REASON AND THE SCREEN AGREE IN ALL ${walked} COMBINATIONS (${agreed}). They cannot `
     + 'drift, because whatIsOnScreen is a lookup over this same answer rather than a '
-    + 'second copy of the same five questions in the same order');
-  ok(named === 64,
+    + 'second copy of the same questions in the same order');
+  ok(named === walked,
     `AND THE REASON NAMED IS ALWAYS AN INPUT THAT IS REALLY TRUE (${named}). A log `
     + 'that blames an input which was false is worse than no log at all');
 }
@@ -965,6 +1012,147 @@ console.log('\n=== 18. BUG FOUR. "The shop did not open" landed in the MIDDLE of
   }) === OPENING_UP,
     'KNOWN AND CHOSEN: a shop that answered and then went silent leaves our own '
     + 'cover up rather than the failure, for as long as it stays silent');
+}
+
+console.log('\n=== 19. BUG SIX. ten minutes on the loading screen with nothing to press ===');
+{
+  // ── WHAT HE SAW, ON A REAL PHONE, 15 SEPTEMBER 2026 ───────────────────────
+  //
+  // He connected Amazon, typed his mobile number, tapped Continue, and sat on
+  // "Opening the shop so you can sign in." for TEN MINUTES with no control at
+  // all. This is the cost of the latch in section 18, named there when it was
+  // built and found in the wild eight hours later: once the shop has answered the
+  // first clock is dead, and only the shop refusing or this person being in can
+  // end the attempt — and a page that says nothing does neither, for ever.
+  //
+  // A PAGE CAN GO QUIET AND MEAN IT. The watcher says nothing on a paying page or
+  // a puzzle, both by design, so a shop's robot check posts nothing for that
+  // page's whole life; and a connection that dies after the sign in was seen is
+  // silent too, now that a late error is ignored.
+  const WENT_QUIET_AT = OPENED_AT + 5_000;
+  const quiet = (after, rest = {}) => ({
+    shopHasAnswered: true,
+    startedAt: OPENED_AT,
+    quietSince: WENT_QUIET_AT,
+    now: WENT_QUIET_AT + after,
+    ...rest,
+  });
+
+  ok(whatDecidedIt(quiet(SHOP_HAS_THIS_LONG_MS)) === BECAUSE_THE_SHOP_WENT_QUIET,
+    'a shop that answered and then said nothing for fifteen seconds is named as '
+    + 'having gone quiet, which is its own fact and not the sign in going away');
+  ok(whatDecidedIt(quiet(SHOP_HAS_THIS_LONG_MS - 1)) === BECAUSE_NOTHING_YET,
+    'and a millisecond before that it is still just waiting');
+
+  // AND THE SCREEN IS THE ONE THAT ASKS, NEVER THE ONE THAT BLAMES.
+  ok(whatIsOnScreen(quiet(SHOP_HAS_THIS_LONG_MS)) === CANNOT_TELL,
+    'THE SCREEN IS THE ONE THAT SAYS WE CANNOT TELL');
+  ok(whatIsOnScreen(quiet(SHOP_HAS_THIS_LONG_MS)) !== FAILED,
+    'AND NEVER THE FAILURE. "The shop did not open" would be false here and the '
+    + 'person can tell: they watched it open and they typed into it');
+
+  // THE WHOLE POINT: THE PERSON IS NEVER STUCK AGAIN. The screen it reaches is
+  // the one that carries controls, and the loading screen is the one that does
+  // not — which is exactly why the ten minutes had nothing to press.
+  ok(whatWeSay(whatIsOnScreen(quiet(SHOP_HAS_THIS_LONG_MS))).controls.length === 3,
+    'and that screen puts three things in front of them, so the ten minutes with '
+    + 'nothing to press cannot happen again');
+  ok(whatWeSay(OPENING_UP).controls.length === 0,
+    'while the screen he was stranded on really does offer nothing, which is what '
+    + 'made it a dead end rather than merely a wait');
+
+  // IT IS THE SAME FIFTEEN SECONDS, NOT A NEW NUMBER. Counted from a different
+  // moment, which is the whole of the difference between the two clocks.
+  ok(SHOP_HAS_THIS_LONG_MS === 15000, 'and it is still fifteen seconds, unchanged');
+  ok(whatIsOnScreen({
+    shopHasAnswered: true, startedAt: OPENED_AT, quietSince: OPENED_AT + 3_600_000,
+    now: OPENED_AT + 3_600_000 + SHOP_HAS_THIS_LONG_MS - 1,
+  }) === OPENING_UP,
+    'AN ATTEMPT AN HOUR OLD THAT WENT QUIET ONE SECOND AGO IS STILL BEING WAITED '
+    + 'FOR. The second clock is counted from the silence and not from the start, '
+    + 'which is the mistake the first clock was making');
+
+  // AND IT DOES NOTHING AT ALL UNTIL THE SHOP HAS ANSWERED. Before that the first
+  // clock is the one that decides, on its own moment, exactly as it always did.
+  ok(whatDecidedIt({
+    shopHasAnswered: false, startedAt: OPENED_AT, quietSince: WENT_QUIET_AT,
+    now: WENT_QUIET_AT + SHOP_HAS_THIS_LONG_MS,
+  }) === BECAUSE_TIME_RAN_OUT,
+    'a shop that never answered is still blamed on the first clock and still gets '
+    + 'the failure screen with its one control');
+
+  // A SILENCE THAT NEVER BEGAN NEVER RUNS OUT.
+  for (const never of [null, undefined, NaN, Infinity, '0', {}]) {
+    ok(whatIsOnScreen({
+      shopHasAnswered: true, startedAt: OPENED_AT, quietSince: never,
+      now: OPENED_AT + 10 * 60 * 1000,
+    }) === OPENING_UP,
+      `a quiet moment of ${String(never)} never runs out, so a screen that has not `
+      + 'recorded one cannot be timed out on a silence it never saw');
+  }
+
+  // AND IT MOVES NOTHING ELSE. The four above it still decide first, however long
+  // the page has been quiet.
+  const longQuiet = quiet(10 * 60 * 1000);
+  ok(whatDecidedIt({ ...longQuiet, theyAreIn: true }) === BECAUSE_THEY_ARE_IN,
+    'being in still wins over ten minutes of silence');
+  ok(whatDecidedIt({ ...longQuiet, itWillNotOpen: true }) === BECAUSE_THE_SHOP_SAID_SO,
+    'and the shop saying so still wins');
+  ok(whatDecidedIt({ ...longQuiet, signInIsGone: true }) === BECAUSE_THE_SIGN_IN_WENT,
+    'and the sign in going away is still its own reason, with its own name, even '
+    + 'though it puts up the identical screen');
+  ok(whatDecidedIt({ ...longQuiet, signInIsUp: true }) === BECAUSE_THE_SIGN_IN_IS_UP,
+    'and a sign in back on screen is the shop talking again, not a silence');
+}
+
+console.log('\n=== 20. BUG SIX. the cover comes off only when the person asks ===');
+{
+  // HE COULD NOT SEE THE THING BLOCKING HIM. If Amazon was serving its robot
+  // check, our own cover was over the one page he could have acted on. So there
+  // is a control that takes it off — and taking it off is a thing he does, never
+  // a thing Fayr decides.
+  const EVERY_SCREEN = [OPENING_UP, SHOP, FAILED, CANNOT_TELL, SIGNED_IN_NOW];
+
+  // THE DEFAULT IS UNCHANGED FOR EVERY SCREEN, and that is asserted screen by
+  // screen rather than trusted: a caller that asks nothing gets exactly the answer
+  // it got before this existed.
+  for (const state of EVERY_SCREEN) {
+    ok(shopMayBeSeen(state) === (state === SHOP),
+      `asked nothing, ${state} is ${state === SHOP ? 'seen' : 'covered'}, exactly as before`);
+  }
+
+  // AND ASKING ONLY EVER UNCOVERS THE ONE SCREEN.
+  for (const state of EVERY_SCREEN) {
+    const may = shopMayBeSeen(state, true);
+    ok(may === (state === SHOP || state === CANNOT_TELL),
+      `having asked, ${state} is ${may ? 'seen' : 'still covered'} — and only the `
+      + 'screen that admits we cannot tell may be uncovered by asking');
+  }
+  ok(shopMayBeSeen(OPENING_UP, true) === false,
+    'THE SCREEN HE WAS STRANDED ON IS NOT ONE OF THEM. A loading screen that could '
+    + 'be uncovered would put a shop page nobody has read in front of somebody '
+    + 'while we still believe it is loading');
+  ok(shopMayBeSeen(FAILED, true) === false,
+    'and neither is the failure, where the view is thrown away entirely');
+
+  // NOTHING BUT A REAL YES COUNTS. A missing prop, a truthy leftover, an object -
+  // none of these are somebody tapping a control.
+  for (const notATap of [undefined, null, false, 0, '', 1, 'yes', {}, []]) {
+    ok(shopMayBeSeen(CANNOT_TELL, notATap) === false,
+      `${JSON.stringify(notATap) ?? String(notATap)} is not somebody asking, so the `
+      + 'shop stays covered');
+  }
+  ok(shopMayBeSeen(CANNOT_TELL, true) === true,
+    'and only a plain yes uncovers it');
+
+  // THE CONTROL THAT DOES IT EXISTS ON THAT SCREEN AND ON NO OTHER.
+  for (const state of EVERY_SCREEN) {
+    const words = whatWeSay(state);
+    const offers = (words == null ? [] : words.controls).some((c) => c.does === UNCOVER_THE_SHOP);
+    ok(offers === (state === CANNOT_TELL),
+      `the ${state} screen ${state === CANNOT_TELL ? 'offers' : 'does not offer'} `
+      + 'the control that takes our cover off');
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
