@@ -238,9 +238,18 @@ console.log('\n=== 10. THE SHOP DOES NOT OPEN UNLESS OUR SIDE RECORDED IT ===');
   // THE ONE WAY OUT. openShopApp must be reachable from exactly one place.
   ok((code.match(/openShopApp\(/g) || []).length === 1,
     'the shop is opened from exactly one place in this file');
-  ok(/const leaveForTheShop = useCallback\(async \(\) => \{\s*setNotice\(null\);\s*await openShopApp/
+  // ── AND IT OPENS THE SHOP BEFORE IT TAKES THE POP-UP DOWN ──────────────
+  //
+  // Measured on the owner's phone, 16 September 2026: this button did nothing at
+  // all, while the SAME call from the review step opened Amazon. The difference
+  // is that this one is inside a Modal, and pulling the Modal down in the same
+  // tick that asks iOS to leave swallows the open. So the order is reversed, and
+  // the dismissal is in a finally — because leaving somebody under a pop-up they
+  // have already answered is worse than the shop not opening.
+  ok(/const leaveForTheShop = useCallback\(async \(\) => \{\s*try \{\s*await openShopApp\(key, opens\);\s*\} finally \{\s*setNotice\(null\);\s*\}/
     .test(code),
-    'and that place is the notice own button');
+    'and that place is the notice own button, which opens the shop BEFORE it '
+    + 'dismisses itself');
   ok(/onRequestClose=\{\(\) => \{\}\}/.test(code),
     'THERE IS NO WAY PAST THE NOTICE: the phone own back control does nothing');
   ok(!/onDismiss|onBackdropPress|closeOnOverlay/.test(code),
@@ -284,8 +293,13 @@ console.log('\n=== 11. AND THE BUY SCREEN CHANGES AFTER THEY HAVE GONE ===');
     + 'question that has already been answered no');
   ok(/\{!hasGone && !couldNotStart \?/.test(code),
     'and so is the shop own door');
-  ok(/OPEN \{shop\.toUpperCase\(\)\} →/.test(code),
-    'AND THE DESIGN OWN WORDING IS STILL THERE, untouched');
+  // THE OWNER'S OWN WORDING, asked for on 16 September 2026. The design reads
+  // "OPEN AMAZON" here; he is right that this is the step where somebody goes
+  // and BUYS the product, and "open" describes what the phone does rather than
+  // what the person is there to do. src/ui/shopApp.test.mjs holds the review
+  // step to "OPEN", which is still exactly what that one is for.
+  ok(/BUY ON \{shop\.toUpperCase\(\)\} →/.test(code),
+    'AND THE BUTTON SAYS WHAT THE PERSON IS THERE TO DO');
   ok(/\{couldNotStart && !hasGone \?/.test(code),
     'and the refusal sentence cannot appear over a visit that did get recorded');
 
