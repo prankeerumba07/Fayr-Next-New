@@ -4,7 +4,8 @@ Written 16 September 2026, from the owner's own words, after the order read was
 made to work end to end on two different Amazon products.
 
 **Read this whole file before writing anything.** Then implement it. Do not
-redesign it — every numbered step below is the owner's, not a suggestion.
+redesign it — every numbered step below is the owner's, not a suggestion. There
+is nothing in here left open; do not come back with questions before starting.
 
 ---
 
@@ -89,9 +90,9 @@ that is an operator doing an operator's job, and it is correctly worded there.
 9. **Yes** reads the delivery off the shop's own page. (Works today, including
    the case where the page states only a return window — see
    `theDeliveryFragment`.)
-10. A short celebration: **"Product delivered."** — the owner wrote "34 seconds",
-    which is certainly **3 to 4 seconds**. CONFIRM WITH HIM before building a
-    longer one; do not ship a 34-second animation on a guess.
+10. A short celebration: **"Product delivered."** for **3 to 4 seconds**, then
+    the next screen by itself. (He first wrote "34 seconds" and corrected it the
+    same evening: three to four. Nothing to ask about — build three to four.)
 11. Then: **"Write a fair review after using the product."**
 12. **The review step is LOCKED for 24 hours after delivery.** Show a lock on it.
     It opens by itself when the 24 hours are up — no tap, no refresh needed.
