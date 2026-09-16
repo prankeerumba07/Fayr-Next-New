@@ -15,6 +15,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { countdownFor, holdIsOver, messageText, noticeFromTask } from './theNotice.js';
+import { theSentenceTheyGaveUs } from './refusal.js';
 import {
   COULD_NOT_START, EVERY_SENTENCE, HAVE_YOU_BOUGHT_IT, NOTHING_WAS_SPENT,
   NOT_YET, TIME_IS_UP, TRY_AGAIN, YES_I_HAVE, takeMeThere, timeLeftInWords,
@@ -227,11 +228,11 @@ console.log('\n=== 10. THE SHOP DOES NOT OPEN UNLESS OUR SIDE RECORDED IT ===');
   const openIdx = code.indexOf('await openShopApp');
   ok(askIdx !== -1 && openIdx !== -1 && askIdx < openIdx,
     'and it asks BEFORE anything opens');
-  ok(/if \(!answer \|\| !answer\.ok \|\| !answer\.task\) \{\s*setCouldNotStart\(true\);\s*return;/
+  ok(/if \(!answer \|\| !answer\.ok \|\| !answer\.task\) \{\s*setRefusal\(theSentenceTheyGaveUs\(answer\)\);\s*setCouldNotStart\(true\);\s*return;/
     .test(code),
     'A FAILED CALL RETURNS AND OPENS NOTHING, because a visit our side does not '
     + 'know about can never be paid');
-  ok(/if \(built == null\) \{\s*setCouldNotStart\(true\);\s*return;/.test(code),
+  ok(/if \(built == null\) \{\s*setRefusal\(null\);\s*setCouldNotStart\(true\);\s*return;/.test(code),
     'and a recorded visit with no words is treated the same way, rather than '
     + 'drawing a pop-up of our own');
   // THE ONE WAY OUT. openShopApp must be reachable from exactly one place.
@@ -277,8 +278,10 @@ console.log('\n=== 11. AND THE BUY SCREEN CHANGES AFTER THEY HAVE GONE ===');
   // THE SHOP'S DOOR IS GONE ONCE THEY HAVE WALKED THROUGH IT. A second tap
   // records nothing new — our side keeps the first tap and cannot move it — so
   // all it could do is send somebody to buy the same thing twice.
-  ok(/\{!hasGone && couldNotStart \?/.test(code),
-    'the retry button is drawn only before the visit is recorded');
+  ok(/\{!hasGone && couldNotStart && refusal == null \?/.test(code),
+    'the retry button is drawn only before the visit is recorded — and only when '
+    + 'our side did NOT answer with a decision, because tapping again asks a '
+    + 'question that has already been answered no');
   ok(/\{!hasGone && !couldNotStart \?/.test(code),
     'and so is the shop own door');
   ok(/OPEN \{shop\.toUpperCase\(\)\} →/.test(code),
@@ -335,7 +338,7 @@ console.log('\n=== 11. AND THE BUY SCREEN CHANGES AFTER THEY HAVE GONE ===');
   // below it. Taking the rest of the file would have counted the two doors too,
   // which is how this check first read four and proved nothing.
   const from = code.indexOf('{hasGone && !over ?');
-  const to = code.indexOf('{!hasGone && couldNotStart ?');
+  const to = code.indexOf('{!hasGone && couldNotStart &&');
   ok(from !== -1 && to !== -1 && from < to, 'step seven is drawn above the shop door');
   const step7 = code.slice(from, to);
   ok((step7.match(/<Pill /g) || []).length === 2,
@@ -350,6 +353,62 @@ console.log('\n=== 11. AND THE BUY SCREEN CHANGES AFTER THEY HAVE GONE ===');
   ok(/hasGone \? null : deadlineLine/.test(code),
     'AND THE CLAIM OWN HALF HOUR IS HIDDEN once they have tapped Buy, or it runs '
     + 'out while the two hours are still going and contradicts them');
+}
+
+console.log('\n=== 11. WHEN OUR SIDE SAYS WHY, THE PERSON IS TOLD WHY ===');
+{
+  // THE RUN THAT FORCED THIS, on the owner's phone, 16 September 2026. His thirty
+  // minute claim had run out. Our side answered 400 with the sentence it keeps
+  // for that, and the screen drew the GENERAL failure instead — which says "You
+  // have not lost your place". He had lost his place. It then offered TRY AGAIN,
+  // which asks the same question and gets the same 400, so he tapped it, read the
+  // same words, and concluded the shop would not open.
+  ok(typeof theSentenceTheyGaveUs === 'function',
+    'the rule is a function in a file with no React in it, so this test can walk it');
+
+  // A DECISION IS SHOWN.
+  ok(theSentenceTheyGaveUs({ ok: false, status: 400, error: 'The time to tap Buy has run out.' })
+    === 'The time to tap Buy has run out.',
+  'a 400 with a sentence in it IS the sentence the person is shown');
+  ok(theSentenceTheyGaveUs({ ok: false, status: 400, error: '  padded  ' }) === 'padded',
+    'and it is trimmed, because a body carries whitespace');
+
+  // ANYTHING THAT IS NOT A DECISION IS NOT. None of these is a sentence somebody
+  // wrote for a person to read, and "Internal server error" in front of somebody
+  // mid-purchase is worse than the general failure it would replace.
+  for (const notADecision of [
+    null,
+    undefined,
+    { ok: false, status: 0, error: 'no task' },
+    { ok: false, status: 500, error: 'Internal server error' },
+    { ok: false, status: 404, error: 'Task not found' },
+    { ok: false, status: 401, error: 'Unauthorized' },
+    { ok: false, status: 400 },
+    { ok: false, status: 400, error: '' },
+    { ok: false, status: 400, error: '   ' },
+    { ok: false, status: 400, error: 7 },
+  ]) {
+    ok(theSentenceTheyGaveUs(notADecision) === null,
+      `${JSON.stringify(notADecision)} is not a sentence written for a person`);
+  }
+
+  const screen = read('src/screens/buyinterstitial.js');
+  const code = screen.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  // AND THE SCREEN REALLY DRAWS IT, instead of the general words.
+  ok(/\{refusal == null \? \(/.test(code),
+    'the general words are the ELSE, not the only branch');
+  ok(/<Text style=\{styles\.couldNotText\}>\{refusal\}<\/Text>/.test(code),
+    "and our side's own sentence is what is printed when there is one");
+
+  // AND TRY AGAIN IS NOT OFFERED AGAINST ONE. This is the half that cost the
+  // owner his evening: a button that asks a question already answered no.
+  ok(/\{!hasGone && couldNotStart && refusal == null \? \(/.test(code),
+    'TRY AGAIN is offered only when trying again could actually come good');
+
+  // AND IT STILL HOLDS ITS OWN COPY OF NOTHING. The sentence came off the wire,
+  // so this screen has no wording of its own here either.
+  ok(!code.includes('has run out'), 'the screen does not keep a copy of our own refusal wording');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

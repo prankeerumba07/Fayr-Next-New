@@ -62,6 +62,7 @@ import { goBackOrHome } from '../ui/nav';
 import { deadlineLine } from '../ui/confirmJoin';
 import { applyAuthoritative, getAuthoritative, getTaskId, subscribe } from '../taskStore';
 import { goingToTheShop } from '../backend/tasksApi';
+import { theSentenceTheyGaveUs } from '../journey/refusal.js';
 import {
   countdownFor, holdIsOver, messageText, noticeFromTask,
 } from '../journey/theNotice';
@@ -160,6 +161,35 @@ export default function BuyInterstitialScreen({ navigation, route }) {
   const [notice, setNotice] = useState(null);
   // null = nothing has gone wrong, true = the call failed and we did not open.
   const [couldNotStart, setCouldNotStart] = useState(false);
+  /**
+   * OUR SIDE'S OWN SENTENCE FOR WHY IT REFUSED, WHEN IT GAVE ONE.
+   *
+   * ── WHAT THIS SCREEN USED TO DO, AND WHY IT WAS WORSE THAN NOTHING ────────
+   *
+   * Measured on the owner's phone, 16 September 2026. His thirty minute claim
+   * had run out, so our side answered 400 with the sentence it keeps for exactly
+   * that: "The time to tap Buy has run out, so your place has gone back. Claim
+   * the offer again if it is still open." This screen threw that away and drew
+   * the general failure instead — which says "You have not lost your place, and
+   * nothing was spent."
+   *
+   * HE HAD LOST HIS PLACE. So the screen was not merely unhelpful, it stated the
+   * opposite of what our own server had just said, and the only move it offered
+   * was TRY AGAIN, which asks the same question and gets the same 400 forever.
+   * He tapped it, saw the same words, and reasonably concluded the shop would not
+   * open.
+   *
+   * ── SO: WHEN OUR SIDE SAYS WHY, THAT IS WHAT IS SHOWN ─────────────────────
+   *
+   * 400 ONLY, and only a non-empty string. A 400 is this server deciding, in a
+   * sentence written to be read by the person it is about — the same principle as
+   * shopVisitNoticeText, which this screen already prints rather than rewording.
+   * Anything else (no answer at all, a 500, a timeout, a body with no message) is
+   * not a decision anybody wrote for a person to read, so the general failure
+   * stands and TRY AGAIN still makes sense, because those really can come good on
+   * a second tap.
+   */
+  const [refusal, setRefusal] = useState(null);
   const [asking, setAsking] = useState(false);
   /**
    * THEY SAID YES, AND NOW IT GOES SOMEWHERE.
@@ -209,9 +239,11 @@ export default function BuyInterstitialScreen({ navigation, route }) {
     const answer = await goingToTheShop(taskId);
     setAsking(false);
     if (!answer || !answer.ok || !answer.task) {
+      setRefusal(theSentenceTheyGaveUs(answer));
       setCouldNotStart(true);
       return;
     }
+    setRefusal(null);
     // ── THE STORE IS TOLD, AND IT IS TOLD FIRST ──────────────────────────────
     //
     // MY BUG, AND THE OWNER FOUND IT ON A REAL PHONE. This screen asked our side
@@ -237,6 +269,9 @@ export default function BuyInterstitialScreen({ navigation, route }) {
       // RECORDED BUT WORDLESS. The row is written, so the hold is real, but this
       // build of the server sent no notice. Drawing a pop-up of our own here is
       // the one thing forbidden, so it is treated as a failure they can retry.
+      // No refusal sentence: nothing refused anything, so the general words are
+      // the honest ones and TRY AGAIN is a real offer.
+      setRefusal(null);
       setCouldNotStart(true);
       return;
     }
@@ -330,8 +365,14 @@ export default function BuyInterstitialScreen({ navigation, route }) {
             a marketplace inside Fayr. */}
         {couldNotStart && !hasGone ? (
           <View style={styles.couldNot}>
-            <Text style={styles.couldNotText}>{COULD_NOT_START}</Text>
-            <Text style={styles.couldNotText}>{NOTHING_WAS_SPENT}</Text>
+            {refusal == null ? (
+              <>
+                <Text style={styles.couldNotText}>{COULD_NOT_START}</Text>
+                <Text style={styles.couldNotText}>{NOTHING_WAS_SPENT}</Text>
+              </>
+            ) : (
+              <Text style={styles.couldNotText}>{refusal}</Text>
+            )}
           </View>
         ) : null}
 
@@ -382,7 +423,12 @@ export default function BuyInterstitialScreen({ navigation, route }) {
             it. A second tap on it would record nothing new — our side keeps the
             first tap and cannot move it — so all it could do is send somebody to
             buy the same thing twice. */}
-        {!hasGone && couldNotStart ? (
+        {/* AND IT IS NOT OFFERED AGAINST A DECISION. A 400 is our side saying
+            no for a reason it has written down; tapping again asks the same
+            question and gets the same no, which is what the owner sat doing.
+            The back control at the top is untouched, so this is not a dead end —
+            it is the absence of a button that does nothing. */}
+        {!hasGone && couldNotStart && refusal == null ? (
           <Pill onPress={openTheirApp} color={COLOR.ink}>
             {TRY_AGAIN.toUpperCase()}
           </Pill>
