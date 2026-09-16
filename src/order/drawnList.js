@@ -787,11 +787,25 @@ export function readListStep(step, answer) {
  * NULL FOR A SHOP WHOSE REVIEWS NOBODY HAS MEASURED, which the screen reads as
  * "there is nothing to look at" and hands back — never as a page to guess at.
  */
-export function openTheReviewsWith(platformKey, beganAt, tag) {
+export function openTheReviewsWith(platformKey, startUrl, beganAt, tag) {
   const page = reviewsPageFor(platformKey);
   if (page == null) return null;
   if (!theReviewPagesAreDrawn(platformKey)) {
-    return { uri: page, script: buildOrderListScript(page, tag), drawn: false, tag };
+    // ── THE VIEW SITS ON THE SHOP'S FRONT DOOR AND FETCHES FROM THERE ──────
+    //
+    // Exactly what openTheListWith does for a shop whose list is fetched, and
+    // now for the same measured reason: asking for this address by NAVIGATING
+    // to it is answered 400, and fetching the identical address from a page
+    // already open on the same shop is answered 200 with the whole thing.
+    //
+    // The front door is handed in rather than assumed, so this file still names
+    // no shop — the caller has the platform and this only asks.
+    return {
+      uri: String(startUrl || ''),
+      script: buildOrderListScript(page, tag),
+      drawn: false,
+      tag,
+    };
   }
   return {
     uri: page,

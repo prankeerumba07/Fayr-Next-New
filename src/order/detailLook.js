@@ -840,10 +840,34 @@ export const WHERE_EACH_SHOP_KEEPS_REVIEWS = {
     page: AMAZON_REVIEW_PAGE,
     link: 'a[href*="/gp/customer-reviews/"]',
     id: AMAZON_REVIEW_ID_IN_A_LINK,
-    // MEASURED: the profile page fills its review list in after the page
-    // arrives, the same way the order list does. Read as a drawn page or it is
-    // read while still empty — which is the bug that cost 16 September.
-    drawn: true,
+    // ── FETCHED, NOT GONE TO. MEASURED, AND THE OLD NOTE HERE WAS WRONG ────
+    //
+    // It used to say "the profile page fills its review list in after the page
+    // arrives, the same way the order list does", and be `true`. Both halves of
+    // that were wrong, and between them they meant the review read has never
+    // once worked.
+    //
+    // MEASURED ON THE OWNER'S OWN ACCOUNT, 16 September 2026, from his own
+    // signed-in browser, asking both ways for the same address:
+    //
+    //   FETCHED       200, 450310 bytes, FOUR review links in the markup as sent
+    //   NAVIGATED TO  400, 2130 bytes, 22 nodes, nothing, ever
+    //
+    // The second of those is from his phone, his own log line: status=400
+    // bytes=2130 drew=false waited=13766 looks=39 rows=0/0 nodes=22/22 found=0.
+    // Thirty-nine looks at an error page, and then the read handed back nothing
+    // and posted nothing — which is why his log has no reviews-found request in
+    // it anywhere.
+    //
+    // So this page is the OPPOSITE of the orders list. The orders list is empty
+    // frames when fetched and has to be drawn; this one is whole when fetched
+    // and REFUSES to be navigated to. One flag, one word, and it was the wrong
+    // word since the day it was written.
+    //
+    // It governs the review PERMALINKS too, and the same measurement covers
+    // them: fetching all four of his returned the product each review is about,
+    // which is the one thing those pages are opened for.
+    drawn: false,
   },
 };
 

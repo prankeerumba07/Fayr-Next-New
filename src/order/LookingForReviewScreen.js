@@ -181,7 +181,7 @@ export default function LookingForReviewScreen({ navigation, route }) {
       });
 
       const theProfile = platform && readsReviewPages(platformKey)
-        ? openTheReviewsWith(platformKey, startedAt, aFreshName())
+        ? openTheReviewsWith(platformKey, platform.startUrl, startedAt, aFreshName())
         : null;
 
       // NOTHING TO LOOK AT is not an error and is never explained. A shop whose

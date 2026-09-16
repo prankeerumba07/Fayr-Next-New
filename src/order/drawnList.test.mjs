@@ -26,7 +26,6 @@ import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
   DRAW_DEADLINE_MS, LEAST_A_DRAW_CAN_TAKE_MS, LOOK_AGAIN_MS, MOST_LOOKS,
-  openTheReviewsWith,
   SHOPS_WHOSE_LIST_THE_PAGE_DRAWS, SHOPS_WHOSE_ORDER_PAGES_ARE_DRAWN,
   STEADY_LOOKS_BEFORE_WE_READ, WHAT_EACH_SHOP_DRAWS, anAnswerTag,
   answerWithStatus, buildDrawnListScript, buildDrawnOrderScript, drawFacts, isOurAnswer,
@@ -554,17 +553,20 @@ it('and a page that never drew is not a page we read', () => {
 
 console.log('\na redirect INTO the page we asked for is not somewhere else');
 
-it('THE PROFILE REDIRECT, WHICH COST THE WHOLE REVIEW READ', () => {
-  // MEASURED on the owner's account, 16 September 2026. The reviews page is
-  // asked for as /gp/profile/ — this project holds no account id and does not
-  // want one — and the shop answers every load with a redirect to
-  // /gp/profile/amzn1.account.<id>. So `elsewhere` was true on EVERY load, and
-  // `elsewhere && settled` sends at once, bypassing `drew` — the half that waits
-  // for the rows. readyState is "complete" long before Amazon draws the review
-  // list, so the look handed back a profile page with zero reviews on it, the
-  // harvest found nothing, and nothing was posted. His backend log for that
-  // attempt has no reviews-found request in it at all.
-  const step = openTheReviewsWith('amazon', 1700000000000, 'look-1');
+it('THE REDIRECT GUARD, ON A PAGE THAT REALLY IS DRAWN', () => {
+  // MEASURED on the owner's account, 16 September 2026, on the profile page:
+  // asked for /gp/profile/, landed on /gp/profile/amzn1.account.<id>, so
+  // `elsewhere` was true and `elsewhere && settled` sent at once — bypassing
+  // `drew`, the half that waits for the rows. That page turned out not to be
+  // drawn at all, but the guard was still wrong, and it is wrong the same way
+  // for any drawn page a shop redirects into a longer path.
+  // THE REVIEWS PAGE NO LONGER GOES THROUGH HERE — measured the same evening,
+  // it answers 400 when navigated to and 200 when fetched, so it is fetched and
+  // this guard never sees it. The ORDERS LIST and the ORDER SEARCH are drawn,
+  // both land where they were sent, and a shop that starts redirecting either of
+  // them to a longer path must not silently stop waiting for it.
+  const step = openTheListWith('amazon', 'https://www.amazon.in', 1700000000000, 'look-1');
+  ok(step.drawn === true, 'the orders list really is a drawn page');
   ok(/var inside =/.test(step.script),
     'the script works out what counts as INSIDE the page it asked for');
   ok(/location\.pathname\.indexOf\(inside\) !== 0/.test(step.script),
