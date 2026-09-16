@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { TicketModule } from '../tickets/ticket.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { OrderCandidatesService } from './order-candidates.service';
+import { ReviewCandidatesService } from './review-candidates.service';
 import { PracticeWindowService } from './practice-window.service';
 import { TaskController } from './task.controller';
 import { TaskService } from './task.service';
@@ -21,7 +22,12 @@ import { TaskService } from './task.service';
 @Module({
   imports: [AuthModule, TicketModule, WalletModule],
   controllers: [TaskController],
-  providers: [TaskService, OrderCandidatesService, PracticeWindowService],
+  providers: [
+    TaskService,
+    OrderCandidatesService,
+    ReviewCandidatesService,
+    PracticeWindowService,
+  ],
   exports: [TaskService],
 })
 export class TaskModule {}

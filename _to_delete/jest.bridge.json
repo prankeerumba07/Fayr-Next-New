@@ -1,0 +1,8 @@
+{
+  "testEnvironment": "node",
+  "transform": { "^.+\\.ts$": ["ts-jest", { "isolatedModules": true }] },
+  "moduleFileExtensions": ["ts", "js", "json"],
+  "testRegex": "review-text\\.spec\\.ts$",
+  "roots": ["<rootDir>/src"],
+  "clearMocks": true
+}

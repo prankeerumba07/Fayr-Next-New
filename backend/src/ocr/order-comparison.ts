@@ -288,7 +288,15 @@ function itemsOf(order: OwnOrderForComparison): OrderItemForComparison[] {
  * overlap threshold and prints it out loud; this side is a yes or a no, so there
  * is no number here for anybody to find by trying.
  */
-function sameProductName(a: string, b: string): boolean {
+/**
+ * ARE THESE TWO NAMES THE SAME PRODUCT?
+ *
+ * EXPORTED, because the review read asks exactly this question of exactly these
+ * two kinds of string — a campaign's short name against a shop's long title —
+ * and a second copy of the rule would be a second answer to "is this the right
+ * product", which is the question a refund turns on.
+ */
+export function sameProductName(a: string, b: string): boolean {
   const x = loose(a);
   const y = loose(b);
   if (x === '' || y === '') return false;

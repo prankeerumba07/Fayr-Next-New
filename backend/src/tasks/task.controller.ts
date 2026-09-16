@@ -14,8 +14,13 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ClaimDto } from './dto/claim.dto';
 import { FoundOrdersDto } from './dto/found-orders.dto';
+import { FoundReviewsDto } from './dto/found-reviews.dto';
 import { SubmitEvidenceDto } from './dto/submit-evidence.dto';
 import { OrderCandidatesService } from './order-candidates.service';
+import {
+  ReviewCandidatesService,
+  type ReviewLookAnswer,
+} from './review-candidates.service';
 import type { OrderCandidateResponse } from './order-candidate.response';
 import { TaskService } from './task.service';
 import type { TaskResponse } from './task.response';
@@ -32,6 +37,7 @@ export class TaskController {
   constructor(
     private readonly tasks: TaskService,
     private readonly candidates: OrderCandidatesService,
+    private readonly reviews: ReviewCandidatesService,
   ) {}
 
   /** Claim a campaign: deduct tickets + create the task. */
@@ -87,6 +93,25 @@ export class TaskController {
     @Body() dto: FoundOrdersDto,
   ): Promise<OrderCandidateResponse[]> {
     return this.candidates.record(user.id, id, dto.pages);
+  }
+
+  /**
+   * THE REVIEWS THE PHONE FOUND. Same shape and same discipline as the orders
+   * route above: TEXT only, no verdict, no fields.
+   *
+   * AND ABOVE ALL NO `published`. That is the payout signal, and a route that
+   * accepted it from a phone would be a route that accepted "please pay me".
+   * FoundReviewsDto has no field for it and the app-wide validation refuses any
+   * field the class does not name.
+   */
+  @Post(':id/reviews-found')
+  @HttpCode(HttpStatus.OK)
+  reviewsFound(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: FoundReviewsDto,
+  ): Promise<ReviewLookAnswer> {
+    return this.reviews.record(user.id, id, dto.pages);
   }
 
   /** The orders we have already asked about, newest first. */
