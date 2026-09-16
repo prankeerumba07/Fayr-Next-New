@@ -271,6 +271,10 @@ describe('reading an order screen that holds several shipments', () => {
         // Both null and neither false: nothing was read, so nothing is claimed.
         // "We did not look" is not "we looked and it was not returned".
         deliveryDate: null,
+        // Null means the page did not state one, OR stated one without a year.
+        // This date is never inferred — see the field's own comment for why the
+        // delivery date beside it is.
+        returnWindowEndsDate: null,
         returned: null,
         shipments: 0,
         items: [],
@@ -384,11 +388,134 @@ describe('reading an order screen that holds several shipments', () => {
         .toBe('2026-06-05');
     });
 
-    it('NULL WITHOUT A YEAR, because "Delivered 5 June" is not a date', () => {
-      // A real and known limit of Amazon's own page. A year filled in from
-      // today's would be an invention, and an invented year on a date the order
-      // window is judged against is the worst kind.
-      expect(parseOrderText(page('Delivered 5 June')).deliveryDate).toBeNull();
+    it('THE YEAR COMES FROM THE ORDER, because the same page prints it', () => {
+      // This asserted null until 16 September 2026, and the reason written here
+      // was that a year filled in from today's would be an invention. It was
+      // right while nothing else on the page was being read. The ORDER date is
+      // read off the same page now — "2 June 2026", in full — so the year is not
+      // invented. It is the order's own.
+      //
+      // IT IS THE RULE THE DEVICE HAS ALWAYS USED: src/taskflow.js:184,
+      // resolveDeliveryDate, same rollover, same refusal with no anchor. One
+      // purchase read two ways has to give one date.
+      expect(parseOrderText(page('Delivered 5 June')).deliveryDate)
+        .toBe('2026-06-05');
+    });
+
+    it('and STILL null when there is no order date to borrow one from', () => {
+      // No anchor, so no year, so no date. Nothing falls back to the year it
+      // happens to be today: that would put an invented year on the date a
+      // return window is judged against, which is the whole thing this refuses.
+      // SEVERAL MONTHS, on purpose. One month cannot tell a fallback to "the
+      // first of this year" from a fallback to "today" from an honest refusal —
+      // whichever single month is picked, one of those inventions lands close
+      // enough to it to look right. February catches a year-start fallback and
+      // November catches a today fallback.
+      for (const line of [
+        'Delivered 5 February', 'Delivered 5 June', 'Delivered 5 November',
+      ]) {
+        const noAnchor = [
+          'Order # 408-5094957-4481129',
+          'boAt Rockerz 255 Pro Plus', '1 x ₹1,299.00',
+          line,
+        ].join('\n');
+        expect(parseOrderText(noAnchor).orderDate).toBeNull();
+        expect(parseOrderText(noAnchor).deliveryDate).toBeNull();
+      }
+    });
+
+    it('rolls 31 December into 2 January, and only that way', () => {
+      const newYear = [
+        'Order placed', '31 December 2026',
+        'Order # 408-5094957-4481129',
+        'boAt Rockerz 255 Pro Plus', '1 x ₹1,299.00',
+        'Delivered 2 January',
+      ].join('\n');
+      expect(parseOrderText(newYear).deliveryDate).toBe('2027-01-02');
+    });
+
+    it('REFUSES A ROLL THAT WOULD MEAN A 364-DAY DELIVERY', () => {
+      // The rollover is right for 31 December to 2 January and wrong for
+      // everything that merely looks like it. An order placed 2 June whose page
+      // reads "Delivered 1 June" is one day SHORT of its own order date — a
+      // stray line, a second order on the page, a word read slightly wrong — and
+      // rolling it produces 1 June of the following year. A 364-day delivery,
+      // silently, on the date a payout waits for.
+      //
+      // REFUSING IS FREE, WHICH IS WHY THE BOUND IS SAFE: null is exactly what
+      // this page got yesterday, so the bound takes nothing away. It declines to
+      // add something.
+      expect(parseOrderText(page('Delivered 1 June')).deliveryDate).toBeNull();
+    });
+
+    it('and refuses a borrowed year that is hundreds of days out WITHOUT a roll', () => {
+      // No rollover happens here at all — 30 December is after 2 June in the
+      // same year — and the answer is still 211 days from the order. Bounding
+      // only the roll would have let this one through.
+      expect(parseOrderText(page('Delivered 30 December')).deliveryDate)
+        .toBeNull();
+    });
+
+    it('never builds a day that is not on the calendar', () => {
+      // 2027 has no 29 February. Putting a year beside a day and a month can
+      // build a date out of nothing, and the reader that turns text into a day
+      // does not check — hand it "29 February 2027" and it hands back
+      // "2027-02-29". A delivery date silently a day out is a return window
+      // silently a day out.
+      const leap = [
+        'Order placed', '20 February 2027',
+        'Order # 408-5094957-4481129',
+        'boAt Rockerz 255 Pro Plus', '1 x ₹1,299.00',
+        'Delivered 29 February',
+      ].join('\n');
+      expect(parseOrderText(leap).deliveryDate).toBeNull();
+    });
+
+    it('THE LABEL’S OWN LINE BEATS THE LINE UNDER IT', () => {
+      // "Delivered 5 June" with "2 June 2026" underneath. The line under is a
+      // full date and the line beside the label is not, so a reader that tried
+      // the line under first would answer with the ORDER's date and call it the
+      // delivery — an order that arrived before it was placed, and a return
+      // window starting three days early. The label's own line is the stronger
+      // statement about the label, so it is exhausted first, both ways.
+      expect(parseOrderText(page('Delivered 5 June', '2 June 2026')).deliveryDate)
+        .toBe('2026-06-05');
+    });
+
+    it('BOTH DATES OFF ONE LINE, when a layout runs them together', () => {
+      // Amazon's page prints the delivery and the return window three lines
+      // apart; a layout that folds them onto one handed the whole tail to a date
+      // reader that is deliberately strict, and got null for a page stating the
+      // day in full. The delivery branch now trims to the date at the FRONT,
+      // which the order branch beside it has always done.
+      const together = parseOrderText(page(
+        'Delivered 5 June 2026 Return window closed on 19 June 2026',
+      ));
+      expect(together.deliveryDate).toBe('2026-06-05');
+      expect(together.returnWindowEndsDate).toBeNull();
+    });
+
+    it('a year on the line under is never REPLACED by the order’s', () => {
+      // "5 June 2025 IST" is not a shape the date reader accepts, so the line
+      // under the label gives nothing. What must NOT then happen is the year
+      // being thrown away and the order's put in its place: the page said 2025
+      // and the answer would say 2026. A string carrying a year is refused by
+      // the borrowing rule outright, and null is the honest answer here.
+      expect(parseOrderText(page('Delivered', '5 June 2025 IST')).deliveryDate)
+        .toBeNull();
+    });
+
+    it('a year PRINTED on the page is never inferred over', () => {
+      // The borrowed year is the last resort and not the first. A page that
+      // states its delivery year in full is read, not second-guessed — even when
+      // the year it states is not the order's.
+      const crossing = [
+        'Order placed', '28 December 2026',
+        'Order # 408-5094957-4481129',
+        'boAt Rockerz 255 Pro Plus', '1 x ₹1,299.00',
+        'Delivered 3 January 2027',
+      ].join('\n');
+      expect(parseOrderText(crossing).deliveryDate).toBe('2027-01-03');
     });
 
     it('and a PROMISE about the future is never read as an arrival', () => {
@@ -514,6 +641,119 @@ describe('reading an order screen that holds several shipments', () => {
       expect(order.totalPaise).toBe(129900n);
     });
   });
+
+  /**
+   * THE DATE THE MONEY WAITS FOR, WHICH THE SHOP PRINTS AND NOTHING READ.
+   *
+   * engine/return-policy.ts says of itself, in writing, that "no marketplace
+   * exposes a return-window end date, so this is the OPERATOR's policy table".
+   * For Amazon that is not true and has not been: the line is on the order page,
+   * in words, with a year on it.
+   */
+  describe("the shop's own return window, off its own page", () => {
+    /**
+     * ── THE CAPTURED LINES, AND ONLY THE CAPTURED LINES ───────────────────
+     *
+     * These six are the owner's real Amazon order page, 15 September 2026, as
+     * recorded in order-text.ts beside AROUND_A_PRODUCT — the product block that
+     * cost every item on that order until the furniture around it was named.
+     * Nothing has been added to them and nothing has been reworded.
+     *
+     * THERE IS NO DELIVERY LINE IN THIS CAPTURE, and one is not being invented
+     * to put here. REVIEW-FLOW-BRIEF.md states the same page also shows
+     * "Delivered 8 June", with no year; that line is the brief's, not this
+     * repository's, so the year-borrowing it describes is exercised against the
+     * plainly assembled page in "when it arrived" above, and this block tests
+     * only what was actually captured.
+     */
+    const capturedProductBlock = [
+      'Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf',
+      'Sold by: Lukzer',
+      'Return window closed on 19 June 2026',
+      '₹938.00',
+      '₹938.00',
+      'Buy It Again',
+    ].join('\n');
+
+    it('READS THE DATE THE WINDOW CLOSED, off the real captured line', () => {
+      expect(parseOrderText(capturedProductBlock).returnWindowEndsDate)
+        .toBe('2026-06-19');
+    });
+
+    it('and that line is STILL not a product, which is what it cost before', () => {
+      // The comment beside AROUND_A_PRODUCT records what happened when this line
+      // was readable as a name: the reader walked past the real product looking
+      // for money, and "Return window closed on 19 June 2026" is what it would
+      // have called the thing he bought. Reading a DATE off it must not make it
+      // a name again.
+      const order = parseOrderText(capturedProductBlock);
+      const names = order.items.map((i) => i.name);
+      expect(names.some((n) => /return window/i.test(n))).toBe(false);
+      expect(names).toContain(
+        'Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf',
+      );
+    });
+
+    it('and the page still says the order was NOT sent back', () => {
+      // A page that discusses a return window has told us there was no return.
+      // Tri-state, and false is a real answer — not the same as "we did not
+      // look". Reading a date off the line must not disturb that either.
+      expect(parseOrderText(capturedProductBlock).returned).toBe(false);
+    });
+
+    it('reads the OPEN form too, while the window is still running', () => {
+      // "Return items: Eligible through 3 July 2026" — the wording already in
+      // this file as chrome, where it has always carried a full date that
+      // nothing read. Not measured on a live page, and said so.
+      const stillOpen = [
+        'Order placed', '2 June 2026',
+        'Order # 408-5094957-4481129',
+        'boAt Rockerz 255 Pro Plus', '1 x ₹1,299.00',
+        'Return items: Eligible through 3 July 2026',
+      ].join('\n');
+      expect(parseOrderText(stillOpen).returnWindowEndsDate).toBe('2026-07-03');
+    });
+
+    it('NULL WITHOUT A YEAR, and this one is never borrowed', () => {
+      // Deliberately not what the delivery date beside it does, and the
+      // asymmetry is the cost of refusing. A delivery date with no year leaves a
+      // refund held for ever, so borrowing one buys something real. A
+      // return-window date with no year costs nothing, because the operator's
+      // policy table still computes a window. There is no reason to guess where
+      // refusing is free, and this is the date the money waits for.
+      const noYear = [
+        'Order placed', '2 June 2026',
+        'Order # 408-5094957-4481129',
+        'boAt Rockerz 255 Pro Plus', '1 x ₹1,299.00',
+        'Return window closed on 19 June',
+      ].join('\n');
+      const order = parseOrderText(noYear);
+      expect(order.orderDate).toBe('2026-06-02');
+      expect(order.returnWindowEndsDate).toBeNull();
+    });
+
+    it('and a sentence that merely mentions a return window drags no date in', () => {
+      // Anchored at the start of the line, like every other label in the reader.
+      const prose = [
+        'Order placed', '2 June 2026',
+        'Order # 408-5094957-4481129',
+        'boAt Rockerz 255 Pro Plus', '1 x ₹1,299.00',
+        'Items in this order have a return window closed on 19 June 2026',
+      ].join('\n');
+      expect(parseOrderText(prose).returnWindowEndsDate).toBeNull();
+    });
+
+    it('null when the page never mentions a window at all', () => {
+      const plain = [
+        'Order placed', '2 June 2026',
+        'Order # 408-5094957-4481129',
+        'boAt Rockerz 255 Pro Plus', '1 x ₹1,299.00',
+        'Delivered 5 June 2026',
+      ].join('\n');
+      expect(parseOrderText(plain).returnWindowEndsDate).toBeNull();
+    });
+  });
+
 
   /**
    * ── THE PAGE ZEPTO ACTUALLY DRAWS, READ OFF THE OWNER'S OWN ACCOUNT ──────

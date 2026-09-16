@@ -26,7 +26,7 @@
  * told their own order is not theirs.
  */
 
-import { dayFromText, paiseFromRupees } from './order-comparison';
+import { dayFromMillis, dayFromText, paiseFromRupees } from './order-comparison';
 
 /** One product on the order, with its own price in integer paise. */
 export interface ParsedOrderItem {
@@ -60,11 +60,55 @@ export interface ParsedOrder {
    * it against the wrong window. ORDER_DATE_LABEL refuses "Delivered" for exactly
    * this reason; this is the field that reads it as the separate thing it is.
    *
-   * NULL WHEN THE PAGE DID NOT SAY, and null also when it said it without a
-   * year: "Delivered 5 June" is not a date, and a year filled in from today's
-   * would be an invention. That is a real and known limit of Amazon's own page.
+   * ── THE YEAR, WHEN AMAZON DOES NOT PRINT ONE ──────────────────────────────
+   *
+   * This used to be null whenever the page said "Delivered 5 June", and the
+   * reason written here was that a year filled in from today's would be an
+   * invention. That was right while nothing else on the page was being read. It
+   * is not right now: the ORDER date is read off the SAME page, in full — "2
+   * June 2026" — so the year is not invented. It is the order's own, and a
+   * delivery that reads earlier than its order is rolled into the next year,
+   * which is the 31 December to 2 January case and nothing else.
+   *
+   * IT IS THE RULE THE DEVICE HAS ALWAYS USED. src/taskflow.js:184,
+   * resolveDeliveryDate, does exactly this and has since it was written, down to
+   * the rollover and down to refusing when there is no anchor. One purchase read
+   * two ways has to give one date.
+   *
+   * WITH ONE THING THE DEVICE DOES NOT HAVE: a bound. See theYearFromTheOrder
+   * for the case that needs it and for where the two therefore differ.
+   *
+   * STILL NULL WHEN THERE IS NOTHING TO BORROW FROM. No order date is no year,
+   * and no year is null. Nothing here falls back to the current year.
    */
   deliveryDate: string | null;
+  /**
+   * THE DAY THE SHOP'S OWN RETURN WINDOW CLOSES, as "2026-06-19", or null.
+   *
+   * ── MEASURED, AND NOTHING WAS READING IT ──────────────────────────────────
+   *
+   * On the owner's own Amazon order page, 15 September 2026, in plain words:
+   * "Return window closed on 19 June 2026". WITH a year, unlike the delivery
+   * line three lines above it. It is the date the payout waits for, and until
+   * now the only answer to that question was the return-policy table in
+   * engine/return-policy.ts — which says of itself that "no marketplace exposes
+   * a return-window end date, so this is the OPERATOR's policy table". For
+   * Amazon that is no longer true, and this is the shop saying it.
+   *
+   * A YEAR IS REQUIRED AND IS NEVER INFERRED, which is deliberately not what
+   * deliveryDate does. The asymmetry is the cost of refusing: a delivery date
+   * with no year leaves a refund held for ever, so borrowing one buys something
+   * real; a return-window date with no year costs nothing, because the policy
+   * table still computes a window. There is no reason to guess where refusing is
+   * free, and this is the date the money waits for.
+   *
+   * IT IS STILL CHROME EVERYWHERE ELSE. AROUND_A_PRODUCT keeps refusing this
+   * line as a product's name — the comment above it records that without that,
+   * every item on an Amazon order came back named after this very line — and
+   * RETURN_MENTIONED keeps reading it as "the page discusses returns and states
+   * none completed". Reading a date off it changes neither.
+   */
+  returnWindowEndsDate: string | null;
   /**
    * WHETHER IT WAS SENT BACK. TRI-STATE, and every state is something the page
    * really said:
@@ -304,6 +348,30 @@ const ORDER_DATE_LABEL =
  */
 const DELIVERY_LABEL =
   /^(?:order\s+|shipment\s*\d*\s*(?:of\s*\d+\s*)?)?(?:delivered|arrived)\b\s*(?:on|at)?\s*[:\-]?\s*(.*)$/i;
+
+/**
+ * "Return window closed on 19 June 2026" — MEASURED, on the owner's own Amazon
+ * order page, 15 September 2026. The exact line, in his order, three lines under
+ * the product name, carrying the year the delivery line above it does not.
+ *
+ * Anchored at the start of the line like every other label in this file, so a
+ * sentence that merely mentions a return window cannot drag a date in.
+ */
+const RETURN_WINDOW_CLOSED =
+  /^returns?\s+(?:window|period)\s+(?:closed?|closes|ends?|ended|expired?|expires)\b\s*(?:on|at)?\s*[:\-]?\s*(.*)$/i;
+
+/**
+ * "Return items: Eligible through 3 July 2026" — the OPEN form of the same fact,
+ * which is what the page says while the window is still running.
+ *
+ * NOT MEASURED ON A LIVE PAGE, and said so rather than left to be assumed. It is
+ * the wording already written into order-text.spec.ts as chrome, where it has
+ * carried a full date that nothing read. Kept as its own pattern rather than
+ * folded into the one above, because a single regular expression that matches
+ * two shapes is one nobody can read afterwards.
+ */
+const RETURN_ELIGIBLE_THROUGH =
+  /^returns?(?:\s+or\s+replace)?\s+items?\s*[:\-]?\s*eligible\s+(?:through|until|till)\s*[:\-]?\s*(.*)$/i;
 
 /**
  * A RETURN THAT REALLY HAPPENED. The completed forms only.
@@ -576,6 +644,147 @@ function theDayAtTheFront(text: string): string {
   return front ? front[1] : t;
 }
 
+/**
+ * A DAY AND A MONTH AT THE FRONT OF A PIECE OF TEXT, WITH NO YEAR ON IT.
+ *
+ * "5 June", "5 Jun", "June 5", "Jun 5" — the shapes Amazon prints beside
+ * "Delivered". Anchored at the very start and nowhere else, so this can never
+ * turn a number further down a sentence into a date.
+ *
+ * ANYTHING WITH A YEAR ALREADY ON IT IS REFUSED HERE, by the lookahead, and left
+ * to dayFromText — which is asked first anyway. Two readers for one shape is how
+ * the two end up disagreeing about a page they both understood.
+ */
+function theDayAndMonthAtTheFront(text: string): string | null {
+  const t = String(text ?? '').trim();
+  // THE WORD BOUNDARY IS LOAD BEARING and is not tidying. Without it the engine
+  // backtracks: "5 June 2025" fails the lookahead on "June", shortens the month
+  // to "Jun", and then the lookahead sees "e 2025" and passes — so a line that
+  // states its own year gets that year thrown away and the order's put in. With
+  // the boundary, "Jun" cannot end the match while an "e" follows it.
+  const front = t.match(/^(\d{1,2}\s+[A-Za-z]{3,}|[A-Za-z]{3,}\s+\d{1,2})\b(?!\s*\d)/);
+  return front ? front[1] : null;
+}
+
+/**
+ * A DAY THAT IS REALLY ON THE CALENDAR, or null.
+ *
+ * dayFromText does not check: hand it "29 February 2027" and it hands back
+ * "2027-02-29", which is not a day. That has never mattered, because until now
+ * every date it read came printed on a page. A date this file BUILDS — by
+ * putting a year next to a day and a month — can be built out of nothing, and a
+ * delivery date silently a day out is a return window silently a day out.
+ */
+function aRealCalendarDay(day: string | null): string | null {
+  if (day == null) return null;
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!parts) return null;
+  const year = Number(parts[1]);
+  const month = Number(parts[2]);
+  const date = Number(parts[3]);
+  const built = new Date(Date.UTC(year, month - 1, date));
+  if (built.getUTCFullYear() !== year) return null;
+  if (built.getUTCMonth() !== month - 1) return null;
+  if (built.getUTCDate() !== date) return null;
+  return day;
+}
+
+/** A day some number of days after another, as "2026-09-01". */
+function theDayAfter(day: string, days: number): string | null {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!parts) return null;
+  return dayFromMillis(
+    Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]) + days),
+  );
+}
+
+/**
+ * HOW LONG AFTER ITS ORDER A DELIVERY MAY BE, FOR A YEAR TO BE BORROWED.
+ *
+ * Ninety days, and the number is not doing fine work — see theYearFromTheOrder
+ * for what it is separating, which is a few days from a few hundred.
+ */
+const MOST_DAYS_A_BORROWED_YEAR_MAY_SPAN = 90;
+
+/**
+ * THE DELIVERY DAY, WITH ITS YEAR BORROWED FROM THE ORDER'S.
+ *
+ * The rule the device reader has used since it was written — src/taskflow.js:184,
+ * resolveDeliveryDate — brought here so one purchase read two ways gives one
+ * date. Its own comment is the record of why it exists: "Resolving it naively
+ * against the current year silently produces windows a year wrong."
+ *
+ * REFUSES WHEN THERE IS NO ANCHOR. No order date is no year, and no year is
+ * null. Nothing falls back to today's year, and such a fallback would put an
+ * invented year on the date a return window is judged against.
+ *
+ * ROLLS FORWARD, NEVER BACK. A delivery cannot precede its order, so a day that
+ * reads earlier than the order fell in the FOLLOWING year — ordered 31 December,
+ * delivered 2 January.
+ *
+ * ── AND IT IS BOUNDED, WHICH THE DEVICE'S COPY IS NOT ─────────────────────
+ *
+ * The rollover is right for 31 December to 2 January and wrong for everything
+ * that merely looks like it. An order placed 2 June whose page reads "Delivered
+ * 1 June" is one day short of its own order date — a stray line, a second order
+ * on the same page, a word read slightly wrong — and rolling it produces 1 June
+ * of the FOLLOWING year. A 364-day delivery, silently, on the date a payout
+ * waits for. The whole span is bounded rather than the roll alone, because a
+ * borrowed year can be wrong in the same way without rolling: a "Delivered 30
+ * December" picked up off an order placed in June is 211 days and no rollover.
+ *
+ * REFUSING IS FREE, WHICH IS WHY THE BOUND IS SAFE. Outside the bound this
+ * returns null, and null is precisely what this whole function returns today for
+ * every page that omits the year. A bound can therefore take nothing away — it
+ * can only decline to add something. That is not true of the unbounded rule,
+ * which adds a wrong date to a page that currently has none.
+ *
+ * WHICH WAY A WRONG ANSWER WOULD RUN, since a bound is only worth having if the
+ * thing it refuses is worth refusing: every wrong answer this rule can give is
+ * LATER than the truth, never earlier, because it only ever rolls forward. Later
+ * holds the money longer. So the bound is not protecting a payout from going out
+ * early — it is protecting a task from a return window a year away that nobody
+ * can clear, and a person from being told their refund is due next June.
+ *
+ * ── SO THE DEVICE AND THE SERVER CAN DISAGREE, IN ONE CASE, SAID PLAINLY ──
+ *
+ * On a page with no delivery year whose delivery reads more than ninety days
+ * from its order, the device produces a date and this produces null. That is a
+ * deliberate difference, not a missed port: null is the answer the server gave
+ * for that page yesterday, and the device's copy predates anybody having looked
+ * at what an unbounded roll does. The two agree on every page anybody has
+ * measured. Bounding the device's copy to match is a one-line change and its own
+ * commit, in an app file, and is not being smuggled into a backend parser.
+ */
+function theYearFromTheOrder(
+  written: string,
+  orderDate: string | null,
+): string | null {
+  if (orderDate == null) return null;
+  const dayAndMonth = theDayAndMonthAtTheFront(written);
+  if (dayAndMonth == null) return null;
+  const year = Number(orderDate.slice(0, 4));
+  if (!Number.isInteger(year)) return null;
+
+  // THE ORDER'S OWN YEAR FIRST. Refused outright when that is not a day — 29
+  // February in a year without one — rather than tried again a year later, which
+  // would answer a leap-day question with a date twelve months away.
+  const sameYear = aRealCalendarDay(dayFromText(`${dayAndMonth} ${year}`));
+  if (sameYear == null) return null;
+
+  const day = sameYear >= orderDate
+    ? sameYear
+    : aRealCalendarDay(dayFromText(`${dayAndMonth} ${year + 1}`));
+  if (day == null) return null;
+
+  // Both are "YYYY-MM-DD", zero padded and fixed width, so comparing them as
+  // text is comparing them as dates.
+  const latest = theDayAfter(orderDate, MOST_DAYS_A_BORROWED_YEAR_MAY_SPAN);
+  if (latest == null) return null;
+  if (day < orderDate || day > latest) return null;
+  return day;
+}
+
 /** The empty answer, so "we read nothing" is one shape and not several. */
 function nothing(): ParsedOrder {
   return {
@@ -584,6 +793,7 @@ function nothing(): ParsedOrder {
     totalPaise: null,
     itemTotalPaise: null,
     deliveryDate: null,
+    returnWindowEndsDate: null,
     returned: null,
     shipments: 0,
     items: [],
@@ -735,8 +945,37 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     const m = DELIVERY_LABEL.exec(lines[i]);
     if (!m) continue;
     // The same comma trick as the order date: a screen writes the time after it.
-    const written = (m[1] ?? '').split(',')[0].trim();
-    deliveryDate = dayFromText(written) ?? dayUnder(lines[i + 1] ?? '');
+    const beside = (m[1] ?? '').split(',')[0].trim();
+    // AND THE SAME theDayAtTheFront, which the order branch had and this one did
+    // not. The asymmetry was real, not cosmetic: Amazon's own page prints
+    // "Delivered 8 June" and then "Return window closed on 19 June 2026", and a
+    // layout that runs the two together handed the whole tail to a date reader
+    // that is deliberately strict — which refused it, on a page stating the day.
+    const under = lines[i + 1] ?? '';
+    // THE LABEL'S OWN LINE IS EXHAUSTED FIRST, both ways, before the line under
+    // it is looked at at all. The order is deliberate: the line the label sits on
+    // is the stronger statement about the label, so a year-less day beside
+    // "Delivered" beats a full date that merely happens to sit underneath — which
+    // on an Amazon page is as likely to be the ORDER's date as the delivery's.
+    deliveryDate = dayFromText(theDayAtTheFront(beside))
+      ?? theYearFromTheOrder(beside, orderDate)
+      ?? dayUnder(under)
+      ?? theYearFromTheOrder(under, orderDate);
+  }
+
+  // ── the day the SHOP'S OWN return window closes ───────────────────────────
+  //
+  // A YEAR IS REQUIRED HERE AND NEVER BORROWED. See ParsedOrder's own comment on
+  // returnWindowEndsDate for why this one refuses where the delivery date above
+  // it infers: refusing this costs nothing, because the operator's policy table
+  // still computes a window, and this is the date the money waits for.
+  let returnWindowEndsDate: string | null = null;
+  for (let i = 0; i < lines.length && returnWindowEndsDate == null; i += 1) {
+    const m = RETURN_WINDOW_CLOSED.exec(lines[i])
+      ?? RETURN_ELIGIBLE_THROUGH.exec(lines[i]);
+    if (!m) continue;
+    const written = theDayAtTheFront((m[1] ?? '').split(',')[0].trim());
+    returnWindowEndsDate = dayFromText(written) ?? dayUnder(lines[i + 1] ?? '');
   }
 
   // ── whether it was sent back ──────────────────────────────────────────────
@@ -825,6 +1064,7 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     totalPaise: moneyForLabels(lines, totalsFrom, TOTAL_BILL_LABELS),
     itemTotalPaise: moneyForLabels(lines, totalsFrom, ITEM_TOTAL_LABELS),
     deliveryDate,
+    returnWindowEndsDate,
     returned,
     shipments,
     items,
