@@ -12,6 +12,7 @@ import {
   judgeFoundOrders,
   whatTheOrderAlreadySays,
 } from './order-candidates';
+import { theDeliveryFragment } from './order-candidates.service';
 import { parseOrderText } from '../ocr/order-text';
 
 /** The owner's real Zepto order, the same fixture Part 6 reads. */
@@ -576,5 +577,123 @@ describe('is the item price certain, when the page states one per product', () =
     expect(itemPriceIsCertain(oneProduct, oneProduct.items[0])).toBe(true);
     const twoShipments = { ...oneProduct, shipments: 2 };
     expect(itemPriceIsCertain(twoShipments, oneProduct.items[0])).toBe(false);
+  });
+});
+
+/**
+ * WHEN THE SHOP NEVER SAYS "DELIVERED", BUT SAYS SOMETHING ONLY A DELIVERED
+ * ORDER CAN HAVE.
+ *
+ * ── THE RUN THIS COMES FROM ───────────────────────────────────────────────
+ *
+ * The owner's own account, 16 September 2026. Order 408-5614193-1514764, placed
+ * 11 February 2026, prints NO delivery line anywhere — not "Delivered", not a
+ * date, not a word. He found the pattern himself: orders from June onward state
+ * one, older ones have had it dropped.
+ *
+ * What it does print is "Return window closed on 26 February 2026".
+ *
+ * His argument, and it is sound: a return window is the time to send a thing
+ * BACK. It cannot exist for a thing that never arrived. So the line is the shop
+ * saying the order was delivered, in different words.
+ */
+describe("the shop's own return window as a statement that it arrived", () => {
+  const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+  const WINDOW_CLOSED = day('2026-02-26');
+
+  it('A STATED WINDOW ON AN ORDER THAT DID NOT GO BACK IS A DELIVERY', () => {
+    const f = theDeliveryFragment({
+      deliveryDate: null, returnWindowEndsAt: WINDOW_CLOSED, returned: false,
+    });
+    expect(f.delivery).toBeDefined();
+    expect(f.delivery?.at).toBe(WINDOW_CLOSED.getTime());
+    expect(f.delivery?.returnWindowEndsAt).toBe(WINDOW_CLOSED.getTime());
+  });
+
+  it('AND THE INSTANT IS THE LATEST ONE POSSIBLE, never the order date', () => {
+    // Delivery is always on or before the window closes, never after. A date
+    // later than the truth LENGTHENS a hold; the order date would shorten one
+    // whenever the operator's policy runs longer than the shop's window, and
+    // that is money paid sooner than it was promised.
+    const f = theDeliveryFragment({
+      deliveryDate: null, returnWindowEndsAt: WINDOW_CLOSED, returned: false,
+    });
+    expect(f.delivery?.at).toBe(f.delivery?.returnWindowEndsAt);
+  });
+
+  it('and it writes down NO day, because the page printed none', () => {
+    // `raw` is the day AS WRITTEN. Nothing was written, so nothing is recorded
+    // there: the record may say an instant it derived and must not claim a shop
+    // printed a day it never printed.
+    const f = theDeliveryFragment({
+      deliveryDate: null, returnWindowEndsAt: WINDOW_CLOSED, returned: false,
+    });
+    expect(f.delivery?.raw).toBeUndefined();
+  });
+
+  it('A RETURNED ORDER IS NOT A DELIVERY TO PAY FOR, whatever its window said', () => {
+    expect(theDeliveryFragment({
+      deliveryDate: null, returnWindowEndsAt: WINDOW_CLOSED, returned: true,
+    })).toEqual({});
+  });
+
+  it('but an UNKNOWN return status is not a statement that it went back', () => {
+    // The tri-state matters here. null means the page said nothing either way.
+    const f = theDeliveryFragment({
+      deliveryDate: null, returnWindowEndsAt: WINDOW_CLOSED, returned: null,
+    });
+    expect(f.delivery).toBeDefined();
+  });
+
+  it('NO WINDOW, NO DELIVERY — which is what keeps a cancelled order out', () => {
+    // Measured: his cancelled order prints "Cancelled" and a refund note and no
+    // return window at all. `returned` alone would NOT exclude it, because
+    // RETURN_MENTIONED matches the word "cancel" and so reads returned:false.
+    expect(theDeliveryFragment({
+      deliveryDate: null, returnWindowEndsAt: null, returned: false,
+    })).toEqual({});
+    expect(theDeliveryFragment({
+      deliveryDate: null, returnWindowEndsAt: null, returned: null,
+    })).toEqual({});
+  });
+
+  it('AND A REAL DELIVERY DATE STILL WINS, with the day it was written', () => {
+    // The ordinary path is untouched: a page that states a delivery is read as
+    // it always was, and the derived instant is only ever the fallback.
+    const DELIVERED = day('2026-06-05');
+    const f = theDeliveryFragment({
+      deliveryDate: DELIVERED, returnWindowEndsAt: day('2026-06-15'), returned: false,
+    });
+    expect(f.delivery?.at).toBe(DELIVERED.getTime());
+    expect(f.delivery?.raw).toBe('2026-06-05');
+    expect(f.delivery?.returnWindowEndsAt).toBe(day('2026-06-15').getTime());
+  });
+
+  it('END TO END OFF HIS REAL NIKE PAGE, through the reader that judges it', () => {
+    // Not the fields typed in by hand: the page's own text, through
+    // parseOrderText and judgeFoundOrders, into the fragment.
+    const page = [
+      'Order placed 11 February 2026  Order number 408-5614193-1514764',
+      'Order Summary',
+      'Item(s) Subtotal:', '₹4,995.00',
+      'Grand Total:', '₹4,995.00',
+      'Nike M PROMINA Extra Wide Black/White',
+      'Sold by: Westbury Sportswear',
+      'Return window closed on 26 February 2026',
+      '₹4,995.00', '₹4,995.00',
+    ].join('\n');
+    const [judged] = judgeFoundOrders([page], {
+      productName: 'PROMINA Extra Wide',
+      productPricePaise: 499500n,
+    });
+
+    expect(judged.orderNumber).toBe('408-5614193-1514764');
+    expect(judged.deliveryDate).toBeNull();
+    expect(judged.returned).toBe(false);
+    expect(judged.matches).toBe(true);
+
+    const f = theDeliveryFragment(judged);
+    expect(f.delivery).toBeDefined();
+    expect(f.delivery?.at).toBe(judged.returnWindowEndsAt?.getTime());
   });
 });

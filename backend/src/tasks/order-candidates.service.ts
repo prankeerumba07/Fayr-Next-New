@@ -98,21 +98,92 @@ function theCampaignsOwnProduct(
  * an order and looking again later both have to put the same facts in the same
  * shape, and two copies of that shape would eventually be two different shapes.
  */
-function theDeliveryFragment(
-  row: { deliveryDate: Date | null; returnWindowEndsAt: Date | null },
+export function theDeliveryFragment(
+  row: {
+    deliveryDate: Date | null;
+    returnWindowEndsAt: Date | null;
+    returned?: boolean | null;
+  },
 ): { delivery?: { at: number; raw?: string; returnWindowEndsAt?: number; source: string } } {
-  if (row.deliveryDate == null) return {};
-  const raw = dayAsWritten(row.deliveryDate);
+  if (row.deliveryDate != null) {
+    const raw = dayAsWritten(row.deliveryDate);
+    return {
+      delivery: {
+        at: row.deliveryDate.getTime(),
+        ...(raw == null ? {} : { raw }),
+        // THE DATE THE PAYOUT WAITS FOR, when the page stated one. windowEnd takes
+        // the LATER of this and the operator's policy table, so it can only ever
+        // lengthen a hold — which is also what makes carrying it safe.
+        ...(row.returnWindowEndsAt == null
+          ? {}
+          : { returnWindowEndsAt: row.returnWindowEndsAt.getTime() }),
+        source: SOURCES.ORDER_HISTORY,
+      },
+    };
+  }
+
+  // ── WHEN THE PAGE NEVER SAYS "DELIVERED", BUT SAYS SOMETHING THAT ONLY ────
+  // ── A DELIVERED ORDER CAN HAVE ───────────────────────────────────────────
+  //
+  // MEASURED ON THE OWNER'S OWN ACCOUNT, 16 September 2026. His order
+  // 408-5614193-1514764, placed 11 February 2026, prints no delivery line
+  // anywhere on its page — not "Delivered", not a date, not a word. The pattern
+  // is his and it is consistent: orders from June onward state a delivery date,
+  // and older ones have had it dropped.
+  //
+  // What that page DOES print is:
+  //
+  //   Return window closed on 26 February 2026
+  //
+  // THE ARGUMENT, WHICH IS THE OWNER'S AND IS SOUND. A return window is the time
+  // somebody has to send a thing BACK. It cannot exist for a thing that never
+  // arrived, and a shop does not start one before it does. So a stated return
+  // window is the shop's own statement that the order was delivered — a weaker
+  // wording of the same fact, not an inference about one.
+  //
+  // ── WHAT DATE IS PUT ON IT, AND WHY IT IS THE LATEST POSSIBLE ONE ────────
+  //
+  // We did not read a delivery day and none is invented. The instant recorded is
+  // the END OF THE RETURN WINDOW, which is the LATEST moment the delivery could
+  // have happened — delivery is always on or before it, never after.
+  //
+  // THAT IS THE ONLY DIRECTION THAT IS SAFE, and the file next door already says
+  // why in its own words: windowEnd takes the later of delivery-plus-policy and
+  // the shop's stated end, "so the worst a forged value can do is hold somebody's
+  // own refund longer". A date later than the truth lengthens a hold. The order
+  // date, which is the other date on the page, would SHORTEN one whenever the
+  // operator's policy runs longer than the shop's window — and that is money
+  // paid sooner than it was promised.
+  //
+  // ── AND NO `raw` ─────────────────────────────────────────────────────────
+  //
+  // `raw` is the day AS WRITTEN on the page. Nothing was written, so nothing is
+  // recorded there. The record says a delivery instant it derived, and does not
+  // claim a shop printed a day it never printed.
+  //
+  // ── THE TWO GUARDS, AND BOTH ARE NEEDED ──────────────────────────────────
+  //
+  // A RETURNED ORDER IS NOT ONE TO PAY FOR, whatever its window said. Only
+  // `true` refuses: the tri-state's `null` means the page said nothing either
+  // way, which is not a statement that it went back.
+  //
+  // AND A CANCELLED ORDER NEVER REACHES HERE, because a cancelled order has no
+  // return window to state — measured on his own cancelled order, which prints
+  // "Cancelled" and a refund note and no window at all. Requiring the window is
+  // what excludes it, which is worth writing down because `returned` alone would
+  // NOT: RETURN_MENTIONED matches the word "cancel", so a cancelled order reads
+  // as returned:false.
+  if (row.returnWindowEndsAt == null) return {};
+  if (row.returned === true) return {};
   return {
     delivery: {
-      at: row.deliveryDate.getTime(),
-      ...(raw == null ? {} : { raw }),
-      // THE DATE THE PAYOUT WAITS FOR, when the page stated one. windowEnd takes
-      // the LATER of this and the operator's policy table, so it can only ever
-      // lengthen a hold — which is also what makes carrying it safe.
-      ...(row.returnWindowEndsAt == null
-        ? {}
-        : { returnWindowEndsAt: row.returnWindowEndsAt.getTime() }),
+      at: row.returnWindowEndsAt.getTime(),
+      returnWindowEndsAt: row.returnWindowEndsAt.getTime(),
+      // THE PAGE IT CAME OFF, which is the order's own detail page, and it is
+      // attested: a machine read it off the marketplace and no claimant chose
+      // it. Not a rank of its own — the same rank as a delivery date read in
+      // words, so that a later look that DOES find one replaces this rather
+      // than being refused by it.
       source: SOURCES.ORDER_HISTORY,
     },
   };
@@ -511,13 +582,23 @@ export class OrderCandidatesService {
     // certain means.
     await this.priceFromALaterLook(userId, task, existing, fresh);
 
-    if (fresh.deliveryDate == null && chosen.deliveryDate == null) return;
-
     // ONLY THE NULLS. What is already on the row is what the row keeps.
     const deliveryDate = chosen.deliveryDate ?? fresh.deliveryDate;
     const returnWindowEndsAt = chosen.returnWindowEndsAt ?? fresh.returnWindowEndsAt;
     const returned = chosen.returned ?? fresh.returned;
-    if (deliveryDate == null) return;
+
+    // ── WHAT COUNTS AS THE PAGE HAVING SAID IT ARRIVED ──────────────────────
+    //
+    // A delivery date, OR the shop's own return window on an order it does not
+    // say went back — see theDeliveryFragment for the whole argument, which is
+    // the owner's: a return window cannot exist for a thing that never arrived.
+    //
+    // ASKED THROUGH THE ONE BUILDER rather than repeated here. This used to test
+    // `deliveryDate == null` twice in its own words, and a second copy of "what
+    // counts as delivered" is exactly how the two halves of this file end up
+    // disagreeing about it.
+    const fragment = theDeliveryFragment({ deliveryDate, returnWindowEndsAt, returned });
+    if (fragment.delivery == null) return;
 
     if (
       chosen.deliveryDate == null
@@ -541,8 +622,10 @@ export class OrderCandidatesService {
       // order went in under — those are two different facts and both must apply
       // — and it carries the day, so re-posting the same delivery on the next
       // page of the same look collapses to one event instead of a run of them.
-      key: `delivery:${chosen.id}:${dayAsWritten(deliveryDate) ?? 'na'}`,
-      ...theDeliveryFragment({ deliveryDate, returnWindowEndsAt }),
+      // THE DAY IT CARRIES IS THE ONE THE FRAGMENT SETTLED ON, not the delivery
+      // date, which may be null now that a stated return window also counts.
+      key: `delivery:${chosen.id}:${dayAsWritten(new Date(fragment.delivery.at)) ?? 'na'}`,
+      ...fragment,
       ...(returned == null ? {} : { returned }),
     };
 
