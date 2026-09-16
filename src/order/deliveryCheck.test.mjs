@@ -175,11 +175,18 @@ it('and a task with no order number still searches, rather than reading nothing'
 it('THE READ OPENS THE NAMED ONE INSTEAD OF THE LIST, not as well as', () => {
   // Not "as well as": every other number on the list is a page fetched for
   // nothing and a slot spent against the ceiling.
-  ok(/const numbers = onlyThisOrder != null/.test(LOOK),
-    'the read still opens whatever it harvested');
-  ok(/\? pagesToOpen\(\[onlyThisOrder\], platformKey\)/.test(LOOK));
+  ok(/onlyThisOrder != null\s*\n?\s*\? pagesToOpen\(\[onlyThisOrder\], platformKey\)/
+    .test(LOOK), 'the read still opens whatever it harvested');
   ok(/: pagesToOpen\(worth\.numbers, platformKey\)/.test(LOOK),
     'the ordinary search must still be there for the purchase step');
+  // ── AND THE SHOP'S OWN ORDER SEARCH DOES NOT RUN HERE AT ALL ────────────
+  //
+  // Added 16 September 2026, when the purchase step learned to ask the shop's
+  // own search for the product by name before reading the list. That question
+  // has no meaning on this step: the order is already named, so asking it would
+  // be one more request against a shop that rate-limits us, for nothing.
+  ok(/onlyThisOrder == null && searchesItsOrders\(platformKey\)/.test(LOOK),
+    'a named order must skip the shop\u2019s search entirely');
 });
 
 it('A NAMED NUMBER IS CHECKED LIKE ANY OTHER, so a bad one opens nothing', () => {

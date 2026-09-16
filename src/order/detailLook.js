@@ -375,6 +375,118 @@ export function howThisShopNamesAnOrder(platformKey) {
 }
 
 /**
+ * WHERE A SHOP SEARCHES A PERSON'S OWN ORDERS, AND HOW IT TAKES THE WORDS.
+ *
+ * ── THE ARITHMETIC THIS ENDS, WRITTEN DOWN AT MOST_DETAIL_PAGES ────────────
+ *
+ * That number's own note says it: "the honest fix is not a bigger number — it is
+ * asking the shop's own order search for the product by name, which finds one
+ * order in one request however far down the list it sits. This buys the demo;
+ * that ends the arithmetic."
+ *
+ * MEASURED ON THE OWNER'S OWN ACCOUNT, 16 SEPTEMBER 2026. The list address this
+ * project reads answers with TEN rows for the year. His Nike order,
+ * 11 February 2026, is on the second page of that list, so no ceiling on how
+ * many of the ten we open can ever reach it — the number is not on the page we
+ * are reading. The shop's own search answers with that order's card, whatever
+ * page or year it sits on, in ONE request. Verified signed in, in a browser.
+ *
+ * ── AND IT IS A FETCH. NOTHING IS TYPED ANYWHERE ───────────────────────────
+ *
+ * The words go in the ADDRESS. There is no form filled in, no key pressed, no
+ * control tapped and no search box touched — the same thing this file already
+ * does with an order number, with a name instead of a number. Fayr's rule about
+ * never typing into a shop's page is not bent by this and is not near it.
+ *
+ * ── A SEPARATE RECORD FROM THE ORDER ONE, FOR THE REASON WRITTEN BELOW ─────
+ *
+ * The same argument WHERE_EACH_SHOP_KEEPS_REVIEWS makes further down: they are
+ * different pages with different shapes, and a shop could move one without
+ * touching the other. A shop that is not in here is not searched, and there is
+ * no default — a shop missing from this record falls back to the list-and-open
+ * path it has always used, which is the behaviour every shop but one still has.
+ */
+export const WHERE_EACH_SHOP_SEARCHES_ITS_ORDERS = {
+  amazon: {
+    // The half of the address before the words. Verified on the owner's own
+    // account: it answers with the matching order's card and its number.
+    page: 'https://www.amazon.in/your-orders/search?search=',
+  },
+};
+
+/** Where this shop searches its orders, or null when it is not searched. */
+export function howThisShopSearchesItsOrders(platformKey) {
+  const key = String(platformKey || '').toLowerCase();
+  return Object.prototype.hasOwnProperty.call(WHERE_EACH_SHOP_SEARCHES_ITS_ORDERS, key)
+    ? WHERE_EACH_SHOP_SEARCHES_ITS_ORDERS[key]
+    : null;
+}
+
+/** Whether this shop's own order search is asked before its list. */
+export function searchesItsOrders(platformKey) {
+  return howThisShopSearchesItsOrders(platformKey) != null;
+}
+
+/**
+ * HOW MUCH OF A PRODUCT'S NAME GOES INTO AN ADDRESS.
+ *
+ * ── A BOUND ON THE ADDRESS, AND NOT A GUESS ABOUT MATCHING ────────────────
+ *
+ * A campaign's product name is a field somebody types into a form, and an
+ * address built out of an unbounded field is an address of unbounded length.
+ * That is the whole of what this number is for. It is NOT an opinion about how
+ * many words the shop's search wants: whether the search finds the order is the
+ * shop's business, and when it finds nothing the look falls back to reading the
+ * list exactly as it does today.
+ *
+ * A HUNDRED AND TWENTY, WHICH IS TWICE THE LONGEST NAME THIS PROJECT HOLDS.
+ * Counted rather than guessed at: sixty characters, the kurta in the practice
+ * data. The product's own title on the shop's page runs to nearly two hundred —
+ * the garment rack's does — but that is the shop's words and not a campaign's,
+ * and a campaign is what this is handed. So this bites on nothing that exists
+ * today, which is what a bound on an address should do.
+ */
+export const MOST_OF_A_NAME_WE_PUT_IN_AN_ADDRESS = 120;
+
+/**
+ * THE WORDS TO SEARCH FOR, out of whatever the campaign happens to carry.
+ *
+ * Pure, and cut at a WORD boundary rather than mid-word: half a word is a word
+ * the shop was never asked about, and it is one character of difference between
+ * asking a real question and asking a nonsense one.
+ */
+export function theWordsToSearchFor(productName) {
+  const name = String(productName == null ? '' : productName)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (name === '') return '';
+  if (name.length <= MOST_OF_A_NAME_WE_PUT_IN_AN_ADDRESS) return name;
+  const cut = name.slice(0, MOST_OF_A_NAME_WE_PUT_IN_AN_ADDRESS);
+  const lastSpace = cut.lastIndexOf(' ');
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim();
+}
+
+/**
+ * THE ADDRESS OF ONE SHOP'S OWN ORDER SEARCH, or null when there is not one.
+ *
+ * NULL RATHER THAN A GUESS, exactly as orderDetailPageFor answers null rather
+ * than building an address out of whatever a page happened to contain. A shop
+ * this file does not search, or a campaign carrying no product name, gets
+ * nothing at all — and the caller reads the list the way it always has.
+ *
+ * ENCODED, which is the one thing that must not be forgotten here: a product
+ * name carries spaces, ampersands, vertical bars and hash marks, and every one
+ * of them means something else in an address.
+ */
+export function orderSearchPageFor(platformKey, productName) {
+  const shop = howThisShopSearchesItsOrders(platformKey);
+  if (shop == null) return null;
+  const words = theWordsToSearchFor(productName);
+  if (words === '') return null;
+  return `${shop.page}${encodeURIComponent(words)}`;
+}
+
+/**
  * AMAZON'S RUN, STILL UNDER ITS OLD NAME, because src/order/rowShape.js reads it
  * and that instrument is deliberately Amazon-only — see the note where it is
  * imported there.

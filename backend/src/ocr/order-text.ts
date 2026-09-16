@@ -551,6 +551,97 @@ function aroundAProduct(line: string): boolean {
 }
 
 /**
+ * THE SHOP'S OWN FURNITURE, WHICH CARRIES A PRICE AND IS NOT A PURCHASE.
+ *
+ * ── MEASURED, AND IT PUT SEVENTEEN THINGS ON AN ORDER OF TWO ──────────────
+ *
+ * An Amazon order page is not only the order. It carries the cart flyout at the
+ * top of every page the shop serves, and two carousels of things it would like
+ * sold, at the bottom. Read as text, all three look exactly like a product with
+ * a price under it:
+ *
+ *   Go to Cart          <- the cart flyout, captured in the owner's own page
+ *   ₹849.00                text on 16 September 2026
+ *   Quantity is 1
+ *   Limited time deal
+ *   ₹1,299.00
+ *
+ *   Amazon Basics Wooden Hangers, Pack of 20     <- a carousel tile
+ *   M.R.P: ₹1,999.00
+ *   ₹1,299.00
+ *
+ * The order had TWO things on it and the reader answered with NINETEEN. Two of
+ * them were his purchase. Two were the cart. Fifteen were called "M.R.P:" —
+ * because a carousel prints the struck price as a labelled line, the label is
+ * three letters and two dots, and nothing said a label is not a name.
+ *
+ * ── WHY THESE ARE NOT IN THE LIST ABOVE, WHICH LOOKS LIKE THE SAME LIST ───
+ *
+ * AROUND_A_PRODUCT is also consulted when the reader is WALKING from a name to
+ * its price, so a line in it is a line the walk steps OVER. That is right for
+ * "Sold by:" — the price two lines down really is that product's. It would be
+ * wrong for every line here: stepping over a carousel's label would hand the
+ * tile's own price to whatever name sat above it. So this list is asked in one
+ * place only, where a line is being considered AS a name, and never in the walk.
+ *
+ * ── AND IT GROWS ONLY FROM A MEASUREMENT ──────────────────────────────────
+ *
+ * Four openings, and each one was read off a page rather than imagined: three
+ * from the order page above, and "Quantity is" from the cart flyout captured in
+ * backend/test/fixtures/amazon-review-garment-rack.txt. Openings rather than
+ * words anywhere in a line, so a product whose name contains one is untouched.
+ */
+const THE_SHOPS_OWN_FURNITURE =
+  /^(?:go\s+to\s+cart|quantity\s+is\b|limited\s+time|m\.?r\.?p\.?\b)/i;
+
+/** Is this line the shop's own furniture rather than anything anybody bought? */
+function shopFurniture(line: string): boolean {
+  return THE_SHOPS_OWN_FURNITURE.test(line.trim());
+}
+
+/**
+ * WHERE THE ORDER STOPS AND THE THINGS THE SHOP WOULD LIKE SOLD BEGIN.
+ *
+ * ── A SECOND GUARD, FOR THE LAYOUT THE FIRST ONE CANNOT SEE ───────────────
+ *
+ * The furniture list above answers the carousel that was measured, where the
+ * struck price is labelled and the tile's own name never reaches a figure. It
+ * answers nothing at all about a tile laid out the other way round:
+ *
+ *   Lukzer | Heavy-Duty Metal Garment Rack ...     <- a SUGGESTION, not a buy
+ *   ₹938.00
+ *
+ * which is a product name with a price under it and is indistinguishable from a
+ * purchase by any rule about one line. It matters more than tidiness: a shop
+ * recommends things LIKE the thing on the page, so the tile most likely to be
+ * laid out beside an order is the campaign's own product at the campaign's own
+ * price — which is precisely the pair a match is made on.
+ *
+ * ── AND "BUY IT AGAIN" IS DELIBERATELY NOT IN THIS LIST ───────────────────
+ *
+ * It is a carousel heading on some pages AND the button printed under every
+ * purchased item on this one — it sits between his two products in the captured
+ * page. Cutting there would throw away the second thing he bought. Same for the
+ * shop's "Buy Again" in the navigation, which is above everything.
+ *
+ * ── IT CAN ONLY EVER TAKE JUNK AWAY, BY CONSTRUCTION ──────────────────────
+ *
+ * Whole lines, anchored both ends, so a product whose name contains one of these
+ * phrases is not a heading. And if cutting here would leave NO products at all,
+ * the cut is abandoned and the page is read exactly as it was before: a heading
+ * matched somewhere unexpected costs the junk it was already costing, and never
+ * the order.
+ */
+const SOMEBODY_ELSES_PRODUCTS: readonly RegExp[] = [
+  /^recommended\s+for\s+you$/i,
+  /^customers\s+who\s+(?:viewed|bought)\b.*$/i,
+  /^related\s+to\s+items\s+you'?(?:ve)?\s+viewed$/i,
+  /^products\s+related\s+to\s+this\s+item$/i,
+  /^inspired\s+by\s+your\s+browsing\s+history$/i,
+  /^more\s+items\s+to\s+explore$/i,
+];
+
+/**
  * Could this line be a product's name?
  *
  * Everything a product name is not: a heading, a shipment, a status, a bill line,
@@ -564,6 +655,9 @@ function looksLikeAName(line: string): boolean {
   if (SHIPMENT_HEADING.test(text)) return false;
   if (measureOnly(text)) return false;
   if (aroundAProduct(text)) return false;
+  // THE SHOP'S OWN FURNITURE, ASKED HERE AND NOWHERE ELSE. See the note beside
+  // THE_SHOPS_OWN_FURNITURE for why it is not next to the line above it.
+  if (shopFurniture(text)) return false;
   if (STATUS_LINE.test(text)) return false;
   if (isBillLabel(text)) return false;
   if (ORDER_NUMBER_LABEL.test(text)) return false;
@@ -1009,13 +1103,18 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
   // cut was a second guard doing the same job in a way that happened to also cut
   // off half of Amazon's page.
   const items: ParsedOrderItem[] = [];
+  // WHERE EACH ONE WAS FOUND, kept beside them rather than on them: a product
+  // is a name and a price everywhere else in this codebase, and a line number is
+  // this function's own working note. It is used once, below, to draw the line
+  // between the order and the things the shop would like sold.
+  const foundAt: number[] = [];
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
 
     // The name and the price on one line.
     const together = nameAndPriceOnOneLine(line);
-    if (together) { items.push(together); i += 1; continue; }
+    if (together) { items.push(together); foundAt.push(i); i += 1; continue; }
 
     if (looksLikeAName(line)) {
       // ── THE SIZE AND THE COUNT SIT BETWEEN THE TWO ────────────────────
@@ -1037,6 +1136,7 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
       const counted = quantityAndPrice(lines[at] ?? '');
       if (counted != null && counted > 0n) {
         items.push({ name: line, pricePaise: counted });
+        foundAt.push(i);
         i = at + (moneyOnly(lines[at + 1] ?? '') != null ? 2 : 1);
         continue;
       }
@@ -1045,12 +1145,28 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
       const under = amountPaidAt(lines, at);
       if (under != null && under.paise > 0n) {
         items.push({ name: line, pricePaise: under.paise });
+        foundAt.push(i);
         i = under.through + 1;
         continue;
       }
     }
     i += 1;
   }
+
+  // ── AND THE THINGS THE SHOP WOULD LIKE SOLD ARE NOT ON THE ORDER ────────
+  //
+  // Read AFTER the scan rather than as a stop inside it, so that abandoning the
+  // cut is one line and cannot leave the scan half done. See
+  // SOMEBODY_ELSES_PRODUCTS for why a cut that would empty the order is dropped.
+  let suggestionsStart = lines.length;
+  for (let k = 0; k < lines.length; k += 1) {
+    if (SOMEBODY_ELSES_PRODUCTS.some((h) => h.test(lines[k]))) {
+      suggestionsStart = k;
+      break;
+    }
+  }
+  const theOrdersOwn = items.filter((one, k) => one != null && foundAt[k] < suggestionsStart);
+  const bought = theOrdersOwn.length > 0 ? theOrdersOwn : items;
 
   // WHERE TO LOOK FOR THE TOTALS. Inside the bill block when there is one. When
   // there is not — which is every ROW IN A LIST of orders, where the whole order
@@ -1067,6 +1183,6 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     returnWindowEndsDate,
     returned,
     shipments,
-    items,
+    items: bought,
   };
 }

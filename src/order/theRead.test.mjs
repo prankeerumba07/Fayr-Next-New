@@ -153,7 +153,11 @@ console.log('\n=== 4. THE SCREEN STOPS AND SAYS SO, RATHER THAN ASKING FOR A PHO
   // THE ORDER OF THE TWO BRANCHES IS THE WHOLE POINT. The refusal has to be
   // asked BEFORE the silent hand-back, or it can never be reached.
   const refusedAt = code.indexOf('if (outcome.whyNot != null)');
-  const handBackAt = code.indexOf('if (!outcome.looked)');
+  // THE HAND-BACK NOW ASKS WHETHER THE LIST WAS OPENED AT ALL, because it is no
+  // longer always opened: when the shop's own order search answers, there is no
+  // list and no outcome from one. The branch is the same branch and its place in
+  // the order is the same rule.
+  const handBackAt = code.indexOf('if (outcome == null || !outcome.looked)');
   ok(refusedAt !== -1 && handBackAt !== -1 && refusedAt < handBackAt,
     'and it is asked BEFORE the silent hand-back, or it could never be reached');
 
@@ -252,7 +256,7 @@ console.log('\n=== 4b. THE SHOP WANTS A SIGN IN: SENT BACK, NOT ASKED FOR A PHOT
   // ASKED FIRST, because it is the one outcome with something to DO about it.
   const signInAt = code.indexOf('if (outcome.wantsSignIn === true)');
   const refusedAt = code.indexOf('if (outcome.whyNot != null)');
-  const handBackAt = code.indexOf('if (!outcome.looked)');
+  const handBackAt = code.indexOf('if (outcome == null || !outcome.looked)');
   ok(signInAt !== -1 && signInAt < refusedAt && refusedAt < handBackAt,
     'and it is asked BEFORE the refusal and before the hand-back');
   // AND IT SENDS THEM TO A SIGN IN VISIT, which is the whole difference.
@@ -624,9 +628,14 @@ console.log('\n=== 13. a shop whose ORDER pages are drawn is gone to, one at a t
   ok(/const aFreshName = \(\) => \{/.test(code), 'every page opened gets its own name');
   ok(/pageNumber \+= 1;\s*answerTag\.current = anAnswerTag\(pageNumber, Math\.random\(\)\);/
     .test(code), 'numbered, so two names in the same millisecond are still two names');
+  // THREE, AND THE THIRD IS THE SHOP'S OWN ORDER SEARCH. The search, the list
+  // and each order page — every page this look can open gets its own name, and
+  // the search is the one that is opened FIRST, so a late answer from it is
+  // exactly the kind that could otherwise resolve the wait for the next page.
   const opens = (code.match(/aFreshName\(\)/g) || []).length;
-  ok(opens === 2,
-    `and it is called wherever a page is opened (${opens}) — the list, and each order page`);
+  ok(opens === 3,
+    `and it is called wherever a page is opened (${opens}) — the search, the list, `
+    + 'and each order page');
   ok(!/anAnswerTag\(startedAt/.test(code),
     'and the one name for the whole look is gone, not merely unused');
   ok(/isOurAnswer\(payload, answerTag\.current\)/.test(code),

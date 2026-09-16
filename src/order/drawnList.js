@@ -60,7 +60,8 @@ import {
 } from '../connect/gate.js';
 import {
   GAP_BETWEEN_FETCHES_MS, MOST_DETAIL_PAGES, howThisShopNamesAnOrder,
-  reviewsPageFor, theReviewPagesAreDrawn, whatThisShopDrawsForReviews,
+  orderSearchPageFor, reviewsPageFor, theReviewPagesAreDrawn,
+  whatThisShopDrawsForReviews,
 } from './detailLook.js';
 import {
   buildOrderListScript, landedPath, orderListPageFor, readDetailOutcome, readListOutcome,
@@ -600,6 +601,51 @@ export function openOneOrderWith(platformKey, url, beganAt, tag, number, deadlin
     drawn: true,
     tag,
     number,
+  };
+}
+
+/**
+ * THE SHOP'S OWN ORDER SEARCH, OPENED EXACTLY THE WAY ITS LIST IS.
+ *
+ * ── ONE MECHANISM, AND THAT IS THE POINT ──────────────────────────────────
+ *
+ * Same opener, same counters, same reader, same harvest. The only difference
+ * between this and openTheListWith is the address, and the address is the only
+ * thing that is actually different: the shop's search answers with the same
+ * cards its list answers with, so counting them and harvesting them a second
+ * way would be two ideas of what an order card is, waiting to disagree.
+ *
+ * ── AND IT IS DRAWN BECAUSE THE LIST IS, WHICH IS NOT AN ASSUMPTION ───────
+ *
+ * It is the same rebuilt area of the same shop, and the measurement that put the
+ * list on the drawn path — three hundred and seventy four kilobytes with no
+ * orders in the markup as sent — is a measurement about that area rather than
+ * about one address in it. It is also the SAFE way round: a page the shop
+ * renders whole has its cards from the first look, the poll sees them hold still
+ * and reads it at once, so waiting costs a page that never needed waiting for
+ * nothing at all. Fetching a page that has to be drawn costs the whole read.
+ *
+ * NULL when this shop has no search, or when there are no words to search for,
+ * and the caller then reads the list exactly as it always has.
+ */
+export function openTheSearchWith(platformKey, productName, startUrl, beganAt, tag) {
+  const search = orderSearchPageFor(platformKey, productName);
+  if (search == null) return null;
+  if (!theListIsDrawn(platformKey)) {
+    return {
+      uri: String(startUrl || ''),
+      script: buildOrderListScript(search, tag),
+      drawn: false,
+      tag,
+    };
+  }
+  return {
+    uri: search,
+    script: buildDrawnListScript({
+      beganAt, tag, wantedPath: landedPath(search), counts: whatThisShopDraws(platformKey),
+    }),
+    drawn: true,
+    tag,
   };
 }
 

@@ -48,11 +48,13 @@ import { getTaskId, refreshFromBackend } from '../taskStore';
 import { PLATFORMS } from '../platforms';
 import {
   countOrderCardSlots, harvestRendered, isNotAnOrderPage, orderDetailPageFor,
-  ordersWorthOpening, pagesToOpen, readsOrderPages, waitBeforeFetch,
+  ordersWorthOpening, pagesToOpen, readsOrderPages, searchesItsOrders,
+  waitBeforeFetch,
 } from './detailLook.js';
 import {
   LEAST_A_DRAW_CAN_TAKE_MS, anAnswerTag, answerWithStatus, drawFacts, isOurAnswer,
-  openOneOrderWith, openTheListWith, readDetailStep, readListStep, theOrderPagesAreDrawn,
+  openOneOrderWith, openTheListWith, openTheSearchWith, readDetailStep, readListStep,
+  theOrderPagesAreDrawn,
 } from './drawnList.js';
 import { restoreSession } from '../session';
 import { logLook } from './lookLog.js';
@@ -408,81 +410,6 @@ export default function LookingForItScreen({ navigation, route }) {
       });
       const pause = (ms) => new Promise((done) => { setTimeout(done, ms); });
 
-      const answer = await openWith(theList);
-      if (!alive) return;
-
-      const outcome = readListStep(theList, answer);
-      // WHAT THE PAGE SAID ABOUT ITS OWN DRAWING, every field made safe first: a
-      // page can put anything at all in these and they end up on a line.
-      const drawn = drawFacts(answer);
-
-      // ── WHAT THE SHOP'S LIST ACTUALLY ANSWERED ───────────────────────────
-      //
-      // COUNTS AND STATUS WORDS ONLY. `bytes` is the page's LENGTH and never the
-      // page: an order list carries the buyer's name and address, and a length
-      // answers the only question asked of it — was there a page at all, and was
-      // it a real one or a stub. See the note at the top of lookLog.js.
-      // AND WHICH PAGE IT LANDED ON, which is the field that was missing. Five
-      // days of "it fetched nothing" all said 200, a real size, and no refusal,
-      // and not one of them said the page was Amazon's home shell. The PATH only:
-      // a shop's address carries tokens in its query and this goes into a log.
-      // AND WHETHER THE SHOP EVER DREW THE THING WE CAME FOR. `drew=true` means
-      // the orders appeared and were still there a look later. `drew=false` with
-      // a `waited` at the deadline means they never appeared at all. Those are
-      // different problems and without this they are one silence — which is the
-      // whole lesson of the five days before this.
-      // `rows=` is the two counts the wait watched, `nodes=` is how much the page
-      // grew while we watched, and `strangers=` is how many answers came back
-      // that nobody asked for. Counts only, every one of them.
-      logLook('list', `status=${answer && answer.status} `
-        + `bytes=${(answer && typeof answer.html === 'string' ? answer.html.length : 0)} `
-        + `landed=${outcome.landed == null ? 'null' : outcome.landed} `
-        + `looked=${outcome.looked} whyNot=${outcome.whyNot} `
-        + `wantsSignIn=${outcome.wantsSignIn} `
-        + `drawn=${theList.drawn} drew=${drawn.drew} settled=${drawn.settled} `
-        + `waited=${drawn.waited} looks=${drawn.looks} `
-        + `rows=${drawn.linked}/${drawn.marked} `
-        + `nodes=${drawn.nodesFirst}/${drawn.nodesNow} `
-        + `strangers=${strangers.current}`);
-
-      // ── THE SHOP REFUSED, AND THAT IS NOT "WE COULD NOT FIND YOUR ORDER" ──
-      //
-      // Three faces of one meaning, all measured from the owner's own log on 9
-      // September 2026: a page reading only "Click the button below to continue
-      // shopping", a 503, and the robot puzzle. Every one of them used to fall
-      // into the silent hand-back below, which lands on "show us the order" —
-      // so somebody whose purchase was perfectly fine was asked for a
-      // photograph because a shop had asked us to slow down.
-      //
-      // IT STOPS HERE INSTEAD. Nothing is handed back, the screenshot flow is
-      // not entered, and the honest answer is on screen with one way to retry.
-      // The right action is to wait a few minutes, and no photograph helps.
-      // ── THE SHOP WANTS A SIGN IN, AND THAT IS ASKED FIRST ─────────────────
-      //
-      // Before the refusal and before the hand-back, because it is the one
-      // outcome with something the person can DO. Measured: Amazon's orders page
-      // redirects to a sign in demanding a FRESH password, which its review and
-      // profile pages never do — so this is the normal case, not an edge one.
-      //
-      // It used to fall into the silent hand-back, which lands on "show us the
-      // order". Somebody who simply needed to sign in again was asked for a
-      // photograph instead of being sent to sign in.
-      if (outcome.wantsSignIn === true) {
-        await settle();
-        if (!alive) return;
-        stopTheClock();
-        setNeedsSignIn(true);
-        return;
-      }
-
-      if (outcome.whyNot != null) {
-        await settle();
-        if (!alive) return;
-        stopTheClock();
-        setRefused(outcome.whyNot);
-        return;
-      }
-
       /** Hand the text of everything opened so far to the server, and ask. */
       const askTheServer = async (pages) => {
         const sent = await sendFoundOrders(taskId, pages);
@@ -515,6 +442,193 @@ export default function LookingForItScreen({ navigation, route }) {
         moveOn(matched.length > 0 ? 'IsThisYourOrder' : 'Journey');
       };
 
+      // ── THE SHOP'S OWN SEARCH OF THIS PERSON'S ORDERS, ASKED FIRST ──────
+      //
+      // ── WHY IT IS FIRST AND NOT A LAST RESORT ─────────────────────────
+      //
+      // MEASURED ON THE OWNER'S OWN ACCOUNT, 16 SEPTEMBER 2026. The list this
+      // look reads answers with TEN rows. One of his orders — placed in February
+      // — is on the SECOND page of it, and no ceiling on how many of the ten we
+      // open can ever reach an order whose number is not on the page we are
+      // reading. The shop's own search answers with that order's card, whatever
+      // page or year it sits on, in one request.
+      //
+      // So the cheap, exact question is asked before the broad, expensive one.
+      // When it answers, the list is not opened at all — one request instead of
+      // a page load and up to ten fetches — and when it answers with nothing,
+      // everything below happens exactly as it did before this existed.
+      //
+      // IT IS AN ADDRESS AND NOTHING ELSE. The words go in the address. No form
+      // is filled in, no key is pressed and no control on the shop's page is
+      // touched — see WHERE_EACH_SHOP_SEARCHES_ITS_ORDERS for the whole of it.
+      //
+      // ── AND IT IS SKIPPED WHEN THE ORDER IS ALREADY NAMED ─────────────
+      //
+      // Whoever opened this with a number in hand has nothing to search for, and
+      // asking the shop a question we know the answer to is one more request
+      // against a shop that rate-limits us, for nothing.
+      //
+      // THE SHOP IS ASKED, NEVER NAMED, exactly as everywhere else on this
+      // screen: which shops have a search of their own lives in detailLook.js.
+      let fromTheSearch = [];
+      const theSearch = onlyThisOrder == null && searchesItsOrders(platformKey)
+        ? openTheSearchWith(
+          platformKey, campaign && campaign.productName,
+          platform.startUrl, Date.now(), aFreshName(),
+        )
+        : null;
+      if (theSearch != null) {
+        const searchAnswer = await openWith(theSearch);
+        if (!alive) return;
+        const searchOutcome = readListStep(theSearch, searchAnswer);
+        const searchDrew = drawFacts(searchAnswer);
+        const searchHtml = searchAnswer && typeof searchAnswer.html === 'string'
+          ? searchAnswer.html
+          : '';
+
+        // COUNTS AND STATUS WORDS ONLY, as next door. `landed=` is the PATH, and
+        // the path is the whole reason this line is safe to print: the words we
+        // searched for are in the query, and landedPath drops the query.
+        logLook('search', `status=${searchAnswer && searchAnswer.status} `
+          + `bytes=${searchHtml.length} `
+          + `landed=${searchOutcome.landed == null ? 'null' : searchOutcome.landed} `
+          + `looked=${searchOutcome.looked} whyNot=${searchOutcome.whyNot} `
+          + `wantsSignIn=${searchOutcome.wantsSignIn} `
+          + `drawn=${theSearch.drawn} drew=${searchDrew.drew} `
+          + `settled=${searchDrew.settled} waited=${searchDrew.waited} `
+          + `looks=${searchDrew.looks} `
+          + `rows=${searchDrew.linked}/${searchDrew.marked} `
+          + `nodes=${searchDrew.nodesFirst}/${searchDrew.nodesNow} `
+          + `strangers=${strangers.current}`);
+
+        // ── A REFUSAL HERE STOPS THE WHOLE LOOK, AS IT DOES ANYWHERE ─────
+        //
+        // The same two answers the list and each order page already use, and for
+        // the same reason: a sign in wall or a puzzle on this page means the shop
+        // is done with us for now, and going on to ask it for a list and then ten
+        // order pages is pushing against exactly the limit it just named.
+        if (searchOutcome.wantsSignIn === true) {
+          await settle();
+          if (!alive) return;
+          stopTheClock();
+          setNeedsSignIn(true);
+          return;
+        }
+        if (searchOutcome.whyNot != null) {
+          await settle();
+          if (!alive) return;
+          stopTheClock();
+          setRefused(searchOutcome.whyNot);
+          return;
+        }
+
+        // THE SAME HARVEST, and that is the point rather than a saving. The
+        // search answers with the cards the list answers with, so a second way
+        // of recognising one is a second idea of what an order card is.
+        const searchHarvest = harvestRendered(searchHtml, platformKey);
+        const searchWorth = ordersWorthOpening(
+          searchHtml, searchHarvest.numbers, platformKey,
+        );
+        fromTheSearch = pagesToOpen(searchWorth.numbers, platformKey);
+
+        // THE NUMBERS THEMSELVES ARE NOT LOGGED, for the reason written beside
+        // the list's own count: an order number is a strong identifier tied to
+        // the account, it is already kept server side, and a count is what the
+        // question needs. Neither are the words we searched for.
+        logLook('searched', `slots=${countOrderCardSlots(searchHtml, platformKey)} `
+          + `marked=${searchHarvest.marked} linked=${searchHarvest.linked} `
+          + `shaped=${searchHarvest.shaped} skipped=${searchWorth.skipped} `
+          + `opening=${fromTheSearch.length} how=${searchHarvest.how}`);
+      }
+
+      // ── AND THE LIST, ONLY WHEN THE SEARCH DID NOT ANSWER ───────────────
+      //
+      // The fallback is the whole of what this screen did before, unchanged and
+      // in the same order. A shop with no search of its own never enters the
+      // block above, so for everybody but one this is still the first thing that
+      // happens.
+      let outcome = null;
+      let listHtml = '';
+      if (fromTheSearch.length === 0) {
+        const answer = await openWith(theList);
+        if (!alive) return;
+
+        outcome = readListStep(theList, answer);
+        // WHAT THE PAGE SAID ABOUT ITS OWN DRAWING, every field made safe first: a
+        // page can put anything at all in these and they end up on a line.
+        const drawn = drawFacts(answer);
+
+        // ── WHAT THE SHOP'S LIST ACTUALLY ANSWERED ───────────────────────────
+        //
+        // COUNTS AND STATUS WORDS ONLY. `bytes` is the page's LENGTH and never the
+        // page: an order list carries the buyer's name and address, and a length
+        // answers the only question asked of it — was there a page at all, and was
+        // it a real one or a stub. See the note at the top of lookLog.js.
+        // AND WHICH PAGE IT LANDED ON, which is the field that was missing. Five
+        // days of "it fetched nothing" all said 200, a real size, and no refusal,
+        // and not one of them said the page was Amazon's home shell. The PATH only:
+        // a shop's address carries tokens in its query and this goes into a log.
+        // AND WHETHER THE SHOP EVER DREW THE THING WE CAME FOR. `drew=true` means
+        // the orders appeared and were still there a look later. `drew=false` with
+        // a `waited` at the deadline means they never appeared at all. Those are
+        // different problems and without this they are one silence — which is the
+        // whole lesson of the five days before this.
+        // `rows=` is the two counts the wait watched, `nodes=` is how much the page
+        // grew while we watched, and `strangers=` is how many answers came back
+        // that nobody asked for. Counts only, every one of them.
+        logLook('list', `status=${answer && answer.status} `
+          + `bytes=${(answer && typeof answer.html === 'string' ? answer.html.length : 0)} `
+          + `landed=${outcome.landed == null ? 'null' : outcome.landed} `
+          + `looked=${outcome.looked} whyNot=${outcome.whyNot} `
+          + `wantsSignIn=${outcome.wantsSignIn} `
+          + `drawn=${theList.drawn} drew=${drawn.drew} settled=${drawn.settled} `
+          + `waited=${drawn.waited} looks=${drawn.looks} `
+          + `rows=${drawn.linked}/${drawn.marked} `
+          + `nodes=${drawn.nodesFirst}/${drawn.nodesNow} `
+          + `strangers=${strangers.current}`);
+
+        // ── THE SHOP REFUSED, AND THAT IS NOT "WE COULD NOT FIND YOUR ORDER" ──
+        //
+        // Three faces of one meaning, all measured from the owner's own log on 9
+        // September 2026: a page reading only "Click the button below to continue
+        // shopping", a 503, and the robot puzzle. Every one of them used to fall
+        // into the silent hand-back below, which lands on "show us the order" —
+        // so somebody whose purchase was perfectly fine was asked for a
+        // photograph because a shop had asked us to slow down.
+        //
+        // IT STOPS HERE INSTEAD. Nothing is handed back, the screenshot flow is
+        // not entered, and the honest answer is on screen with one way to retry.
+        // The right action is to wait a few minutes, and no photograph helps.
+        // ── THE SHOP WANTS A SIGN IN, AND THAT IS ASKED FIRST ─────────────────
+        //
+        // Before the refusal and before the hand-back, because it is the one
+        // outcome with something the person can DO. Measured: Amazon's orders page
+        // redirects to a sign in demanding a FRESH password, which its review and
+        // profile pages never do — so this is the normal case, not an edge one.
+        //
+        // It used to fall into the silent hand-back, which lands on "show us the
+        // order". Somebody who simply needed to sign in again was asked for a
+        // photograph instead of being sent to sign in.
+        if (outcome.wantsSignIn === true) {
+          await settle();
+          if (!alive) return;
+          stopTheClock();
+          setNeedsSignIn(true);
+          return;
+        }
+
+        if (outcome.whyNot != null) {
+          await settle();
+          if (!alive) return;
+          stopTheClock();
+          setRefused(outcome.whyNot);
+          return;
+        }
+        listHtml = answer && typeof answer.html === 'string' ? answer.html : '';
+      }
+
+
+
       // ── AMAZON: THE LIST IS WORTH ITS ORDER NUMBERS AND NOTHING ELSE ────
       //
       // Amazon fills its list in with its own code after the page arrives, and a
@@ -537,7 +651,7 @@ export default function LookingForItScreen({ navigation, route }) {
       // holds every piece of text in it to that rule. src/order/detailLook.js
       // knows which shops are read this way; this only asks.
       if (readsOrderPages(platformKey)) {
-        const html = answer && typeof answer.html === 'string' ? answer.html : '';
+        const html = listHtml;
         // THREE RUNGS, STRONGEST FIRST, and `how` says which one answered. See
         // harvestRendered: the card attribute, then the order's own link, then
         // the number's own shape. No new marker is guessed anywhere in it.
@@ -566,9 +680,17 @@ export default function LookingForItScreen({ navigation, route }) {
         // rather than fetching it directly: a number that is not this shop's
         // shape is refused exactly as a harvested one would be, so a bad value
         // arriving in a route param opens nothing at all.
-        const numbers = onlyThisOrder != null
-          ? pagesToOpen([onlyThisOrder], platformKey)
-          : pagesToOpen(worth.numbers, platformKey);
+        // ── AND THE SEARCH'S OWN ANSWER BEATS BOTH OF THEM ────────────────
+        //
+        // Not "as well as": INSTEAD OF, for the same reason a named order does.
+        // When the search found the order there is no list — it was never opened
+        // — so `html` is empty, the harvest above found nothing in it, and this
+        // is the only thing there is to open.
+        const numbers = fromTheSearch.length > 0
+          ? fromTheSearch
+          : (onlyThisOrder != null
+            ? pagesToOpen([onlyThisOrder], platformKey)
+            : pagesToOpen(worth.numbers, platformKey));
 
         // ── THE ONE LINE THAT TELLS THE TWO EMPTY ANSWERS APART ────────────
         //
@@ -587,7 +709,8 @@ export default function LookingForItScreen({ navigation, route }) {
           // WHETHER ONE WAS NAMED, AND NEVER WHICH ONE. An order number is a
           // strong identifier tied to the account and is already kept server
           // side; that it was named is what tells the two reads apart in a log.
-          + `named=${onlyThisOrder != null} how=${harvest.how}`);
+          + `named=${onlyThisOrder != null} searched=${fromTheSearch.length} `
+          + `how=${harvest.how}`);
 
         // ── AND WHEN THERE ARE NO SLOTS AT ALL, SAY WHAT THE PAGE IS MADE OF ──
         //
@@ -726,7 +849,7 @@ export default function LookingForItScreen({ navigation, route }) {
         return;
       }
 
-      if (!outcome.looked) {
+      if (outcome == null || !outcome.looked) {
         await settle();
         if (alive) moveOn('Journey');
         return;

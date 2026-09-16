@@ -945,3 +945,199 @@ describe('reading an order screen that holds several shipments', () => {
   });
 });
 });
+
+/**
+ * A WHOLE AMAZON ORDER PAGE, AND ONLY THE THINGS HE ACTUALLY BOUGHT.
+ *
+ * ── WHERE EVERY LINE OF THIS FIXTURE CAME FROM ────────────────────────────
+ *
+ * It is ASSEMBLED and it is said so here rather than implied, because the other
+ * fixtures in this folder are captures and this one is not. Nothing in it is
+ * invented; every block is a shape this project has already written down:
+ *
+ *   the navigation and the cart flyout — "Subtotal / ₹0.00 / Go to Cart /
+ *     ₹849.00 / Quantity is 1" — copied line for line out of
+ *     backend/test/fixtures/amazon-review-garment-rack.txt, which IS a capture
+ *     of the owner's own Amazon page on the same account.
+ *   the header line — "Ordered on 2 June 2026  Order number 408-1509645-…" —
+ *     the shape recorded beside ORDER_NUMBER_ANYWHERE in order-text.ts, with the
+ *     order number of the task measured on 16 September 2026.
+ *   the bill — "Total: ₹1,411.00 / Promotion Applied: -₹80.00 / Grand Total:
+ *     ₹1,331.00" — the block recorded beside moneyForLabels in order-text.ts.
+ *   the first product — the block recorded beside AROUND_A_PRODUCT.
+ *   the second product — its name from src/campaign.js and its ₹388.00 from the
+ *     owner's own statement of the order.
+ *   the carousels — the shape stated by the owner on 16 September 2026: the
+ *     "Recommended for you" carousels, every tile printing an "M.R.P:" line.
+ *
+ * ── WHAT IT ANSWERED BEFORE THE TWO RULES BELOW EXISTED ───────────────────
+ *
+ * NINETEEN products, on an order of two. "Go to Cart" at ₹849.00, "Limited time
+ * deal" at ₹1,299.00, the two real ones, and FIFTEEN called "M.R.P:".
+ */
+describe("a whole Amazon order page, and not the shop's suggestions", () => {
+  const PAGE = readFileSync(
+    join(__dirname, '..', '..', 'test', 'fixtures',
+      'amazon-order-page-garment-rack.txt'),
+    'utf8',
+  );
+  const order = parseOrderText(PAGE);
+
+  it('ONLY THE THINGS HE ACTUALLY BOUGHT, AND THERE ARE TWO OF THEM', () => {
+    expect(order.items.map((i) => i.name)).toEqual([
+      'Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf',
+      'SR 2 PES Plastic Self-Adhesive Wall-Mount Bathroom Shelf',
+    ]);
+  });
+
+  it('at the prices printed beside them, which is what a match is made on', () => {
+    expect(order.items.map((i) => i.pricePaise)).toEqual([93800n, 38800n]);
+  });
+
+  it('NOT ONE THING OFF THE CART FLYOUT', () => {
+    // It sits at the TOP of every page the shop serves, above the order, so no
+    // rule about where the order stops can reach it.
+    const names = order.items.map((i) => i.name);
+    expect(names).not.toContain('Go to Cart');
+    expect(names).not.toContain('Limited time deal');
+  });
+
+  it('AND NOT ONE "M.R.P:", of which the page prints fifteen', () => {
+    // Fifteen, counted off the fixture rather than asserted from memory, so this
+    // fails if the carousels are ever taken out of it and the check goes quiet.
+    const printed = PAGE.split('\n')
+      .filter((l: string) => /^M\.R\.P:/.test(l.trim()));
+    expect(printed).toHaveLength(15);
+    expect(order.items.some((i) => /m\.?r\.?p/i.test(i.name))).toBe(false);
+  });
+
+  it('and the four fields the whole read exists to produce are unharmed', () => {
+    expect(order.orderNumber).toBe('408-1509645-3524313');
+    expect(order.orderDate).toBe('2026-06-02');
+    // THE BILL, AND NOT THE FIRST "TOTAL" ON THE PAGE. ₹1,411.00 is printed
+    // above it and ₹1,331.00 is what left his account.
+    expect(order.totalPaise).toBe(133100n);
+    expect(order.itemTotalPaise).toBe(141100n);
+  });
+
+  it('and so are the two dates the money waits for', () => {
+    // "Delivered 8 June" carries no year and borrows the order's, inside the
+    // bounded rule. The window's own date states its year and never borrows one.
+    expect(order.deliveryDate).toBe('2026-06-08');
+    expect(order.returnWindowEndsDate).toBe('2026-06-19');
+    expect(order.returned).toBe(false);
+  });
+
+  it('THE ORDER TOTAL IS NEVER ONE OF THE PRODUCTS, on a page of two', () => {
+    // The rule the refund rests on, asked of this page directly: no product on a
+    // two-product order may carry the figure the whole order came to.
+    for (const item of order.items) expect(item.pricePaise).not.toBe(133100n);
+  });
+});
+
+/**
+ * THE TWO RULES ON THEIR OWN, so a failure says WHICH of them stopped working.
+ *
+ * The page above proves them together. These prove them apart, which is what
+ * tells "the carousel moved" from "the cart flyout moved" when one day it does.
+ */
+describe("the shop's own furniture is never a product", () => {
+  const withA = (...lines: string[]) => parseOrderText([
+    'Order placed', '2 June 2026',
+    'Order # 408-1509645-3524313',
+    ...lines,
+    'boAt Rockerz 255 Pro Plus', '₹1,299.00',
+  ].join('\n'));
+
+  it('the cart flyout, captured word for word off his own page', () => {
+    const order = withA('Subtotal', '₹0.00', 'Go to Cart', '₹849.00', 'Quantity is 1');
+    expect(order.items.map((i) => i.name)).toEqual(['boAt Rockerz 255 Pro Plus']);
+  });
+
+  it('a deal badge with a price under it', () => {
+    const order = withA('Limited time deal', '₹499.00');
+    expect(order.items.map((i) => i.name)).toEqual(['boAt Rockerz 255 Pro Plus']);
+  });
+
+  it('a struck price written as a label, which is what a carousel prints', () => {
+    const order = withA('M.R.P: ₹1,999.00', 'MRP ₹2,499.00');
+    expect(order.items.map((i) => i.name)).toEqual(['boAt Rockerz 255 Pro Plus']);
+  });
+
+  it('and a product whose OWN NAME contains one of those words is untouched', () => {
+    // Openings, not words anywhere in a line. This is the whole reason the rule
+    // is anchored, and the cost of getting it wrong is refusing a real purchase.
+    const order = parseOrderText([
+      'Order placed', '2 June 2026',
+      'Quantity Surveyor Handbook, Limited Edition', '₹640.00',
+    ].join('\n'));
+    expect(order.items.map((i) => i.name))
+      .toEqual(['Quantity Surveyor Handbook, Limited Edition']);
+  });
+});
+
+describe('where the order stops and the shop\u2019s suggestions begin', () => {
+  const page = (...tail: string[]) => [
+    'Order placed', '2 June 2026',
+    'Order # 408-1509645-3524313',
+    'Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf',
+    'Sold by: Lukzer', '₹938.00',
+    'Buy It Again',
+    'SR 2 PES Plastic Self-Adhesive Wall-Mount Bathroom Shelf',
+    'Sold by: SR RETAIL', '₹388.00',
+    ...tail,
+  ].join('\n');
+
+  it('A SUGGESTION LAID OUT EXACTLY LIKE A PURCHASE IS STILL NOT ONE', () => {
+    // The layout the furniture rule cannot see: a name with a bare price under
+    // it. And the worst case on purpose — the shop suggesting the campaign's own
+    // product at the campaign's own price, beside the order it was bought on.
+    const order = parseOrderText(page(
+      'Recommended for you',
+      'Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf',
+      '₹938.00',
+    ));
+    expect(order.items).toHaveLength(2);
+  });
+
+  it('and "Buy It Again" is NOT a place to stop, which would cost a product', () => {
+    // It is printed under every purchased item — between his two, in the
+    // captured page — as well as being a carousel heading on other pages.
+    const order = parseOrderText(page());
+    expect(order.items.map((i) => i.name)).toEqual([
+      'Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf',
+      'SR 2 PES Plastic Self-Adhesive Wall-Mount Bathroom Shelf',
+    ]);
+  });
+
+  it('a heading somewhere unexpected COSTS THE JUNK, NEVER THE ORDER', () => {
+    // If cutting there would leave no products at all, the cut is abandoned and
+    // the page reads exactly as it did before the rule existed. Fail open, by
+    // construction, because the alternative is a read that returns nothing.
+    const order = parseOrderText([
+      'Recommended for you',
+      'Order placed', '2 June 2026',
+      'boAt Rockerz 255 Pro Plus', '₹1,299.00',
+    ].join('\n'));
+    expect(order.items.map((i) => i.name)).toEqual(['boAt Rockerz 255 Pro Plus']);
+  });
+
+  it('and a product whose name reads like a heading is not a heading', () => {
+    // Whole lines, anchored both ends.
+    //
+    // THE REAL PURCHASE IN FRONT OF IT IS LOAD BEARING, and it was not there
+    // when this check was written. Without it the heading-shaped product is the
+    // ONLY product, so a loose test cuts everything, the fail-open rule above
+    // puts it all back, and the check passes with the anchors gone. It is the
+    // second product that makes the cut survivable and therefore visible.
+    const order = parseOrderText([
+      'Order placed', '2 June 2026',
+      'boAt Rockerz 255 Pro Plus', '₹1,299.00',
+      'Books Recommended For You By Our Editors, Volume 3', '₹299.00',
+    ].join('\n'));
+    expect(order.items.map((i) => i.name)).toEqual([
+      'boAt Rockerz 255 Pro Plus',
+      'Books Recommended For You By Our Editors, Volume 3',
+    ]);
+  });
+});

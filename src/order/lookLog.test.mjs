@@ -210,15 +210,45 @@ it('THE SERVER LINE says whether the request even left the phone', () => {
   ok(!/pages\[|pages\.join/.test(line), 'the server line carries a page');
 });
 
+it('THE SEARCH LINE says how the shop answered, and never what it was asked', () => {
+  // The address this line is about carries the PRODUCT NAME in its query. That
+  // is why `landed=` must stay a path: landedPath drops the query, and a person
+  // pasting a look into a message must not be pasting what somebody bought.
+  const line = (screen.match(/logLook\('search',[\s\S]*?\);/) || [''])[0];
+  for (const field of ['status=', 'bytes=', 'landed=', 'looked=', 'drew=']) {
+    ok(line.includes(field), `the search line has no ${field}`);
+  }
+  ok(/searchHtml\.length/.test(line), 'it must log the length, not the page');
+  ok(/searchOutcome\.landed/.test(line), 'landed= must come from the reader');
+  ok(!/productName|theSearch\.uri|searchAnswer\.url/.test(line),
+    'the search line carries the words searched for, or the address they are in');
+});
+
+it('AND THE SEARCH HARVEST LINE IS COUNTS, never a number it found', () => {
+  const line = (screen.match(/logLook\('searched',[\s\S]*?\);/) || [''])[0];
+  for (const field of ['slots=', 'marked=', 'linked=', 'shaped=', 'opening=', 'how=']) {
+    ok(line.includes(field), `the search harvest line has no ${field}`);
+  }
+  ok(/fromTheSearch\.length/.test(line), 'it must log how many, not which');
+  ok(!/fromTheSearch\[|fromTheSearch\.join|\$\{fromTheSearch\}/.test(line),
+    'the search harvest line carries an order number');
+});
+
 it('and NO call site anywhere passes a page or an order text', () => {
   const calls = screen.match(/logLook\([\s\S]*?\);/g) || [];
-  // FOUR NOW, AND IT IS A DECISION AND NOT A DRIFT. The fourth is the order page
-  // line above. This count exists so that adding a call site is something
+  // SIX NOW, AND IT IS A DECISION AND NOT A DRIFT. The fifth and sixth are the
+  // shop's own order search and what was harvested off it, added on 16 September
+  // 2026 when the read learned to ask for one order by name instead of reading a
+  // page of ten. This count exists so that adding a call site is something
   // somebody has to come here and think about, and that is what it just did.
-  ok(calls.length === 4, `expected four calls, found ${calls.length}`);
+  ok(calls.length === 6, `expected six calls, found ${calls.length}`);
   for (const call of calls) {
     ok(!/detail\.text|\.blocks|outcome\.blocks/.test(call),
       `a call site carries page text: ${call.slice(0, 80)}`);
+    // AND NOT THE WORDS WE SEARCHED FOR, NOR THE ADDRESS HOLDING THEM. A product
+    // name is what somebody bought, and it has no business on a console.
+    ok(!/productName|theSearch\.uri|searchAnswer\.url/.test(call),
+      `a call site carries the words searched for: ${call.slice(0, 80)}`);
   }
 });
 
