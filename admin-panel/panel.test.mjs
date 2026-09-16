@@ -1378,5 +1378,54 @@ console.log('\n=== whether it went back, actually run ===');
     'and the row shows when it arrived, through the one day formatter');
 }
 
+console.log('\n=== the cash-out queue says where the money came from ===');
+{
+  // ── MEASURED 16 SEPTEMBER 2026 ──────────────────────────────────────────
+  //
+  // The owner read ₹100.00 on a queue card, beside an order whose product cost
+  // ₹938.00 and whose bill was ₹1,331.00, and took it for that order's refund.
+  // It never was. A withdrawal row has a user, a payout method and an amount,
+  // and no link to a task or a campaign anywhere in the schema — the card was
+  // showing a true figure with nothing behind it. ₹100.00 on the practice
+  // account is ₹100.00 because the demo seed asks for exactly the minimum a
+  // withdrawal may be, and for no other reason.
+  //
+  // THE AMOUNT ITSELF IS UNTOUCHED. It was right. What was missing was the rest
+  // of the sentence.
+  ok(/"cash-out requested"/.test(script),
+    'the figure says what KIND of figure it is, so it cannot read as a refund');
+  ok(/w\.basis \?/.test(script),
+    'and the card draws the basis when the server sent one');
+  ok(/rupees\(w\.basis\.walletBalancePaise\)/.test(script),
+    'it shows what the wallet holds');
+  ok(/rupees\(w\.basis\.refundsPaise\)/.test(script),
+    'and how much of that arrived as refunds');
+  ok(/w\.basis\.howManyRefunds === 1 \? " refund" : " refunds"/.test(script),
+    'and it never says "1 refunds"');
+
+  // ── THE TWO FIGURES SIT ON TWO DIFFERENT BASES, AND THE WORDS MUST SAY SO ──
+  //
+  // The balance is what is LEFT NOW — a requested withdrawal has already
+  // reserved its own money out of it — while the refunds figure is everything
+  // that has ever come IN that way. So the refunds total can legitimately be
+  // LARGER than the balance, and the first wording said the larger number was
+  // part of the smaller one: "₹1,338.00 · ₹1,438.00 of it from 2 refunds".
+  ok(/" now · "/.test(script),
+    'the balance is stated as what is there NOW');
+  ok(/" has come in from "/.test(script),
+    'and the refunds as what has come IN, not as a part of it');
+  ok(!/" of it from "/.test(script),
+    'the refunds are never called a part of the balance');
+
+  // ── AND THE PANEL STILL DOES NO ARITHMETIC OF ITS OWN ──────────────────
+  //
+  // This file's opening comment names that as the defect it exists to prevent:
+  // three defects so far came from a number reached by a second route. Every
+  // figure on this card is a field the server sent, passed to the one formatter.
+  const card = (script.match(/function wcard[\s\S]*?\n    }/) || [])[0] || script;
+  ok(!/basis\.\w+\s*[-+*/]/.test(card),
+    'the panel computes nothing from the basis it is handed');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

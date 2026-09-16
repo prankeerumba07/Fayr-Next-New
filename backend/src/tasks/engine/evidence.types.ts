@@ -263,6 +263,38 @@ export interface EvidenceOrder {
    * the money is allowed to depend on.
    */
   quantityObserved?: number | null;
+  /**
+   * WHAT THE SHOP'S PAGE STATED FOR THE OFFER'S OWN PRODUCT, on an order that
+   * holds more than one thing. FOR SHOWING, AND FOR NOTHING ELSE.
+   *
+   * ── MEASURED, AND IT IS WHY THIS FIELD EXISTS ─────────────────────────────
+   *
+   * The owner's own order, 16 September 2026. One order number, two products:
+   *
+   *     Lukzer | Heavy-Duty Metal Garment Rack ...     ₹938.00
+   *     SR 2 PES ... Bathroom Corner Shelf ...         ₹388.00
+   *     Grand Total:                                 ₹1,331.00
+   *
+   * The offer is the garment rack. With no per-product figure on the task, the
+   * refund screen fell back to the only money it had — the BILL — and printed
+   * "Order amount ₹1,331.00" for a product that cost ₹938.00. A figure on a
+   * refund screen that is LARGER than what the product cost is the wrong
+   * direction to be wrong in, whatever else is true.
+   *
+   * ── NOTHING IN THE REFUND PATH MAY READ THIS ──────────────────────────────
+   *
+   * The same rule, and for the same reason, as quantityObserved above it.
+   * resolveChargedPaise does not read it and must never read it: the figure the
+   * money is worked out from is unitPricePaise or a line total with a quantity,
+   * and adding a fourth road to a refund basis is how the two stop agreeing.
+   * There is a check that reads charged-amount.ts's own source and fails if this
+   * field's name appears in it.
+   *
+   * It is the SAME number matchOrderToCampaign already found when it decided the
+   * order matched at all — carried onto the task instead of being recomputed, so
+   * the card before the confirmation and the screen after it cannot disagree.
+   */
+  matchedPricePaise?: bigint | null;
   orderTotalPaise?: bigint | null;
   mrpPaise?: bigint | null;
   amountSource?: string | null;

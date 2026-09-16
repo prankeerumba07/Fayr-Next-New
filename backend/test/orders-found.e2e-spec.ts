@@ -377,7 +377,7 @@ describe('The orders the phone found (e2e)', () => {
       expect(after.body.refund.basedOnPaise).toBe('14900');
     });
 
-    it('leaves the amount for a person on an order with two products', async () => {
+    it('SETTLES THE AMOUNT ON AN ORDER WITH TWO PRODUCTS, FROM THE PRODUCT’S OWN LINE', async () => {
       const { token, taskId } = await ready();
       const found = await request(server())
         .post(`/tasks/${taskId}/orders-found`)
@@ -393,25 +393,225 @@ describe('The orders the phone found (e2e)', () => {
         .set('Authorization', bearer(token))
         .expect(200);
 
-      // THE ORDER IS ESTABLISHED AND THE AMOUNT IS NOT. A bill of 368 against a
-      // product at 149 might be one of each, and it might be something else. A
-      // staff member says which, and until then no refund can be released. That
-      // is the same answer this project already gives for quick commerce.
+      // ── THIS CHECK USED TO ASSERT THE OPPOSITE, AND WHY IT CHANGED ────────
+      //
+      // It read "leaves the amount for a person on an order with two products",
+      // on the reasoning that "a bill of 368 against a product at 149 might be
+      // one of each, and it might be something else".
+      //
+      // THAT REASONING IS ABOUT THE BILL, AND THE BILL IS NOT THE QUESTION. This
+      // page states the product's own price beside the product — "1 x ₹149" —
+      // and 149 is exactly what the offer says the product costs. The bill being
+      // larger is the other product, which is a fact about the other product.
+      //
+      // THE COST OF THE OLD ANSWER WAS MEASURED, on the owner's own Amazon order,
+      // 16 September 2026. Two products, ₹938.00 printed beside the one the offer
+      // was for, and his refund held for a staff member to "confirm the amount
+      // you paid" — from a page that had just stated it twice.
+      //
+      // NOTHING WAS LOOSENED TO GET HERE. The equality is exact and to the paise,
+      // against a number the operator set before anybody bought anything, and a
+      // price that is NOT that number now fails closed instead of falling through
+      // to the bill question. See itemPriceIsCertain, which carries the argument
+      // in full and the three shapes it still refuses.
       const task = await prisma.task.findUnique({ where: { id: taskId } });
-      expect(task?.state).toBe('PURCHASED');
       expect(task?.orderId).toBe('SOSIJGGRL26770');
 
-      // No figure a refund could be based on. The whole bill is on the record,
-      // because it is true, and the resolver refuses to fall back to a bare order
-      // total precisely so it cannot become somebody's refund.
       const asked = await request(server())
         .get(`/tasks/${taskId}`)
         .set('Authorization', bearer(token))
         .expect(200);
+      // THE WHOLE BILL IS STILL ON THE RECORD, because it is true — and it is
+      // still not what the refund is based on. That is the line that must never
+      // change: a refund based on 368 would pay for somebody's earphones.
       expect(asked.body.order.orderTotalPaise).toBe('36800');
-      expect(asked.body.order.unitPricePaise).toBeNull();
-      expect(asked.body.order.lineTotalPaise).toBeNull();
-      expect(asked.body.refund.basedOnPaise).toBeNull();
+      expect(asked.body.order.unitPricePaise).toBe('14900');
+      expect(asked.body.refund.basedOnPaise).toBe('14900');
+      expect(asked.body.refund.basedOnPaise).not.toBe('36800');
+    });
+
+    it('AND A PRODUCT THE OFFER DOES NOT PRICE IS STILL LEFT FOR A PERSON', async () => {
+      // The other half of the same rule, and the reason the change above is a
+      // narrowing rather than a widening. An order whose matching product is not
+      // at the offer's price never reaches the amount question at all — it is
+      // refused as an order — and an order read on a page that states no price
+      // per product is answered by the unchanged bill question.
+      const { token, taskId } = await ready({ productPricePaise: 21900n });
+      const found = await request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages: [TWO_PRODUCTS] })
+        .expect(200);
+      // The offer now prices the headband at 219, and the page says 149. Not the
+      // same product at the same price, so there is nothing to confirm.
+      expect(found.body[0].matches).toBe(false);
+      expect(found.body[0].reason).toBe('price_differs');
+      await request(server())
+        .post(`/tasks/${taskId}/orders-found/${found.body[0].id}/mine`)
+        .set('Authorization', bearer(token))
+        .expect(409);
+    });
+
+    /**
+     * THE DAY AND THE PRODUCT'S PRICE REACH THE SCREEN.
+     *
+     * ── MEASURED 16 SEPTEMBER 2026, AND BOTH WERE MISSING ────────────────
+     *
+     * The owner's task showed "Order date: Not available" beside an order whose
+     * page says 2 June, and "Order amount ₹1,331.00" beside a product that cost
+     * ₹938.00. Both facts had been read, judged and written down; neither was
+     * being sent, so no screen could show them however well it was written.
+     *
+     * THIS IS THE FIRST HOP OF THAT CHAIN, proved here against a real database,
+     * and src/ui/orderDetails.test.mjs section 10 proves the rest of it.
+     */
+    it('the day and the product’s price reach the screen', async () => {
+      const { token, taskId } = await ready();
+      const found = await request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages: [TWO_PRODUCTS] })
+        .expect(200);
+      expect(found.body[0].matches).toBe(true);
+
+      const asked = await request(server())
+        .post(`/tasks/${taskId}/orders-found/${found.body[0].id}/mine`)
+        .set('Authorization', bearer(token))
+        .expect(200);
+
+      // THE DAY, AS THE SHOP PRINTED IT. Not an instant: the time to buy after
+      // claiming is measured in minutes and a day cannot settle that, so
+      // dateToSubmit leaves the instant off rather than inventing one. The day
+      // itself was always on the record and was simply never sent.
+      expect(asked.body.order.dateRaw).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+      // AND THE PRODUCT'S OWN PRICE, on an order holding two of them. This is
+      // what stops the screen falling back to the bill.
+      expect(asked.body.order.matchedPricePaise).toBe('14900');
+      expect(asked.body.order.orderTotalPaise).toBe('36800');
+      expect(asked.body.order.matchedPricePaise)
+        .not.toBe(asked.body.order.orderTotalPaise);
+    });
+
+    it('and the later-look writer carries them, by its own source', () => {
+      // ── WHY THIS IS READ AND NOT RUN, SAID PLAINLY ───────────────────
+      //
+      // priceFromALaterLook only writes when the task has NO price, and since
+      // the certainty rule learned to ask about the product's own line, a
+      // matched order gets its price at the moment it is chosen. So on a task
+      // created today this writer does not fire, and a check that posted pages
+      // twice and asserted the fields survived would pass while proving
+      // nothing — it did, before this comment replaced it.
+      //
+      // IT IS STILL LIVE IN PRODUCTION, on every task confirmed before that rule
+      // changed, which is exactly the population the delivery step re-reads. So
+      // the carrier is pinned by reading the source, the way this project
+      // already pins what it cannot execute, and the behaviour itself is proved
+      // end to end by the backfill command's own checks, which reach the same
+      // carrier through a task built in the old shape (see
+      // settle-known-item-prices.e2e-spec.ts, "TAKES NOTHING AWAY").
+      const src = readFileSync(
+        resolve(__dirname, '..', 'src', 'tasks', 'order-candidates.service.ts'),
+        'utf8',
+      );
+      const start = src.indexOf('private async priceFromALaterLook');
+      expect(start).toBeGreaterThan(-1);
+      const body = src.slice(start);
+      expect(body).toContain('...whatTheOrderAlreadySays(existing),');
+      // And the guard asks the evidence, never the legacy column the mapper
+      // documents as null on essentially every task.
+      expect(body).toContain('resolveChargedPaise(existing)');
+      expect(body).not.toMatch(/if \(task\.itemPaise != null\) return;/);
+    });
+
+    it('and a later look does not take either of them away again', async () => {
+      // A second read of the same pages must leave a settled task exactly as it
+      // was. This one DOES run the real route; what it proves is that the route
+      // is quiet, not that the carrier fired.
+      const { token, taskId } = await ready();
+      const found = await request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages: [TWO_PRODUCTS] })
+        .expect(200);
+      await request(server())
+        .post(`/tasks/${taskId}/orders-found/${found.body[0].id}/mine`)
+        .set('Authorization', bearer(token))
+        .expect(200);
+
+      // The same read again, which is what the delivery step does.
+      await request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages: [TWO_PRODUCTS] })
+        .expect(200);
+
+      const after = await request(server())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', bearer(token))
+        .expect(200);
+      expect(after.body.order.dateRaw).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(after.body.order.matchedPricePaise).toBe('14900');
+    });
+
+    it('A LATER LOOK NEVER OVERWRITES A PRICE THAT IS ALREADY THERE', async () => {
+      // ── THE GUARD THAT WAS NOT GUARDING ──────────────────────────────
+      //
+      // The later-look price writer asked `task.itemPaise` — the promoted
+      // COLUMN — and task.mapper.ts says of it, in as many words: DO NOT READ
+      // THE itemPaise COLUMN, it is a legacy projection and is NULL on
+      // essentially every task the current code produces. So the guard never
+      // fired: a task settled through unitPricePaise has a real price and a null
+      // column, and the later look overwrote it — including a figure somebody
+      // had entered by hand after looking at the order themselves, which is the
+      // one thing this path promises not to touch.
+      const { token, taskId } = await ready();
+      const found = await request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages: [TWO_PRODUCTS] })
+        .expect(200);
+      await request(server())
+        .post(`/tasks/${taskId}/orders-found/${found.body[0].id}/mine`)
+        .set('Authorization', bearer(token))
+        .expect(200);
+
+      // Somebody decides the amount is something else. Whatever we think of it,
+      // it is an answer, and it may already have been acted on.
+      await request(server())
+        .post(`/tasks/${taskId}/evidence`)
+        .set('Authorization', bearer(token))
+        .send({
+          key: `decided:${taskId}`,
+          order: {
+            id: 'SOSIJGGRL26770',
+            unitPricePaise: '12300',
+            quantity: 1,
+            amountSource: 'order-details',
+            source: 'order-details',
+          },
+        })
+        .expect(200);
+
+      const decided = await request(server())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', bearer(token))
+        .expect(200);
+      expect(decided.body.order.unitPricePaise).toBe('12300');
+
+      // The delivery step runs the same read again.
+      await request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages: [TWO_PRODUCTS] })
+        .expect(200);
+
+      const after = await request(server())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', bearer(token))
+        .expect(200);
+      expect(after.body.order.unitPricePaise).toBe('12300');
+      expect(after.body.refund.basedOnPaise).toBe('12300');
     });
 
     it('is refused on somebody else’s task, which reads as not there at all', async () => {

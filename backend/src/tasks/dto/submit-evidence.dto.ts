@@ -125,6 +125,13 @@ class EvidenceOrderDto {
   @IsOptional() @Matches(PAISE) orderTotalPaise?: string;
   @IsOptional() @Matches(PAISE) mrpPaise?: string;
   /**
+   * See EvidenceOrder.matchedPricePaise: it is shown and never computed with.
+   * Accepted from the wire on exactly those terms — no gate, no window and no
+   * refund basis reads it, so the worst a wrong value can do is print a wrong
+   * figure beside a product's name, where a person can see it is wrong.
+   */
+  @IsOptional() @Matches(PAISE) matchedPricePaise?: string;
+  /**
    * Units on this line. Absent means UNKNOWN, which is never read as 1 — a line
    * total with an unknown quantity cannot pay out (see charged-amount.ts).
    * Bounded so a misread field cannot become an absurd divisor.
@@ -247,6 +254,7 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
           lineTotalPaise: toBig(dto.order.lineTotalPaise),
           orderTotalPaise: toBig(dto.order.orderTotalPaise),
           mrpPaise: toBig(dto.order.mrpPaise),
+          matchedPricePaise: toBig(dto.order.matchedPricePaise),
           quantity: dto.order.quantity ?? null,
           quantitySource: dto.order.quantitySource ?? null,
           quantityReason: dto.order.quantityReason ?? null,

@@ -130,5 +130,72 @@ console.log('\n=== 6. the price lines the order card shows ===');
   ok(orderPriceLines(null).cannotCompute === true, 'null options');
 }
 
+console.log('\n=== THE BILL IS NEVER THE PRODUCT’S PRICE ===');
+{
+  // ── THE OWNER'S OWN ORDER, MEASURED 16 SEPTEMBER 2026 ────────────────────
+  //
+  //     Lukzer | Heavy-Duty Metal Garment Rack ...     ₹938.00
+  //     SR 2 PES ... Bathroom Corner Shelf ...         ₹388.00
+  //     Grand Total:                                 ₹1,331.00
+  //
+  // This is the function that produced "Order amount ₹1,331.00" on the refund
+  // screen for a product that cost ₹938.00: with no item line and no basis, the
+  // last branch handed the BILL back as the order amount and the card printed it.
+  const TWO = { matchedPricePaise: 93800, orderTotalPaise: 133100 };
+  const two = orderPriceLines(TWO);
+
+  ok(two.linePaise === 93800, `the product's own price is the line, found ${two.linePaise}`);
+  ok(two.lineLabel === 'Item price', 'labelled as the item price');
+  ok(two.orderAmountPaise === 133100, 'the bill is still shown, because it is real');
+  ok(two.orderAmountLabel === 'Order total',
+    `and named "Order total", never "Order amount" — found ${JSON.stringify(two.orderAmountLabel)}`);
+
+  // ── THE RULE, WRITTEN OVER EVERY FIGURE THE CARD CAN SHOW ───────────────
+  //
+  // NO FIGURE THIS FUNCTION OFFERS AS A PRICE MAY EVER BE THE BILL on an order
+  // holding more than one product. Written over the whole answer rather than
+  // over the field we happen to suspect, so a field added later is held to it
+  // without anybody remembering to come back here.
+  for (const [field, value] of Object.entries(two)) {
+    if (field === 'orderAmountPaise' || field === 'orderAmountLabel') continue;
+    ok(value !== 133100, `${field} must never carry the whole bill, found ${value}`);
+  }
+
+  // AND A LABEL THAT SOUNDS LIKE THE AMOUNT MAY NEVER SIT ON THE BILL.
+  ok(!/amount/i.test(String(two.orderAmountLabel)),
+    'the bill is not labelled as an amount on a multi-product order');
+
+  // ── THE BASIS STILL OUTRANKS IT, because the basis is what the money uses ──
+  const settled = orderPriceLines({ ...TWO, basisPaise: 93800 });
+  ok(settled.linePaise === 93800 && settled.lineLabel === 'Price we refund from',
+    'a settled basis is what the card leads with');
+  ok(settled.orderAmountPaise === 133100 && settled.orderAmountLabel === 'Order total',
+    'and the bill is still beside it, named');
+
+  // ── AND A REAL ITEM LINE STILL OUTRANKS BOTH ───────────────────────────
+  const withLine = orderPriceLines({ ...TWO, itemPaise: 93800, quantity: 1 });
+  ok(withLine.linePaise === 93800, 'a real item line is used as it always was');
+
+  // ── ONE PRODUCT: NOTHING IS SEPARATED, BECAUSE THERE IS NOTHING TO ─────
+  const one = orderPriceLines({ matchedPricePaise: 49900, orderTotalPaise: 49900 });
+  ok(one.linePaise === 49900, 'the product price is shown');
+  ok(one.orderAmountPaise === null,
+    'and the identical bill is not printed a second time');
+  ok(one.orderAmountLabel === null, 'with no label for a row that is not there');
+
+  // ── QUICK COMMERCE IS UNTOUCHED, AND THAT IS DELIBERATE ────────────────
+  //
+  // Blinkit and Instamart publish a basket total and no per-item price at all,
+  // so the total really IS the only amount there is and calling it the order
+  // amount is honest. The pin above in this file asserts that shape; this says
+  // it is still reached, which is only true because the new branch is keyed on a
+  // product price that quick commerce never has.
+  const basket = orderPriceLines({ orderTotalPaise: 60000 });
+  ok(basket.orderAmountPaise === 60000 && basket.linePaise === null,
+    'a basket total is still the order amount');
+  ok(basket.orderAmountLabel === 'Order amount',
+    'and is still called one, because on that shape it is one');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

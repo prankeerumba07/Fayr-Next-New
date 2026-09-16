@@ -32,7 +32,7 @@ import { PLATFORMS } from '../platforms';
 import { SIGNED_IN, markVisitedShop } from '../journey/shopVisits';
 import { copyProductName, openShopApp } from '../openShop';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from '../ui/theme';
-import { Pill, TopBar, hSub, hTitle } from '../ui/brand';
+import { Ghost, Pill, TopBar, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
 import { copyLine } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
@@ -117,6 +117,27 @@ export default function ReviewGuideScreen({ navigation, route }) {
             {copyLine(product, copied)}
           </Text>
         )}
+
+        {/* ── WHAT HAPPENS AFTER THEY POST IT, SAID BEFORE THEY GO ──────────
+            A review is not visible the moment it is written. The shop moderates
+            it first, and on this one that takes days — so somebody who comes
+            straight back and finds nothing would reasonably think Fayr had lost
+            their review.
+
+            THE NUMBER IS THE SHOP'S OWN AND IT IS ATTRIBUTED. Fayr is not
+            promising it and cannot: the shop decides, and the words say so. */}
+        <View style={styles.wait}>
+          <Text style={styles.waitTitle}>{shop} takes a few days to show it</Text>
+          <Text style={styles.waitBody}>
+            {shop} checks every review before it appears, which usually takes
+            {' '}<Text style={styles.strong}>48 to 72 hours</Text> and sometimes
+            longer. {shop} emails you when it is live.
+            {'\n\n'}
+            Come back whenever you like — today, tomorrow, or after the email —
+            and tap the button below. We will look for it ourselves. There is
+            nothing to copy and nothing to send us.
+          </Text>
+        </View>
       </ScrollView>
 
       <View style={styles.foot}>
@@ -134,12 +155,35 @@ export default function ReviewGuideScreen({ navigation, route }) {
         <Pill onPress={openTheirApp} color={COLOR.ink}>
           OPEN {shop.toUpperCase()} →
         </Pill>
+        {/* ── AND THE WAY BACK, WHICH IS THE WHOLE POINT OF THE SCREEN ──────
+            It starts the read and nothing else. It does not say the review IS
+            live and it cannot: whether a review is publicly visible is the
+            payout signal, it is settled on the server from the shop's own page,
+            and there is no field on the way in for a phone to claim it.
+
+            SO THE WORDS ARE ABOUT LOOKING, NOT ABOUT PAYING. "I have posted it,
+            check now" is a request. "My review is live" would be an assertion,
+            and an assertion by the person being paid is exactly what this
+            product refuses to accept anywhere else. */}
+        <Ghost onPress={() => navigation.navigate('LookingForReview', { campaignId })}>
+          I have posted it — check now
+        </Ghost>
       </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  wait: {
+    marginTop: SPACE.lg, backgroundColor: COLOR.amberBg, borderWidth: 1,
+    borderColor: COLOR.amberLine, borderRadius: RADIUS.md,
+    paddingHorizontal: 14, paddingVertical: 12,
+  },
+  waitTitle: { fontFamily: FONT.displaySemi, fontSize: 13, color: '#8A5A00' },
+  waitBody: {
+    fontFamily: FONT.bodyMed, fontSize: 12, lineHeight: 18, color: '#7A5A10',
+    marginTop: 4,
+  },
   scroll: { flex: 1 },
   body: { paddingHorizontal: SPACE.xl, paddingTop: 4, paddingBottom: SPACE.lg },
 

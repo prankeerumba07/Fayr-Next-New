@@ -45,6 +45,25 @@ export interface TaskResponse {
     /** Units on the line. NULL = unknown, which is never read as 1. */
     quantity: number | null;
     orderTotalPaise: string | null;
+    /**
+     * WHAT THE SHOP'S PAGE STATED FOR THE OFFER'S OWN PRODUCT, or null.
+     *
+     * THE ROW THE SCREEN SHOWS AS THE PRODUCT'S PRICE, and the reason it exists.
+     * On the owner's own order — a garment rack at ₹938.00 and a bathroom shelf
+     * at ₹388.00 under one order number, ₹1,331.00 the bill — the task carried no
+     * per-product figure at all, so the screen fell back to the only money it had
+     * and printed "Order amount ₹1,331.00" beside a product that cost ₹938.00.
+     *
+     * NOT A RESOLVER INPUT, unlike the two named fields above it, and that is the
+     * point. `refund.basedOnPaise` is the only figure a payout is worked out
+     * from; this one is shown. See EvidenceOrder.matchedPricePaise for the rule
+     * and for the check that keeps resolveChargedPaise away from it.
+     *
+     * IT IS PRESENT BEFORE THE AMOUNT IS VERIFIED, which is the whole point: a
+     * task whose price is still with a staff member can show what the page said
+     * the product cost, instead of showing the bill.
+     */
+    matchedPricePaise: string | null;
     /** Also a resolver input: more than one amount was found in the item's row. */
     itemAmountAmbiguous: boolean;
     match?: {
@@ -57,6 +76,23 @@ export interface TaskResponse {
     orderConfirmed?: boolean;
     product: string | null;
     date: string | null;
+    /**
+     * THE DAY THE SHOP PRINTED, AS IT PRINTED IT — "2026-06-02" — or null.
+     *
+     * A DIFFERENT FACT FROM `date` ABOVE, and the reason both are sent. `date` is
+     * an instant precise enough to test against the purchase window, and a shop
+     * that prints only a day very often cannot give one: dateToSubmit leaves it
+     * off rather than inventing a time, which is right and is not weakened here.
+     *
+     * But the day was READ, and it was on the record all along in `dateRaw` — so
+     * a screen showing "Order date: Not available" beside an order whose page
+     * plainly says 2 June was telling somebody we had not read something we had.
+     * Measured on the owner's own task, 16 September 2026.
+     *
+     * IT IS FOR SHOWING AND NEVER FOR DECIDING. No gate reads it, no window is
+     * tested against it, and no refund is computed from it.
+     */
+    dateRaw: string | null;
     source: string | null;
     /**
      * The order's own product photo and marketplace status line. Collected by the
@@ -220,9 +256,16 @@ export function toTaskResponse(
             task.order.orderTotalPaise != null
               ? task.order.orderTotalPaise.toString()
               : null,
+          matchedPricePaise:
+            task.order.matchedPricePaise != null
+              ? task.order.matchedPricePaise.toString()
+              : null,
           itemAmountAmbiguous: task.order.itemAmountAmbiguous === true,
           product: task.order.product ?? null,
           date: isoEpoch(task.order.date),
+          // Straight off the record, unchanged. See the field's own comment: it
+          // is shown and never decides anything.
+          dateRaw: task.order.dateRaw ?? null,
           source: task.order.source ?? null,
           // Returned so the "is this your order?" screen can still warn AFTER the
           // authoritative response lands. Dropping it here is what silently

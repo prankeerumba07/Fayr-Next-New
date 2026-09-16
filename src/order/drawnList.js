@@ -60,6 +60,7 @@ import {
 } from '../connect/gate.js';
 import {
   GAP_BETWEEN_FETCHES_MS, MOST_DETAIL_PAGES, howThisShopNamesAnOrder,
+  reviewsPageFor, theReviewPagesAreDrawn, whatThisShopDrawsForReviews,
 } from './detailLook.js';
 import {
   buildOrderListScript, landedPath, orderListPageFor, readDetailOutcome, readListOutcome,
@@ -691,4 +692,56 @@ export function readListStep(step, answer) {
   return step && step.drawn === true
     ? readDrawnOutcome(answer)
     : readListOutcome(answer);
+}
+
+/**
+ * OPEN THE PAGE HOLDING THIS PERSON'S OWN REVIEWS.
+ *
+ * THE SAME TWO BUILDERS THE ORDER READ USES, handed a different address and a
+ * different thing to count. Not a second reader: a review page and an order page
+ * are both "a page this shop draws after it arrives", and the only difference
+ * that matters is which selector says it has finished drawing.
+ *
+ * NULL FOR A SHOP WHOSE REVIEWS NOBODY HAS MEASURED, which the screen reads as
+ * "there is nothing to look at" and hands back — never as a page to guess at.
+ */
+export function openTheReviewsWith(platformKey, beganAt, tag) {
+  const page = reviewsPageFor(platformKey);
+  if (page == null) return null;
+  if (!theReviewPagesAreDrawn(platformKey)) {
+    return { uri: page, script: buildOrderListScript(page, tag), drawn: false, tag };
+  }
+  return {
+    uri: page,
+    script: buildDrawnListScript({
+      beganAt,
+      tag,
+      wantedPath: landedPath(page),
+      counts: whatThisShopDrawsForReviews(platformKey),
+    }),
+    drawn: true,
+    tag,
+  };
+}
+
+/**
+ * OPEN ONE REVIEW'S OWN PAGE.
+ *
+ * The permalink, which is the only page that states what the review is ABOUT.
+ * The profile page lists the words and the links and never names the product, so
+ * a read that stopped at the profile could not tell one offer's review from
+ * another's — which is the whole question.
+ */
+export function openOneReviewWith(platformKey, url, beganAt, tag, deadlineMs) {
+  if (!theReviewPagesAreDrawn(platformKey)) {
+    return { uri: null, script: buildOrderListScript(url, tag), drawn: false, tag };
+  }
+  return {
+    uri: String(url || ''),
+    script: buildDrawnOrderScript({
+      beganAt, tag, wantedPath: landedPath(url), deadlineMs,
+    }),
+    drawn: true,
+    tag,
+  };
 }

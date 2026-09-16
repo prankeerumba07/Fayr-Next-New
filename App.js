@@ -22,6 +22,7 @@ import LiveCheckScreen from './src/LiveCheckScreen';
 // BuildFeed and OcrConfirm are what each is drawn from, and src/screens is only
 // for the design's sixty one.
 import LookingForItScreen from './src/order/LookingForItScreen';
+import LookingForReviewScreen from './src/order/LookingForReviewScreen';
 import IsThisYourOrderScreen from './src/order/IsThisYourOrderScreen';
 // Every design screen is looked up by its own key in one place. See
 // src/screens/keys.js for which screens have their own file, and
@@ -372,6 +373,7 @@ function AppInner() {
           {/* The morning job. Staff only, and it asks for a staff sign-in itself. */}
           <Stack.Screen name="LiveCheck" component={LiveCheckScreen} options={{ headerShown: false }} />
           <Stack.Screen name="LookingForIt" component={LookingForItScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="LookingForReview" component={LookingForReviewScreen} options={{ headerShown: false }} />
           <Stack.Screen name="IsThisYourOrder" component={IsThisYourOrderScreen} options={{ headerShown: false }} />
           {/* The walk through: every screen in the design, reachable by tapping.
               Beside the offer page check because it is the same audience — the

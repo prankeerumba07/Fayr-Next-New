@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# GIVE AN ITEM PRICE TO THE TASKS THAT WERE CONFIRMED BEFORE WE COULD READ ONE.
+#
+#   ./settle-known-item-prices                  the practice account's tasks
+#   ./settle-known-item-prices --dry-run        decide everything, write nothing
+#   ./settle-known-item-prices <mobile>         a different account's instead
+#
+# THE EXAMPLE ABOVE CARRIES NO NUMBER, and that is deliberate rather than shy:
+# a number written into a command is a number that ends up in a screenshot, a
+# terminal history and a bug report. This file's own check refuses one.
+#
+# WHY THIS EXISTS. A task's item price is written ONCE, when somebody says "yes,
+# that order is mine". Until 16 September 2026 the only question asked was "is
+# the WHOLE BILL exactly this product's price?" — which proves a quantity of one
+# on a page that states no price per product, and proves nothing at all on an
+# Amazon page, which states a price beside every product.
+#
+# So a task confirmed on an order holding two things carries no item price, and
+# nothing would ever give it one: the amount is written when the order is chosen,
+# and an order is chosen once. Those tasks sit in the staff queue reading "item
+# price unknown" with the figure printed on the page they were read from. The
+# only other way out is to claim the offer again, which is not a thing a real
+# person can be asked to do.
+#
+# IT FILLS NULLS. IT NEVER REPLACES AN ANSWER. A task that already has an item
+# price — including one a staff member typed after looking at the order
+# themselves — is left exactly where it is and named, with what was found on it.
+#
+# IT MOVES NO STATE AND PAYS NOBODY. The price goes in through the same funnel a
+# person's own tap goes through, so the order window rule, the plausibility gate
+# and the refund gate all apply unchanged. It gives those gates a figure they
+# were missing and stands back.
+#
+# IT REFUSES ON ANYTHING THAT IS NOT A PRACTICE DATABASE, in the same way the
+# practice data itself refuses. It WRITES the figure a refund is computed from,
+# and on a real database that is somebody's money.
+#
+# IT PRINTS NO NUMBER. The account is shown with all but its last two digits
+# covered over, and it is called the practice account.
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
+
+ARGS=("$@")
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+bad()  { printf '  \033[31m%s\033[0m\n' "$1"; }
+
+bold "Settling the item prices that could not be read when the orders were confirmed."
+echo "  It only ever fills in a task that has no price at all."
+echo "  Anything that already has one is left where it is, and named."
+echo "  It refuses on any database that is not a practice one."
+
+# The database has to be up, because this reads and writes it through the
+# backend's own services. Asking the database itself is the check that means
+# something; a container that is running is not the same as one that is ready to
+# answer.
+if ! docker exec fayr-postgres pg_isready -U fayr >/dev/null 2>&1; then
+  bad "The database is not answering, so there is nothing to read."
+  echo "  Start everything first:  ./start"
+  echo "  Or just the database:    cd backend && docker compose up -d"
+  exit 1
+fi
+
+# Everything else it needs to say is said by the command itself, in sentences.
+# It refuses on a database that is not a practice one, it names every task it
+# settled and the price it settled it at, and it names every task it left alone
+# and what was found on it.
+(cd "$HERE/backend" && npx ts-node scripts/settle-known-item-prices.ts "${ARGS[@]+"${ARGS[@]}"}")
+RESULT=$?
+
+if [ "$RESULT" -ne 0 ]; then
+  bad "Nothing was settled. The reason is in the sentence just above."
+  exit "$RESULT"
+fi
+
+bold "Done."
+echo "  Any task it says it settled now has an item price, and the usual gates"
+echo "  decide what happens next — exactly as they do for anybody who taps"
+echo "  \"yes, that is mine\" today."
+echo "  Anything it left alone is named above, with what was found on it."

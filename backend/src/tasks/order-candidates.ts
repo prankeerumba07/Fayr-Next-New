@@ -29,6 +29,7 @@ import {
   type OrderMatchReason,
 } from '../ocr/order-comparison';
 import { parseOrderText, type ParsedOrder } from '../ocr/order-text';
+import type { EvidenceOrder } from './engine/evidence.types';
 
 /**
  * How many orders back we will look at. The owner's number.
@@ -145,15 +146,179 @@ export function itemPriceIsCertain(
   // something was delivered, and the type now says so.
   order: Pick<ParsedOrder, 'totalPaise' | 'shipments' | 'items'>,
   item: OrderItemForComparison | null,
+  /**
+   * WHAT THE OFFER SAYS THIS PRODUCT COSTS, when the caller knows it.
+   *
+   * Optional, and absent means "ask the old question only". Every caller that
+   * does not have a campaign in hand behaves exactly as it did before.
+   */
+  expectedPricePaise?: bigint | null,
 ): boolean {
   if (item == null) return false;
-  if (order.items.length !== 1) return false;
-  if (order.shipments > 1) return false;
-  if (order.totalPaise == null) return false;
   const price = typeof item.pricePaise === 'bigint'
     ? item.pricePaise
     : BigInt(Math.trunc(item.pricePaise));
+
+  // ── THE SECOND WAY A PRICE CAN BE CERTAIN, AND IT IS NOT A LOOSENING ─────
+  //
+  // MEASURED ON THE OWNER'S OWN ORDER, 16 SEPTEMBER 2026. One order number, two
+  // products, and the shop's page states EACH product's own price beside it:
+  //
+  //     Lukzer | Heavy-Duty Metal Garment Rack ...     ₹938.00
+  //     SR 2 PES ... Bathroom Corner Shelf ...         ₹388.00
+  //     Grand Total:                                 ₹1,331.00
+  //
+  // The rule below this one asks whether the WHOLE BILL is the product's price,
+  // which is a way of proving the quantity was one when a page states no price
+  // per product. On a page that states one per product it proves nothing and
+  // refuses everything: the owner's refund was held for a staff member with
+  // ₹938.00 printed twice on the page it was read from.
+  //
+  // SO THE SECOND QUESTION IS ASKED OF THE PRODUCT INSTEAD OF THE BILL: is the
+  // price this page states for THIS product exactly what the offer says the
+  // product costs? Exact, to the paise, with no tolerance anywhere — the same
+  // equality matchOrderToCampaign already made to decide the order matched at
+  // all.
+  //
+  // ── WHY THIS IS NOT A WEAKER TEST THAN THE ONE BELOW IT ─────────────────
+  //
+  // Take the three shapes the original comment named, and ask what the page
+  // would have to state for each to slip through here:
+  //
+  //   TWO OF THE THING AT HALF THE PRICE EACH. Then the line states either the
+  //     unit price (in which case a refund of one unit's price is right) or the
+  //     line total, which is twice the offer's price and fails this equality.
+  //   THE THING PLUS A DELIVERY CHARGE. A delivery charge is not on the
+  //     product's line; it is its own line on the bill, which is exactly why the
+  //     bill is bigger than the product here. This asks the product.
+  //   THE THING BOUGHT TWICE. Same as the first, and it fails the same way.
+  //
+  // In every one of them the product's own line is not the offer's price, so
+  // this refuses. What it accepts is the one case the old rule also wanted and
+  // could not see: a page that states, in words, that this product cost exactly
+  // what the offer said it would.
+  //
+  // AND IT CANNOT BE REACHED BY GUESSING. The figure is not derived, averaged,
+  // apportioned or inferred from a total. It is read off the page and compared
+  // for equality with a number the operator set before anybody bought anything.
+  //
+  // ── AND WHEN AN OFFER PRICE IS KNOWN, THIS IS THE WHOLE ANSWER ──────────
+  //
+  // It does not fall through to the bill question below on a mismatch, and that
+  // is a REFUSAL the old rule did not make. A caller only reaches here after
+  // matchOrderToCampaign said the order matched, and matching IS this equality —
+  // so a price that is not the offer's price at this point means the two
+  // readings disagree, and "the readings about somebody's money disagree" is not
+  // a state to resolve by asking an easier question. It fails closed.
+  //
+  // Caught by its own check: one product, one shipment, a bill exactly equal to
+  // the line — every condition the bill question wants — and a line that is
+  // twice the offer's price. The old rule called that certain. It is not.
+  if (expectedPricePaise != null && expectedPricePaise > 0n) {
+    if (price !== expectedPricePaise) return false;
+
+    // ── AND THE BILL STILL HAS A VETO. IT COSTS ₹80 TO LEAVE THIS OUT ──────
+    //
+    // The equality above says the page's figure for this product is the figure
+    // the offer states. It does NOT say that figure was paid. An order-level
+    // discount — a promotion, a coupon, a bank offer — is not on the product's
+    // line; it comes off the BILL. The owner's own page has exactly that shape,
+    // and order-text.ts quotes it:
+    //
+    //     Total:              ₹1,411.00
+    //     Promotion Applied:    -₹80.00
+    //     Grand Total:        ₹1,331.00
+    //
+    // With a campaign listing ₹1,411.00, the line equals the offer, the equality
+    // above passes, and the figure would be written as unitPricePaise — which
+    // resolveChargedPaise takes OUTRIGHT, never consulting the total. The refund
+    // would then be a percentage of ₹1,411.00 when ₹1,331.00 left the account.
+    // Measured, by running the real functions: certain=true, basis 141100,
+    // needsStaff false, actually charged 133100.
+    //
+    // THE OLD RULE CAUGHT THIS BY ACCIDENT — `order.totalPaise === price` is
+    // false when the total is lower — and dropping it dropped the catch. This is
+    // the same shape that was already proven live on the Flipkart heels order,
+    // recorded at charged-amount.ts:18: an item figure of ₹367.00 against a total
+    // of ₹328.00, where "a ₹39 overpay had it released".
+    //
+    // AND THE HUMAN PATH ALREADY REFUSES IT. staff-amount.ts turns down a staff
+    // member who types a figure above the order total, in its own words: "One
+    // item on an order cannot have cost more than the whole order did." A
+    // machine path looser than the one a person is held to is not a rule.
+    //
+    // ONLY THE LOWER DIRECTION REFUSES. A total ABOVE the line is the ordinary
+    // multi-product order — the owner's ₹938.00 rack inside a ₹1,331.00 bill —
+    // and is exactly what this whole change exists to settle. A total that is
+    // ABSENT refuses nothing, because a page that states no bill contradicts
+    // nothing; the line is still the offer's own price.
+    if (order.totalPaise != null && order.totalPaise < price) return false;
+    return true;
+  }
+
+  // ── AND THE ORIGINAL QUESTION, UNCHANGED, WHEN NO OFFER PRICE IS KNOWN ──
+  //
+  // A shop that states no price per product — quick commerce states a basket
+  // total and nothing else — can still prove a quantity of one the only way
+  // such a page can: one product, one shipment, and a bill that is exactly that
+  // product's price.
+  if (order.items.length !== 1) return false;
+  if (order.shipments > 1) return false;
+  if (order.totalPaise == null) return false;
   return order.totalPaise === price;
+}
+
+/**
+ * WHAT A TASK'S ORDER ALREADY SAYS, CARRIED SO A PARTIAL WRITE CANNOT ERASE IT.
+ *
+ * ── THE TRAP, AND IT IS NOT OBVIOUS FROM ANY ONE FILE ─────────────────────
+ *
+ * transition() applies order evidence with
+ * `patch.order = preferByAuthority(task.order, e.order)`, and preferByAuthority
+ * RETURNS THE INCOMING OBJECT WHOLE. It does not merge field by field. So an
+ * evidence fragment that names five fields does not update five fields — it
+ * REPLACES the order, and every field it leaves out becomes null.
+ *
+ * That is correct for a fresh read of a whole page, which is what the shape was
+ * designed for. It is a trap for anything that submits a CORRECTION: a writer
+ * that only wants to add a price silently deletes the order date, the matched
+ * product price, the line id, the match warnings, the product photo and the
+ * shop's status line. Measured on this very changeset — settling a price blanked
+ * the order date the same changeset had just been written to show.
+ *
+ * So a corrective writer spreads this first and overrides only what it means to
+ * change. Everything here is carried unchanged from what is already on the task.
+ *
+ * MONEY IS NOT CARRIED, DELIBERATELY. Not itemPaise, not unitPricePaise, not
+ * lineTotalPaise, not the quantity and not their sources. A correction to an
+ * amount must state the whole amount itself, so that reading the fragment tells
+ * you what the task will be worth. Quietly inheriting half of a previous figure
+ * is how two readings end up blended into a third that nobody wrote.
+ */
+export function whatTheOrderAlreadySays(
+  order: EvidenceOrder | null | undefined,
+): Record<string, unknown> {
+  if (order == null) return {};
+  const keep: Record<string, unknown> = {};
+  const put = (key: string, value: unknown): void => {
+    if (value != null) keep[key] = value;
+  };
+  put('id', order.id);
+  put('itemId', order.itemId);
+  put('itemIdSource', order.itemIdSource);
+  put('itemIdReason', order.itemIdReason);
+  put('date', order.date);
+  put('dateRaw', order.dateRaw);
+  put('matchedPricePaise',
+    order.matchedPricePaise == null ? null : String(order.matchedPricePaise));
+  put('mrpPaise', order.mrpPaise == null ? null : String(order.mrpPaise));
+  put('quantityObserved', order.quantityObserved);
+  put('match', order.match);
+  put('product', order.product);
+  put('image', order.image);
+  put('statusText', order.statusText);
+  if (order.itemAmountAmbiguous === true) keep.itemAmountAmbiguous = true;
+  return keep;
 }
 
 /**

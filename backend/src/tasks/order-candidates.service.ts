@@ -21,7 +21,11 @@ import {
   itemsFromJson,
   itemsToJson,
   judgeFoundOrders,
+  whatTheOrderAlreadySays,
 } from './order-candidates';
+import { resolveChargedPaise } from './engine/charged-amount';
+import type { EvidenceOrder } from './engine/evidence.types';
+import { toEngineTask } from './task.mapper';
 import {
   toOrderCandidateResponse,
   type OrderCandidateResponse,
@@ -193,7 +197,15 @@ export class OrderCandidatesService {
       where: { taskId, chosenAt: { not: null } },
     });
     if (already) {
-      await this.deliveryFromALaterLook(userId, task, already, pages);
+      await this.deliveryFromALaterLook(
+        userId,
+        task,
+        // READ ONCE, HERE, because this is the only place that holds the whole
+        // row. Both halves of a later look then judge the same order.
+        toEngineTask(task, []).order,
+        already,
+        pages,
+      );
       return this.list(userId, taskId);
     }
 
@@ -305,6 +317,11 @@ export class OrderCandidatesService {
       // beside them: itemPriceIsCertain now asks for exactly what it reads.
       { totalPaise: row.totalPaise, shipments: row.shipments, items },
       answer.item,
+      // AND WHAT THE OFFER SAYS THE PRODUCT COSTS. On a page that prints a price
+      // beside each product — which is every Amazon order page — this is what
+      // makes a two-product order's price certain instead of sending a refund
+      // that the page states in words to a staff member. See itemPriceIsCertain.
+      task.campaign.productPricePaise,
     );
     const price = typeof answer.item.pricePaise === 'bigint'
       ? answer.item.pricePaise
@@ -347,6 +364,20 @@ export class OrderCandidatesService {
         // The whole bill is always true and is never read as an item price on its
         // own — resolveChargedPaise refuses to fall back to a bare total.
         orderTotalPaise: row.totalPaise == null ? undefined : String(row.totalPaise),
+        // ── AND WHAT THE PAGE SAID THIS PRODUCT COST, CERTAIN OR NOT ───────
+        //
+        // UNCONDITIONAL, and that is the whole difference between this line and
+        // the one below it. unitPricePaise is a REFUND BASIS and is sent only
+        // when itemPriceIsCertain says so. This is A THING THE PAGE SAID, sent
+        // always, because the screen has to be able to show the product's own
+        // price on a task whose amount is still with a staff member — otherwise
+        // it falls back to the bill, which on a two-product order is LARGER than
+        // the product, and a figure larger than what was paid is the wrong
+        // direction to be wrong in on a refund screen.
+        //
+        // The same figure the match was made on, carried rather than recomputed,
+        // so the candidate card and the task cannot print two different numbers.
+        matchedPricePaise: String(price),
         ...(certain
           ? { unitPricePaise: String(price), quantity: 1, amountSource: SOURCES.ORDER_HISTORY }
           : {}),
@@ -429,7 +460,17 @@ export class OrderCandidatesService {
    */
   private async deliveryFromALaterLook(
     userId: string,
-    task: { id: string; campaign: { productName: string; productPricePaise: bigint } },
+    task: {
+      id: string;
+      campaign: { productName: string; productPricePaise: bigint };
+    },
+    /**
+     * WHAT THE TASK'S ORDER ALREADY SAYS, read once by the caller that has the
+     * whole row. Passed down rather than looked up again so both halves of a
+     * later look see the same order, and so this method's own narrow task type
+     * does not have to widen to the whole Prisma shape.
+     */
+    existing: EvidenceOrder | null,
     chosen: {
       id: string;
       orderNumber: string | null;
@@ -449,6 +490,27 @@ export class OrderCandidatesService {
     });
     const fresh = judged.find((j) => j.orderNumber === chosen.orderNumber) ?? null;
     if (fresh == null) return;
+
+    // ── AND A PRICE THE TASK NEVER GOT, WHEN THIS READ CAN SETTLE ONE ──────
+    //
+    // WHY THIS IS HERE AT ALL. A task confirmed before itemPriceIsCertain
+    // learned to ask about the product's own line carries no item price, and
+    // nothing would ever give it one: the amount is written when the order is
+    // chosen, and an order is chosen once. The owner's own task sat at "item
+    // price unknown, a Fayr reviewer confirms it" with ₹938.00 printed on the
+    // page it had been read from, and the only way out was to claim the offer
+    // again — which is not a thing a real person can be asked to do.
+    //
+    // ONLY WHEN THERE IS NONE. A price already on the task is a price that may
+    // already have been acted on: a refund computed from it, a person told what
+    // they are getting, a staff member's own figure entered by hand. This fills
+    // a null and never replaces an answer, exactly as the delivery does above.
+    //
+    // AND ONLY WHEN IT IS CERTAIN, by the same one function the first read asks.
+    // There is no second rule about money here and no second idea of what
+    // certain means.
+    await this.priceFromALaterLook(userId, task, existing, fresh);
+
     if (fresh.deliveryDate == null && chosen.deliveryDate == null) return;
 
     // ONLY THE NULLS. What is already on the row is what the row keeps.
@@ -492,6 +554,108 @@ export class OrderCandidatesService {
       // not posted yet, to say nothing new.
       this.log.warn(
         `orders-found task=${task.id} later-look delivery refused: `
+        + `${e instanceof Error ? e.message : 'unknown'}`,
+      );
+    }
+  }
+
+  /**
+   * THE ITEM PRICE, WHEN A LATER READ OF THE SAME PAGE CAN SETTLE ONE AND THE
+   * TASK HAS NONE.
+   *
+   * Nothing here decides what "certain" means: it asks itemPriceIsCertain, the
+   * same function the first read asks, with the same campaign price. A second
+   * rule about somebody's money is how the defects in this project started.
+   */
+  private async priceFromALaterLook(
+    userId: string,
+    task: {
+      id: string;
+      campaign: { productName: string; productPricePaise: bigint };
+    },
+    /**
+     * WHAT THE TASK'S ORDER ALREADY SAYS. Two jobs, and both are load bearing:
+     * it is how this decides the task has no price yet, and it is what the
+     * evidence carries forward so a correction cannot erase the rest.
+     */
+    existing: EvidenceOrder | null,
+    fresh: ReturnType<typeof judgeFoundOrders>[number],
+  ): Promise<void> {
+    // ── "ONLY WHEN THERE IS NONE", ASKED OF THE EVIDENCE AND NOT THE COLUMN ──
+    //
+    // This read `task.itemPaise` — the promoted COLUMN — and that guard never
+    // fired. task.mapper.ts:23 says in as many words: DO NOT READ THE itemPaise
+    // COLUMN, it is a legacy projection and is NULL on essentially every task
+    // the current code produces. A task settled through unitPricePaise has a
+    // real price and a null column, so the guard waved every one of them
+    // through and this method overwrote them — including a figure a staff
+    // member had entered by hand, which is the one thing it promises not to do.
+    //
+    // ASKED THE WAY THE MONEY IS ASKED. resolveChargedPaise is the product's
+    // only definition of the figure a refund comes from, and every item-price
+    // field is checked beside it, because that function answers null on purpose
+    // wherever a human has to decide — and those tasks have real amounts on
+    // them. The order TOTAL is not counted: chooseMine puts the bill on every
+    // task it touches, so counting it would stop this method ever running.
+    if (existing != null) {
+      const charged = resolveChargedPaise(existing);
+      if (charged.paise != null && charged.paise !== 0n) return;
+      if (existing.unitPricePaise != null && existing.unitPricePaise !== 0n) return;
+      if (existing.lineTotalPaise != null && existing.lineTotalPaise !== 0n) return;
+      if (existing.itemPaise != null && existing.itemPaise !== 0n) return;
+    }
+    if (!fresh.matches || fresh.matchedItem == null) return;
+
+    const certain = itemPriceIsCertain(
+      { totalPaise: fresh.totalPaise, shipments: fresh.shipments, items: fresh.items },
+      fresh.matchedItem,
+      task.campaign.productPricePaise,
+    );
+    if (!certain) return;
+
+    const price = typeof fresh.matchedItem.pricePaise === 'bigint'
+      ? fresh.matchedItem.pricePaise
+      : BigInt(Math.trunc(fresh.matchedItem.pricePaise));
+
+    const dto: SubmitEvidenceDto = {
+      // ITS OWN KEY, CARRYING THE FIGURE. A re-read that finds the same price
+      // collapses to one event; a page that has genuinely changed its price is a
+      // different fact and applies, where the ordinary gates then judge it.
+      key: `order-price:${task.id}:${price.toString()}`,
+      order: {
+        // ── WHAT IS ALREADY ON THE TASK, CARRIED FIRST ──────────────────
+        //
+        // transition() REPLACES the order with the incoming one; it does not
+        // merge. So a fragment naming five fields does not update five fields,
+        // it deletes everything else — the order date, the product's own price,
+        // the line id, the match warnings, the photo. Measured on this very
+        // change: settling a price blanked the order date the same change had
+        // been written to show. See whatTheOrderAlreadySays.
+        ...whatTheOrderAlreadySays(existing),
+        id: fresh.orderNumber ?? existing?.id ?? undefined,
+        product: fresh.matchedItem.name,
+        orderTotalPaise: fresh.totalPaise == null ? undefined : String(fresh.totalPaise),
+        unitPricePaise: String(price),
+        quantity: 1,
+        // The page's own figure for this product, kept fresh rather than
+        // inherited, since this read is what just looked at it.
+        matchedPricePaise: String(price),
+        amountSource: SOURCES.ORDER_HISTORY,
+        source: SOURCES.ORDER_HISTORY,
+      },
+    };
+
+    this.log.log(
+      `orders-found task=${task.id} later-look price=settled source=order-history`,
+    );
+    try {
+      await this.tasks.submitEvidence(userId, task.id, dto);
+    } catch (e) {
+      // A REFUSAL IS AN ANSWER. The phone is mid-read with a ceiling running and
+      // the task keeps the amount it had, which is none — the staff route it is
+      // already sitting in is the honest fallback.
+      this.log.warn(
+        `orders-found task=${task.id} later-look price refused: `
         + `${e instanceof Error ? e.message : 'unknown'}`,
       );
     }

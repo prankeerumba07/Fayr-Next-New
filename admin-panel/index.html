@@ -2634,7 +2634,29 @@
           h("div", null,
             h("div", { class: "row" },
               h("span", { style: "font-weight:800;font-size:18px" }, rupees(w.amountPaise)),
+              h("span", { class: "muted", style: "font-size:12px" }, "cash-out requested"),
               pill(w.status, WD_PILL[w.status] || "neutral")),
+            // ── WHERE THAT MONEY CAME FROM ─────────────────────────────────
+            //
+            // The amount above is a request to move money OUT OF A WALLET. It is
+            // not a refund and it is not tied to any one order — a withdrawal row
+            // has no link to a task or a campaign anywhere in the schema. Without
+            // this line the figure sits on the card with nothing behind it, which
+            // is how ₹100.00 beside a ₹938.00 order got read as that order's
+            // refund. On the practice account it is ₹100.00 because the demo seed
+            // asks for exactly the minimum a withdrawal may be.
+            // TWO FIGURES ON TWO DIFFERENT BASES, and the wording has to say so.
+            // The balance is what is LEFT NOW — a requested withdrawal has already
+            // reserved its own money out of it — while the refunds figure is
+            // everything that has ever come IN that way. So the refunds total can
+            // legitimately be LARGER than the balance, and a sentence calling it
+            // "of it" read as impossible on the first card anybody looked at.
+            w.basis ? h("div", { class: "muted", style: "margin-top:3px;font-size:12.5px" },
+              "Wallet holds ", h("span", { class: "num" }, rupees(w.basis.walletBalancePaise)),
+              " now · ", h("span", { class: "num" }, rupees(w.basis.refundsPaise)),
+              " has come in from ",
+              String(w.basis.howManyRefunds),
+              w.basis.howManyRefunds === 1 ? " refund" : " refunds") : null,
             h("div", { class: "muted mono", style: "margin-top:3px;font-size:12.5px" },
               (u.mobile || "—"), "  ·  ", (u.displayId || ""),
               u.id ? h("a", { style: "margin-left:8px", onclick: function () { loadUser(u.id, "withdrawals"); } }, "view activity →") : null)),

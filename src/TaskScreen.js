@@ -25,6 +25,9 @@ import {
 } from './taskStore';
 import { formatPaise } from './money';
 import { displayChargedPaise, displayRefundPaise, orderPriceLines } from './ui/refund';
+// The day a shop printed, for an order with no instant precise enough to test
+// against the purchase window. See orderDay for why both exist.
+import { orderDay } from './ui/orderDetails';
 import { resolveChargedPaise } from './chargedAmount';
 import * as campaignStore from './backend/campaignStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
@@ -456,6 +459,11 @@ export default function TaskScreen({ navigation, route }) {
     quantity: task.order ? task.order.quantity : null,
     basisPaise: basedOnPaise,
     orderTotalPaise: task.order ? task.order.orderTotalPaise : null,
+    // WHAT THE PAGE SAID THE OFFER'S OWN PRODUCT COST. Without it, an order
+    // holding two products had no per-product figure at all and this card fell
+    // back to the BILL — ₹1,331.00 printed against a garment rack that cost
+    // ₹938.00, on the owner's own task, 16 September 2026.
+    matchedPricePaise: task.order ? task.order.matchedPricePaise : null,
   });
   const match = task.order && task.order.match;
 
@@ -785,7 +793,20 @@ export default function TaskScreen({ navigation, route }) {
                 ) : null}
                 <Row label="Product" value={task.order.product} missing="Name not read from the order" />
                 <Row label="Order ID" value={task.order.id} />
-                <Row label="Order date" value={fmtDate(task.order.date)} />
+                {/* THE INSTANT IF THERE IS ONE, OTHERWISE THE DAY THE SHOP
+                    PRINTED. This said "Not available" on the owner's own task,
+                    16 September 2026, beside an order whose page says 2 June —
+                    a day that had been read, stored and shown to staff, and
+                    withheld from the one person whose order it was.
+
+                    THE SERVER'S RULE IS NOT WEAKENED TO DO IT. A shop prints a
+                    DAY; the time to buy after claiming is measured in minutes;
+                    so the INSTANT is still left off rather than invented, and
+                    nothing here decides anything from the day. See orderDay. */}
+                <Row
+                  label="Order date"
+                  value={fmtDate(task.order.date) || orderDay(task.order.dateRaw)}
+                />
                 {task.order.statusText ? (
                   <Row label="Order status" value={String(task.order.statusText)} />
                 ) : null}
@@ -827,14 +848,20 @@ export default function TaskScreen({ navigation, route }) {
                       )
                     ) : null}
                     {prices.orderAmountPaise != null ? (
-                      <Row label="Order amount" value={`₹${formatPaise(prices.orderAmountPaise)}`} />
+                      <Row
+                        label={prices.orderAmountLabel || 'Order amount'}
+                        value={`₹${formatPaise(prices.orderAmountPaise)}`}
+                      />
                     ) : null}
                   </>
                 ) : prices.orderAmountPaise != null ? (
                   // Quick-commerce (and Myntra): web exposes only the ORDER TOTAL,
                   // not a per-item price. Show it plainly as the order amount; the
                   // Refund section states the per-item price is still needed.
-                  <Row label="Order amount" value={`₹${formatPaise(prices.orderAmountPaise)}`} />
+                  <Row
+                    label={prices.orderAmountLabel || 'Order amount'}
+                    value={`₹${formatPaise(prices.orderAmountPaise)}`}
+                  />
                 ) : (
                   <Row
                     label="Item price"

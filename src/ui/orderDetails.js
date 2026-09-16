@@ -37,6 +37,34 @@ export function orderDate(ms) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+/**
+ * THE DAY THE SHOP PRINTED, WHEN THAT IS ALL THERE IS — "2026-06-02" → "2 Jun
+ * 2026".
+ *
+ * ── WHY THERE ARE TWO OF THESE AND NOT ONE ────────────────────────────────
+ *
+ * A shop prints a DAY. The time somebody has to buy after claiming is measured
+ * in minutes, so a day is not precise enough to test against that window, and
+ * the server leaves the instant off rather than inventing a time. That rule is
+ * right and nothing here changes it.
+ *
+ * What it produced on screen was "Order date: Not available" beside an order
+ * whose own page says 2 June — telling somebody Fayr had not read a thing it had
+ * read, written down and shown to staff. Measured on the owner's task,
+ * 16 September 2026.
+ *
+ * SO THE DAY IS SHOWN AND THE INSTANT IS STILL NOT INVENTED. Read off dateRaw,
+ * which the record has carried all along. Nothing decides anything from this.
+ */
+export function orderDay(raw) {
+  if (typeof raw !== 'string') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
+  if (!m) return null;
+  const month = Number(m[2]);
+  if (!(month >= 1 && month <= 12)) return null;
+  return `${Number(m[3])} ${MONTHS[month - 1]} ${m[1]}`;
+}
+
 /** "₹1,326.00" from integer paise, or null. Indian grouping, done by hand. */
 export function money(paise) {
   const plain = formatPaise(paise);
@@ -79,11 +107,61 @@ export function orderDetailRows(state) {
   const order = s.order && typeof s.order === 'object' ? s.order : null;
 
   const charged = order ? resolveChargedPaise(order) : null;
-  const amount = charged && charged.paise != null ? money(charged.paise) : null;
-  const amountNote = charged && charged.needsStaff
-    ? 'A person at Fayr has to settle this amount, so we are not showing a '
-      + 'figure we might have to change.'
+
+  // ── THE PRODUCT'S OWN PRICE, AND NEVER THE BILL ─────────────────────────
+  //
+  // MEASURED ON THE OWNER'S OWN ORDER, 16 September 2026. One order number, two
+  // products — a garment rack at ₹938.00 and a bathroom shelf at ₹388.00, with
+  // ₹1,331.00 the bill. The offer is the rack.
+  //
+  // This row has always gone through the ONE resolver and nothing else, which is
+  // why it could never print the bill: resolveChargedPaise refuses to fall back
+  // to a bare order total, deliberately, because on a basket that total covers
+  // several products. That refusal is not touched here and must not be.
+  //
+  // What it left behind was a hole. The resolver answers "a person has to settle
+  // this" for exactly the shape above, and the row then showed no figure at all
+  // beside a page that states, in words, what the product cost. The page's own
+  // figure is shown in that hole — clearly as what it is, with the amount still
+  // unsettled — rather than a number nobody read or the bill for a basket.
+  //
+  // IT IS NOT A REFUND BASIS. `matchedPricePaise` is never read by the resolver
+  // and never becomes one; the note says so on the screen, and the refund is
+  // still whatever the resolver and the server's own gate decide.
+  const matched = order && order.matchedPricePaise != null
+    ? order.matchedPricePaise
     : null;
+  const settled = charged && charged.paise != null ? charged.paise : null;
+  // THE BILL IS READ HERE, ABOVE THE FIGURE THAT IS SHOWN, and not below it.
+  // Only so that the line under this one can be read against it: `shown` must
+  // never be `total`, and a reader should be able to see both names at once to
+  // check that.
+  const total = order && order.orderTotalPaise != null ? order.orderTotalPaise : null;
+  const shown = settled != null ? settled : matched;
+  const amount = shown != null ? money(shown) : null;
+  const amountNote = settled == null && matched != null
+    ? 'What the order page states this product cost. A person at Fayr still has '
+      + 'to settle the amount your refund is worked out from.'
+    : charged && charged.needsStaff
+      ? 'A person at Fayr has to settle this amount, so we are not showing a '
+        + 'figure we might have to change.'
+      : null;
+
+  // ── AND THE BILL, UNDER ITS OWN NAME, WHEN IT IS A DIFFERENT NUMBER ─────
+  //
+  // Its own row so the two can never be read as one figure. An order holding one
+  // product has one number and shows one row; the owner's held two, and the
+  // difference between ₹938.00 and ₹1,331.00 is the whole reason this is here.
+  // THE NOTE CLAIMS ONLY WHAT IS ALWAYS TRUE. It said "not just the product this
+  // offer is for", which is right for an order holding two products and WRONG
+  // for one holding three of the same thing — there `shown` is the per-unit
+  // price and the bill differs because of the count, not because of anything
+  // else in the basket. Saying "everything charged" is true in both.
+  const billRow = total != null && total !== shown
+    ? [row('Order total', money(total),
+        'Everything charged on this order. Your refund is worked out from the '
+        + 'product above, not from this.')]
+    : [];
 
   const product = order && typeof order.product === 'string' && order.product
     ? order.product
@@ -94,7 +172,13 @@ export function orderDetailRows(state) {
   return [
     row('Order ID', order && order.id ? String(order.id) : null),
     row('Order amount', amount, amountNote),
-    row('Order date', order ? orderDate(order.date) : null),
+    ...billRow,
+    // THE INSTANT IF THERE IS ONE, AND OTHERWISE THE DAY THE SHOP PRINTED.
+    // Never "not available" for an order whose page stated a date. See orderDay.
+    row(
+      'Order date',
+      order ? (orderDate(order.date) || orderDay(order.dateRaw)) : null,
+    ),
     row('Product name', product),
     row('Marketplace', typeof s.shopName === 'string' && s.shopName ? s.shopName : null),
   ];

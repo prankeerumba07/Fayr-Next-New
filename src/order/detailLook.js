@@ -664,3 +664,129 @@ export function waitBeforeFetch(indexOfFetch) {
   if (!Number.isFinite(n) || n <= 0) return 0;
   return GAP_BETWEEN_FETCHES_MS;
 }
+
+/* ============================================================================
+   WHERE A SHOP KEEPS A PERSON'S OWN REVIEWS.
+
+   ── A SEPARATE RECORD FROM THE ORDER ONE, AND NOT A FIELD ON IT ───────────
+
+   They are different pages with different shapes, reached from different places,
+   and a shop could move one without touching the other. Hanging reviews off the
+   order record would mean every shop whose orders Fayr reads claiming to have a
+   reviews page too, whether anybody had ever looked at one.
+
+   ── NO DEFAULT SHOP, EXACTLY AS NEXT DOOR ─────────────────────────────────
+
+   The keys of this object ARE the list of shops whose reviews are read. A shop
+   that is not in it finds nothing rather than being read with somebody else's
+   shapes, which is the rule the order records already keep and the reason a
+   Zepto page has never been read with Amazon's selectors.
+
+   ── MEASURED ON THE OWNER'S OWN ACCOUNT, 16 SEPTEMBER 2026 ────────────────
+
+   Four reviews, all four permalinks present in the profile page's markup:
+
+     /gp/profile/          →  a[href*="/gp/customer-reviews/"]  ×4
+     /gp/customer-reviews/R2DZV4MEUOPPQC  →  the garment rack, 13 June 2026,
+                                             5 stars, Verified Purchase
+   ========================================================================= */
+
+/** Amazon keeps a person's own reviews on their profile. */
+const AMAZON_PROFILE_PAGE = 'https://www.amazon.in/gp/profile/';
+
+/** One review's own page, which is what carries the product it is about. */
+const AMAZON_REVIEW_PAGE = 'https://www.amazon.in/gp/customer-reviews/';
+
+/**
+ * A REVIEW'S OWN NAME, ANCHORED.
+ *
+ * Amazon writes them as R followed by letters and digits — R2DZV4MEUOPPQC,
+ * R2G95H01DWEIEU. Anchored to the path it appears in rather than matched loose,
+ * because a bare run of capitals and digits is a shape half a page would match.
+ */
+const AMAZON_REVIEW_ID_IN_A_LINK = /\/gp\/customer-reviews\/(R[A-Z0-9]{8,20})\b/g;
+
+export const WHERE_EACH_SHOP_KEEPS_REVIEWS = {
+  amazon: {
+    profile: AMAZON_PROFILE_PAGE,
+    page: AMAZON_REVIEW_PAGE,
+    link: 'a[href*="/gp/customer-reviews/"]',
+    id: AMAZON_REVIEW_ID_IN_A_LINK,
+    // MEASURED: the profile page fills its review list in after the page
+    // arrives, the same way the order list does. Read as a drawn page or it is
+    // read while still empty — which is the bug that cost 16 September.
+    drawn: true,
+  },
+};
+
+/** How this shop keeps reviews, or null when nobody has measured it. */
+export function howThisShopKeepsReviews(platformKey) {
+  if (typeof platformKey !== 'string') return null;
+  return WHERE_EACH_SHOP_KEEPS_REVIEWS[platformKey] || null;
+}
+
+/** True when this shop's reviews can be read at all. */
+export function readsReviewPages(platformKey) {
+  return howThisShopKeepsReviews(platformKey) != null;
+}
+
+/** The page holding this person's own reviews, or null. */
+export function reviewsPageFor(platformKey) {
+  const shop = howThisShopKeepsReviews(platformKey);
+  return shop ? shop.profile : null;
+}
+
+/** What marks a review on that page, for the poll that waits for it to draw. */
+export function whatThisShopDrawsForReviews(platformKey) {
+  const shop = howThisShopKeepsReviews(platformKey);
+  if (!shop) return { link: '', card: null };
+  return { link: shop.link, card: null };
+}
+
+/** Whether this shop's review pages have to be drawn rather than fetched. */
+export function theReviewPagesAreDrawn(platformKey) {
+  const shop = howThisShopKeepsReviews(platformKey);
+  return !!(shop && shop.drawn);
+}
+
+/**
+ * EVERY REVIEW NAMED IN THIS PAGE, NEWEST FIRST AND EACH ONE ONCE.
+ *
+ * Off the LINKS, which is the one thing on that page that says which review is
+ * which. Deduplicated because a shop may link the same review twice — from its
+ * title and from its picture — and opening it twice would spend the budget on
+ * one review.
+ *
+ * NEVER MORE THAN A PERSON HAS WRITTEN. The cap is here rather than left to the
+ * caller for the same reason the order cap is: a page is something a shop
+ * controls, and a page claiming five hundred reviews must not become five
+ * hundred requests.
+ */
+export const MOST_REVIEW_PAGES = 12;
+
+export function harvestReviewLinks(html, platformKey) {
+  const shop = howThisShopKeepsReviews(platformKey);
+  if (!shop || typeof html !== 'string' || html === '') return [];
+  const out = [];
+  const seen = Object.create(null);
+  // A FRESH REGEXP EVERY TIME. The record holds a global one, and a global
+  // regexp carries lastIndex between calls — so the second look at a page would
+  // start halfway down it.
+  const shape = new RegExp(shop.id.source, 'g');
+  let hit = shape.exec(html);
+  while (hit != null && out.length < MOST_REVIEW_PAGES) {
+    const id = hit[1];
+    if (!seen[id]) { seen[id] = true; out.push(id); }
+    hit = shape.exec(html);
+  }
+  return out;
+}
+
+/** The address of one review's own page, or null when the id is not one. */
+export function reviewPageFor(platformKey, reviewId) {
+  const shop = howThisShopKeepsReviews(platformKey);
+  if (!shop) return null;
+  if (typeof reviewId !== 'string') return null;
+  if (!/^R[A-Z0-9]{8,20}$/.test(reviewId)) return null;
+  return `${shop.page}${reviewId}`;
+}

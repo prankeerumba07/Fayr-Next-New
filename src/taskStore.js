@@ -96,7 +96,33 @@ function engineTaskFromResponse(tr) {
       ? {
           id: tr.order.id,
           date: msOf(tr.order.date),
+          // ── THE DAY THE SHOP PRINTED, WHICH WAS BEING THROWN AWAY HERE ────
+          //
+          // MEASURED ON THE OWNER'S OWN TASK, 16 September 2026: "Order date:
+          // Not available" beside an order whose page plainly says 2 June.
+          //
+          // The day was read, written down, stored, shown to staff and — once
+          // the response learned to send it — put on the wire. THIS LINE IS
+          // WHERE IT DIED. This function does not pass the order through; it
+          // rebuilds it field by field, so a field nobody lists is a field that
+          // silently does not exist on the device, however well the backend
+          // carries it. That is the same way `quantity`, `match`, `image` and
+          // `statusText` were each lost in turn, and the comments below are the
+          // record of it.
+          //
+          // NOT A DATE AND NEVER READ AS ONE. `date` above is an instant the
+          // purchase window is tested against; a shop that prints only a day
+          // cannot give one and dateToSubmit refuses to invent a time. This is
+          // the day, for showing.
+          dateRaw: tr.order.dateRaw == null ? null : String(tr.order.dateRaw),
           itemPaise: numOf(tr.order.itemPaise),
+          // ── AND WHAT THE PAGE SAID THE OFFER'S OWN PRODUCT COST ──────────
+          //
+          // NOT a resolver input and never passed to one. It is the row the
+          // screen shows as the product's price, so that an order holding two
+          // products does not fall back to showing the BILL — which on the
+          // owner's order was ₹1,331.00 against a product that cost ₹938.00.
+          matchedPricePaise: numOf(tr.order.matchedPricePaise),
           // The resolver's other inputs. Dropping these meant the device's copy
           // of resolveChargedPaise ran on a third of its evidence — `quantity`
           // was being SENT by the backend and thrown away right here, so every

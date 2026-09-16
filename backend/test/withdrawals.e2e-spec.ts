@@ -320,6 +320,96 @@ describe('Withdrawals (e2e)', () => {
       expect(queue.body[0].user.mobile).toBe(u.mobile);
       expect(queue.body[0].payoutMethod.label).toContain('@okaxis');
     });
+
+    /**
+     * WHAT THE FIGURE IN THE QUEUE IS DRAWN FROM.
+     *
+     * ── WHY THIS CHECK EXISTS, MEASURED 16 SEPTEMBER 2026 ────────────────
+     *
+     * The owner read ₹100.00 on a queue card, beside an order whose product was
+     * ₹938.00 and whose bill was ₹1,331.00, and took it for that order's refund.
+     * It never was. A withdrawal row has a user, a payout method and an amount,
+     * and NO link to a task or a campaign anywhere in the schema — so the card
+     * was showing a true figure with nothing behind it, and ₹100.00 on the
+     * practice account is ₹100.00 only because the demo seed asks for exactly
+     * MIN_WITHDRAWAL_PAISE.
+     *
+     * So the queue now says where the money came from. Nothing about the amount
+     * itself changed: it was right, and it still is.
+     */
+    it('SAYS WHAT THE CASH-OUT IS DRAWN FROM, so a figure is never bare', async () => {
+      const u = await makeUser();
+      await fund(u.id, 93_800n);
+      await fund(u.id, 50_000n);
+      const methodId = await addUpi(u.token, 'basis@okaxis');
+      await request(server())
+        .post('/withdrawals')
+        .set('authorization', `Bearer ${u.token}`)
+        .send({ amountPaise: '10000', payoutMethodId: methodId })
+        .expect(201);
+
+      const admin = await adminToken();
+      const queue = await request(server())
+        .get('/admin/withdrawals')
+        .query({ status: 'REQUESTED' })
+        .set('authorization', `Bearer ${admin}`)
+        .expect(200);
+
+      const row = queue.body[0];
+      // THE AMOUNT IS UNCHANGED. It was never wrong.
+      expect(row.amountPaise).toBe('10000');
+      // AND IT IS NO LONGER BARE.
+      expect(row.basis).toBeDefined();
+      expect(row.basis.refundsPaise).toBe('143800');
+      expect(row.basis.howManyRefunds).toBe(2);
+      // The balance is what is left after the request reserved its own money,
+      // which is the honest thing to show somebody about to approve it.
+      expect(BigInt(row.basis.walletBalancePaise)).toBe(143_800n - 10_000n);
+
+      // ── AND THE REQUEST IS NOT COUNTED AS A REFUND ────────────────────
+      //
+      // A withdrawal's own reservation sits on the same account and is negative.
+      // Netting it in would tell a staff member the refunds were smaller than
+      // they were, and on a fully cashed-out account it would read as none. The
+      // two figures differing by exactly the reservation is what says the
+      // reservation was seen and excluded, rather than never having been there.
+      expect(BigInt(row.basis.refundsPaise)).toBeGreaterThan(
+        BigInt(row.basis.walletBalancePaise),
+      );
+      expect(
+        BigInt(row.basis.refundsPaise) - BigInt(row.basis.walletBalancePaise),
+      ).toBe(10_000n);
+      // AND THE COUNT IS OF REFUNDS, NOT OF LEDGER LEGS. Three legs touch this
+      // account — two refunds in and one reservation out — and the card must say
+      // two, or a person reads it as an extra payment they cannot find.
+      expect(row.basis.howManyRefunds).toBe(2);
+    });
+
+    it('and one look-up per account, however many requests they have', async () => {
+      // Three requests from one person is one wallet, not three reads of it —
+      // and all three must agree about it, which they cannot do if each is
+      // computed from a different snapshot.
+      const u = await makeUser();
+      await fund(u.id, 100_000n);
+      const methodId = await addUpi(u.token, 'three@okaxis');
+      for (const amount of ['10000', '10000', '10000']) {
+        await request(server())
+          .post('/withdrawals')
+          .set('authorization', `Bearer ${u.token}`)
+          .send({ amountPaise: amount, payoutMethodId: methodId })
+          .expect(201);
+      }
+      const admin = await adminToken();
+      const queue = await request(server())
+        .get('/admin/withdrawals')
+        .query({ status: 'REQUESTED' })
+        .set('authorization', `Bearer ${admin}`)
+        .expect(200);
+      expect(queue.body).toHaveLength(3);
+      const seen = new Set(queue.body.map((r: { basis: { walletBalancePaise: string } }) =>
+        r.basis.walletBalancePaise));
+      expect(seen.size).toBe(1);
+    });
   });
   /**
    * THE TRAIL, END TO END.

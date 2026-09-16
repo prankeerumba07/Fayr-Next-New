@@ -40,12 +40,14 @@ import type { EngineTask } from './engine/task-state';
 type StoredOrder = Omit<
   EvidenceOrder,
   'itemPaise' | 'unitPricePaise' | 'lineTotalPaise' | 'orderTotalPaise' | 'mrpPaise'
+  | 'matchedPricePaise'
 > & {
   itemPaise: string | null;
   unitPricePaise: string | null;
   lineTotalPaise: string | null;
   orderTotalPaise: string | null;
   mrpPaise: string | null;
+  matchedPricePaise: string | null;
 };
 
 interface StoredEvidence {
@@ -76,6 +78,10 @@ function orderToStored(order: EvidenceOrder | null): StoredOrder | null {
     lineTotalPaise: bigintOrNull(order.lineTotalPaise),
     orderTotalPaise: bigintOrNull(order.orderTotalPaise),
     mrpPaise: bigintOrNull(order.mrpPaise),
+    // A SIXTH, AND IT IS MONEY LIKE THE REST. It is never computed with — see
+    // EvidenceOrder.matchedPricePaise — but a bigint is a bigint, and the
+    // comment above records what happens to one that is not listed here.
+    matchedPricePaise: bigintOrNull(order.matchedPricePaise),
   };
 }
 
@@ -88,6 +94,7 @@ function orderFromStored(order: StoredOrder | null): EvidenceOrder | null {
     lineTotalPaise: parseBigint(order.lineTotalPaise),
     orderTotalPaise: parseBigint(order.orderTotalPaise),
     mrpPaise: parseBigint(order.mrpPaise),
+    matchedPricePaise: parseBigint(order.matchedPricePaise),
   };
 }
 

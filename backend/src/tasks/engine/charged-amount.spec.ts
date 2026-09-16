@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   chargedDisagreesWithCampaign,
   resolveChargedPaise,
@@ -276,5 +278,46 @@ describe('resolveChargedPaise — quantity', () => {
     );
     expect(res.paise).toBe(32800n);
     expect(res.basis).toBe('order-total-lower');
+  });
+
+  /**
+   * THE FIGURE THAT IS SHOWN AND THE FIGURE THAT IS PAID ARE NOT THE SAME FIELD.
+   *
+   * matchedPricePaise carries what the shop's page stated for the offer's own
+   * product, so a screen can show ₹938.00 on an order whose bill is ₹1,331.00
+   * instead of falling back to the bill. It is a DISPLAY fact. The moment this
+   * resolver reads it, it becomes a fourth road to a refund basis — and a figure
+   * that arrived over the wire from a device, at that.
+   */
+  describe('the matched product price is shown, never paid from', () => {
+    it('DOES NOT MAKE AN AMOUNT ON ITS OWN', () => {
+      const res = resolveChargedPaise(
+        order({ matchedPricePaise: 93800n, orderTotalPaise: 133100n }),
+      );
+      expect(res.paise).toBeNull();
+      expect(res.needsStaff).toBe(true);
+      expect(res.reason).toBe('amount-unknown');
+    });
+
+    it('and does not change an amount that was already settled', () => {
+      const withIt = resolveChargedPaise(
+        order({ unitPricePaise: 93800n, matchedPricePaise: 1n }),
+      );
+      const without = resolveChargedPaise(order({ unitPricePaise: 93800n }));
+      expect(withIt).toEqual(without);
+      expect(withIt.paise).toBe(93800n);
+    });
+
+    it('AND ITS NAME APPEARS NOWHERE IN THE RESOLVER', () => {
+      // Structural, because the two checks above can only prove the values it
+      // happens to be handed. This proves the field is not read at all — the
+      // same way src/chargedAmount.test.mjs reads this resolver's inputs out of
+      // its own source. Comments are stripped first, so the prose explaining the
+      // rule is not mistaken for the rule being broken.
+      const src = readFileSync(join(__dirname, 'charged-amount.ts'), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '');
+      expect(src).not.toContain('matchedPricePaise');
+    });
   });
 });

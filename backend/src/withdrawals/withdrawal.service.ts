@@ -223,6 +223,59 @@ export class WithdrawalService {
     });
   }
 
+  /**
+   * WHAT A CASH-OUT IS DRAWN FROM, for the staff member deciding it.
+   *
+   * ── WHY THE QUEUE NEEDED THIS ────────────────────────────────────────────
+   *
+   * A withdrawal row has a userId, a payout method and an amount, and no link to
+   * a task or a campaign anywhere in the schema. So the queue could show the
+   * amount and nothing behind it, and a figure with nothing behind it invites
+   * being read as something it is not — the owner read ₹100.00 on a queue card
+   * beside a ₹938.00 order and took it for the refund. It is not: it is a
+   * request to move ₹100.00 out of a wallet, and on the practice account it is
+   * ₹100.00 because the demo seed asks for exactly the minimum
+   * (MIN_WITHDRAWAL_PAISE, demo-seed.ts) and for no other reason.
+   *
+   * SO THE BASIS IS THE WALLET, because the wallet is what a withdrawal is
+   * actually drawn from. The balance now, and how much of it arrived as refunds.
+   *
+   * READ-ONLY, AND IT DECIDES NOTHING. Nothing here reserves, approves, posts or
+   * changes a single ledger entry — requestWithdrawal already holds the only
+   * rule about whether there is enough, and it still holds it. This is the queue
+   * being able to say where the money came from.
+   */
+  async basisFor(userId: string): Promise<{
+    walletBalancePaise: bigint;
+    refundsPaise: bigint;
+    howManyRefunds: number;
+  }> {
+    const statement = await this.wallet.getUserStatement(userId);
+    // ── REFUNDS ONLY, AND THE KIND IS WHAT DOES THE WORK ──────────────────
+    //
+    // A withdrawal's own legs sit on this same account and are negative.
+    // Counting them would net a paid-out refund back towards nothing and tell a
+    // staff member the money had never been there — which is precisely the
+    // question they are looking at this card to answer.
+    //
+    // AND NO SIGN TEST BESIDE IT, deliberately. A first writing filtered
+    // `amountPaise > 0n` as well; it is unreachable, because postRefund is the
+    // only thing in Fayr that writes a REFUND transaction, it asserts a positive
+    // amount, and it credits the user while debiting HOUSE
+    // (wallet.service.ts:166-186). Worse, it would be WRONG the day a clawback
+    // exists — CLAUDE.md's own fraud model contemplates one — because a
+    // reclaimed refund genuinely belongs in this total as a subtraction. Dead
+    // today and wrong tomorrow is not a guard.
+    const refunds = statement.entries.filter(
+      (e) => e.transaction.kind === 'REFUND',
+    );
+    return {
+      walletBalancePaise: statement.balancePaise,
+      refundsPaise: refunds.reduce((sum, e) => sum + e.amountPaise, 0n),
+      howManyRefunds: refunds.length,
+    };
+  }
+
   async getByIdWithContext(id: string) {
     const w = await this.prisma.withdrawal.findUnique({
       where: { id },

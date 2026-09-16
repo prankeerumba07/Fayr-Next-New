@@ -234,11 +234,42 @@ console.log('\n=== 6. THE THREE SCREENS THAT SEND SOMEBODY SHOPPING REALLY DO IT
     //
     // Anything else rendering a web view is a shopper being shown a marketplace
     // inside Fayr, which is the thing the owner had removed.
+    //   order/LookingForReviewScreen.js  reads the person's own list of reviews
+    //                            after they say they have posted one. The same
+    //                            read as the one above and the same web view: one
+    //                            point across, fully see through, off the side of
+    //                            the screen, nothing to tap. It exists because
+    //                            whether a review is really there is the fact a
+    //                            refund turns on, and it must come off the shop's
+    //                            own page rather than from anybody's word for it.
     const ALLOWED = [
       'ConnectScreen.js', 'LiveCheckScreen.js', 'order/LookingForItScreen.js',
+      'order/LookingForReviewScreen.js',
     ];
     const extra = webViews.filter((f) => !ALLOWED.includes(f));
     ok(extra.length === 0, `these render a web view and should not: ${extra.join(', ')}`);
+
+    // ── AND THE READING SCREENS HAVE TO STAY UNREACHABLE ────────────────────
+    //
+    // THE LIST ABOVE IS NOT A PERMISSION TO SHOW A SHOP. Two of the four are
+    // allowed on the stated grounds that their view is invisible, off screen and
+    // has nothing on it to tap — so those grounds are checked rather than
+    // trusted. Without this, widening the list is all it takes to put a
+    // marketplace in front of a shopper, which is the thing the owner had
+    // removed, and the check that was supposed to prevent it would pass.
+    //
+    // THE OTHER TWO ARE NOT HELD TO IT, deliberately: the connect screen is a
+    // shop the person is deliberately signing in to, and the live check is a
+    // staff tool that is off unless somebody turns it on.
+    for (const reader of ['order/LookingForItScreen.js', 'order/LookingForReviewScreen.js']) {
+      const src = strip(readFileSync(join(dir, reader), 'utf8'));
+      ok(/accessibilityElementsHidden/.test(src),
+        `${reader} must keep its web view out of the reading order`);
+      ok(/importantForAccessibility="no-hide-descendants"/.test(src),
+        `${reader} must hide its web view from assistive tech`);
+      ok(/position: 'absolute', width: 1, height: 1, opacity: 0/.test(src),
+        `${reader} must keep its web view one point across and invisible`);
+    }
     // And the two that may are still there, so this cannot pass by them being
     // deleted.
     for (const f of ALLOWED) {

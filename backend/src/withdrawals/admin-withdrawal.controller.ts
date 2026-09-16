@@ -43,15 +43,31 @@ export class AdminWithdrawalController {
     @Query() query: ListWithdrawalsQueryDto,
   ): Promise<WithdrawalWithContextResponse[]> {
     const rows = await this.withdrawals.listAll(query.status);
-    return rows.map(toWithdrawalWithContext);
+    // ── AND WHAT EACH ONE IS DRAWN FROM ──────────────────────────────────
+    //
+    // A withdrawal row carries an amount and no link to a task or a campaign,
+    // so the queue could show a figure with nothing behind it — which is how
+    // ₹100.00 beside a ₹938.00 order got read as that order's refund. It is a
+    // cash-out from a wallet, and this is the wallet.
+    //
+    // ONE LOOK-UP PER ACCOUNT, NOT PER ROW. A person with three requests in the
+    // queue has one wallet, and asking for it three times would be three reads
+    // of the same ledger.
+    const basis = new Map<string, Awaited<ReturnType<typeof this.withdrawals.basisFor>>>();
+    for (const userId of new Set(rows.map((r) => r.userId))) {
+      basis.set(userId, await this.withdrawals.basisFor(userId));
+    }
+    return rows.map((r) => toWithdrawalWithContext(r, basis.get(r.userId)));
   }
 
   @Get(':id')
   async get(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<WithdrawalWithContextResponse> {
+    const row = await this.withdrawals.getByIdWithContext(id);
     return toWithdrawalWithContext(
-      await this.withdrawals.getByIdWithContext(id),
+      row,
+      await this.withdrawals.basisFor(row.userId),
     );
   }
 
