@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { BILL_LABELS, parseOrderText } from './order-text';
+import { BILL_LABELS, foldBareSellerLabels, parseOrderText } from './order-text';
 import { paiseFromRupees, rupeesFromPaise } from './order-comparison';
 
 /**
@@ -1202,5 +1202,132 @@ describe('where the order stops and the shop\u2019s suggestions begin', () => {
       'boAt Rockerz 255 Pro Plus',
       'Books Recommended For You By Our Editors, Volume 3',
     ]);
+  });
+});
+
+/**
+ * THE LINES THE APP ACTUALLY SENDS, WHICH ARE NOT THE LINES ON THE SCREEN.
+ *
+ * ── WHERE THIS CAME FROM ──────────────────────────────────────────────────
+ *
+ * The owner's phone, 16 September 2026, 22:26. The journey worked, he tapped
+ * "yes, I bought it", the read opened his Nike order — and the server answered
+ * product_name_not_found on a page with the shoes printed on it. His log:
+ *
+ *   orders-found pages=1 lens=[1550]
+ *   orders-found judged=1 matched=0 reasons=[product_name_not_found]
+ *
+ * The block below is that 1550-character page, obtained by reproducing the
+ * app's exact fetch inside his signed-in browser and running src/orderhistory.js
+ * pageToLines and readOrderBlocks over what came back. It is a CAPTURE, not an
+ * assembly, and it is trimmed only of the page furniture after "View your item".
+ *
+ * Note what it does that innerText never does: "Sold by:" and the seller are on
+ * TWO LINES, because they are two elements and the app cuts at every tag. Every
+ * note in order-text.ts about this block was written from innerText, where they
+ * are one line — so the reader had never once been reasoned about against what
+ * it is actually given.
+ */
+describe('a bare "Sold by:" with the seller on the line under it', () => {
+  const AS_THE_APP_SENDS_IT = [
+    'Order placed',
+    '11 February 2026',
+    'Order number',
+    '408-5614193-1514764',
+    'Invoice',
+    'Payment method',
+    'Amazon Pay Balance',
+    'Order Summary',
+    'Item(s) Subtotal:',
+    '₹4,995.00',
+    'Shipping:',
+    '₹0.00',
+    'Total:',
+    '₹4,995.00',
+    'Grand Total:',
+    '₹4,995.00',
+    'Nike M PROMINA Extra Wide Black/White',
+    'Sold by:',
+    'Westbury Sportswear',
+    'Return window closed on 26 February 2026',
+    '₹4,995.00',
+    '₹4,995.00',
+    'Buy It Again',
+    'View your item',
+  ].join('\n');
+
+  it('THE PRODUCT IS THE PRODUCT, AND NOT THE SELLER', () => {
+    // What it did before: the walk from the name stepped over "Sold by:",
+    // landed on "Westbury Sportswear", found neither furniture nor money, and
+    // gave up on the product — then the scan reached that same line, called it a
+    // name, stepped over the return-window line and filed THE SELLER as the
+    // thing he bought, at exactly the right price.
+    const order = parseOrderText(AS_THE_APP_SENDS_IT);
+    expect(order.items.map((i) => i.name)).toEqual([
+      'Nike M PROMINA Extra Wide Black/White',
+    ]);
+    expect(order.items[0].pricePaise).toBe(499500n);
+  });
+
+  it('and the seller is not on the order at all', () => {
+    const names = parseOrderText(AS_THE_APP_SENDS_IT).items.map((i) => i.name);
+    expect(names).not.toContain('Westbury Sportswear');
+  });
+
+  it('with the other three fields read off the same block', () => {
+    const order = parseOrderText(AS_THE_APP_SENDS_IT);
+    expect(order.orderNumber).toBe('408-5614193-1514764');
+    expect(order.orderDate).toBe('2026-02-11');
+    expect(order.totalPaise).toBe(499500n);
+    expect(order.returnWindowEndsDate).toBe('2026-02-26');
+    // No delivery line on this page, which is the shop's doing and not a failure.
+    expect(order.deliveryDate).toBeNull();
+    expect(order.returned).toBe(false);
+  });
+
+  it('A PAGE THAT ALREADY WRITES THEM TOGETHER IS UNTOUCHED', () => {
+    // The innerText shape, which every other fixture in this file uses. The fold
+    // must not change it: the line is not bare, so nothing is folded.
+    const together = [
+      'Order placed 2 June 2026  Order number 408-1509645-3524313',
+      'Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf',
+      'Sold by: Lukzer',
+      'Return window closed on 19 June 2026',
+      '₹938.00', '₹938.00',
+    ].join('\n');
+    const order = parseOrderText(together);
+    expect(order.items.map((i) => i.name)).toEqual([
+      'Lukzer | Heavy-Duty Metal Garment Rack with Bottom Storage Shelf',
+    ]);
+    expect(order.items[0].pricePaise).toBe(93800n);
+  });
+
+  it('and the same for every other way a shop names who sold it', () => {
+    for (const label of ['Sold by:', 'Shipped by', 'Dispatched by:', 'Fulfilled by:']) {
+      const page = [
+        'Order placed', '2 June 2026',
+        'Order # 408-1509645-3524313',
+        'boAt Rockerz 255 Pro Plus',
+        label,
+        'Some Seller Private Limited',
+        '₹1,299.00',
+      ].join('\n');
+      const order = parseOrderText(page);
+      expect(order.items.map((i) => i.name)).toEqual(['boAt Rockerz 255 Pro Plus']);
+    }
+  });
+
+  it('and folding is asked of the LINES, so it can be walked on its own', () => {
+    expect(foldBareSellerLabels(['Sold by:', 'Westbury Sportswear']))
+      .toEqual(['Sold by: Westbury Sportswear']);
+    expect(foldBareSellerLabels(['Sold by: Lukzer', 'Return window closed']))
+      .toEqual(['Sold by: Lukzer', 'Return window closed']);
+    // A LABEL WITH NOTHING UNDER IT IS LEFT ALONE rather than dropped.
+    expect(foldBareSellerLabels(['Sold by:'])).toEqual(['Sold by:']);
+    // AND NOTHING ELSE IS FOLDED. A bill label carries money, the bill reader
+    // already looks on the line under it, and folding one would be a change to
+    // how money is read.
+    expect(foldBareSellerLabels(['Grand Total:', '₹4,995.00']))
+      .toEqual(['Grand Total:', '₹4,995.00']);
   });
 });

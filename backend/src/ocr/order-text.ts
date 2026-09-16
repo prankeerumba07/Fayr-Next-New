@@ -551,6 +551,82 @@ function aroundAProduct(line: string): boolean {
 }
 
 /**
+ * A LABEL WITH ITS VALUE ON THE NEXT LINE, WHICH IS HOW THE APP ACTUALLY SEES IT.
+ *
+ * ── THE BUG THIS ENDS, AND IT WAS IN EVERY AMAZON ORDER ───────────────────
+ *
+ * Every note in this file about Amazon's product block was written from the
+ * page's innerText, where it reads:
+ *
+ *   Lukzer | Heavy-Duty Metal Garment Rack ...
+ *   Sold by: Lukzer                  <- ONE line, label and value together
+ *   Return window closed on 19 June 2026
+ *   ₹938.00
+ *
+ * THAT IS NOT WHAT THE APP SENDS. The app fetches the order page and cuts it
+ * into lines at every tag — src/orderhistory.js, pageToLines — and the label and
+ * the seller are different elements, so they arrive as TWO lines:
+ *
+ *   Nike M PROMINA Extra Wide Black/White
+ *   Sold by:                         <- the label, alone
+ *   Westbury Sportswear              <- the seller, alone
+ *   Return window closed on 26 February 2026
+ *   ₹4,995.00
+ *   ₹4,995.00
+ *
+ * MEASURED on the owner's own account, 16 September 2026, by reproducing the
+ * app's exact fetch inside his signed-in browser and running this reader over
+ * what came back.
+ *
+ * What it did to the read: the walk from the product's name steps over
+ * "Sold by:" because AROUND_A_PRODUCT names it, lands on "Westbury Sportswear",
+ * which is neither furniture nor money, and gives up on the product. Then the
+ * scan reaches that same line, decides it looks like a name, steps over the
+ * return-window line, finds ₹4,995.00 — and files THE SELLER as the thing he
+ * bought, at exactly the right price:
+ *
+ *   ITEMS = 1
+ *      - 499500 | "Westbury Sportswear"
+ *
+ * So the server answered product_name_not_found on a page with the product
+ * printed on it, and it had nothing to do with the campaign's name, the search,
+ * or the match. It read the wrong line. Every Amazon order goes through this.
+ *
+ * ── THE FIX IS TO PUT THE LINE BACK TOGETHER, NOT TO TEACH THE WALK ───────
+ *
+ * Folding here makes the app's lines the same shape as the innerText this
+ * reader's rules were written against, so the walk, looksLikeAName and every
+ * fixture in the checks all keep behaving exactly as they were reasoned about.
+ * Teaching the walk to skip a second line instead would have left the seller
+ * still looking like a name to the scan that comes after it — which is the half
+ * that actually filed it.
+ *
+ * ONLY LABELS THAT NAME A SELLER, and only when the line is JUST the label.
+ * A page that already writes "Sold by: Lukzer" together is untouched, because
+ * that line is not bare. Nothing here folds a bill label: those carry money, the
+ * bill reader already looks on the line under them, and folding them would be a
+ * change to how money is read.
+ */
+const A_BARE_SELLER_LABEL =
+  /^(?:sold|shipped|dispatched|fulfilled)\s+by\s*:?\s*$/i;
+
+/** Put a bare "Sold by:" back together with the seller underneath it. */
+export function foldBareSellerLabels(lines: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const here = lines[i];
+    const under = i + 1 < lines.length ? lines[i + 1] : null;
+    if (A_BARE_SELLER_LABEL.test(here) && under != null) {
+      out.push(`${here.replace(/\s*:?\s*$/, '')}: ${under}`);
+      i += 1;
+      continue;
+    }
+    out.push(here);
+  }
+  return out;
+}
+
+/**
  * THE SHOP'S OWN FURNITURE, WHICH CARRIES A PRICE AND IS NOT A PURCHASE.
  *
  * ── MEASURED, AND IT PUT SEVENTEEN THINGS ON AN ORDER OF TWO ──────────────
@@ -1018,10 +1094,12 @@ function moneyForOneLabel(
 export function parseOrderText(text: string | null | undefined): ParsedOrder {
   if (typeof text !== 'string' || text.trim() === '') return nothing();
 
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.replace(/\s+/g, ' ').trim())
-    .filter((l) => l !== '');
+  const lines = foldBareSellerLabels(
+    text
+      .split(/\r?\n/)
+      .map((l) => l.replace(/\s+/g, ' ').trim())
+      .filter((l) => l !== ''),
+  );
   if (lines.length === 0) return nothing();
 
   // WHERE THE PRODUCTS STOP. Everything from the bill heading down is the bill,
