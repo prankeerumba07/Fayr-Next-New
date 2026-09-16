@@ -403,6 +403,59 @@ describe('return-window policy', () => {
     expect(windowEnd(t)).toBe(T0 + 10 * DAY); // electronics = 10 days from delivery
     expect(windowEnd(fresh())).toBeNull(); // no delivery → no window
   });
+
+  /**
+   * THE SHOP'S OWN WORD ABOUT ITS OWN WINDOW.
+   *
+   * return-policy.ts says of itself that "no marketplace exposes a return-window
+   * end date, so this is the OPERATOR's policy table". True of six of the seven.
+   * Amazon prints it on the order page in words, and it is read now.
+   */
+  describe('and the date the shop’s own page stated', () => {
+    const withStatedWindow = (endsAt: number): EngineEvent => ({
+      type: 'EVIDENCE',
+      at: T0,
+      evidence: {
+        delivery: { at: T0, returnWindowEndsAt: endsAt, source: 'order-details' },
+      },
+    });
+
+    it('A LONGER ONE WINS, because it holds the money longer', () => {
+      const stated = T0 + 30 * DAY;
+      const t = drive(fresh(), [orderEvidence, withStatedWindow(stated)]);
+      expect(windowEnd(t)).toBe(stated);
+    });
+
+    it('A SHORTER ONE CHANGES NOTHING, and this is the one that matters', () => {
+      // THE WHOLE SAFETY PROPERTY OF THE FIELD. This number is text off a page,
+      // posted by a device nobody can attest. If the earlier of the two ever
+      // won, whatever sent it could SHORTEN its own hold — which is the one
+      // thing a claimant would want to do and the one thing the hold exists to
+      // prevent. It is also the operator's promise: the table is what the person
+      // was told when they claimed, and a shop printing a shorter window does
+      // not shorten what Fayr said it would wait.
+      const t = drive(fresh(), [orderEvidence, withStatedWindow(T0 + 2 * DAY)]);
+      expect(windowEnd(t)).toBe(T0 + 10 * DAY);
+    });
+
+    it('a window exactly equal to the table changes nothing either', () => {
+      const t = drive(fresh(), [orderEvidence, withStatedWindow(T0 + 10 * DAY)]);
+      expect(windowEnd(t)).toBe(T0 + 10 * DAY);
+    });
+
+    it('and a page that never said still gets the table, exactly as before', () => {
+      const t = drive(fresh(), [orderEvidence, deliveryEvidence]);
+      expect(t.delivery?.returnWindowEndsAt ?? null).toBeNull();
+      expect(windowEnd(t)).toBe(T0 + 10 * DAY);
+    });
+
+    it('nothing at all is claimed when there is no delivery to anchor to', () => {
+      // A stated window without a delivery is not a window. windowEnd is
+      // anchored to the delivery and stays null, so refundEligibility keeps
+      // saying "no delivery date, so the return window cannot be computed".
+      expect(windowEnd(fresh())).toBeNull();
+    });
+  });
 });
 
 describe('computeRefundPaise', () => {

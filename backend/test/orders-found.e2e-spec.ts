@@ -594,6 +594,268 @@ describe('The orders the phone found (e2e)', () => {
    * switchable off with everything green. The logger is spied on, so the lines
    * have to really be emitted.
    */
+  /**
+   * THE DELIVERY REACHING THE ENGINE, WHICH IS THE WHOLE CLAIM OF THE PRODUCT.
+   *
+   * "Fayr finds your purchase and confirms delivery by itself." Everything above
+   * this block reads the delivery off the page and writes it on a row. None of
+   * that moves a task, and a fact on a row that no gate reads is a fact nobody
+   * has. These are the checks that fail if the delivery is parsed and then goes
+   * nowhere.
+   */
+  describe('the delivery reaches the engine by itself', () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    /** A day the way a shop writes one: "5 Jun 2026". */
+    const written = (at: Date): string =>
+      `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]} ${at.getUTCFullYear()}`;
+    const daysFromNow = (n: number): Date => new Date(Date.now() + n * DAY_MS);
+
+    /**
+     * An Amazon order page, with the two lines this is all about.
+     *
+     * YESTERDAY AND NOT TODAY, on purpose. A day becomes an instant at NOON, so a
+     * delivery dated today is up to twelve hours in the future — and
+     * checkPlausibility refuses a delivery in the future with six hours of skew.
+     * Dating it today would pass in the afternoon and fail before lunch.
+     */
+    const orderPage = (
+      orderNumber: string,
+      opts: { delivered?: Date | null; windowCloses?: Date | null } = {},
+    ) => row([
+      'Order placed', written(daysFromNow(-1)),
+      `Order # ${orderNumber}`,
+      'Boldfit Strapless Sports Headband', '1 x ₹149',
+      'Order Summary', 'Order Total ₹149',
+      ...(opts.delivered === null ? [] : [`Delivered ${written(opts.delivered ?? daysFromNow(-1))}`]),
+      ...(opts.windowCloses == null
+        ? ['Return window closed']
+        : [`Return window closed on ${written(opts.windowCloses)}`]),
+    ]);
+
+    /**
+     * A claim old enough for yesterday's order to belong to it.
+     *
+     * The order window rule refuses an order the campaign cannot have caused, and
+     * an order placed yesterday against a claim made a second ago is exactly
+     * that. Both the task's and the campaign's own instants are moved, because
+     * the floor is the LATER of the two.
+     */
+    async function readyForYesterday() {
+      const made = await ready();
+      const twoDaysAgo = daysFromNow(-2);
+      await prisma.task.update({
+        where: { id: made.taskId }, data: { createdAt: twoDaysAgo },
+      });
+      await prisma.campaign.update({
+        where: { id: made.campaign.id }, data: { createdAt: twoDaysAgo },
+      });
+      return made;
+    }
+
+    const post = (token: string, taskId: string, pages: string[]) =>
+      request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages })
+        .expect(200);
+
+    const chooseIt = (token: string, taskId: string, id: string) =>
+      request(server())
+        .post(`/tasks/${taskId}/orders-found/${id}/mine`)
+        .set('Authorization', bearer(token))
+        .expect(200);
+
+    it('PARSED IS NOT ENOUGH: the shop’s own window date lands in the row', async () => {
+      const { token, taskId } = await readyForYesterday();
+      const closes = daysFromNow(30);
+      const res = await post(token, taskId, [
+        orderPage('408-5094957-4481129', { windowCloses: closes }),
+      ]);
+
+      // ON THE WIRE, as an instant and not a day — the END of the day it named,
+      // because a window that closed on the 19th closed at the end of the 19th.
+      expect(res.body[0].returnWindowEndsAt).not.toBeNull();
+      expect(String(res.body[0].returnWindowEndsAt).slice(0, 10))
+        .toBe(closes.toISOString().slice(0, 10));
+      expect(String(res.body[0].returnWindowEndsAt)).toContain('T23:59:59');
+
+      // AND IN THE ROW, which is what survives a restart. This is the assertion
+      // that fails if the date is read and then dropped on the way to the table.
+      const stored = await prisma.orderCandidate.findFirstOrThrow({ where: { taskId } });
+      expect(stored.returnWindowEndsAt).not.toBeNull();
+      expect(stored.returnWindowEndsAt?.toISOString().slice(0, 10))
+        .toBe(closes.toISOString().slice(0, 10));
+      expect(stored.deliveryDate).not.toBeNull();
+    });
+
+    it('SAYING "THAT IS MINE" ON A DELIVERED ORDER MOVES THE TASK TO DELIVERED', async () => {
+      const { token, taskId } = await readyForYesterday();
+      const found = await post(token, taskId, [
+        orderPage('408-5094957-4481129', { windowCloses: daysFromNow(30) }),
+      ]);
+      expect(found.body[0].matches).toBe(true);
+
+      const after = await chooseIt(token, taskId, found.body[0].id);
+      // THE STATE MOVED WITHOUT ANYBODY BEING ASKED ABOUT A DELIVERY.
+      expect(after.body.state).toBe('DELIVERED');
+
+      // AND THE PROMOTED COLUMNS CARRY IT. deliveredAt is what the page said,
+      // statedReturnWindowEndsAt is what the shop said about its own window, and
+      // windowEndsAt is the answer worked out from the two.
+      const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      expect(task.state).toBe('DELIVERED');
+      expect(task.deliveredAt).not.toBeNull();
+      expect(task.statedReturnWindowEndsAt).not.toBeNull();
+      expect(task.windowEndsAt).not.toBeNull();
+    });
+
+    it('THE WINDOW IS THE LATER OF THE TWO, so the shop can only lengthen a hold', async () => {
+      // The campaign is electronics, whose policy window is ten days. The page
+      // says thirty, so thirty wins.
+      const long = await readyForYesterday();
+      const closes = daysFromNow(30);
+      const foundLong = await post(long.token, long.taskId, [
+        orderPage('408-5094957-4481129', { windowCloses: closes }),
+      ]);
+      await chooseIt(long.token, long.taskId, foundLong.body[0].id);
+      const longTask = await prisma.task.findUniqueOrThrow({ where: { id: long.taskId } });
+      expect(longTask.windowEndsAt?.toISOString().slice(0, 10))
+        .toBe(closes.toISOString().slice(0, 10));
+
+      // AND A SHOP THAT SAYS A SHORTER ONE CHANGES NOTHING. Two days is well
+      // inside the ten the operator promised, and the operator's table is what
+      // the person was told when they claimed. This is the assertion that fails
+      // if windowEnd ever takes the earlier of the two, which is the one way a
+      // refund could go out before the window it was held for had run.
+      const short = await readyForYesterday();
+      const foundShort = await post(short.token, short.taskId, [
+        orderPage('408-5094957-4481129', { windowCloses: daysFromNow(2) }),
+      ]);
+      await chooseIt(short.token, short.taskId, foundShort.body[0].id);
+      const shortTask = await prisma.task.findUniqueOrThrow({ where: { id: short.taskId } });
+      const fromThePolicyTable =
+        (shortTask.deliveredAt as Date).getTime() + 10 * DAY_MS;
+      expect(shortTask.windowEndsAt?.getTime()).toBe(fromThePolicyTable);
+      // The shop's word is still written down — it was simply not the answer.
+      expect(shortTask.statedReturnWindowEndsAt).not.toBeNull();
+    });
+
+    it('A LATER LOOK CONFIRMS THE DELIVERY, WITH NOBODY ASKED ANYTHING', async () => {
+      // THE REAL SEQUENCE, and the reason any of this exists. A delivery happens
+      // DAYS after an order is confirmed, so the page states no delivery at the
+      // moment somebody says "that one is mine". Every later look used to reach
+      // the "one has already been chosen" line and stop, which meant the one read
+      // that matters most could never happen.
+      const { token, taskId } = await readyForYesterday();
+      const beforeItCame = await post(token, taskId, [
+        orderPage('408-5094957-4481129', { delivered: null }),
+      ]);
+      expect(beforeItCame.body[0].deliveryDate).toBeNull();
+
+      const afterChoosing = await chooseIt(token, taskId, beforeItCame.body[0].id);
+      expect(afterChoosing.body.state).toBe('PURCHASED');
+
+      // The delivery step runs the same read again. The page now says it came.
+      const closes = daysFromNow(30);
+      await post(token, taskId, [
+        orderPage('408-5094957-4481129', { windowCloses: closes }),
+      ]);
+
+      const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      expect(task.state).toBe('DELIVERED');
+      expect(task.deliveredAt).not.toBeNull();
+      expect(task.statedReturnWindowEndsAt?.toISOString().slice(0, 10))
+        .toBe(closes.toISOString().slice(0, 10));
+
+      // AND THE ROW WAS ADDED TO, NOT REPLACED. The chosen order is still the
+      // chosen order: same row, same id, still chosen.
+      const rows = await prisma.orderCandidate.findMany({ where: { taskId } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(beforeItCame.body[0].id);
+      expect(rows[0].chosenAt).not.toBeNull();
+      expect(rows[0].deliveryDate).not.toBeNull();
+    });
+
+    it('A LATER LOOK ADDS, AND NEVER REWRITES', async () => {
+      // The chosen row's identity is frozen; what the shop says about it
+      // afterwards is not. But a fact already on the row is a fact that may
+      // already have been acted on — a hold anchored to it, a person told when
+      // their refund is due — so a second read of the same page cannot move it.
+      const { token, taskId } = await readyForYesterday();
+      const firstWindow = daysFromNow(30);
+      const found = await post(token, taskId, [
+        orderPage('408-5094957-4481129', { windowCloses: firstWindow }),
+      ]);
+      await chooseIt(token, taskId, found.body[0].id);
+      const afterChoosing = await prisma.orderCandidate.findFirstOrThrow({
+        where: { taskId },
+      });
+
+      // The same order, read again, now claiming it arrived a day later and that
+      // the window runs a month longer.
+      await post(token, taskId, [
+        orderPage('408-5094957-4481129', {
+          delivered: daysFromNow(0), windowCloses: daysFromNow(60),
+        }),
+      ]);
+
+      const afterLooking = await prisma.orderCandidate.findFirstOrThrow({
+        where: { taskId },
+      });
+      expect(afterLooking.deliveryDate?.toISOString())
+        .toBe(afterChoosing.deliveryDate?.toISOString());
+      expect(afterLooking.returnWindowEndsAt?.toISOString())
+        .toBe(afterChoosing.returnWindowEndsAt?.toISOString());
+      const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      expect(task.statedReturnWindowEndsAt?.toISOString().slice(0, 10))
+        .toBe(firstWindow.toISOString().slice(0, 10));
+    });
+
+    it('and a later look at a DIFFERENT order adds nothing at all', async () => {
+      // The guard that keeps one purchase's delivery off another purchase. The
+      // second page is a real, delivered order — it is simply not this one.
+      const { token, taskId } = await readyForYesterday();
+      const found = await post(token, taskId, [
+        orderPage('408-5094957-4481129', { delivered: null }),
+      ]);
+      await chooseIt(token, taskId, found.body[0].id);
+
+      await post(token, taskId, [
+        orderPage('408-0000000-0000000', { windowCloses: daysFromNow(30) }),
+      ]);
+
+      const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      expect(task.state).toBe('PURCHASED');
+      expect(task.deliveredAt).toBeNull();
+      const rows = await prisma.orderCandidate.findMany({ where: { taskId } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].deliveryDate).toBeNull();
+    });
+
+    it('the columns are ADDITIVE, so no existing row or task was rewritten', async () => {
+      const whole = readFileSync(
+        resolve(
+          __dirname,
+          '../prisma/migrations/20260916130000_return_window_the_shop_stated/migration.sql',
+        ),
+        'utf8',
+      );
+      // COMMENTS STRIPPED FIRST, for the reason the block above records: the
+      // migration's own comment explains that it uses no default and no not-null,
+      // so a check over the whole text would read the explanation as the thing it
+      // forbids.
+      const sql = whole.replace(/--.*$/gm, '');
+      expect(sql).toContain('ADD COLUMN "returnWindowEndsAt"');
+      expect(sql).toContain('ADD COLUMN "statedReturnWindowEndsAt"');
+      expect(sql).not.toMatch(/NOT NULL/i);
+      expect(sql).not.toMatch(/DEFAULT/i);
+      expect(sql).not.toMatch(/\bDROP\b/i);
+      expect(sql).not.toMatch(/\bUPDATE\b/i);
+    });
+  });
+
   describe('it says out loud that a request arrived', () => {
     const AMAZON_ORDER_PAGE = [
       'Order placed', '2 June 2026',

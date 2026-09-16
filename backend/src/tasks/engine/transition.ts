@@ -437,7 +437,31 @@ export function windowEnd(
 ): number | null {
   if (!task.delivery || task.delivery.at == null) return null;
   const days = windowDaysFor(policy, task.category);
-  return task.delivery.at + days * DAY;
+  const fromThePolicyTable = task.delivery.at + days * DAY;
+
+  // ── AND THE SHOP'S OWN WORD, WHEN ITS PAGE STATED ONE ────────────────────
+  //
+  // return-policy.ts says of itself that "no marketplace exposes a return-window
+  // end date, so this is the OPERATOR's policy table". That is true of six of
+  // the seven. Amazon prints it on the order page in words — "Return window
+  // closed on 19 June 2026" — and it is read now.
+  //
+  // THE LATER OF THE TWO, ALWAYS, AND NEVER THE EARLIER. Two reasons, and either
+  // alone would be enough.
+  //
+  // THE FIRST IS WHERE THIS NUMBER COMES FROM. It is text off a page, posted by
+  // a device nobody can attest. Taking the earlier of the two would let whatever
+  // sent it SHORTEN its own hold, which is the one thing a claimant would want
+  // to do and the one thing the hold exists to prevent. Taking the later means
+  // the worst a forged value can do is hold somebody's own refund longer.
+  //
+  // THE SECOND IS THAT THE TABLE IS A FLOOR BY DESIGN. It is the operator's
+  // policy, maintained by hand, and it is what the person was told when they
+  // claimed. A shop that happens to print a shorter window does not shorten
+  // what Fayr promised to wait.
+  const theShopSaid = task.delivery.returnWindowEndsAt ?? null;
+  if (theShopSaid == null || !Number.isFinite(theShopSaid)) return fromThePolicyTable;
+  return theShopSaid > fromThePolicyTable ? theShopSaid : fromThePolicyTable;
 }
 
 /** Re-check cadence during HOLDING — the only thing between a deleted review and a paid refund. */

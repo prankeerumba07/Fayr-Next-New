@@ -140,6 +140,13 @@ export function toPromotedColumns(
     returned: task.returned,
     itemPaise: task.order?.itemPaise ?? null,
     deliveredAt: task.delivery ? new Date(task.delivery.at) : null,
+    // WHAT THE SHOP SAID, NOT WHAT THE HOLD IS. windowEndsAt below is the
+    // answer; this is one of the two inputs to it, promoted so "why is this one
+    // still held" can be answered from a column instead of from JSONB.
+    statedReturnWindowEndsAt:
+      task.delivery && task.delivery.returnWindowEndsAt != null
+        ? new Date(task.delivery.returnWindowEndsAt)
+        : null,
     reviewPublished: task.review?.published ?? null,
     windowEndsAt: w != null ? new Date(w) : null,
     blocker: task.blocker,

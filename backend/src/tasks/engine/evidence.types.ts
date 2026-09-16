@@ -277,6 +277,23 @@ export interface EvidenceOrder {
 export interface EvidenceDelivery {
   at: number; // epoch ms
   raw?: string | null;
+  /**
+   * THE INSTANT THE SHOP'S OWN PAGE SAID ITS RETURN WINDOW CLOSES, epoch ms, or
+   * absent when the page never said. Read off the order page in words — Amazon
+   * prints "Return window closed on 19 June 2026" — and it is the last instant
+   * of that day, because a window that closed on the 19th closed at the end of
+   * the 19th.
+   *
+   * CONSUMED BY EXACTLY ONE FUNCTION: windowEnd in transition.ts, which takes
+   * the LATER of this and the operator's policy table.
+   *
+   * LATER-ONLY IS THE WHOLE SAFETY PROPERTY, and it is what makes accepting this
+   * over the wire acceptable at all. This value arrives from a device nobody can
+   * attest. A client that sends a SMALLER number is ignored, because the policy
+   * table wins; a client that sends a LARGER one has lengthened its own hold.
+   * There is no value of this field that pays anybody sooner.
+   */
+  returnWindowEndsAt?: number | null;
   source: SourceName;
 }
 

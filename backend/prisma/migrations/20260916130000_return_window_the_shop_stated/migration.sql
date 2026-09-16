@@ -1,0 +1,29 @@
+-- THE DATE THE SHOP ITSELF SAID ITS RETURN WINDOW CLOSES.
+--
+-- engine/return-policy.ts says in writing that "no marketplace exposes a
+-- return-window end date, so this is the OPERATOR's policy table". That is true
+-- of six of the seven. Amazon prints it on the order page in plain words --
+-- "Return window closed on 19 June 2026", measured on the owner's own order,
+-- 15 September 2026 -- and nothing was reading it.
+--
+-- TWO COLUMNS, BECAUSE THEY ARE TWO DIFFERENT FACTS.
+--
+--   order_candidates."returnWindowEndsAt"  what one order's page said
+--   tasks."statedReturnWindowEndsAt"       what the task's own order page said
+--
+-- Neither is tasks."windowEndsAt", which already exists and is the ANSWER: the
+-- instant the hold is anchored to. These are an INPUT to it. windowEnd takes the
+-- LATER of this and the policy table, so a stated date can only ever lengthen a
+-- hold and never shorten one.
+--
+-- THE LAST INSTANT OF THE DAY, not its middle. A window that closed on the 19th
+-- closed at the end of the 19th, and storing midday would release a refund
+-- twelve hours early.
+--
+-- ADDITIVE, NULLABLE, NO DEFAULT -- all three on purpose, exactly as the
+-- delivery columns beside them were. Every row written before today was written
+-- without this, and a default would put an answer into rows nobody ever read.
+-- NULL means "the page did not say, or said it without a year", which is what is
+-- true of every existing row.
+ALTER TABLE "order_candidates" ADD COLUMN "returnWindowEndsAt" TIMESTAMP(3);
+ALTER TABLE "tasks" ADD COLUMN "statedReturnWindowEndsAt" TIMESTAMP(3);

@@ -322,7 +322,7 @@ model Task {
   /// The marketplace order number. Promoted out of `evidence` so ONE real
   /// purchase cannot be paid out on several campaigns unseen: the refund gate
   /// looks for a sibling task on the same (platform, orderId).
-  orderId                String?
+  orderId                  String?
   /// WHICH LINE of that order — the ASIN, Flipkart pid, Meesho sub-order id or
   /// Instamart variant id, whichever the marketplace itself stated. Promoted for
   /// the same reason as orderId: the gate reads an index, not JSONB.
@@ -331,17 +331,33 @@ model Task {
   /// number may both pay only when BOTH name a line and the lines differ;
   /// anything else goes to a human. Zepto and Blinkit are permanently null here
   /// because their only candidate identifier is a row number.
-  itemId                 String?
+  itemId                   String?
   /// Staff answer to a held (platform, orderId) collision: this really is a
   /// separate item in one basket, pay it. Set only by a SUPPORT/ADMIN override,
   /// audited, and read only by the refund gate.
-  duplicateOrderApproved Boolean   @default(false)
-  returned               Boolean? // TRI-STATE: null = unknown, which the refund gate treats differently from false
-  itemPaise              BigInt? // the VERIFIED refundable item price (never the order total)
-  deliveredAt            DateTime?
-  reviewPublished        Boolean?
-  windowEndsAt           DateTime? // delivery + return window; anchors the hold AND the 1.6 scheduler
-  claimExpiresAt         DateTime? // deadline to purchase; past it with no purchase -> tickets returned
+  duplicateOrderApproved   Boolean   @default(false)
+  returned                 Boolean? // TRI-STATE: null = unknown, which the refund gate treats differently from false
+  itemPaise                BigInt? // the VERIFIED refundable item price (never the order total)
+  deliveredAt              DateTime?
+  /// WHAT THE SHOP ITSELF SAID ITS RETURN WINDOW CLOSES, at the last instant of
+  /// that day, or null when its page never said.
+  ///
+  /// NOT the same column as windowEndsAt below it, and the two must not be
+  /// confused. windowEndsAt is the ANSWER — what the hold is actually anchored
+  /// to. This is one of the two INPUTS to it: the shop's own statement, read off
+  /// the order page in words ("Return window closed on 19 June 2026"). The other
+  /// input is the operator's policy table in engine/return-policy.ts, which
+  /// still says of itself that no marketplace exposes this date — true for six
+  /// of the seven, and not for Amazon.
+  ///
+  /// windowEnd takes the LATER of the two, so this can only ever lengthen a
+  /// hold. Promoted out of the evidence JSONB for the same reason as the columns
+  /// around it: so a person asking "why is this one still held" can be answered
+  /// from an index rather than by digging.
+  statedReturnWindowEndsAt DateTime?
+  reviewPublished          Boolean?
+  windowEndsAt             DateTime? // delivery + return window; anchors the hold AND the 1.6 scheduler
+  claimExpiresAt           DateTime? // deadline to purchase; past it with no purchase -> tickets returned
 
   /// THEY TAPPED BUY AND WENT TO THE SHOP. The moment our side recorded it.
   ///
@@ -506,8 +522,8 @@ model OrderCandidate {
 
   source OrderCandidateSource @default(ORDER_LIST)
 
-  orderNumber String?
-  orderDate   DateTime?
+  orderNumber        String?
+  orderDate          DateTime?
   /// THE DAY IT ARRIVED, which is not the day it was placed.
   ///
   /// Both are printed on an order's own page and both are kept. Reading one as
@@ -515,20 +531,29 @@ model OrderCandidate {
   /// up. NULL when the page did not say, and null also when it said it without a
   /// year — "Delivered 5 June" is not a date, and filling the year in from today
   /// would be an invention. Additive and nullable: no existing row is rewritten.
-  deliveryDate DateTime?
+  deliveryDate       DateTime?
+  /// THE DAY THE SHOP'S OWN RETURN WINDOW CLOSES, as its last instant.
+  ///
+  /// Measured in words on the owner's own Amazon order page, 15 September 2026:
+  /// "Return window closed on 19 June 2026". WITH a year, unlike the delivery
+  /// line above it — and this one is never inferred, because refusing it costs
+  /// nothing while the policy table still computes a window. The END of the day
+  /// and not its middle: a window that closed on the 19th closed at the end of
+  /// the 19th. Additive and nullable: no existing row is rewritten.
+  returnWindowEndsAt DateTime?
   /// WHETHER IT WAS SENT BACK, as the page said it. TRI-STATE and no default:
   /// true is a completed return, false is a page that discusses returns and
   /// states none, null is a page that said nothing about one. "We did not look"
   /// and "we looked and it was not" are different facts wherever a refund is
   /// decided — the same reason tasks.returned is tri-state.
-  returned    Boolean?
+  returned           Boolean?
   /// What was charged for the whole order. Integer paise, never a float.
-  totalPaise  BigInt?
+  totalPaise         BigInt?
   /// Every product read off it: [{ name, pricePaise }]. pricePaise is a STRING of
   /// paise, because JSON has no place for a whole number this size.
-  items       Json
+  items              Json
   /// How many shipments the order was split into. One order can hold several.
-  shipments   Int       @default(0)
+  shipments          Int       @default(0)
 
   /// THE SERVER'S OWN ANSWER, never the phone's.
   matches Boolean

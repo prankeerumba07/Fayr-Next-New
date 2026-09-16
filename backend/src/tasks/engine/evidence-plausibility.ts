@@ -98,6 +98,21 @@ export function checkPlausibility(
   if (reviewDate != null && reviewDate > future) {
     rejections.push('review-date-in-future');
   }
+  // A STATED RETURN WINDOW THAT IS NOT A RETURN WINDOW.
+  //
+  // This is NOT a money guard, and saying so matters: windowEnd takes the LATER
+  // of this and the policy table, so no value of it can pay anybody sooner. What
+  // it guards against is a task nobody can ever release and a queue nobody can
+  // ever clear — a hold anchored to a date years out because a page was read
+  // wrong. A year past the delivery is longer than any marketplace's window,
+  // generously, and a real one is measured in days.
+  const statedWindowEnd = evidence.delivery?.returnWindowEndsAt ?? null;
+  if (
+    statedWindowEnd != null && deliveryAt != null
+    && statedWindowEnd > deliveryAt + 365 * DAY
+  ) {
+    rejections.push('return-window-implausibly-long');
+  }
   if (orderDate != null && reviewDate != null && reviewDate < orderDate - SKEW_MS) {
     // ANTI-REPLAY: a review that predates the order is a review of something
     // else, or a review recycled from an older purchase.

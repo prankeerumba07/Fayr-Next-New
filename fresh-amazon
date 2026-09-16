@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# ONE COMMAND TO PUT THE AMAZON WALKTHROUGH BACK AT THE VERY START.
+#
+#   bash fresh-amazon
+#
+# WHY THIS EXISTS. ./reset-amazon-campaigns refuses any claim with "money
+# against it", and it counts prices READ OFF AMAZON'S PAGE as money. So the
+# moment the order read succeeds, the claim is locked and can never be reset.
+# This removes the row anyway — but ONLY when no real money moved.
+#
+# WHAT IT WILL NOT TOUCH. Any claim with a ledger movement, wallet entry or
+# withdrawal against it is left exactly where it is. That refusal is the money
+# rule and it does not weaken here.
+#
+# IT DOES NOT RESTART ANYTHING, on purpose. ./start re-seeds the practice data
+# every launch, and the seed creates a fresh Amazon claim. Restarting to reset
+# is what puts the row back. Leave ./start running and use this instead.
+
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
+
+DB=(docker exec -i fayr-postgres psql -U fayr -d fayr_dev)
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+bad()  { printf '  \033[31m%s\033[0m\n' "$1"; }
+
+if ! docker exec fayr-postgres pg_isready -U fayr -d fayr_dev >/dev/null 2>&1; then
+  bad "The database is not answering. Start everything first with ./start"
+  exit 1
+fi
+
+bold ""
+bold "BEFORE — every Amazon claim on this database"
+"${DB[@]}" <<'SQL'
+SELECT c.title AS offer, t.state, t."orderId", t."itemPaise",
+       t."wentToShopAt" IS NOT NULL AS went_to_shop,
+       t."deliveredAt", t."closedAt",
+       EXISTS (SELECT 1 FROM ledger_transactions l
+               WHERE l."referenceType" = 'task'
+                 AND l."referenceId" = t.id::text) AS real_money
+FROM tasks t JOIN campaigns c ON c.id = t."campaignId"
+WHERE c.platform = 'AMAZON'
+ORDER BY t."createdAt";
+SQL
+
+bold ""
+bold "REMOVING the ones with no real money against them"
+"${DB[@]}" <<'SQL'
+DELETE FROM tasks AS t
+USING campaigns AS c
+WHERE c.id = t."campaignId"
+  AND c.platform = 'AMAZON'
+  AND NOT EXISTS (
+    SELECT 1 FROM ledger_transactions l
+    WHERE l."referenceType" = 'task' AND l."referenceId" = t.id::text
+  );
+SQL
+
+bold ""
+bold "AFTER — what is left"
+"${DB[@]}" <<'SQL'
+SELECT c.title AS offer, t.state
+FROM tasks t JOIN campaigns c ON c.id = t."campaignId"
+WHERE c.platform = 'AMAZON'
+ORDER BY t."createdAt";
+SQL
+
+bold ""
+bold "Now reload the app: press  r  in the window running ./start."
+echo "  Do NOT stop and re-run ./start — its step 4 re-seeds a fresh claim."
+echo "  Every Amazon offer should now read as claimable from the very start."

@@ -40,6 +40,56 @@ describe('checkPlausibility', () => {
     expect(r.rejections).toContain('delivery-date-implausibly-old');
   });
 
+  /**
+   * THE DATE THE SHOP SAID ITS OWN RETURN WINDOW CLOSES.
+   *
+   * NOT A MONEY GUARD, and saying so is the point of this block. windowEnd takes
+   * the LATER of this and the operator's policy table, so no value of it pays
+   * anybody sooner. What is guarded against is a task nobody can ever release: a
+   * hold anchored to a date years out because a page was read wrong.
+   */
+  describe('a stated return window that is not a return window', () => {
+    it('accepts a real one, which is measured in days', () => {
+      const r = checkPlausibility(
+        ev({
+          delivery: {
+            at: NOW - 7 * DAY,
+            returnWindowEndsAt: NOW + 23 * DAY,
+            source: SOURCES.ORDER_HISTORY,
+          },
+        }),
+        CAMPAIGN,
+        NOW,
+      );
+      expect(r.rejections).not.toContain('return-window-implausibly-long');
+    });
+
+    it('REFUSES ONE A YEAR PAST THE DELIVERY, which no marketplace has', () => {
+      const r = checkPlausibility(
+        ev({
+          delivery: {
+            at: NOW - 7 * DAY,
+            returnWindowEndsAt: NOW - 7 * DAY + 400 * DAY,
+            source: SOURCES.ORDER_HISTORY,
+          },
+        }),
+        CAMPAIGN,
+        NOW,
+      );
+      expect(r.ok).toBe(false);
+      expect(r.rejections).toContain('return-window-implausibly-long');
+    });
+
+    it('and a page that never stated one is not refused for it', () => {
+      const r = checkPlausibility(
+        ev({ delivery: { at: NOW - 7 * DAY, source: SOURCES.ORDER_HISTORY } }),
+        CAMPAIGN,
+        NOW,
+      );
+      expect(r.rejections).not.toContain('return-window-implausibly-long');
+    });
+  });
+
   it('rejects future dates for order, delivery and review', () => {
     const r = checkPlausibility(
       ev({

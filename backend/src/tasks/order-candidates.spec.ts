@@ -270,3 +270,62 @@ describe('what date to put on the evidence when all we read was a day', () => {
     expect(dayAsWritten(new Date(NaN))).toBeNull();
   });
 });
+
+/**
+ * THE TWO DATES AN ORDER PAGE STATES, CARRIED IN TWO DIFFERENT SHAPES.
+ *
+ * They look interchangeable and are not, and the difference is money. A date
+ * being COMPARED wants the middle of its day, so no time zone can move it across
+ * a boundary. A date something EXPIRES at wants the end of it: a window that
+ * "closed on 19 June" closed at the end of the 19th, and reading it as midday
+ * would release a refund twelve hours early.
+ */
+describe('the delivery and the return window, out of the page and onto the row', () => {
+  const AMAZON = row([
+    'Order placed', '2 June 2026',
+    'Order # 408-5094957-4481129',
+    'Boldfit Strapless Sports Headband', '1 x ₹149',
+    'Order Summary', 'Order Total ₹149',
+    'Delivered 5 June 2026',
+    'Return window closed on 19 June 2026',
+  ]);
+  const CAMPAIGN = {
+    productName: 'Boldfit Strapless Sports Headband',
+    productPricePaise: 14900n,
+  };
+
+  it('the delivery lands at NOON, so no time zone can move the day', () => {
+    const [judged] = judgeFoundOrders([AMAZON], CAMPAIGN);
+    expect(judged.deliveryDate?.toISOString()).toBe('2026-06-05T12:00:00.000Z');
+  });
+
+  it('the return window lands at the LAST INSTANT of the day it named', () => {
+    // THE ASSERTION THAT FAILS IF IT IS BUILT THE SAME WAY AS THE DATE ABOVE IT.
+    // Noon here is a refund released twelve hours before the window it was held
+    // for had run.
+    const [judged] = judgeFoundOrders([AMAZON], CAMPAIGN);
+    expect(judged.returnWindowEndsAt?.toISOString())
+      .toBe('2026-06-19T23:59:59.999Z');
+  });
+
+  it('and both are null on a page that said neither', () => {
+    const [judged] = judgeFoundOrders([HEADBAND_ROW], CAMPAIGN);
+    expect(judged.deliveryDate).toBeNull();
+    expect(judged.returnWindowEndsAt).toBeNull();
+  });
+
+  it('a page that states a delivery but no window keeps the delivery', () => {
+    // The two are separate facts and neither waits on the other. Amazon prints
+    // the window date with a year and the delivery date without one, so a page
+    // stating only one of them is the ordinary case rather than a broken read.
+    const [judged] = judgeFoundOrders([row([
+      'Order placed', '2 June 2026',
+      'Order # 408-5094957-4481129',
+      'Boldfit Strapless Sports Headband', '1 x ₹149',
+      'Order Summary', 'Order Total ₹149',
+      'Delivered 5 June 2026',
+    ])], CAMPAIGN);
+    expect(judged.deliveryDate).not.toBeNull();
+    expect(judged.returnWindowEndsAt).toBeNull();
+  });
+});

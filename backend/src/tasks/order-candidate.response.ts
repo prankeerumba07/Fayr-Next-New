@@ -32,6 +32,15 @@ export interface OrderCandidateResponse {
    * without a year, which Amazon's own page does.
    */
   deliveryDate: string | null;
+  /**
+   * THE INSTANT THE SHOP SAID ITS OWN RETURN WINDOW CLOSES, or null.
+   *
+   * AN INSTANT AND NOT A DAY, unlike the two dates above it, and deliberately
+   * so: it is a deadline and the end of the day is part of it. Writing it
+   * through the same day() converter would print "2026-06-19" and lose the fact
+   * that the window runs to the END of the 19th.
+   */
+  returnWindowEndsAt: string | null;
   /** TRI-STATE as the page said it: true, false, or null for "it did not say". */
   returned: boolean | null;
   totalPaise: string | null;
@@ -90,6 +99,10 @@ export function toOrderCandidateResponse(
     // THE SAME DAY CONVERTER as the order date. Two dates written two ways is
     // how one of them ends up a day out.
     deliveryDate: day(row.deliveryDate),
+    // AND NOT THROUGH day(). See the field's own comment: the time of day is the
+    // point of this one.
+    returnWindowEndsAt:
+      row.returnWindowEndsAt ? row.returnWindowEndsAt.toISOString() : null,
     returned: row.returned,
     totalPaise: row.totalPaise == null ? null : String(row.totalPaise),
     // FILLED IN BY THE CALLER THAT KNOWS THE CAMPAIGN. This function is handed a

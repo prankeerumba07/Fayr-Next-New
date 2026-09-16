@@ -158,6 +158,12 @@ class EvidenceOrderDto {
 class EvidenceDeliveryDto {
   @IsInt() at!: number; // epoch ms
   @IsOptional() @IsString() raw?: string;
+  /**
+   * See EvidenceDelivery.returnWindowEndsAt. Accepted from the wire because it
+   * can only ever LENGTHEN a hold: windowEnd takes the later of this and the
+   * operator's policy table, so there is no value of it that pays sooner.
+   */
+  @IsOptional() @IsInt() returnWindowEndsAt?: number;
   @IsIn(SOURCE_VALUES) source!: string;
 }
 
@@ -265,6 +271,7 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
       ? {
           at: dto.delivery.at,
           raw: dto.delivery.raw ?? null,
+          returnWindowEndsAt: dto.delivery.returnWindowEndsAt ?? null,
           source: dto.delivery.source as SourceName,
         }
       : null,

@@ -60,11 +60,27 @@ export interface JudgedOrder {
    *
    * It was being dropped: the order page states it, the reader read it, and
    * there was nowhere on this shape to put it, so it went no further than the
-   * parser. It is carried now — read, written down and shown to staff — and it
-   * is NOT yet fed into the evidence funnel, which is what would move a task to
-   * delivered. That is a state change and nobody asked for one.
+   * parser. It is carried now — read, written down, shown to staff, AND fed into
+   * the evidence funnel, which is what moves a task to DELIVERED. That last part
+   * was deliberately left undone when this field was added, because it is a
+   * state change; it has been asked for since, and the whole point of the
+   * product is that a delivery is read rather than tapped.
    */
   deliveryDate: Date | null;
+  /**
+   * THE LAST INSTANT OF THE DAY THE SHOP SAID ITS OWN RETURN WINDOW CLOSES, or
+   * null when the page did not say, or said it without a year.
+   *
+   * THE END OF THE DAY AND NOT NOON, which is the one thing here that is not
+   * obvious and is the difference between holding money and paying it out.
+   * dayToDate puts an order date at noon so no time zone can move it, and that
+   * is right for a date being COMPARED. This one is a DEADLINE: a window that
+   * "closed on 19 June" closed at the END of 19 June, and reading it as midday
+   * would release a refund twelve hours early. The end of the day in UTC is
+   * later than the end of the same day in India, so what error remains is in the
+   * direction that holds.
+   */
+  returnWindowEndsAt: Date | null;
   /** TRI-STATE, exactly as the page said it. See ParsedOrder.returned. */
   returned: boolean | null;
   shipments: number;
@@ -85,6 +101,23 @@ function dayToDate(day: string | null): Date | null {
   const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
   if (!parts) return null;
   const ms = Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), 12);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+/**
+ * A DAY'S LAST INSTANT, FOR A DEADLINE. See JudgedOrder.returnWindowEndsAt.
+ *
+ * Deliberately NOT dayToDate above. The two look interchangeable and are not: a
+ * date being compared wants the middle of its day, a date something expires at
+ * wants the end of it.
+ */
+function dayToEndOfDay(day: string | null): Date | null {
+  if (day == null) return null;
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!parts) return null;
+  const ms = Date.UTC(
+    Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), 23, 59, 59, 999,
+  );
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
 
@@ -156,6 +189,9 @@ export function judgeFoundOrders(
       // Through the SAME day-to-date converter as the order date, so the two
       // cannot end up on different sides of a time zone.
       deliveryDate: dayToDate(parsed.deliveryDate),
+      // AND THROUGH A DIFFERENT ONE, on purpose. See dayToEndOfDay: this is a
+      // deadline, not a date being compared.
+      returnWindowEndsAt: dayToEndOfDay(parsed.returnWindowEndsDate),
       returned: parsed.returned,
       shipments: parsed.shipments,
       items: parsed.items,

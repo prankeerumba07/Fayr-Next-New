@@ -82,6 +82,38 @@ function theCampaignsOwnProduct(
   };
 }
 
+/**
+ * THE DELIVERY, AS THE EVIDENCE FUNNEL WANTS IT, OR NOTHING AT ALL.
+ *
+ * Spread into a DTO — `...theDeliveryFragment(row)` — so "the page did not say"
+ * is an ABSENT field rather than a null one. The two are not the same to the
+ * engine: absent leaves whatever is already known alone, and a null would be a
+ * statement that there is no delivery.
+ *
+ * ONE BUILDER FOR BOTH CALLERS, and that is the point of it existing. Choosing
+ * an order and looking again later both have to put the same facts in the same
+ * shape, and two copies of that shape would eventually be two different shapes.
+ */
+function theDeliveryFragment(
+  row: { deliveryDate: Date | null; returnWindowEndsAt: Date | null },
+): { delivery?: { at: number; raw?: string; returnWindowEndsAt?: number; source: string } } {
+  if (row.deliveryDate == null) return {};
+  const raw = dayAsWritten(row.deliveryDate);
+  return {
+    delivery: {
+      at: row.deliveryDate.getTime(),
+      ...(raw == null ? {} : { raw }),
+      // THE DATE THE PAYOUT WAITS FOR, when the page stated one. windowEnd takes
+      // the LATER of this and the operator's policy table, so it can only ever
+      // lengthen a hold — which is also what makes carrying it safe.
+      ...(row.returnWindowEndsAt == null
+        ? {}
+        : { returnWindowEndsAt: row.returnWindowEndsAt.getTime() }),
+      source: SOURCES.ORDER_HISTORY,
+    },
+  };
+}
+
 @Injectable()
 export class OrderCandidatesService {
   /**
@@ -126,9 +158,29 @@ export class OrderCandidatesService {
    * person may have bought the product since — and two looks' worth of orders
    * side by side would show the same order twice.
    *
-   * ONCE ONE HAS BEEN CHOSEN, LOOKING AGAIN IS REFUSED. The task already has its
+   * ONCE ONE HAS BEEN CHOSEN, THE LIST IS NOT REPLACED. The task already has its
    * order and is past this question; replacing the list would delete the row that
    * says which order somebody said was theirs.
+   *
+   * ── BUT THE LOOK IS NO LONGER THROWN AWAY, AND THAT IS THE DELIVERY ──────
+   *
+   * It used to return here and do nothing else, which meant the one read that
+   * matters most could never happen. A delivery arrives DAYS after the order is
+   * confirmed, so at the moment somebody says "that one is mine" the page very
+   * often does not state a delivery yet. Every later look — which is exactly
+   * what the delivery step runs — came back to this line and stopped.
+   *
+   * So a later look may now add to the chosen order, and only add:
+   *
+   *   THE ORDER NUMBERS MUST MATCH. The fresh page is matched to the chosen row
+   *     by the shop's own order number, exactly. A chosen row with no order
+   *     number takes nothing, because there is no way to be sure it is the same
+   *     purchase and guessing here would attach one order's delivery to another.
+   *   ONLY NULLS ARE FILLED. A fact already on the row is never rewritten, so a
+   *     later read cannot move a delivery date that has already been acted on.
+   *   NOTHING ELSE IS TOUCHED. Not the position, not the items, not the price,
+   *     not matches, not chosenAt. The row's identity is frozen; what the shop
+   *     says about it afterwards is not.
    */
   async record(
     userId: string,
@@ -140,7 +192,10 @@ export class OrderCandidatesService {
     const already = await this.prisma.orderCandidate.findFirst({
       where: { taskId, chosenAt: { not: null } },
     });
-    if (already) return this.list(userId, taskId);
+    if (already) {
+      await this.deliveryFromALaterLook(userId, task, already, pages);
+      return this.list(userId, taskId);
+    }
 
     this.log.log(
       `orders-found task=${taskId} pages=${pages.length} `
@@ -170,6 +225,7 @@ export class OrderCandidatesService {
           orderDate: j.orderDate,
           totalPaise: j.totalPaise,
           deliveryDate: j.deliveryDate,
+          returnWindowEndsAt: j.returnWindowEndsAt,
           returned: j.returned,
           items: itemsToJson(j.items),
           shipments: j.shipments,
@@ -296,6 +352,32 @@ export class OrderCandidatesService {
           : {}),
         source: SOURCES.ORDER_HISTORY,
       },
+      // ── AND THE DELIVERY, WHICH THE SAME PAGE STATED ────────────────────
+      //
+      // It was read, written down, and then stopped: the parser produced it, the
+      // row kept it, and nothing ever handed it to the engine. So a task that
+      // found its order this way reached PURCHASED and sat there while the very
+      // page it was read from said when the thing arrived.
+      //
+      // SOURCE IS ORDER_HISTORY, which is what the order beside it carries and
+      // what the page actually is. preferByAuthority will then let it stand
+      // against a later screenshot, which is right: a marketplace's own order
+      // page is a stronger statement about a delivery date than a photograph of
+      // one.
+      //
+      // NULL STAYS ABSENT. An order whose page never printed a delivery date —
+      // or printed it with no year and no order date to borrow one from — sends
+      // no delivery fragment at all, and the task waits exactly as it does
+      // today until a later look finds one. See deliveryFromALaterLook.
+      ...theDeliveryFragment(row),
+      // ── AND WHETHER IT WENT BACK ────────────────────────────────────────
+      //
+      // Without this the refund gate can never pass on this path at all:
+      // task.returned stays null and refundEligibility pushes "return status
+      // unknown (no readable order data)" for ever. The page said it — a page
+      // that discusses a return window has told us there was no return — and the
+      // tri-state is preserved, so a page that said nothing still sends nothing.
+      ...(row.returned == null ? {} : { returned: row.returned }),
     };
 
     const after = await this.tasks.submitEvidence(userId, taskId, dto);
@@ -316,6 +398,102 @@ export class OrderCandidatesService {
       return await this.tasks.confirmOrder(userId, taskId);
     } catch {
       return after;
+    }
+  }
+
+  /**
+   * A LATER LOOK AT AN ORDER SOMEBODY HAS ALREADY SAID IS THEIRS.
+   *
+   * This is the whole of "Fayr confirms the delivery by itself". Nobody is asked
+   * anything: the delivery step re-runs the same read of the same order page,
+   * and if the shop's page now says the thing arrived, that goes into the same
+   * evidence funnel every other fact goes into, and transition() moves the task
+   * to DELIVERED on its own.
+   *
+   * WHAT IT WILL NOT DO, and each of these is a way it could have gone wrong:
+   *
+   *   IT WILL NOT MATCH ON ANYTHING BUT THE ORDER NUMBER. Not position, not
+   *     price, not the product. Position is the shop's, and the shop reorders
+   *     its own list; a price matches a dozen orders. Attaching one order's
+   *     delivery date to another is how a refund gets released against a window
+   *     that never ran.
+   *   IT WILL NOT REWRITE A FACT. Only a null on the row is filled. A delivery
+   *     date already acted on cannot be moved by a later read of the same page.
+   *   IT WILL NOT INVENT A RETURN WINDOW. The window date rides along only when
+   *     the page stated one in full, and windowEnd takes the later of it and the
+   *     operator's table, so it can only lengthen a hold.
+   *   IT WILL NOT THROW INTO THE LOOK. The phone is posting pages in a loop with
+   *     a twenty second ceiling on it, and a refused fragment — an order window,
+   *     a plausibility rejection — is a normal answer, not a reason to fail the
+   *     whole request. It is logged and the look carries on.
+   */
+  private async deliveryFromALaterLook(
+    userId: string,
+    task: { id: string; campaign: { productName: string; productPricePaise: bigint } },
+    chosen: {
+      id: string;
+      orderNumber: string | null;
+      deliveryDate: Date | null;
+      returnWindowEndsAt: Date | null;
+      returned: boolean | null;
+    },
+    pages: string[],
+  ): Promise<void> {
+    // NO ORDER NUMBER IS NO MATCH. Said first because it is the guard that keeps
+    // one purchase's delivery off another purchase.
+    if (chosen.orderNumber == null || chosen.orderNumber === '') return;
+
+    const judged = judgeFoundOrders(pages, {
+      productName: task.campaign.productName,
+      productPricePaise: task.campaign.productPricePaise,
+    });
+    const fresh = judged.find((j) => j.orderNumber === chosen.orderNumber) ?? null;
+    if (fresh == null) return;
+    if (fresh.deliveryDate == null && chosen.deliveryDate == null) return;
+
+    // ONLY THE NULLS. What is already on the row is what the row keeps.
+    const deliveryDate = chosen.deliveryDate ?? fresh.deliveryDate;
+    const returnWindowEndsAt = chosen.returnWindowEndsAt ?? fresh.returnWindowEndsAt;
+    const returned = chosen.returned ?? fresh.returned;
+    if (deliveryDate == null) return;
+
+    if (
+      chosen.deliveryDate == null
+      || chosen.returnWindowEndsAt == null
+      || chosen.returned == null
+    ) {
+      await this.prisma.orderCandidate.update({
+        where: { id: chosen.id },
+        data: { deliveryDate, returnWindowEndsAt, returned },
+      });
+    }
+
+    this.log.log(
+      `orders-found task=${task.id} later-look delivery=yes `
+      + `window=${returnWindowEndsAt == null ? 'none' : 'stated'} `
+      + `returned=${returned == null ? 'unknown' : String(returned)}`,
+    );
+
+    const dto: SubmitEvidenceDto = {
+      // A KEY OF ITS OWN, AND ONE THAT DOES NOT MOVE. It is not the key the
+      // order went in under — those are two different facts and both must apply
+      // — and it carries the day, so re-posting the same delivery on the next
+      // page of the same look collapses to one event instead of a run of them.
+      key: `delivery:${chosen.id}:${dayAsWritten(deliveryDate) ?? 'na'}`,
+      ...theDeliveryFragment({ deliveryDate, returnWindowEndsAt }),
+      ...(returned == null ? {} : { returned }),
+    };
+
+    try {
+      await this.tasks.submitEvidence(userId, task.id, dto);
+    } catch (e) {
+      // A REFUSAL IS AN ANSWER, NOT A FAILURE OF THE LOOK. The phone is mid-read
+      // with a ceiling running; failing its request would cost the pages it has
+      // not posted yet, to say nothing new.
+      this.log.warn(
+        `orders-found task=${task.id} later-look delivery refused: `
+        + `${e instanceof Error ? e.message : 'unknown'}`,
+      );
     }
   }
 }
