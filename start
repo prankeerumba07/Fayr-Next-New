@@ -314,5 +314,24 @@ note "The square pattern appears below. Leave this window open."
 printf '\n'
 # In the foreground on purpose: Control-C then stops everything, which is the
 # one thing somebody will definitely try.
-cd "$HERE" && npx expo start --clear
+#
+# ── AND EVERY LINE IT PRINTS IS KEPT, WHICH IT WAS NOT ─────────────────────
+#
+# The app's own running commentary — src/order/lookLog.js, every line beginning
+# [fayr-look] — comes out HERE and nowhere else. It is the only place that says
+# which page a read landed on, whether the shop ever drew it, and how many things
+# were found on it.
+#
+# It was not written down anywhere. So every time a read came back empty on 16
+# September 2026 the answer was already on this screen and gone, and the only way
+# to see it was to ask the owner to scroll up and copy it — four or five times in
+# one evening, each one a round trip that cost more than the bug did.
+#
+# `script` and not a pipe: expo needs a terminal to take `r` and `j` from, and
+# `... | tee` takes that away. This keeps the window exactly as interactive as it
+# was and writes a copy of everything to .local-logs/run.log.
+#
+# -q is quiet (no "Script started" banner). BSD script — which is what macOS has
+# — takes the file first and the command after it, with no -c.
+cd "$HERE" && script -q "$LOGS/run.log" npx expo start --clear
 stop_everything

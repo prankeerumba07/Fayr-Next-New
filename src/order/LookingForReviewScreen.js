@@ -39,7 +39,7 @@ import {
 } from './detailLook.js';
 import {
   LEAST_A_DRAW_CAN_TAKE_MS, anAnswerTag, answerWithStatus, isOurAnswer,
-  openOneReviewWith, openTheReviewsWith, readDetailStep, readListStep,
+  drawFacts, openOneReviewWith, openTheReviewsWith, readDetailStep, readListStep,
 } from './drawnList.js';
 import { restoreSession } from '../session';
 import { logLook } from './lookLog.js';
@@ -201,9 +201,30 @@ export default function LookingForReviewScreen({ navigation, route }) {
       // COUNTS ONLY, NEVER A REVIEW'S NAME AND NEVER ITS WORDS. A review id is
       // an identifier tied to the account and the words are what somebody wrote
       // under their own name; a count is what the question needs.
+      // ── AND WHETHER THE SHOP EVER DREW THE LIST, WHICH THIS DID NOT SAY ────
+      //
+      // The order read's own line has carried these since the day the list moved
+      // to being drawn, and this one never did — so a review read that came back
+      // with nothing had exactly one number to explain it, `found=0`, and that
+      // number is the same whether the page was a sign-in wall, a page that never
+      // finished drawing, or a page with genuinely no reviews on it.
+      //
+      // Three different problems, three different fixes, one silence. It cost
+      // the owner four rounds of pasting his own terminal at me on 16 September
+      // 2026, and the answer was on his screen every time.
+      //
+      // COUNTS AND STATUS WORDS ONLY, as everywhere else: `bytes` is the page's
+      // length and never the page, and a review id is never logged.
+      const drewIt = drawFacts(answer);
       logLook('reviews', `status=${answer && answer.status} `
         + `bytes=${html.length} looked=${outcome.looked} `
-        + `whyNot=${outcome.whyNot} found=${ids.length}`);
+        + `whyNot=${outcome.whyNot} wantsSignIn=${outcome.wantsSignIn} `
+        + `landed=${outcome.landed == null ? 'null' : outcome.landed} `
+        + `drawn=${theProfile.drawn} drew=${drewIt.drew} settled=${drewIt.settled} `
+        + `waited=${drewIt.waited} looks=${drewIt.looks} `
+        + `rows=${drewIt.linked}/${drewIt.marked} `
+        + `nodes=${drewIt.nodesFirst}/${drewIt.nodesNow} `
+        + `found=${ids.length}`);
 
       const drawn = theReviewPagesAreDrawn(platformKey);
       const pages = [];
