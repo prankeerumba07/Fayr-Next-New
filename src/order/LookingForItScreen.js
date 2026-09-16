@@ -72,8 +72,19 @@ import { Pill } from '../ui/brand';
 /** The shortest this is on screen. Below this it reads as a flicker, not a wait. */
 export const LEAST_TIME_MS = 1600;
 
-/** The longest, whatever the shop does. Nobody is left on a turning ring. */
-export const MOST_TIME_MS = 20000;
+/**
+ * The longest, whatever the shop does. Nobody is left on a turning ring.
+ *
+ * FORTY-FIVE, RAISED FROM TWENTY, FOR THE REASON WRITTEN AT MOST_DETAIL_PAGES.
+ * Twenty seconds bought five order pages at three seconds each — a fetch and its
+ * politeness gap — and the campaign's own order was the sixth. The ceiling was
+ * stopping honest looks, not impolite ones.
+ *
+ * SLOW_AFTER_MS is deliberately NOT raised with it. Ten seconds is still where
+ * this stops being quick, and a person waiting longer than that should be told
+ * so rather than have the line moved to keep the screen looking healthy.
+ */
+export const MOST_TIME_MS = 45000;
 
 /**
  * PAST THIS IT IS SLOW, and a person is told so.

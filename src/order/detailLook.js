@@ -50,15 +50,31 @@ import { withoutCode } from './pageShape.js';
 /**
  * HOW MANY ORDER PAGES ONE LOOK MAY OPEN. The owner's number.
  *
- * Six is enough that somebody who has bought a few other things since claiming
- * is still found, and small enough that a look is a handful of requests rather
- * than a crawl. The review-first read opens up to ten and is the thing that has
- * been blocked before, so this is deliberately below it.
+ * TEN, RAISED FROM SIX, AND THE RUN THAT FORCED IT IS WRITTEN DOWN HERE.
+ *
+ * Measured on the owner's own account, 16 September 2026. Six was the ceiling.
+ * One of the six went on an Amazon Pay entry the harvest cannot tell from an
+ * order until the shop answers it, the twenty second ceiling next door stopped
+ * the look after FIVE, and the campaign's own order — the sixth row on a list of
+ * ten — was never opened at all. The server was handed four pages, none of them
+ * the purchase, and answered product_name_not_found: true of what it was given
+ * and nothing at all about the account.
+ *
+ * So six was not "enough that somebody who has bought a few other things since
+ * claiming is still found". It was enough for an account that has bought almost
+ * nothing since, which is not the account anybody actually has.
+ *
+ * TEN AND NOT MORE, because the gaps have to stay inside the screen's ceiling
+ * with the fetches themselves allowed for, and detailLook.test.mjs holds them to
+ * under half of it. The honest fix is not a bigger number — it is asking the
+ * shop's own order search for the product by name, which finds one order in one
+ * request however far down the list it sits. This buys the demo; that ends the
+ * arithmetic.
  *
  * It is a ceiling on FETCHES, not on orders considered: the look stops the
  * moment one matches, so the ordinary case is one.
  */
-export const MOST_DETAIL_PAGES = 6;
+export const MOST_DETAIL_PAGES = 10;
 
 /**
  * THE GAP BETWEEN TWO FETCHES, in milliseconds.

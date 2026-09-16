@@ -131,18 +131,20 @@ it('and it trims, because a page carries whitespace', () => {
 
 console.log('\nthe politeness limits, which exist because Amazon blocks us');
 
-it('OPENS AT MOST SIX PAGES, whatever the list held', () => {
+it('OPENS AT MOST MOST_DETAIL_PAGES PAGES, whatever the list held', () => {
   const many = Array.from({ length: 20 }, (unused, i) =>
     `40${i % 10}-000000${i % 10}-000000${i % 10}`);
-  equal(MOST_DETAIL_PAGES, 6);
+  equal(MOST_DETAIL_PAGES, 10);
   equal(pagesToOpen(many, 'amazon').length, MOST_DETAIL_PAGES);
 });
 
-it('and it is the FIRST six, which are the newest', () => {
-  const numbers = ['401-0000001-0000001', '402-0000002-0000002', '403-0000003-0000003',
-    '404-0000004-0000004', '405-0000005-0000005', '406-0000006-0000006',
-    '407-0000007-0000007'];
-  deepEqual(pagesToOpen(numbers, 'amazon'), numbers.slice(0, 6));
+it('and it is the FIRST of them, which are the newest', () => {
+  // ONE MORE THAN THE CEILING, built from it rather than written out, so that
+  // raising the ceiling cannot quietly turn this into a test of nothing: a
+  // hand-written list shorter than the cap asserts only that slice() exists.
+  const numbers = Array.from({ length: MOST_DETAIL_PAGES + 1 }, (unused, i) =>
+    `40${i % 10}-000000${i % 10}-000000${i % 10}`);
+  deepEqual(pagesToOpen(numbers, 'amazon'), numbers.slice(0, MOST_DETAIL_PAGES));
 });
 
 it('refuses anything that is not an order number even here', () => {
@@ -161,11 +163,20 @@ it('WAITS A REAL GAP between fetches, and never before the first', () => {
   ok(GAP_BETWEEN_FETCHES_MS >= 1000, 'a token gap is not a gap');
 });
 
-it('and six pages with their gaps still fit inside the screen own ceiling', () => {
-  // The screen sends everybody onward at twenty seconds whatever happens. The
-  // gaps alone must not eat that, or a full look would always be cut off.
+it('and every page with its gap still fits inside the screen own ceiling', () => {
+  // The screen sends everybody onward at its ceiling whatever happens. The gaps
+  // alone must not eat that, or a full look would always be cut off.
+  //
+  // THE CEILING IS READ OFF THE SCREEN ITSELF rather than written here again.
+  // The two numbers moved together on 16 September 2026 and a copy of one of
+  // them in a test is exactly how they come apart next time.
+  const screen = readFileSync(
+    new URL('./LookingForItScreen.js', import.meta.url), 'utf8',
+  );
+  const ceiling = Number((screen.match(/MOST_TIME_MS = (\d+)/) || [])[1]);
+  ok(ceiling > 0, 'the screen states its ceiling');
   const gaps = (MOST_DETAIL_PAGES - 1) * GAP_BETWEEN_FETCHES_MS;
-  ok(gaps < 20000 / 2, `the gaps alone come to ${gaps}ms`);
+  ok(gaps < ceiling / 2, `the gaps alone come to ${gaps}ms of ${ceiling}ms`);
 });
 
 it('junk index waits nothing rather than throwing', () => {

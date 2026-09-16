@@ -263,14 +263,14 @@ console.log('\n=== 4b. THE SHOP WANTS A SIGN IN: SENT BACK, NOT ASKED FOR A PHOT
     'and it names its words rather than holding copies');
 }
 
-console.log('\n=== 5. IT IS SLOW AFTER TEN SECONDS AND DEAD AFTER TWENTY ===');
+console.log('\n=== 5. IT IS SLOW AFTER TEN SECONDS AND DEAD AFTER FORTY-FIVE ===');
 {
   const screen = read('src/order/LookingForItScreen.js');
   const code = screen.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   ok(/export const SLOW_AFTER_MS = 10000;/.test(code),
     'ten seconds is the top of normal for this read, so that is where it says so');
-  ok(/export const MOST_TIME_MS = 20000;/.test(code),
-    'AND TWENTY IS THE HARD STOP, which the owner asked for by name');
+  ok(/export const MOST_TIME_MS = 45000;/.test(code),
+    'AND FORTY-FIVE IS THE HARD STOP: twenty only bought five order pages');
   ok(/export const LEAST_TIME_MS = 1600;/.test(code),
     'and it is on screen long enough to have been seen');
   ok(/setTimeout\(\(\) => setSlow\(true\), SLOW_AFTER_MS\)/.test(code),
