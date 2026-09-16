@@ -633,6 +633,31 @@ function shopFurniture(line: string): boolean {
  * the order.
  */
 const SOMEBODY_ELSES_PRODUCTS: readonly RegExp[] = [
+  // ── THE THREE THAT WERE MISSING, AND THE LEAK THEY LET THROUGH ──────────
+  //
+  // MEASURED ON THE OWNER'S OWN NIKE ORDER PAGE, 16 September 2026. That page
+  // carries no "Recommended for you" heading at all. Its carousels are headed
+  // "Pick up where you left off" and "Recommended based on your shopping
+  // trends", neither of which was in this list, so the cut never happened and
+  // the page was left to the furniture rule alone.
+  //
+  // The furniture rule catches a tile whose struck price is LABELLED. It cannot
+  // catch one laid out as a plain name with a plain price under it, and one tile
+  // on that page is exactly that:
+  //
+  //   FIG Living Mini Serenity Table Lamp | European Linen Lampshade with ...
+  //   ₹2,999.00
+  //
+  // It came back as an item on his order, at ₹2,999, on an order that cost
+  // ₹4,995 and held one pair of shoes. Harmless there only because the name has
+  // to match as well — which is the accident this list exists so as not to rely
+  // on. A shop recommends things LIKE the thing on the page.
+  //
+  // "See more" IS GLUED TO THE HEADING in the page's own text — the line reads
+  // "Pick up where you left offSee more" with no space — so the tail is part of
+  // the pattern rather than a separate line. Measured, not guessed.
+  /^pick\s+up\s+where\s+you\s+left\s+off(?:\s*see\s+(?:more|all))?$/i,
+  /^recommended\s+based\s+on\s+your\s+shopping\s+trends$/i,
   /^recommended\s+for\s+you$/i,
   /^customers\s+who\s+(?:viewed|bought)\b.*$/i,
   /^related\s+to\s+items\s+you'?(?:ve)?\s+viewed$/i,

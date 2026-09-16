@@ -1122,6 +1122,69 @@ describe('where the order stops and the shop\u2019s suggestions begin', () => {
     expect(order.items.map((i) => i.name)).toEqual(['boAt Rockerz 255 Pro Plus']);
   });
 
+  /**
+   * THE HEADINGS THIS LIST DID NOT HAVE, AND THE LEAK THEY LET THROUGH.
+   *
+   * MEASURED ON THE OWNER'S OWN NIKE ORDER PAGE, 16 September 2026. That page
+   * carries no "Recommended for you" at all — its carousels are headed "Pick up
+   * where you left offSee more" and "Recommended based on your shopping
+   * trends". Neither was in the list, so no cut happened, and one tile came back
+   * as an item on his order:
+   *
+   *   FIG Living Mini Serenity Table Lamp | European Linen Lampshade with ...
+   *   ₹2,999.00
+   *
+   * A plain name with a plain price under it, which the furniture rule cannot
+   * see and was never meant to: it catches a LABELLED struck price. The order
+   * cost ₹4,995 and held one pair of shoes, and the read answered with two.
+   */
+  it('THE HEADINGS OFF HIS REAL NIKE PAGE, which let a lamp onto an order', () => {
+    const page = [
+      'Order placed 11 February 2026  Order number 408-5614193-1514764',
+      'Order Summary',
+      'Grand Total:', '₹4,995.00',
+      'Nike M PROMINA Extra Wide Black/White',
+      'Sold by: Westbury Sportswear',
+      'Return window closed on 26 February 2026',
+      '₹4,995.00', '₹4,995.00',
+      'Buy It Again',
+      'View your item',
+      // The heading exactly as the page writes it — "See more" GLUED on, no space.
+      'Pick up where you left offSee more',
+      'Page 1 of 8',
+      'FIG Living Mini Serenity Table Lamp | European Linen Lampshade with Mango Wood Base',
+      '₹2,999.00',
+      'Recommended based on your shopping trends',
+      'Sponsored',
+      'PAPER PLANE DESIGN Travel Yellow York Poster Painting Living Room 20x30',
+      '₹2,495.00',
+    ].join('\n');
+    const order = parseOrderText(page);
+    expect(order.items.map((i) => i.name)).toEqual([
+      'Nike M PROMINA Extra Wide Black/White',
+    ]);
+    expect(order.items[0].pricePaise).toBe(499500n);
+  });
+
+  it('and the four fields off that same page are all still read', () => {
+    // The order it is actually about, and the one field it does NOT have: this
+    // page states no delivery at all, seven months on. That is the shop's page,
+    // not a reading failure, and null is the honest answer for it.
+    const page = [
+      'Order placed 11 February 2026  Order number 408-5614193-1514764',
+      'Grand Total:', '₹4,995.00',
+      'Nike M PROMINA Extra Wide Black/White',
+      'Return window closed on 26 February 2026',
+      '₹4,995.00', '₹4,995.00',
+    ].join('\n');
+    const order = parseOrderText(page);
+    expect(order.orderNumber).toBe('408-5614193-1514764');
+    expect(order.orderDate).toBe('2026-02-11');
+    expect(order.totalPaise).toBe(499500n);
+    expect(order.returnWindowEndsDate).toBe('2026-02-26');
+    expect(order.deliveryDate).toBeNull();
+  });
+
   it('and a product whose name reads like a heading is not a heading', () => {
     // Whole lines, anchored both ends.
     //
