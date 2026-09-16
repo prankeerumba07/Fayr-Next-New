@@ -369,6 +369,37 @@ export function answerWithStatus(payload, seen) {
  * wantsASignIn. There is no second idea of what a sign in page looks like in
  * here.
  */
+/**
+ * A REDIRECT TO THE CANONICAL FORM OF THE PAGE WE ASKED FOR IS NOT SOMEWHERE
+ * ELSE — AND TREATING IT AS ONE COST THE WHOLE REVIEW READ.
+ *
+ * MEASURED ON THE OWNER'S OWN ACCOUNT, 16 September 2026. The reviews page is
+ * asked for as /gp/profile/ : this project holds no account id to put in it and
+ * does not want one. The shop answers every load with a redirect —
+ *
+ *   asked for   /gp/profile/
+ *   landed on   /gp/profile/amzn1.account.AH2TECW...
+ *
+ * — so "elsewhere" was true on every single load. And the send condition is
+ * "drew OR out OR (elsewhere AND settled)": the last of those bypasses "drew"
+ * entirely, and "drew" is the half that waits for the rows to appear and hold
+ * still. readyState reaches "complete" long before Amazon has drawn the review
+ * list, which is the same fact this file's own header records about the ORDERS
+ * list.
+ *
+ * So the look handed back a profile page with ZERO reviews on it, every time,
+ * the harvest found nothing, and nothing was posted. His backend log for that
+ * attempt has no reviews-found request at all — the read ran and sent nothing.
+ *
+ * WHAT "elsewhere" IS ACTUALLY FOR is the shop taking us somewhere that is not
+ * the page at all — a sign-in wall, its own front door — where waiting out the
+ * deadline buys nothing and the answer is already known. A path that CONTAINS
+ * the one we asked for is that page, named more fully by the shop, and is worth
+ * waiting for.
+ *
+ * THE SLASH IS NOT COSMETIC: the prefix is the wanted path with one on the end,
+ * so /your-orders/orders can never be satisfied by /your-orders/orders-archive.
+ */
 export function buildDrawnListScript({
   beganAt, tag, wantedPath, counts,
 } = {}) {
@@ -393,6 +424,10 @@ export function buildDrawnListScript({
   if (window.__fayrLooking) return;
   window.__fayrLooking = true;
   var sent = false, ticker = null, looks = 0, steady = -1, same = 0, first = -1;
+  // The page we asked for, with one slash on the end. See the note above this
+  // function for why a redirect INTO it is not somewhere else.
+  var inside = ${wanted} === "" ? "" :
+    (${wanted}.charAt(${wanted}.length - 1) === "/" ? ${wanted} : ${wanted} + "/");
   function stop(){ if (ticker !== null) { clearInterval(ticker); ticker = null; } }
   function send(o){
     if (sent) return; sent = true; stop();
@@ -416,7 +451,8 @@ export function buildDrawnListScript({
     var waited = Date.now() - ${startedAt};
     var settled = false, elsewhere = false;
     try { settled = document.readyState === "complete"; } catch(e){}
-    try { elsewhere = ${wanted} !== "" && location.pathname !== ${wanted}; } catch(e){}
+    try { elsewhere = ${wanted} !== "" && location.pathname !== ${wanted}
+      && location.pathname.indexOf(inside) !== 0; } catch(e){}
     if (rows > 0 && rows === steady) { same = same + 1; } else { steady = rows; same = 1; }
     var drew = rows > 0 && same >= ${STEADY_LOOKS_BEFORE_WE_READ};
     var out = waited >= ${DRAW_DEADLINE_MS} || looks >= ${MOST_LOOKS};

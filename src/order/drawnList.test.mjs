@@ -26,6 +26,7 @@ import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
   DRAW_DEADLINE_MS, LEAST_A_DRAW_CAN_TAKE_MS, LOOK_AGAIN_MS, MOST_LOOKS,
+  openTheReviewsWith,
   SHOPS_WHOSE_LIST_THE_PAGE_DRAWS, SHOPS_WHOSE_ORDER_PAGES_ARE_DRAWN,
   STEADY_LOOKS_BEFORE_WE_READ, WHAT_EACH_SHOP_DRAWS, anAnswerTag,
   answerWithStatus, buildDrawnListScript, buildDrawnOrderScript, drawFacts, isOurAnswer,
@@ -548,6 +549,51 @@ it('and a page that never drew is not a page we read', () => {
     ok: true, status: 200, html: '<html><body>Order # 408-5094957-4481129</body></html>', url: 'https://x/',
   });
   ok(Object.prototype.hasOwnProperty.call(fetched, 'text'), 'a fetched step is read as it always was');
+});
+
+
+console.log('\na redirect INTO the page we asked for is not somewhere else');
+
+it('THE PROFILE REDIRECT, WHICH COST THE WHOLE REVIEW READ', () => {
+  // MEASURED on the owner's account, 16 September 2026. The reviews page is
+  // asked for as /gp/profile/ — this project holds no account id and does not
+  // want one — and the shop answers every load with a redirect to
+  // /gp/profile/amzn1.account.<id>. So `elsewhere` was true on EVERY load, and
+  // `elsewhere && settled` sends at once, bypassing `drew` — the half that waits
+  // for the rows. readyState is "complete" long before Amazon draws the review
+  // list, so the look handed back a profile page with zero reviews on it, the
+  // harvest found nothing, and nothing was posted. His backend log for that
+  // attempt has no reviews-found request in it at all.
+  const step = openTheReviewsWith('amazon', 1700000000000, 'look-1');
+  ok(/var inside =/.test(step.script),
+    'the script works out what counts as INSIDE the page it asked for');
+  ok(/location\.pathname\.indexOf\(inside\) !== 0/.test(step.script),
+    'and a path that contains the one we asked for is NOT elsewhere');
+});
+
+it('and the rule itself, on every shape that matters', () => {
+  // The same expression the script runs, asked here where it can be walked.
+  const elsewhere = (wanted, path) => {
+    const inside = wanted === ''
+      ? ''
+      : (wanted.charAt(wanted.length - 1) === '/' ? wanted : `${wanted}/`);
+    return wanted !== '' && path !== wanted && path.indexOf(inside) !== 0;
+  };
+
+  // THE REDIRECT. The page, named more fully by the shop. Worth waiting for.
+  equal(elsewhere('/gp/profile/', '/gp/profile/amzn1.account.AH2TEC'), false);
+  equal(elsewhere('/gp/profile/', '/gp/profile/'), false);
+  equal(elsewhere('/your-orders/orders', '/your-orders/orders/page/2'), false);
+
+  // WHAT THE GUARD IS ACTUALLY FOR, and it still catches all of it: the shop
+  // taking us somewhere that is not the page, where waiting buys nothing.
+  equal(elsewhere('/gp/profile/', '/ap/signin'), true);
+  equal(elsewhere('/your-orders/search', '/ap/signin'), true);
+  equal(elsewhere('/your-orders/orders', '/'), true);
+
+  // AND THE SLASH IS NOT COSMETIC. Without it this would be satisfied by a
+  // different page whose name merely starts the same way.
+  equal(elsewhere('/your-orders/orders', '/your-orders/orders-archive'), true);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

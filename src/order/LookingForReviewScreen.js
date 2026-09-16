@@ -53,7 +53,19 @@ import { WAIT_LINES, WAIT_LINE_MS, waitLineAt } from '../ui/funnyWait.js';
 export const LEAST_TIME_MS = 1600;
 
 /** The longest, whatever the shop does. Nobody is left on a turning ring. */
-export const MOST_TIME_MS = 20000;
+/**
+ * FORTY-FIVE, RAISED FROM TWENTY, AND THE ARITHMETIC IS WHY.
+ *
+ * This read opens the profile page — which has to be DRAWN and is given
+ * DRAW_DEADLINE_MS to do it — and then up to MOST_REVIEW_PAGES review pages on
+ * top. DRAW_DEADLINE_MS rides on MOST_DETAIL_PAGES, which went from six to ten
+ * on 16 September 2026, so the draw alone may now take 13.5 seconds of what was
+ * a twenty second budget. That left six and a half seconds for twelve pages.
+ *
+ * Raised to match the order read next door, which was raised the same day and
+ * for the same measured reason.
+ */
+export const MOST_TIME_MS = 45000;
 
 export default function LookingForReviewScreen({ navigation, route }) {
   const params = (route && route.params) || {};
