@@ -1,6 +1,24 @@
 import { z } from 'zod';
 
 /**
+ * HOW LONG A FRESH CLAIM LASTS, IN MINUTES, WHEN NOBODY HAS SAID OTHERWISE.
+ *
+ * THIRTY, asked for by name on 1 September 2026, with the risk named in the same
+ * breath: a sweep that used to run once a week now runs every half hour.
+ *
+ * ── AND IT IS EXPORTED, WHICH IT WAS NOT ──────────────────────────────────
+ *
+ * Because two other places need to say "the shipped default" and neither should
+ * hold a copy of the number. test/global-setup.ts pins it so an untracked
+ * backend/.env cannot change what the suite is checking — which is exactly what
+ * happened on 16 September 2026, when it was set to 1440 on the owner's laptop
+ * and a check reading "the default the owner asked for" went red on correct
+ * code. A second copy typed into that file would have been one more place for
+ * the real default to drift away from.
+ */
+export const CLAIM_TTL_MINUTES_DEFAULT = 30;
+
+/**
  * The single source of truth for environment configuration.
  *
  * Every variable the service reads is declared here. `validateEnv` runs once at
@@ -10,6 +28,7 @@ import { z } from 'zod';
  * are genuinely safe to default in local dev — anything security-sensitive
  * (added in later steps, e.g. JWT secrets) will be required with no default.
  */
+
 export const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
@@ -124,7 +143,7 @@ export const envSchema = z.object({
     .int()
     .min(1)
     .max(129_600)
-    .default(30),
+    .default(CLAIM_TTL_MINUTES_DEFAULT),
 
   // --- The practice order window (TESTING ONLY) -----------------------------
   //

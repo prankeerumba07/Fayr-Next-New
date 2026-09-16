@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
 import { config as loadEnvFile } from 'dotenv';
+import { CLAIM_TTL_MINUTES_DEFAULT } from '../src/config/env.validation';
 import { resolveTestDatabaseUrl } from '../src/config/test-db-url';
 
 /**
@@ -42,6 +43,26 @@ export default async function globalSetup(): Promise<void> {
   // parameter instead of an environment: engine/practice-window.spec.ts and
   // tasks/practice-window.service.spec.ts.
   process.env.PRACTICE_ORDER_WINDOW_DAYS = '0';
+
+  // AND PIN THE CLAIM WINDOW, FOR EXACTLY THE REASON WRITTEN ABOVE.
+  //
+  // task.e2e-spec.ts asserts, in its own words, that a fresh claim gets "the
+  // default the owner asked for" — thirty minutes. That number lives in
+  // env.validation.ts, and backend/.env can override it. On 16 September 2026 it
+  // was set to 1440 on the owner's laptop so a claim would survive him stopping
+  // to work out why a read found nothing: every pause in a test was killing the
+  // test, which is a real problem with a real fix and nothing to do with this
+  // suite.
+  //
+  // The check then failed on correct code, reading 1440 where it wanted 30 —
+  // the same shape of failure PRACTICE_ORDER_WINDOW_DAYS caused above, from the
+  // same untracked file. A suite whose rules change with a file git has never
+  // seen is not a suite.
+  //
+  // PINNED TO THE PRODUCT DEFAULT rather than to a number typed here: it is the
+  // shipped behaviour that is being checked, and a second copy of it would be
+  // one more place for the real default to drift away from.
+  process.env.CLAIM_TTL_MINUTES = String(CLAIM_TTL_MINUTES_DEFAULT);
 
   // Load this checkout's own .env before deciding anything. There are two
   // checkouts of this project on one machine now, sharing one Postgres, and a
