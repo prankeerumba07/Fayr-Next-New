@@ -92,6 +92,21 @@ export default function LookingForItScreen({ navigation, route }) {
   const campaign = campaignId ? campaignStore.getById(campaignId) : null;
   const platformKey = campaign ? campaign.marketplace : null;
   const platform = platformKey ? PLATFORMS[platformKey] : null;
+  /**
+   * ONE ORDER, NAMED BY WHOEVER OPENED THIS, OR NULL TO SEARCH AS BEFORE.
+   *
+   * The purchase step has to search: nobody has said which order it is about.
+   * The delivery step does not — the order was chosen pages ago and its number
+   * is on the record — and searching there is what put the campaign's own order
+   * outside a look that only reached four cards of a list still drawing.
+   *
+   * IT IS A NUMBER TO OPEN AND NEVER AN ANSWER. It says which page to fetch and
+   * nothing else. The page still goes to the server as text, the server still
+   * reads it with the same one reader, and the server still decides whether
+   * anything matched. Nothing on this side is trusted about money.
+   */
+  const onlyThisOrder = typeof params.onlyThisOrder === 'string'
+    && params.onlyThisOrder !== '' ? params.onlyThisOrder : null;
 
   const motion = useMotion();
   const [line, setLine] = useState(WAIT_LINES[0]);
@@ -530,7 +545,19 @@ export default function LookingForItScreen({ navigation, route }) {
         // points somewhere that has been SEEN not to be an order, so the worst
         // this can do is nothing at all.
         const worth = ordersWorthOpening(html, harvest.numbers, platformKey);
-        const numbers = pagesToOpen(worth.numbers, platformKey);
+        // ── A NAMED ORDER BEATS ANYTHING HARVESTED OFF THE LIST ────────────
+        //
+        // Not "as well as": INSTEAD OF. Whoever opened this already knows which
+        // order the question is about, so every other number on the list is a
+        // page fetched for nothing and a slot spent against the ceiling.
+        //
+        // STILL THROUGH pagesToOpen, which is the point of routing it here
+        // rather than fetching it directly: a number that is not this shop's
+        // shape is refused exactly as a harvested one would be, so a bad value
+        // arriving in a route param opens nothing at all.
+        const numbers = onlyThisOrder != null
+          ? pagesToOpen([onlyThisOrder], platformKey)
+          : pagesToOpen(worth.numbers, platformKey);
 
         // ── THE ONE LINE THAT TELLS THE TWO EMPTY ANSWERS APART ────────────
         //
@@ -545,7 +572,11 @@ export default function LookingForItScreen({ navigation, route }) {
         logLook('numbers', `slots=${countOrderCardSlots(html, platformKey)} `
           + `marked=${harvest.marked} linked=${harvest.linked} `
           + `shaped=${harvest.shaped} skipped=${worth.skipped} `
-          + `opening=${numbers.length} how=${harvest.how}`);
+          + `opening=${numbers.length} `
+          // WHETHER ONE WAS NAMED, AND NEVER WHICH ONE. An order number is a
+          // strong identifier tied to the account and is already kept server
+          // side; that it was named is what tells the two reads apart in a log.
+          + `named=${onlyThisOrder != null} how=${harvest.how}`);
 
         // ── AND WHEN THERE ARE NO SLOTS AT ALL, SAY WHAT THE PAGE IS MADE OF ──
         //

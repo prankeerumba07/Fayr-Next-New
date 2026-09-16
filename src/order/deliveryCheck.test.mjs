@@ -152,5 +152,53 @@ it('it never decides it is delivered on this side', () => {
     'the screen keeps its own copy of whether the parcel came');
 });
 
+console.log('\nthe delivery step names the order instead of searching for it again');
+
+const LOOK = withoutComments(read('./LookingForItScreen.js'));
+
+it('THE SCREEN HANDS THE ORDER NUMBER OVER, rather than sending it to search', () => {
+  // The purchase step has to search; nobody has said which order it is about.
+  // The delivery step does not, and searching there is what put the campaign's
+  // own order outside a look that only reached four cards of a list still
+  // drawing. Measured on the owner's phone, 16 September 2026.
+  ok(/onlyThisOrder: itsOrder/.test(CODE),
+    'the delivery screen must name the order it already knows');
+  ok(/known\.order && typeof known\.order\.id === 'string'/.test(CODE),
+    'the number must come off the record, not from anywhere else');
+});
+
+it('and a task with no order number still searches, rather than reading nothing', () => {
+  ok(/itsOrder = [\s\S]*?: null;/.test(CODE),
+    'a task with no order number must fall back to the ordinary search');
+});
+
+it('THE READ OPENS THE NAMED ONE INSTEAD OF THE LIST, not as well as', () => {
+  // Not "as well as": every other number on the list is a page fetched for
+  // nothing and a slot spent against the ceiling.
+  ok(/const numbers = onlyThisOrder != null/.test(LOOK),
+    'the read still opens whatever it harvested');
+  ok(/\? pagesToOpen\(\[onlyThisOrder\], platformKey\)/.test(LOOK));
+  ok(/: pagesToOpen\(worth\.numbers, platformKey\)/.test(LOOK),
+    'the ordinary search must still be there for the purchase step');
+});
+
+it('A NAMED NUMBER IS CHECKED LIKE ANY OTHER, so a bad one opens nothing', () => {
+  // Routed through pagesToOpen rather than fetched directly, which is the whole
+  // point: a value arriving in a route param is refused exactly as a harvested
+  // one would be if it is not this shop's shape.
+  ok(!/orderDetailPageFor\(platformKey, onlyThisOrder\)/.test(LOOK),
+    'a named number must not bypass the shape check');
+});
+
+it('and the log says one was named, but never which', () => {
+  // An order number is a strong identifier tied to the account. That one was
+  // named is what tells the two reads apart; the number itself is already kept
+  // server side and never belongs in a log.
+  ok(/named=\$\{onlyThisOrder != null\}/.test(LOOK),
+    'the log must say whether an order was named');
+  ok(!/named=\$\{onlyThisOrder\}/.test(LOOK),
+    'the log must never carry the order number itself');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -128,7 +128,31 @@ export default function DeliveryScreen({ navigation, route }) {
     // that comes straight back has no note and starts again.
     rememberWeLookedForDelivery(taskId);
     if (navigation && typeof navigation.navigate === 'function') {
-      navigation.navigate('LookingForIt', { campaignId });
+      // ── AND WHICH ORDER, BECAUSE BY NOW WE KNOW ────────────────────────
+      //
+      // THE PURCHASE STEP HAS TO SEARCH. It opens the shop's list of recent
+      // orders, harvests the numbers and opens them one at a time until one of
+      // them is the campaign's product, because nobody has said yet which order
+      // this is about.
+      //
+      // THIS STEP DOES NOT, AND SEARCHING HERE IS A BUG. The order was chosen
+      // pages ago and its number is on the record. Searching again means the
+      // read is at the mercy of how many cards the shop's list happens to have
+      // drawn — measured on the owner's own phone, 16 September 2026: the list
+      // was read while it was still filling in, four cards instead of six, two
+      // of those four were payments rather than purchases, and the order this
+      // task is actually about was never opened at all. The delivery was on a
+      // page the look never asked for.
+      //
+      // So it is named. One page, the right one, every time.
+      //
+      // NULL IS STILL A SEARCH, deliberately: a task with no order number on it
+      // yet has nothing to name, and the ordinary search is the honest fallback
+      // rather than a read of nothing.
+      const known = campaignId ? getAuthoritative(campaignId) : null;
+      const itsOrder = known && known.order && typeof known.order.id === 'string'
+        && known.order.id !== '' ? known.order.id : null;
+      navigation.navigate('LookingForIt', { campaignId, onlyThisOrder: itsOrder });
     }
     const giveUp = setTimeout(() => setWhere('nothing'), READ_SHOULD_HAVE_LEFT_MS);
     return () => clearTimeout(giveUp);
