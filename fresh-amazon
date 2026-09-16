@@ -20,15 +20,59 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
-DB=(docker exec -i fayr-postgres psql -U fayr -d fayr_dev)
-
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 bad()  { printf '  \033[31m%s\033[0m\n' "$1"; }
 
-if ! docker exec fayr-postgres pg_isready -U fayr -d fayr_dev >/dev/null 2>&1; then
+# ── WHICH DATABASE, ASKED OF THE ONE FILE THE BACKEND ITSELF READS ──────────
+#
+# THE BUG THIS REPLACES, and it cost the owner an evening on 16 September 2026.
+# This script had `-d fayr_dev` written into it by hand. The backend connects to
+# fayr_next_dev. So every run of this deleted rows out of a database nothing was
+# using, printed "AFTER — what is left" from that same empty database, and
+# reported success. The claim it was supposed to clear was untouched, the app
+# went on showing a dead thirty minute claim, and every explanation of why was
+# looking in the wrong place.
+#
+# A NAME WRITTEN IN TWO FILES IS A NAME THAT DISAGREES WITH ITSELF. So it is
+# read from backend/.env, which is the file the server is actually started from,
+# and never written here.
+ENVFILE="$HERE/backend/.env"
+if [ ! -f "$ENVFILE" ]; then
+  bad "Cannot find backend/.env, so I do not know which database the backend uses."
+  exit 1
+fi
+URL="$(sed -n 's/^DATABASE_URL=//p' "$ENVFILE" | head -1)"
+URL="${URL%\"}"; URL="${URL#\"}"
+URL="${URL%\'}"; URL="${URL#\'}"
+if [ -z "$URL" ]; then
+  bad "backend/.env has no DATABASE_URL line."
+  exit 1
+fi
+# postgresql://user:pass@host:port/NAME?query  ->  NAME
+DBNAME="${URL##*/}"
+DBNAME="${DBNAME%%\?*}"
+
+# ── AND IT IS A PRACTICE DATABASE OR NOTHING ────────────────────────────────
+#
+# The same rule scripts/settle-known-item-prices.ts keeps, for the same reason:
+# a name that does not end in _dev or _test is somebody's real records, and this
+# script deletes rows. Fails closed on an empty or odd name.
+case "$DBNAME" in
+  *_dev|*_test) : ;;
+  *)
+    bad "Refusing to touch \"$DBNAME\": this deletes rows and that is not a practice database."
+    exit 1 ;;
+esac
+
+DB=(docker exec -i fayr-postgres psql -U fayr -d "$DBNAME")
+
+if ! docker exec fayr-postgres pg_isready -U fayr -d "$DBNAME" >/dev/null 2>&1; then
   bad "The database is not answering. Start everything first with ./start"
   exit 1
 fi
+
+bold ""
+bold "Database: $DBNAME   (read from backend/.env, not written into this script)"
 
 bold ""
 bold "BEFORE — every Amazon claim on this database"
