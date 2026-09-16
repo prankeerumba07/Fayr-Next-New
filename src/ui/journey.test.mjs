@@ -622,5 +622,52 @@ console.log('\n=== 12. THE CONFIRMATION PAGE IS GONE, AND NOTHING POINTS AT IT =
   ok(guilty.length === 0, `these still point at the confirmation page: ${guilty.join(', ')}`);
 }
 
+
+console.log('\nA NOTE ABOUT A PURCHASE BELONGS TO THE CLAIM, NOT THE OFFER');
+{
+  // ── THE RUN THIS COMES FROM ─────────────────────────────────────────────
+  //
+  // The owner's phone, 16 September 2026, 22:18. He had tested this offer an
+  // hour earlier and tapped "yes, I bought it". That claim was deleted; he
+  // claimed the same offer again. The new task was CLAIMED with no order and no
+  // shop visit — and journeyStepFor sent him STRAIGHT to the screenshot screen,
+  // because the note was filed under the offer and the offer had not changed.
+  //
+  // No "before you go", no shop, no "did you buy it", and the order read never
+  // ran: his backend log for that claim is one POST /tasks and then silence. It
+  // reads as "the fetch is broken" and nothing fetched anything, because the
+  // screen that fetches was never reached.
+  const me = dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(join(me, '..', 'journey', 'shopVisits.js'), 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+
+  ok(/import \{ getTaskId \} from '\.\.\/taskStore'/.test(code),
+    'shopVisits asks WHICH CLAIM a note is about');
+  ok(/const taskId = getTaskId\(campaignId\);/.test(code),
+    'and it asks inside noteName, so every caller is correct without remembering');
+  ok(/taskId \? `\$\{campaignId\}::\$\{taskId\}::\$\{why\}`/.test(code),
+    'A NOTE IS FILED UNDER THE CLAIM. A new task is a new claim, so its notes '
+    + 'start empty — which is the truth about a purchase that has not happened');
+  ok(/: `\$\{campaignId\}::\$\{why\}`/.test(code),
+    'and with no task the offer own name is kept, because signing in to the shop '
+    + 'really can happen before a claim exists, and losing that costs one page');
+
+  // AND THE STEP THAT THE NOTE DRIVES IS STILL THE ONE IT DROVE. The bug was
+  // never in this branch — it is right that saying "I bought it" leads here.
+  ok(/if \(s\.saidTheyBought === true\) return 'purchase-shot';/.test(
+    readFileSync(join(me, 'journey.js'), 'utf8'),
+  ), 'saying "I bought it" still leads to the screenshot step');
+
+  // A FRESH CLAIM WITH NO NOTES GOES TO THE BUY STEP, which is the whole point.
+  ok(journeyStepFor({ task: { state: STATES.CLAIMED }, connected: true }) === 'buy',
+    'A FRESH CLAIM IS SENT TO THE SHOP, not to a screenshot');
+
+  // AND A NOTE THAT REALLY IS ABOUT THIS CLAIM STILL WORKS.
+  ok(journeyStepFor({
+    task: { state: STATES.CLAIMED }, connected: true, saidTheyBought: true,
+  }) === 'purchase-shot', 'somebody who really said it still gets the screenshot step');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -30,6 +30,12 @@
 
 import { File, Paths } from 'expo-file-system';
 
+// WHICH CLAIM A NOTE IS ABOUT. Asked of the task store rather than taken as an
+// argument, so every caller is correct without any of them having to remember —
+// see noteName for the run that made this necessary. No cycle: the task store
+// does not know this file exists.
+import { getTaskId } from '../taskStore';
+
 const FILE = 'fayr-shop-visits.json';
 
 /** The three things a note can say. Anything else is not written. */
@@ -44,9 +50,47 @@ function file() {
   return new File(Paths.document, FILE);
 }
 
-/** One note's own name in the file: the offer and what was done. */
+/**
+ * ONE NOTE'S OWN NAME: THE CLAIM IT IS ABOUT, AND WHAT WAS DONE.
+ *
+ * ── IT USED TO BE THE OFFER, AND THAT IS A BUG THAT HIDES THE WHOLE APP ───
+ *
+ * MEASURED ON THE OWNER'S PHONE, 16 September 2026, 22:18. He had tested this
+ * same offer an hour earlier and tapped "yes, I bought it", which wrote
+ * `<campaign>::bought`. That claim was then deleted and he claimed the offer
+ * again. The new task was CLAIMED, with no order and no shop visit — and the
+ * note was still there, because it was filed under the OFFER and the offer had
+ * not changed.
+ *
+ * journeyStepFor reads these three notes for exactly the steps that happen
+ * before the server has anything to say, and the first thing it asks is
+ * `saidTheyBought`. So a brand new claim went straight to "show us a
+ * screenshot": no "before you go", no shop, no "did you buy it", and THE ORDER
+ * READ NEVER RAN AT ALL. His backend log for that claim is one POST /tasks and
+ * then silence.
+ *
+ * It reads as "the fetch is broken". Nothing fetched anything. The screen that
+ * fetches was never reached.
+ *
+ * ── AND IT IS NOT ONLY A TESTING PROBLEM ──────────────────────────────────
+ *
+ * Any second claim of the same offer hits it: a claim that ran out and was
+ * swept, an offer somebody left and came back to. The notes are about a
+ * PURCHASE, and when the claim they were written under is gone, the purchase
+ * they describe is gone with it.
+ *
+ * ── SO THEY ARE FILED UNDER THE CLAIM ─────────────────────────────────────
+ *
+ * A new task is a new claim, so its notes start empty, which is the truth. The
+ * old claim's notes are still in the file under its own id and answer nothing.
+ *
+ * WITH NO TASK, THE OFFER'S OWN NAME IS USED, unchanged from before. The first
+ * of these — signing in to the shop — really can be written before a claim
+ * exists, and losing it costs one page: this file's own note above says so.
+ */
 function noteName(campaignId, why) {
-  return `${campaignId}::${why}`;
+  const taskId = getTaskId(campaignId);
+  return taskId ? `${campaignId}::${taskId}::${why}` : `${campaignId}::${why}`;
 }
 
 function read() {
