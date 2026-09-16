@@ -181,10 +181,19 @@ console.log('\n=== 6. THE THREE SCREENS THAT SEND SOMEBODY SHOPPING REALLY DO IT
     ok(!/whichDoorLine\(/.test(src), `${key} still explains two doors`);
     ok(!/navigation\.navigate\(key/.test(src),
       `${key} still opens a marketplace inside Fayr`);
-    // THE DESIGN'S OWN WORDING for the one button that remains: its before you go
-    // screen reads "OPEN AMAZON →" at fayr-design.browser.jsx:2568.
-    ok(/OPEN \{shop\.toUpperCase\(\)\} →/.test(src),
-      `${key} does not use the design's own button wording`);
+    // THE WORDING OF THE ONE BUTTON THAT REMAINS, and the two screens no longer
+    // say the same thing.
+    //
+    // The design reads "OPEN AMAZON →" on both (fayr-design.browser.jsx:2568).
+    // The owner asked on 16 September 2026 for the BUY step to say "BUY ON
+    // AMAZON", and he is right: that is the step where somebody goes and buys
+    // the product, and "open" describes what the phone does rather than what the
+    // person is there to do. The REVIEW step keeps "OPEN", because opening is
+    // exactly what it is for — there is nothing to buy by then.
+    const wording = key === 'buyinterstitial'
+      ? /BUY ON \{shop\.toUpperCase\(\)\} →/
+      : /OPEN \{shop\.toUpperCase\(\)\} →/;
+    ok(wording.test(src), `${key} does not use its own button wording`);
   }
 
   console.log('\n=== 6b. NOTHING SHOWS A MARKETPLACE INSIDE FAYR EXCEPT CONNECTING ===');

@@ -279,10 +279,34 @@ export default function BuyInterstitialScreen({ navigation, route }) {
     setNotice(built);
   }, [asking, putOnClipboard, campaignId, shop]);
 
-  /** The one button on the notice. Only this opens the shop. Nothing else does. */
+  /**
+   * The one button on the notice. Only this opens the shop. Nothing else does.
+   *
+   * ── THE SHOP IS OPENED FIRST, AND THE POP-UP CLOSED AFTER ────────────────
+   *
+   * MEASURED ON THE OWNER'S PHONE, 16 September 2026. Tapping this did nothing:
+   * no Amazon, no Safari, no error. The SAME call from the review step —
+   * src/screens/reviewguide.js, same openShopApp, same key, same startUrl —
+   * opened Amazon perfectly, and he noticed the difference himself.
+   *
+   * The difference is not the opener. It is that this one is inside a Modal, and
+   * setNotice(null) was pulling that Modal down in the same tick that asked iOS
+   * to leave the app. A dismissal in flight swallows the open, so the request was
+   * made and nothing happened. The review step has no pop-up, which is exactly
+   * why it worked.
+   *
+   * So the order is reversed: ask for the shop, then take the pop-up down. The
+   * open is awaited first, so by the time the notice goes there is nothing left
+   * in flight to eat it — and if the shop never opens, the notice is still taken
+   * down, because leaving somebody under a pop-up they have already answered is
+   * worse than either outcome.
+   */
   const leaveForTheShop = useCallback(async () => {
-    setNotice(null);
-    await openShopApp(key, opens);
+    try {
+      await openShopApp(key, opens);
+    } finally {
+      setNotice(null);
+    }
   }, [key, opens]);
 
   return (
@@ -435,7 +459,12 @@ export default function BuyInterstitialScreen({ navigation, route }) {
         ) : null}
         {!hasGone && !couldNotStart ? (
           <Pill onPress={openTheirApp} color={COLOR.ink}>
-            OPEN {shop.toUpperCase()} →
+            {/* THE OWNER'S OWN WORDING, asked for on 16 September 2026. The
+                design's button read "OPEN AMAZON" and he is right that it says
+                the wrong thing: this is the step where somebody goes and BUYS
+                the product, and "open" describes what the phone does rather
+                than what the person is there to do. */}
+            BUY ON {shop.toUpperCase()} →
           </Pill>
         ) : null}
       </View>
