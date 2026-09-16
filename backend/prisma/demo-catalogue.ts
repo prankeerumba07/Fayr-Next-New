@@ -288,7 +288,25 @@ export const DEMO_CAMPAIGNS: SeededCampaign[] = [
     platform: 'AMAZON',
     status: 'ACTIVE',
     title: 'Train in Comfort, Get 90% Back.',
-    productName: 'Nike PROMINA Extra Wide Training Shoes, Black/White',
+    // ── THE NAME THE TWO PAGES AGREE ON, AND NOT THE ONE ON THE LISTING ───
+    //
+    // MEASURED ON THE OWNER'S OWN ACCOUNT, 16 September 2026. Amazon calls this
+    // one product two different things, and Fayr has to match BOTH:
+    //
+    //   his ORDER page   Nike M PROMINA Extra Wide Black/White
+    //   his REVIEW page  Nike Mens Promina Extra Wide Training Shoes
+    //
+    // The old value here — "Nike PROMINA Extra Wide Training Shoes, Black/White"
+    // — is the LISTING title, and it matches neither. sameProductName asks
+    // whether either name contains the other once punctuation is dropped, and
+    // the listing title has "Black/White" the review page lacks and lacks the
+    // "Mens" the review page has. So the order read answered
+    // product_name_not_found on a page with the shoes printed on it.
+    //
+    // "PROMINA Extra Wide" is inside both, checked both ways against the real
+    // strings. It is deliberately the SHORTEST thing that is: every extra word
+    // is one more chance for one of the shop's two spellings to differ.
+    productName: 'PROMINA Extra Wide',
     category: null,
     productPricePaise: 499500n,
     payoutPercent: 90,
