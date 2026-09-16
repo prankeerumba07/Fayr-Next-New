@@ -544,7 +544,12 @@ console.log('\n=== 12. every reader is told WHICH SHOP, and told it by the scree
   // is the key it was handed. These lines say it really does.
   for (const [call, why] of [
     [/harvestRendered\(html, platformKey\)/, 'the ladder is told which shop'],
-    [/pagesToOpen\(harvest\.numbers, platformKey\)/, 'and so is the cap that refuses off-shape numbers'],
+    [/ordersWorthOpening\(html, harvest\.numbers, platformKey\)/,
+      'AND SO IS THE FILTER that drops what the shop itself links elsewhere'],
+    [/pagesToOpen\(worth\.numbers, platformKey\)/, 'and so is the cap that refuses off-shape numbers'],
+    [/if \(isNotAnOrderPage\(platformKey, detail\.landed\)\) continue;/,
+      'AND A PAGE THAT LANDED SOMEWHERE THAT IS NOT AN ORDER IS NOT SENT: its words '
+      + 'are not this person purchase and must not reach the thing that decides a match'],
     [/orderDetailPageFor\(platformKey, numbers\[i\]\)/, 'and so is the thing that builds an address'],
   ]) ok(call.test(code), why);
   const slots = (code.match(/countOrderCardSlots\(html, platformKey\)/g) || []).length;

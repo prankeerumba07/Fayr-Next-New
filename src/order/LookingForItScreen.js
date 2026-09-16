@@ -47,8 +47,8 @@ import * as campaignStore from '../backend/campaignStore';
 import { getTaskId, refreshFromBackend } from '../taskStore';
 import { PLATFORMS } from '../platforms';
 import {
-  countOrderCardSlots, harvestRendered, orderDetailPageFor, pagesToOpen,
-  readsOrderPages, waitBeforeFetch,
+  countOrderCardSlots, harvestRendered, isNotAnOrderPage, orderDetailPageFor,
+  ordersWorthOpening, pagesToOpen, readsOrderPages, waitBeforeFetch,
 } from './detailLook.js';
 import {
   LEAST_A_DRAW_CAN_TAKE_MS, anAnswerTag, answerWithStatus, drawFacts, isOurAnswer,
@@ -520,7 +520,17 @@ export default function LookingForItScreen({ navigation, route }) {
         // default shop anywhere in that file, so a page from a shop it does not
         // know finds nothing rather than being read with somebody else's shapes.
         const harvest = harvestRendered(html, platformKey);
-        const numbers = pagesToOpen(harvest.numbers, platformKey);
+        // ── AND THE ONES THE SHOP ITSELF LINKS SOMEWHERE THAT IS NOT AN ORDER ──
+        //
+        // Measured on a real run: two of the six pages it opened were not
+        // purchases at all, they carried the same card and the same order-shaped
+        // number as a real order, and they cost two of six slots — which put the
+        // campaign's own order sixth and left the look finishing at the edge of
+        // its ceiling. A number is dropped only when the shop's own link for it
+        // points somewhere that has been SEEN not to be an order, so the worst
+        // this can do is nothing at all.
+        const worth = ordersWorthOpening(html, harvest.numbers, platformKey);
+        const numbers = pagesToOpen(worth.numbers, platformKey);
 
         // ── THE ONE LINE THAT TELLS THE TWO EMPTY ANSWERS APART ────────────
         //
@@ -534,7 +544,8 @@ export default function LookingForItScreen({ navigation, route }) {
         // count is what the question needs.
         logLook('numbers', `slots=${countOrderCardSlots(html, platformKey)} `
           + `marked=${harvest.marked} linked=${harvest.linked} `
-          + `shaped=${harvest.shaped} opening=${numbers.length} how=${harvest.how}`);
+          + `shaped=${harvest.shaped} skipped=${worth.skipped} `
+          + `opening=${numbers.length} how=${harvest.how}`);
 
         // ── AND WHEN THERE ARE NO SLOTS AT ALL, SAY WHAT THE PAGE IS MADE OF ──
         //
@@ -647,6 +658,20 @@ export default function LookingForItScreen({ navigation, route }) {
           // An order page with nothing readable on it is not a refusal. On to
           // the next one.
           if (!detail.looked) continue;
+
+          // ── AND NEITHER IS A PAGE THAT TURNED OUT NOT TO BE AN ORDER ─────
+          //
+          // The line above says where it landed. When the shop answered an order
+          // address with a page of its own that is not an order — a payment, a
+          // transfer — its words are not this person's purchase and must not go
+          // into the thing that decides whether a purchase matches. Skipping it
+          // here costs the request that was already spent and saves everything
+          // after it: the text is not sent, and it cannot match on an amount.
+          //
+          // THIS IS THE SECOND HALF OF THE SAME GUARD. The first half drops
+          // these before they are opened at all, when the shop's own link says
+          // so. This one catches the ones whose link said nothing.
+          if (isNotAnOrderPage(platformKey, detail.landed)) continue;
 
           pages.push(detail.text);
           const matched = await askTheServer(pages);

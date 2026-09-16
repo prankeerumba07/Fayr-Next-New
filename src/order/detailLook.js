@@ -110,6 +110,42 @@ export const ZEPTO_ORDER_NUMBER_SHAPE =
  * The tail is part of the address and not decoration — it is what the shop's own
  * links to the page carry.
  */
+/**
+ * PAGES THIS SHOP ANSWERS AN ORDER ADDRESS WITH THAT ARE NOT ORDERS.
+ *
+ * ── MEASURED ON THE OWNER'S OWN DEVICE, 15 SEPTEMBER 2026, 22:50 AND 22:51 ─
+ *
+ *   detail n=1 status=200 bytes=489845 landed=/tez/browse/orderTracking
+ *   detail n=2 status=200 bytes=418693 landed=/pay/transaction-details
+ *   detail n=3 status=200 bytes=387529 landed=/gp/your-account/order-details
+ *   ... three more of those ...
+ *   post pages=6 matched=1
+ *
+ * TWO OF THE SIX PAGES OPENED WERE NOT PURCHASES. They are Amazon Pay entries —
+ * a bill paid, a transfer — and they sit on the orders list carrying the same
+ * card attribute and the same order-shaped number as a real order, so nothing
+ * in the harvest can tell them apart. Asked for as an order, the shop answers
+ * each with a redirect to a page of its own.
+ *
+ * WHAT THEY COST, AND IT IS NOT SMALL. Six is the ceiling on pages opened, so
+ * two of those six bought nothing, the campaign's own order was the SIXTH
+ * opened, and the run finished at the very edge of the twenty second ceiling.
+ * On an account with three such entries it would not have been reached at all.
+ *
+ * ── AND WHY THIS IS A LIST OF THE BAD ONES AND NEVER THE GOOD ONES ────────
+ *
+ * Because it cannot then be wrong in the expensive direction. A list of paths
+ * that ARE orders would skip a real purchase the day Amazon added a third one,
+ * and a skipped purchase is a demo that finds nothing. This list can only ever
+ * skip a page that has been SEEN to be something else. If the shop's own links
+ * turn out not to distinguish them at all, nothing is skipped and the look runs
+ * exactly as it ran before.
+ */
+export const AMAZON_PAGES_THAT_ARE_NOT_ORDERS = [
+  '/tez/browse/orderTracking',
+  '/pay/transaction-details',
+];
+
 export const ZEPTO_ORDER_DETAIL_PAGE = 'https://www.zepto.com/order/';
 export const ZEPTO_ORDER_DETAIL_TAIL = '?isArchived=false';
 
@@ -294,6 +330,7 @@ export const HOW_EACH_SHOP_NAMES_AN_ORDER = {
     param: theWordBeforeTheNumber(AMAZON_ORDER_DETAIL_PAGE),
     card: AMAZON_ORDER_CARD_ATTRIBUTE,
     theShapeAloneIsEnough: true,
+    notAnOrderPage: AMAZON_PAGES_THAT_ARE_NOT_ORDERS,
   },
   zepto: {
     shape: ZEPTO_ORDER_NUMBER_SHAPE,
@@ -307,6 +344,9 @@ export const HOW_EACH_SHOP_NAMES_AN_ORDER = {
     // to count zero is a guess that can start counting something.
     card: null,
     theShapeAloneIsEnough: false,
+    // Nothing of this shape has been seen on this shop. An empty list skips
+    // nothing, which is the honest answer for a shop nobody has measured.
+    notAnOrderPage: [],
   },
 };
 
@@ -490,6 +530,79 @@ export function orderDetailPageFor(platformKey, orderNumber) {
   const number = typeof orderNumber === 'string' ? orderNumber.trim() : '';
   if (!shop.shape.test(number)) return null;
   return `${shop.detail}${encodeURIComponent(number)}${shop.tail}`;
+}
+
+/**
+ * THE PATH OF THE SHOP'S OWN LINK TO ONE ORDER, off the list page.
+ *
+ * Not a new marker and not a guess about markup: it looks for the number we
+ * ALREADY HARVESTED inside an href, and answers where that href points. A page
+ * that links to an order names the order in the link — that is how rung two of
+ * the harvest works and it is measured on both shops.
+ *
+ * NULL WHEN THE PAGE DOES NOT LINK TO IT AT ALL, which is not the same as a link
+ * somewhere unhelpful, and is treated as "nothing is known" by the caller rather
+ * than as evidence either way.
+ */
+export function theLinkPathFor(html, orderNumber) {
+  if (typeof html !== 'string' || html === '') return null;
+  if (typeof orderNumber !== 'string' || orderNumber === '') return null;
+  // THE NUMBER IS PUT INTO AN EXPRESSION, so whatever is in it is taken as
+  // itself. An order number carries dashes today; a dash inside a character
+  // class is a range, and a shop is free to change its numbering tomorrow.
+  const wanted = orderNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`href\\s*=\\s*["']([^"']*${wanted}[^"']*)["']`, 'i');
+  const found = pattern.exec(html);
+  if (!found) return null;
+  const href = String(found[1]);
+  // Whole addresses and page-relative ones both, without new URL, which is a
+  // polyfill on a phone. The path is what stands before the query.
+  const withoutHost = href.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '');
+  const path = withoutHost.split('?')[0].split('#')[0];
+  return path === '' ? '/' : path;
+}
+
+/**
+ * IS THIS ONE OF THE PAGES THIS SHOP ANSWERS WITH THAT IS NOT AN ORDER?
+ *
+ * Exact paths, measured, and nothing looser. A test that asked whether the path
+ * CONTAINED one of these would refuse an order page the day a shop nested its
+ * orders under a longer address.
+ */
+export function isNotAnOrderPage(platformKey, path) {
+  const shop = howThisShopNamesAnOrder(platformKey);
+  if (shop == null || typeof path !== 'string' || path === '') return false;
+  const list = Array.isArray(shop.notAnOrderPage) ? shop.notAnOrderPage : [];
+  return list.indexOf(path) !== -1;
+}
+
+/**
+ * THE ORDERS WORTH OPENING, WITH THE ONES THE SHOP ITSELF LINKS ELSEWHERE OUT.
+ *
+ * ── WHAT THIS SAVES, FROM THE OWNER'S OWN RUN ─────────────────────────────
+ *
+ * Two of the six pages that run opened were Amazon Pay entries and neither was a
+ * purchase. They cost two of the six slots, put the campaign's own order SIXTH,
+ * and left the look finishing at the edge of its ceiling. Without them the same
+ * order is fourth and the run has seconds to spare.
+ *
+ * ── AND IT CANNOT COST A REAL ORDER ───────────────────────────────────────
+ *
+ * A number is dropped ONLY when the shop's own link for it points at a path that
+ * has been SEEN to be something other than an order. No link, an unrecognised
+ * link, a shop with nothing measured: kept. So the worst this can do is nothing
+ * at all, and the count it answers with says which happened.
+ */
+export function ordersWorthOpening(html, orderNumbers, platformKey) {
+  const list = Array.isArray(orderNumbers) ? orderNumbers : [];
+  const keep = [];
+  let skipped = 0;
+  for (const number of list) {
+    const path = theLinkPathFor(html, number);
+    if (path != null && isNotAnOrderPage(platformKey, path)) { skipped += 1; continue; }
+    keep.push(number);
+  }
+  return { numbers: keep, skipped };
 }
 
 /**

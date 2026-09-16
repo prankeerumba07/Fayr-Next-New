@@ -19,8 +19,9 @@ import {
   AMAZON_ORDER_DETAIL_PAGE, GAP_BETWEEN_FETCHES_MS, MOST_DETAIL_PAGES,
   HOW_EACH_SHOP_NAMES_AN_ORDER, ORDER_ID_PARAM, ORDER_NUMBER_RUN,
   AMAZON_ORDER_NUMBER_SHAPE, SHOPS_READ_ONE_ORDER_AT_A_TIME, howThisShopNamesAnOrder,
-  countOrderCardSlots, harvestByShape, harvestFromOrderLinks, harvestOrderNumbers,
-  harvestRendered,
+  AMAZON_PAGES_THAT_ARE_NOT_ORDERS, countOrderCardSlots, harvestByShape,
+  harvestFromOrderLinks, harvestOrderNumbers, harvestRendered, isNotAnOrderPage,
+  ordersWorthOpening, theLinkPathFor,
   orderDetailPageFor, pagesToOpen, readsOrderPages, waitBeforeFetch,
 } from './detailLook.js';
 import { readDetailOutcome, readListOutcome } from '../orderhistory.js';
@@ -170,6 +171,150 @@ it('and six pages with their gaps still fit inside the screen own ceiling', () =
 it('junk index waits nothing rather than throwing', () => {
   for (const junk of [null, undefined, NaN, -1, 'two']) {
     equal(waitBeforeFetch(junk), 0);
+  }
+});
+
+console.log('\nthe rows that are not purchases at all');
+
+/** A list row as the shop writes it: a card, and the shop own link beside it. */
+const row = (number, path) =>
+  `<div data-csa-c-slot-id="amzn1.yourorders.order-card.${number}"></div>`
+  + `<a href="${path}?orderID=${number}&ref_=ppx_yo2ov">View order</a>`;
+
+const REAL = '408-5094957-4481129';
+const PAY_ONE = '408-0000001-0000001';
+const PAY_TWO = '408-0000002-0000002';
+
+it('the two pages a real run landed on that were not orders are written down', () => {
+  // ── FROM THE OWNER'S OWN DEVICE, 15 SEPTEMBER 2026, 22:50 AND 22:51 ──────
+  //
+  //   detail n=1 ... landed=/tez/browse/orderTracking
+  //   detail n=2 ... landed=/pay/transaction-details
+  //   detail n=3 ... landed=/gp/your-account/order-details
+  //   post pages=6 matched=1
+  //
+  // Two of the six pages opened were Amazon Pay entries and neither was a
+  // purchase. They cost two of six slots, put the campaign's own order SIXTH,
+  // and left the run finishing at the edge of the twenty second ceiling.
+  deepEqual(AMAZON_PAGES_THAT_ARE_NOT_ORDERS, [
+    '/tez/browse/orderTracking',
+    '/pay/transaction-details',
+  ]);
+  ok(isNotAnOrderPage('amazon', '/tez/browse/orderTracking'));
+  ok(isNotAnOrderPage('amazon', '/pay/transaction-details'));
+  // AND THE PAGE THE ORDERS THEMSELVES LAND ON IS NOT ONE OF THEM, which is the
+  // line that would fail if this list were ever written the other way round.
+  ok(!isNotAnOrderPage('amazon', '/gp/your-account/order-details'),
+    'A REAL ORDER PAGE IS NEVER ONE OF THESE, or the look would skip every purchase');
+  // EXACT PATHS AND NOTHING LOOSER. A test that asked whether the path CONTAINED
+  // one of these would refuse an order page the day a shop nested its orders
+  // under a longer address.
+  ok(!isNotAnOrderPage('amazon', '/pay/transaction-details/extra'));
+  ok(!isNotAnOrderPage('amazon', '/shop/tez/browse/orderTracking'));
+  // AND A SHOP NOBODY HAS MEASURED SKIPS NOTHING.
+  for (const path of AMAZON_PAGES_THAT_ARE_NOT_ORDERS) {
+    ok(!isNotAnOrderPage('zepto', path), 'nothing of this shape has been seen on Zepto');
+  }
+  for (const other of ['meesho', 'flipkart', '', null, undefined]) {
+    ok(!isNotAnOrderPage(other, '/pay/transaction-details'));
+  }
+  for (const junk of [null, undefined, '', 7, {}]) {
+    ok(!isNotAnOrderPage('amazon', junk), `${String(junk)} is not a path`);
+  }
+});
+
+it("the shop's own link for a row says where that row really goes", () => {
+  const html = row(PAY_ONE, '/tez/browse/orderTracking')
+    + row(PAY_TWO, '/pay/transaction-details')
+    + row(REAL, '/gp/your-account/order-details');
+  equal(theLinkPathFor(html, PAY_ONE), '/tez/browse/orderTracking');
+  equal(theLinkPathFor(html, PAY_TWO), '/pay/transaction-details');
+  equal(theLinkPathFor(html, REAL), '/gp/your-account/order-details');
+  // A WHOLE ADDRESS READS THE SAME AS A PAGE-RELATIVE ONE.
+  equal(
+    theLinkPathFor(`<a href="https://www.amazon.in/pay/transaction-details?orderID=${REAL}">x</a>`, REAL),
+    '/pay/transaction-details',
+  );
+  // AND THE QUERY AND THE FRAGMENT ARE NOT PART OF THE PATH.
+  equal(theLinkPathFor(`<a href="/gp/x?orderID=${REAL}#top">y</a>`, REAL), '/gp/x');
+  // NULL WHEN THE PAGE DOES NOT LINK TO IT AT ALL, which is not evidence either
+  // way and is why the caller keeps such a row.
+  equal(theLinkPathFor(row(REAL, '/gp/your-account/order-details'), PAY_ONE), null);
+  for (const junk of [null, undefined, 7, '']) {
+    equal(theLinkPathFor(junk, REAL), null);
+    equal(theLinkPathFor('<a href="/x?orderID=1">y</a>', junk), null);
+  }
+  // ── AND THE NUMBER IS TAKEN AS ITSELF, NOT AS AN EXPRESSION ─────────────
+  //
+  // Said honestly: today's order numbers are digits and dashes, and a dash
+  // outside a character class is a plain dash, so no real number can pose this.
+  // This function is exported and takes any string, and a shop is free to change
+  // its numbering tomorrow — at which point an unescaped dot here would match a
+  // DIFFERENT order's link and send us to the wrong page.
+  equal(theLinkPathFor('<a href="/x?orderID=abc">y</a>', 'a.c'), null,
+    'a dot is a dot and never "any character"');
+  equal(theLinkPathFor('<a href="/x?orderID=abc">y</a>', 'abc'), '/x',
+    'and the real thing still matches itself');
+});
+
+it('so the two that are not purchases are dropped BEFORE they are opened', () => {
+  const html = row(PAY_ONE, '/tez/browse/orderTracking')
+    + row(PAY_TWO, '/pay/transaction-details')
+    + row(REAL, '/gp/your-account/order-details');
+  const worth = ordersWorthOpening(html, [PAY_ONE, PAY_TWO, REAL], 'amazon');
+  deepEqual(worth.numbers, [REAL], 'only the purchase is left to open');
+  equal(worth.skipped, 2, 'and the count says so, so a real run can be read');
+  // AND THE ORDER OF WHAT IS LEFT IS THE PAGE'S OWN ORDER, newest first, exactly
+  // as the harvest handed it over.
+  const four = ordersWorthOpening(
+    html + row('408-3333333-3333333', '/gp/your-account/order-details'),
+    [PAY_ONE, REAL, PAY_TWO, '408-3333333-3333333'], 'amazon',
+  );
+  deepEqual(four.numbers, [REAL, '408-3333333-3333333']);
+});
+
+it('AND IT CAN NEVER COST A REAL ORDER, which is the whole shape of it', () => {
+  // ── A LIST OF THE BAD ONES, NEVER THE GOOD ONES ─────────────────────────
+  //
+  // A list of paths that ARE orders would skip a real purchase the day the shop
+  // added a third kind, and a skipped purchase is a look that finds nothing.
+  // Every case below is a row this must KEEP.
+  const keepers = [
+    ['a link to the order page itself', '/gp/your-account/order-details'],
+    ['a link nobody has measured', '/some/new/thing'],
+    ['a link to the list', '/your-orders/orders'],
+  ];
+  for (const [why, path] of keepers) {
+    const worth = ordersWorthOpening(row(REAL, path), [REAL], 'amazon');
+    deepEqual(worth.numbers, [REAL], why);
+    equal(worth.skipped, 0);
+  }
+  // A ROW THE PAGE DOES NOT LINK TO AT ALL IS KEPT. No link is not evidence.
+  const noLink = ordersWorthOpening(
+    `<div data-csa-c-slot-id="amzn1.yourorders.order-card.${REAL}"></div>`, [REAL], 'amazon',
+  );
+  deepEqual(noLink.numbers, [REAL]);
+  equal(noLink.skipped, 0);
+  // AND IF THE SHOP'S LINKS DO NOT TELL THEM APART AT ALL, NOTHING IS SKIPPED
+  // AND THE LOOK RUNS EXACTLY AS IT RAN BEFORE. This is the outcome that costs
+  // nothing and is the reason this could be written before anybody had measured
+  // what an Amazon Pay row's own link says.
+  const sameLink = row(PAY_ONE, '/gp/your-account/order-details')
+    + row(REAL, '/gp/your-account/order-details');
+  const both = ordersWorthOpening(sameLink, [PAY_ONE, REAL], 'amazon');
+  deepEqual(both.numbers, [PAY_ONE, REAL], 'unchanged, and no purchase lost');
+  equal(both.skipped, 0);
+  // AND A SHOP WITH NOTHING MEASURED SKIPS NOTHING, however its links read.
+  const zepto = ordersWorthOpening(
+    '<a href="/pay/transaction-details?orderID=01a0397a-bbb4-7cd7-b611-0e68227a15f1">x</a>',
+    ['01a0397a-bbb4-7cd7-b611-0e68227a15f1'], 'zepto',
+  );
+  equal(zepto.skipped, 0);
+  // AND NEITHER DOES A SHOP THIS FILE DOES NOT KNOW.
+  equal(ordersWorthOpening(row(REAL, '/pay/transaction-details'), [REAL], 'meesho').skipped, 0);
+  for (const junk of [null, undefined, 7, 'x']) {
+    deepEqual(ordersWorthOpening(junk, [REAL], 'amazon').numbers, [REAL]);
+    deepEqual(ordersWorthOpening(row(REAL, '/x'), junk, 'amazon').numbers, []);
   }
 });
 
