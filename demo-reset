@@ -127,9 +127,19 @@ DELETE FROM tasks       WHERE id IN (SELECT id FROM _doomed_tasks);
 
 -- The row that makes the app skip the connect step. Without this the demo
 -- cannot show connecting a marketplace, however often you sign out of Amazon.
-DELETE FROM shop_sign_ins s
-WHERE s.platform = 'AMAZON'
-  AND s."userId" IN (SELECT DISTINCT "userId" FROM _doomed_tasks);
+--
+-- NOT SCOPED TO THE TASKS ABOVE, AND THAT WAS A BUG. It used to read
+-- "userId IN (SELECT ... FROM _doomed_tasks)", which is empty whenever no task
+-- matched — and the commonest way to get there is running this script TWICE,
+-- the second time on an offer whose claim the first run already removed. The
+-- sign in row then survived a reset that reported success, and the walkthrough
+-- went on skipping the connect step. A reset has to land the same way however
+-- many times it is run.
+--
+-- Safe to take the whole platform: this is a practice database (the guard at the
+-- top refuses any other), and the row means only "this person reached a signed
+-- in Amazon once" — it holds no money and nothing references it.
+DELETE FROM shop_sign_ins WHERE platform = 'AMAZON';
 
 COMMIT;
 SQL

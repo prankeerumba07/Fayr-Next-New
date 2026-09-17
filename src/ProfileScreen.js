@@ -24,6 +24,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { signOut } from './backend/authApi';
 import { clearAllCookies, forgetAllSnapshots, sessionPersistenceAvailable } from './session';
+import { PLATFORMS } from './platforms';
+
+/**
+ * WHICH SHOP THE PRACTICE SIGN OUT OPENS. Amazon is the only one a walkthrough
+ * runs on, and the route name IS the platform key — see App.js, name={p.key}.
+ */
+const SHOP_TO_SIGN_OUT_OF = 'amazon';
 import { currentUser } from './backend/authSession';
 import { getWallet } from './backend/meApi';
 import { getWithdrawals } from './backend/withdrawalsApi';
@@ -69,6 +76,8 @@ export default function ProfileScreen({ navigation }) {
   const [signingOut, setSigningOut] = useState(false);
   // Practice only, and gated on __DEV__ where it is drawn. See the button.
   const [forgetting, setForgetting] = useState(false);
+  const shopName = (PLATFORMS[SHOP_TO_SIGN_OUT_OF] && PLATFORMS[SHOP_TO_SIGN_OUT_OF].name)
+    || 'the shop';
   const user = currentUser();
 
   const load = useCallback(async () => {
@@ -220,47 +229,51 @@ export default function ProfileScreen({ navigation }) {
             activeOpacity={0.85}
             disabled={forgetting}
             onPress={() => {
-              // ── IT SAYS SO WHEN IT CANNOT DO IT ──────────────────────────
+              // ── THE SHOP'S OWN SIGN OUT, BECAUSE OURS CANNOT REACH IT ────
               //
-              // In Expo Go the native cookie module is not there — session.js
-              // says so at the top of itself, and adds that a shop login "only
-              // survived via WebKit's own native persistence". So there is
-              // nothing here that can reach the shop's cookies: they belong to
-              // Expo Go's own web view store, not to Fayr.
+              // The first writing of this cleared cookies and snapshots. In Expo
+              // Go neither exists: session.js says at the top of itself that the
+              // native cookie module is not there and that a shop login "only
+              // survived via WebKit's own native persistence". So it cleared
+              // nothing, said nothing, and a reset walkthrough went on reporting
+              // "you are already signed in" — twice, on 17 September 2026.
               //
-              // A button that quietly does nothing is worse than no button. It
-              // was shipped that way on 17 September 2026 and cost a reset
-              // walkthrough that went on saying "you are already signed in".
-              if (!sessionPersistenceAvailable) {
-                Alert.alert(
-                  'Cannot do that in Expo Go',
-                  'The shop sign in is held by Expo Go\u2019s own web view, not by '
-                  + 'Fayr, and the module that could clear it is not in Expo Go.\n\n'
-                  + 'To start from a signed-out shop: delete Expo Go from the '
-                  + 'simulator (press and hold it, Delete App) and press i in the '
-                  + 'terminal to put it back. A development build can do this '
-                  + 'from here instead.',
-                  [{ text: 'OK' }],
-                );
-                return;
-              }
+              // AMAZON IS NOT IN ConnectScreen's LOGOUT_PLATFORMS on purpose:
+              // that list is the two shops whose own log out does NOT work in a
+              // web view. Amazon's does. The only reason it could not be reached
+              // is that every route into that web view passes toSignIn, and
+              // ConnectScreen auto-leaves a signed-in shop when that is set.
+              // Opening the same route WITHOUT it parks on the shop's own page
+              // with its own header to come back from, and the shop's own menu
+              // has Sign Out in it.
+              //
+              // Cookies and snapshots are still cleared where they exist, so a
+              // development build gets both halves.
               Alert.alert(
-                'Forget every shop sign in?',
-                'This phone will forget the marketplaces you are signed in to, so '
-                + 'the connect step asks you to sign in again. Your Fayr account is '
-                + 'not touched.',
+                `Sign out of ${shopName}?`,
+                `${shopName} opens next. Use its OWN menu to sign out — Account, `
+                + 'then Sign Out — then come back with the arrow at the top left.\n\n'
+                + 'Fayr cannot clear a shop\u2019s login itself in Expo Go: it is held '
+                + 'by Expo Go\u2019s web view, not by Fayr.',
                 [
                   { text: 'Not now', style: 'cancel' },
                   {
-                    text: 'Forget them',
-                    style: 'destructive',
+                    text: `Open ${shopName}`,
                     onPress: async () => {
                       setForgetting(true);
                       try {
+                        // Harmless where they do not exist, both halves where they do.
                         await forgetAllSnapshots();
                         await clearAllCookies();
+                      } catch (e) {
+                        /* nothing to undo */
                       } finally {
                         setForgetting(false);
+                      }
+                      // NO toSignIn. That word is what makes ConnectScreen leave
+                      // a shop it finds you already signed in to.
+                      if (navigation && typeof navigation.navigate === 'function') {
+                        navigation.navigate(SHOP_TO_SIGN_OUT_OF);
                       }
                     },
                   },
@@ -270,10 +283,10 @@ export default function ProfileScreen({ navigation }) {
           >
             <Text style={styles.forgetShopsText}>
               {forgetting
-                ? 'Forgetting…'
+                ? 'Opening…'
                 : sessionPersistenceAvailable
-                  ? 'Forget shop sign-ins (dev)'
-                  : 'Forget shop sign-ins (not in Expo Go)'}
+                  ? `Sign out of ${shopName} (dev)`
+                  : `Sign out of ${shopName} (dev)`}
             </Text>
           </TouchableOpacity>
         ) : null}
