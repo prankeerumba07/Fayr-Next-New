@@ -76,6 +76,7 @@ import { PLATFORMS } from '../platforms';
 import {
   alreadyLookedForDelivery, rememberWeLookedForDelivery,
 } from '../order/deliveryLook';
+import { SAID_IT_ARRIVED, hasVisitedShop, markVisitedShop } from '../journey/shopVisits';
 import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
 import { Ghost, Pill, TextBtn, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
@@ -128,6 +129,17 @@ export default function DeliveryScreen({ navigation, route }) {
   const [where, setWhere] = useState(looked ? 'nothing' : 'asking');
   const started = useRef(false);
 
+  // ── WHAT THE RECORD SAYS, READ BEFORE THE ANSWER IS WIRED UP ────────────
+  //
+  // `known` is the SHOP's word, off the shop's own page. `saidSo` is whether
+  // this person has answered the question. They are different facts and the
+  // screen needs both: the record can carry a delivery before anybody has been
+  // asked anything, which is the ordinary case for an order whose return window
+  // has already closed.
+  const task = campaignId ? getAuthoritative(campaignId) : null;
+  const known = !!(task && task.delivery);
+  const saidSo = campaignId ? hasVisitedShop(campaignId, SAID_IT_ARRIVED) : false;
+
   useEffect(() => {
     if (!campaignId) return undefined;
     return subscribe(() => setTick((n) => n + 1));
@@ -153,6 +165,21 @@ export default function DeliveryScreen({ navigation, route }) {
   const theySaidYes = useCallback(() => {
     if (started.current) return;
     started.current = true;
+    // ── THE RECORD ALREADY KNOWS, SO THERE IS NOTHING TO READ ─────────────
+    //
+    // Their answer is the only thing missing. Asking the shop again for a fact
+    // it has already given us is one more request against a shop that rate
+    // limits us, for nothing — the same rule the order step keeps when it is
+    // handed an order number it already has.
+    //
+    // THE NOTE IS ALL THIS WRITES. The delivery on the record is not touched,
+    // because a tap is not evidence and this one could not be: see the
+    // DELIVERED branch in ui/journey.js.
+    if (known) {
+      if (campaignId) markVisitedShop(campaignId, SAID_IT_ARRIVED);
+      if (params.onJourneyMoved) params.onJourneyMoved();
+      return;
+    }
     // NO TASK IS NOTHING TO READ. The read is of one person's orders against one
     // claim, and without a task there is no claim to read them against.
     if (taskId == null || alreadyLookedForDelivery(taskId)) {
@@ -190,7 +217,7 @@ export default function DeliveryScreen({ navigation, route }) {
         && known.order.id !== '' ? known.order.id : null;
       navigation.navigate('LookingForIt', { campaignId, onlyThisOrder: itsOrder });
     }
-  }, [navigation, campaignId, taskId]);
+  }, [navigation, campaignId, taskId, known, params]);
 
   // ── AND NOBODY IS LEFT WATCHING A WORD THAT NEVER CHANGES ───────────────
   //
@@ -217,10 +244,17 @@ export default function DeliveryScreen({ navigation, route }) {
     );
   }, [navigation]);
 
-  const task = campaignId ? getAuthoritative(campaignId) : null;
-  const delivered = !!(task && task.delivery);
-  const reading = where === 'reading' && !delivered;
-  const asking = where === 'asking' && !delivered;
+  // ── THE THREE FACES, AND WHICH ONE IS UP ────────────────────────────────
+  //
+  // `mustAsk` is the case this screen used to have no answer for: the shop has
+  // already said the parcel arrived and the person has not been asked yet. It
+  // used to fall straight through to the "It arrived" face, so the owner's step
+  // seven — the question — was never once seen on an order whose return window
+  // had already closed. The question wins until it is answered.
+  const mustAsk = known && !saidSo;
+  const delivered = known && saidSo;
+  const reading = where === 'reading' && !delivered && !mustAsk;
+  const asking = (where === 'asking' || mustAsk) && !delivered;
 
   return (
     <Screen bg={COLOR.cream}>

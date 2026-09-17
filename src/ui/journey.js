@@ -262,7 +262,25 @@ export function journeyStepFor(state) {
   if (st === STATES.REFUNDED) return 'refund';
   if (st === STATES.HOLDING) return 'window';
   if (st === STATES.REVIEWED) return 'review-shot';
-  if (st === STATES.DELIVERED) return 'review';
+  // ── DELIVERED, BUT HAVE THEY BEEN ASKED? ─────────────────────────────────
+  //
+  // The record can know a parcel arrived before the person has said a word about
+  // it. That is the ordinary case now, not a corner: an order whose return window
+  // has already closed is delivered the moment its page is read, so the delivery
+  // is on the record before anybody reaches this step, and the step was stepped
+  // straight over — order confirmed, and the next thing seen was the arrival.
+  //
+  // The owner's step seven is a QUESTION — "Is the product delivered? Yes / Not
+  // yet" — and a question that is only asked when the answer is unknown is a
+  // question most people never see.
+  //
+  // SO THE ANSWER IS WAITED FOR, AND IT SETTLES NOTHING. The note is on the
+  // phone, it is written by the tap, and the delivery on the record is untouched
+  // either way: "not yet" does not un-deliver a parcel the shop has said arrived,
+  // it just leaves them here. See SAID_IT_ARRIVED in journey/shopVisits.js.
+  if (st === STATES.DELIVERED) {
+    return s.saidItArrived === true ? 'review' : 'delivered';
+  }
 
   if (st === STATES.PURCHASED || task.order) {
     // Bought and read. The screenshot step is only in the way when the shop

@@ -65,9 +65,26 @@ export const SAID_THEY_BOUGHT = 'bought';
 export const WENT_TO_REVIEW = 'review';
 export const TOLD_ABOUT_THE_REVIEW_WAIT = 'reviewwait';
 export const SAW_IT_ARRIVED = 'sawarrived';
+/**
+ * ── AND ONE MORE: THEY ANSWERED "YES, IT ARRIVED" ─────────────────────────
+ *
+ * NOT THE SAME NOTE AS SAW_IT_ARRIVED, and the difference is the whole point.
+ * That one says this phone has PLAYED the celebration; this one says the person
+ * ANSWERED the question. One is about what was shown, the other about what was
+ * asked, and collapsing them would mean the question is skipped by a phone that
+ * had merely drawn something.
+ *
+ * WHY A NOTE AND NOT A COLUMN. Because it settles nothing. The delivery itself
+ * is the shop's word, read off the shop's own page, and this tap neither makes
+ * it true nor makes it false — it cannot reach anything that decides money. It
+ * only says whether this person has been asked yet. Losing it costs one repeated
+ * question and nothing else, which is exactly the bar the two notes above it
+ * are held to.
+ */
+export const SAID_IT_ARRIVED = 'saidarrived';
 const REASONS = [
   SIGNED_IN, WENT_TO_BUY, SAID_THEY_BOUGHT,
-  WENT_TO_REVIEW, TOLD_ABOUT_THE_REVIEW_WAIT, SAW_IT_ARRIVED,
+  WENT_TO_REVIEW, TOLD_ABOUT_THE_REVIEW_WAIT, SAW_IT_ARRIVED, SAID_IT_ARRIVED,
 ];
 
 let visited = null; // null = not read yet

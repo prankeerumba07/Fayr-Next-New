@@ -135,7 +135,22 @@ console.log('\n=== 3. which page, from the server’s record ===');
       === 'order-details',
     'an order we could read counts as bought, whatever the state says');
 
-  ok(at({ task: { state: STATES.DELIVERED } }) === 'review', 'delivered: write the review');
+  // ── DELIVERED IS NOT THE SAME AS "THEY HAVE BEEN ASKED" ────────────────
+  //
+  // The record can carry a delivery before anybody has said a word about it, and
+  // that is the ordinary case rather than a corner: an order whose return window
+  // has already closed is delivered the moment its page is read. The owner's step
+  // seven is a QUESTION, so it is waited for.
+  ok(at({ task: { state: STATES.DELIVERED } }) === 'delivered',
+    'delivered, nobody asked yet: the question');
+  ok(at({ task: { state: STATES.DELIVERED }, saidItArrived: true }) === 'review',
+    'delivered and they said so: write the review');
+  // AND THE ANSWER ALONE SETTLES NOTHING. Without the record it is still the
+  // record that decides, so a note on a claim the shop has said nothing about
+  // cannot jump anybody forward.
+  ok(at({ task: { state: STATES.PURCHASED, order: { id: 'o1', orderConfirmed: true } },
+    saidItArrived: true }) === 'delivered',
+  'the answer cannot move somebody the record has not delivered');
   ok(at({ task: { state: STATES.REVIEWED } }) === 'review-shot',
     'reviewed: send the picture of it');
   ok(at({ task: { state: STATES.HOLDING } }) === 'window', 'holding: the return window');
@@ -264,7 +279,7 @@ console.log('\n=== 5. COMING BACK LANDS WHERE THEY WERE ===');
 console.log('\n=== 6. the whole page, as data ===');
 {
   const view = journeyView({
-    task: { state: STATES.DELIVERED }, connected: true,
+    task: { state: STATES.DELIVERED }, connected: true, saidItArrived: true,
     productName: 'Prestige cooktop', shopName: 'Amazon',
   });
   ok(view.key === 'review', 'it knows which step');

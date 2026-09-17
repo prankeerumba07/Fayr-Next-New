@@ -148,7 +148,19 @@ it('AND SO IS "OPEN THE SHOP", WHICH WAS A BUG', () => {
   // home page with nothing to do there.
   ok(!/navigate\(key/.test(CODE), 'the screen still navigates to a bare shop key');
   ok(!/so we can read it/i.test(CODE));
-  ok(!/markVisitedShop/.test(CODE), 'the screen still marks a shop visit');
+  // ── ONE NOTE, AND IT IS NOT A SHOP VISIT ────────────────────────────────
+  //
+  // This guard is about SENDING SOMEBODY TO A SHOP, which this screen must
+  // never do. It used to say "no notes at all", which was the same thing while
+  // the only note anybody could write here was a visit. Step seven's question
+  // gave the screen an answer to record — SAID_IT_ARRIVED, a note about what
+  // was asked, not about anywhere anybody went — so the guard now says what it
+  // always meant: that one note and no other.
+  const notes = CODE.match(/markVisitedShop\([^)]*\)/g) || [];
+  ok(notes.every((n) => /SAID_IT_ARRIVED/.test(n)),
+    `the screen writes a note that is not the arrival answer: ${notes.join(', ')}`);
+  ok(!/SIGNED_IN|WENT_TO_BUY|SAID_THEY_BOUGHT/.test(CODE),
+    'the screen still records a shop visit');
 });
 
 it('it starts the SAME read, by name, and does not write a second one', () => {
@@ -240,7 +252,15 @@ it('it never decides it is delivered on this side', () => {
   // Delivered is a state of the RECORD. The journey works the step out from it,
   // so a copy kept here is how two places disagree about where somebody is.
   ok(/getAuthoritative\(campaignId\)/.test(CODE));
-  ok(/const delivered = !!\(task && task\.delivery\);/.test(CODE));
+  // The record's word, under its own name.
+  ok(/const known = !!\(task && task\.delivery\);/.test(CODE),
+    'the record\u2019s delivery is no longer read under its own name');
+  // AND THE FACE IS NARROWER THAN THE RECORD, NEVER WIDER. It is the record AND
+  // their answer, so this side can only ever be slower to call a parcel
+  // delivered than the shop is — never quicker, which is the direction that
+  // would matter. Step seven's question is what the second half is.
+  ok(/const delivered = known && saidSo;/.test(CODE),
+    'the delivered face is no longer the record narrowed by their own answer');
   ok(!/setDelivered|setState\('delivered'\)|'delivered'/.test(CODE),
     'the screen keeps its own copy of whether the parcel came');
 });

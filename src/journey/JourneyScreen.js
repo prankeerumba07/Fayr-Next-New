@@ -44,7 +44,7 @@ import { journeyView } from '../ui/journey';
 import { goBackOrHome } from '../ui/nav';
 import { screenFor } from '../screens';
 import {
-  SAID_THEY_BOUGHT, SAW_IT_ARRIVED, SIGNED_IN, WENT_TO_BUY,
+  SAID_IT_ARRIVED, SAID_THEY_BOUGHT, SAW_IT_ARRIVED, SIGNED_IN, WENT_TO_BUY,
   hasVisitedShop, markVisitedShop,
 } from './shopVisits';
 import ArrivedMoment from './ArrivedMoment';
@@ -148,6 +148,9 @@ export default function JourneyScreen({ navigation, route }) {
     // completely — see journey.js, where the server's record is read first.
     wentToBuy: hasVisitedShop(campaignId, WENT_TO_BUY),
     saidTheyBought: hasVisitedShop(campaignId, SAID_THEY_BOUGHT),
+    // Whether they have answered "yes, it arrived". The record's delivery and
+    // this are different facts — see the DELIVERED branch in ui/journey.js.
+    saidItArrived: hasVisitedShop(campaignId, SAID_IT_ARRIVED),
     // Whether a screenshot is needed at all is the SERVER'S business, read off the
     // task's own blocker by journey.js. Not passed here, so there is one place that
     // decides it and no chance of this file disagreeing.
