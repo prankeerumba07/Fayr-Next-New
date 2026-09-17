@@ -8,7 +8,18 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.fayr"
+      "bundleIdentifier": "com.anonymous.fayr",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "com.amazon.mobile.shopping",
+          "flipkart",
+          "meesho",
+          "blinkit",
+          "zepto",
+          "swiggy",
+          "myntra"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {

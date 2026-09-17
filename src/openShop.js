@@ -49,12 +49,37 @@ export async function copyProductName(productName) {
  */
 export async function openShopApp(marketplaceKey, webUrl) {
   // The ORDER is decided in ui/shopApp.js, which is pure and is checked under node.
-  // This walks the list and stops at the first one the phone accepts. A rejection
-  // means "nothing here can open that", which is what an app that is not installed
-  // and a scheme we had wrong both look like — so it is not an error, it is the
-  // next address's turn.
+  // This walks the list and stops at the first one the phone accepts.
+  //
+  // ── WHY THE APP ADDRESS IS ASKED ABOUT BEFORE IT IS OPENED ─────────────────
+  //
+  // The old shape TRIED the app scheme and trusted a rejection to send us on to
+  // the website. On a real phone with no app that rejection comes. On the iOS
+  // SIMULATOR it does not: openURL on an unknown scheme like
+  // com.amazon.mobile.shopping:// can RESOLVE — opening nothing — instead of
+  // throwing, so this returned 'app', the screen believed the shop had opened,
+  // and the person sat on a screen that had done nothing. That is the "I tap
+  // Open Amazon and nothing happens" the owner hit, and it looked random because
+  // whether openURL resolves or rejects on a dead scheme is not something the
+  // caller controls.
+  //
+  // canOpenURL answers it for real. For an app scheme it is false unless that app
+  // is installed and its scheme is declared (see app.json's
+  // LSApplicationQueriesSchemes / Android intent queries), so the simulator now
+  // falls through to the website every time, a phone with the app opens the app,
+  // and a phone without it opens the website. The plain https address is opened
+  // without asking — every phone can, and canOpenURL on http is itself flaky.
   for (const where of addressesToTry(marketplaceKey, webUrl)) {
     try {
+      if (where.kind === 'app') {
+        let can = false;
+        try {
+          can = await Linking.canOpenURL(where.url);
+        } catch (e) {
+          can = false; // an error asking is a no — the website is next.
+        }
+        if (!can) continue;
+      }
       await Linking.openURL(where.url);
       return where.kind;
     } catch (e) {
