@@ -111,6 +111,48 @@ function say(line) {
 }
 
 /**
+ * WHAT KIND OF ERROR PAGE A SHOP SENT, IN WORDS THAT CARRY NO ONE'S DATA.
+ *
+ * ── WHY THIS EXISTS AND WHY IT IS SHAPED THIS WAY ──────────────────────────
+ *
+ * A read that comes back non-200 has one number to explain it — the status —
+ * and a shop sends several different pages under one status. A 400 from Amazon
+ * on the profile can be a plain "Bad Request", a scraping block that names an
+ * email to write to, a robot check, or a "claim your profile" bounce, and those
+ * four want four different fixes. Without this, every one of them is the same
+ * silence, and finding out which costs the owner a round trip to paste his
+ * screen back at us.
+ *
+ * IT NEVER RETURNS THE PAGE. It returns a title with digits and long id-like
+ * tokens stripped, plus a handful of yes/no marks for phrases that only ever
+ * appear in a shop's own furniture — never in anything a person wrote, never a
+ * name, never a number, never a review's words. The standing rule that a page's
+ * bytes are counted and never printed holds here: this is not the bytes, it is
+ * a fingerprint of which stock error page they are.
+ *
+ * Pure, so it is checked under node and can be asked twice without a clock.
+ */
+export function errorTell(html) {
+  if (typeof html !== 'string' || html === '') return 'tell=none';
+  const lower = html.toLowerCase();
+  // MARKS ONLY, AND NEVER THE TITLE. The title was tried and dropped: on a good
+  // profile it IS the person's name, and a rule that a name never reaches a log
+  // does not bend for a field that is usually safe. Every mark below is a phrase
+  // that only appears in a shop's own stock error furniture — never in a name,
+  // a number, an id or a review's words — so the whole return is a fingerprint
+  // of WHICH error page, carrying nothing of whose it is.
+  const mark = (needle) => (lower.indexOf(needle) >= 0 ? 1 : 0);
+  return `badreq=${mark('bad request')} `
+    + `robot=${mark('robot') || mark('are not a robot') || mark('captcha')} `
+    + `signin=${mark('sign in') || mark('signin') || mark('/ap/signin')} `
+    + `apiblock=${mark('api-services-support') || mark('automated access')} `
+    + `denied=${mark('access denied') || mark('forbidden') || mark('not authorized') || mark('unauthorized')} `
+    + `claim=${mark('/ax/claim') || mark('claim your')} `
+    + `wrong=${mark('something went wrong') || mark("we're sorry") || mark('sorry!')} `
+    + `len=${lower.length < 8000 ? 'small' : 'big'}`;
+}
+
+/**
  * Say one line, if the commentary is on. Answers whether it said anything, so a
  * check can prove the guard works without reading the console.
  */

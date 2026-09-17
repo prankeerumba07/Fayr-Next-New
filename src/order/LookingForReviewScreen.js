@@ -42,7 +42,7 @@ import {
   drawFacts, openOneReviewWith, openTheReviewsWith, readDetailStep, readListStep,
 } from './drawnList.js';
 import { restoreSession } from '../session';
-import { logLook } from './lookLog.js';
+import { errorTell, logLook } from './lookLog.js';
 import { sendFoundReviews } from '../backend/reviewCandidatesApi';
 import { useMotion } from '../ui/celebration';
 import { COLOR, FONT, SPACE } from '../ui/theme';
@@ -236,7 +236,11 @@ export default function LookingForReviewScreen({ navigation, route }) {
         + `waited=${drewIt.waited} looks=${drewIt.looks} `
         + `rows=${drewIt.linked}/${drewIt.marked} `
         + `nodes=${drewIt.nodesFirst}/${drewIt.nodesNow} `
-        + `found=${ids.length}`);
+        + `found=${ids.length}`
+        // WHEN THE PROFILE READ DID NOT COME BACK CLEAN, say which stock error
+        // page the shop sent. No page, no id, no number — see errorTell. This is
+        // the one line that turns "400 and nothing" into "400 because <which>".
+        + ((answer && answer.status === 200) ? '' : ` ${errorTell(html)}`));
 
       const drawn = theReviewPagesAreDrawn(platformKey);
       const pages = [];
