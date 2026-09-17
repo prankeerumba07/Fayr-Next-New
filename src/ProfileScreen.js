@@ -23,6 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { signOut } from './backend/authApi';
+import { clearAllCookies, forgetAllSnapshots } from './session';
 import { currentUser } from './backend/authSession';
 import { getWallet } from './backend/meApi';
 import { getWithdrawals } from './backend/withdrawalsApi';
@@ -66,6 +67,8 @@ export default function ProfileScreen({ navigation }) {
   const [withdrawals, setWithdrawals] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [signingOut, setSigningOut] = useState(false);
+  // Practice only, and gated on __DEV__ where it is drawn. See the button.
+  const [forgetting, setForgetting] = useState(false);
   const user = currentUser();
 
   const load = useCallback(async () => {
@@ -197,6 +200,56 @@ export default function ProfileScreen({ navigation }) {
           ) : null}
         </View>
 
+        {/* ── PRACTICE ONLY: FORGET EVERY SHOP SIGN IN ON THIS PHONE ────────
+            WHY IT EXISTS. demo-reset clears the SERVER's record — the
+            shop_sign_ins row that makes the app skip the connect step — but the
+            shop's own cookies live on the PHONE, in the web view's jar and in a
+            saved snapshot beside it. So a reset walkthrough reached the connect
+            screen and then showed "you are already signed in", because the phone
+            put the session straight back. There was no way to undo that from
+            inside the app: the shop's own log out is only offered for the two
+            marketplaces whose web view log out does not work.
+
+            __DEV__ IS FALSE IN ANY RELEASE BUILD, so this cannot be reached by a
+            real user — the same gate the task screen's own dev tools sit behind.
+            It signs nobody out of Fayr and touches no record: it forgets cookies
+            and snapshots, which is exactly what signing out of a shop means. */}
+        {__DEV__ ? (
+          <TouchableOpacity
+            style={styles.forgetShops}
+            activeOpacity={0.85}
+            disabled={forgetting}
+            onPress={() => {
+              Alert.alert(
+                'Forget every shop sign in?',
+                'This phone will forget the marketplaces you are signed in to, so '
+                + 'the connect step asks you to sign in again. Your Fayr account is '
+                + 'not touched.',
+                [
+                  { text: 'Not now', style: 'cancel' },
+                  {
+                    text: 'Forget them',
+                    style: 'destructive',
+                    onPress: async () => {
+                      setForgetting(true);
+                      try {
+                        await forgetAllSnapshots();
+                        await clearAllCookies();
+                      } finally {
+                        setForgetting(false);
+                      }
+                    },
+                  },
+                ],
+              );
+            }}
+          >
+            <Text style={styles.forgetShopsText}>
+              {forgetting ? 'Forgetting…' : 'Forget shop sign-ins (dev)'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
         <TouchableOpacity
           style={styles.logout}
           activeOpacity={0.85}
@@ -272,4 +325,10 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md, paddingVertical: 14, alignItems: 'center',
   },
   logoutText: { fontFamily: FONT.bodyBold, fontSize: 14, color: COLOR.red },
+  // Deliberately quieter than Log out: it is a practice tool, not a way out.
+  forgetShops: {
+    marginTop: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: COLOR.line,
+    borderRadius: RADIUS.md, paddingVertical: 12, alignItems: 'center',
+  },
+  forgetShopsText: { fontFamily: FONT.bodySemi, fontSize: 13, color: COLOR.sub },
 });

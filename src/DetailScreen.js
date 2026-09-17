@@ -323,6 +323,11 @@ export default function DetailScreen({ navigation, route }) {
             onPress={() => goBackOrHome(navigation)}
             style={styles.back}
             activeOpacity={0.8}
+            // The same slop every other back control on this app gets. A 40pt
+            // circle is the drawn size, not the size of a thumb.
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
@@ -635,7 +640,20 @@ const styles = StyleSheet.create({
 
   hero: { paddingBottom: SPACE.xl, alignItems: 'center' },
   back: {
-    position: 'absolute', left: SPACE.lg, zIndex: 3,
+    // ── A TOP, AND IT IS NOT A TIDY-UP ──────────────────────────────────────
+    //
+    // This was `position:'absolute'` with a `left` and NO `top`. An absolute box
+    // with neither top nor bottom is placed at whatever its static position
+    // works out to, which depends on the children around it rather than on
+    // anything written here — so the arrow DRAWS where you expect and its touch
+    // target does not have to be in the same place. That is the shape of "the
+    // button is right there and tapping it does nothing".
+    //
+    // The parent already holds the notch (hero's paddingTop is insets.top + 8),
+    // so 0 here is the top of the content box, under the notch and inside the
+    // parent's bounds — which matters, because iOS does not deliver touches to a
+    // child drawn outside its parent.
+    position: 'absolute', top: 0, left: SPACE.lg, zIndex: 3, elevation: 3,
     width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff',
     alignItems: 'center', justifyContent: 'center', ...SHADOW.chip,
   },
