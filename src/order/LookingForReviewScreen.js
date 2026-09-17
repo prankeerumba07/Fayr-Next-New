@@ -34,8 +34,10 @@ import { WebView } from 'react-native-webview';
 import * as campaignStore from '../backend/campaignStore';
 import { getTaskId, refreshFromBackend } from '../taskStore';
 import { PLATFORMS } from '../platforms';
+import { buildPublicPageScript } from '../orderhistory';
 import {
-  harvestReviewLinks, readsReviewPages, reviewPageFor, theReviewPagesAreDrawn,
+  harvestReviewLinks, readsReviewPages, reviewPageFor, theResolvedProfileFrom,
+  theReviewPagesAreDrawn,
 } from './detailLook.js';
 import {
   LEAST_A_DRAW_CAN_TAKE_MS, anAnswerTag, answerWithStatus, isOurAnswer,
@@ -207,8 +209,8 @@ export default function LookingForReviewScreen({ navigation, route }) {
       const answer = await openWith(theProfile);
       if (!alive) return;
       const outcome = readListStep(theProfile, answer);
-      const html = answer && typeof answer.html === 'string' ? answer.html : '';
-      const ids = harvestReviewLinks(html, platformKey);
+      let html = answer && typeof answer.html === 'string' ? answer.html : '';
+      let ids = harvestReviewLinks(html, platformKey);
 
       // COUNTS ONLY, NEVER A REVIEW'S NAME AND NEVER ITS WORDS. A review id is
       // an identifier tied to the account and the words are what somebody wrote
@@ -241,6 +243,43 @@ export default function LookingForReviewScreen({ navigation, route }) {
         // page the shop sent. No page, no id, no number — see errorTell. This is
         // the one line that turns "400 and nothing" into "400 because <which>".
         + ((answer && answer.status === 200) ? '' : ` ${errorTell(html)}`));
+
+      // ── REFUSED WITH A SIGN IN ATTACHED, SO ASK AGAIN WITHOUT ONE ────────
+      //
+      // MEASURED 17 September 2026 on the owner's own account. Amazon answers
+      // the signed in read of his own profile with its automation notice — 400,
+      // 2163 bytes, and the line above says apiblock=1 — and answers the SAME
+      // address with no sign in attached 200, 336874 bytes, all four review
+      // links on it, the one we want among them.
+      //
+      // A person's reviews are PUBLIC; that is what a review is. The sign in
+      // buys nothing on this page and is the whole of what the refusal is
+      // about, so the second ask drops it. Nothing is guessed and nothing is
+      // typed: the address is the one the first read was REDIRECTED to, which
+      // arrives even when the body is refused, and the ask is for a page the
+      // shop publishes to anybody.
+      if (ids.length === 0) {
+        const asAStranger = theResolvedProfileFrom(platformKey, answer && answer.url);
+        if (asAStranger != null) {
+          const tag = aFreshName();
+          const again = {
+            uri: null, script: buildPublicPageScript(asAStranger, tag), drawn: false, tag,
+          };
+          const open = await openWith(again);
+          if (!alive) return;
+          const said = readListStep(again, open);
+          const strangerHtml = open && typeof open.html === 'string' ? open.html : '';
+          const strangerIds = harvestReviewLinks(strangerHtml, platformKey);
+          logLook('reviews-public', `status=${open && open.status} `
+            + `bytes=${strangerHtml.length} looked=${said.looked} `
+            + `whyNot=${said.whyNot} found=${strangerIds.length}`
+            + ((open && open.status === 200) ? '' : ` ${errorTell(strangerHtml)}`));
+          if (strangerIds.length > 0) {
+            html = strangerHtml;
+            ids = strangerIds;
+          }
+        }
+      }
 
       const drawn = theReviewPagesAreDrawn(platformKey);
       const pages = [];

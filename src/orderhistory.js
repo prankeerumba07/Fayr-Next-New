@@ -157,6 +157,52 @@ export function buildOrderListScript(url, tag) {
 true;`;
 }
 
+/**
+ * ASK A SHOP FOR A PAGE AS A STRANGER, WITH NO SIGN IN ATTACHED.
+ *
+ * ── WHY THERE IS A SECOND ONE OF THESE, AND WHEN IT IS THE RIGHT ONE ───────
+ *
+ * MEASURED ON THE OWNER'S OWN ACCOUNT, 17 September 2026. Amazon serves the
+ * anti-automation page — "to discuss automated access ... api-services-support"
+ * — to a SIGNED IN read of his own profile from inside the app, while serving
+ * the very same address to a signed OUT read with everything on it:
+ *
+ *   credentials: 'include'   400, 2163 bytes, the automation notice
+ *   credentials: 'omit'      200, 336874 bytes, all four review links
+ *
+ * A person's reviews are PUBLIC — that is the whole point of a review — so the
+ * sign in buys nothing on this page and costs everything. Sending it is what
+ * makes the request look like an account being harvested rather than a page
+ * being read.
+ *
+ * SO THIS IS NOT A WAY AROUND A SHOP'S WISHES. It asks for less than the other
+ * one does, for a page the shop publishes to anybody, and it still types
+ * nothing and answers nothing. The signed in read is kept for the pages that
+ * genuinely need it — an order is nobody's business but the buyer's — and this
+ * is used only where the shop itself has already decided the page is public.
+ */
+export function buildPublicPageScript(url, tag) {
+  const safeUrl = JSON.stringify(String(url));
+  const name = JSON.stringify(String(tag == null ? '' : tag));
+  return `
+(function(){
+  var sent = false;
+  function send(o){
+    if (sent) return; sent = true;
+    o.tag = ${name};
+    try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch(e){}
+  }
+  var done = setTimeout(function(){ send({ ok:false, status:0, html:'', url:'', error:'timed out' }); }, ${LIST_TIMEOUT_MS});
+  try {
+    fetch(${safeUrl}, { credentials: 'omit', redirect: 'follow' })
+      .then(function(r){ return r.text().then(function(t){ return { status: r.status, html: t, url: r.url }; }); })
+      .then(function(p){ clearTimeout(done); send({ ok:true, status:p.status, html:p.html, url:p.url }); })
+      .catch(function(e){ clearTimeout(done); send({ ok:false, status:0, html:'', url:'', error:String((e&&e.message)||e) }); });
+  } catch(e){ clearTimeout(done); send({ ok:false, status:0, html:'', url:'', error:String((e&&e.message)||e) }); }
+})();
+true;`;
+}
+
 /** The handful of written out characters a shop page really uses. */
 const NAMED = {
   amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',

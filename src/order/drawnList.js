@@ -830,6 +830,16 @@ export function openTheReviewsWith(platformKey, startUrl, beganAt, tag) {
  */
 export function openOneReviewWith(platformKey, url, beganAt, tag, deadlineMs) {
   if (!theReviewPagesAreDrawn(platformKey)) {
+    // SIGNED IN, AND THIS ONE GENUINELY NEEDS IT — the opposite of the profile
+    // page next door, which is why the two are not read the same way. MEASURED
+    // 17 September 2026 on the owner's own review R2D9...:
+    //
+    //   credentials: 'include'   200, 555821 bytes, NAMES THE PRODUCT
+    //   credentials: 'omit'      bounced to /ax/claim, a sign in page, nothing
+    //
+    // The product a review is about is the one thing this page is opened for,
+    // and only the signed in read carries it. So the stranger trick stops at
+    // the profile, where it was measured to be both necessary and sufficient.
     return { uri: null, script: buildOrderListScript(url, tag), drawn: false, tag };
   }
   return {

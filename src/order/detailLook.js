@@ -871,6 +871,39 @@ export const WHERE_EACH_SHOP_KEEPS_REVIEWS = {
   },
 };
 
+/**
+ * THE RESOLVED PROFILE ADDRESS, READ BACK OFF WHEREVER A PROFILE READ LANDED.
+ *
+ * ── WHY A BLOCKED READ IS STILL WORTH SOMETHING ────────────────────────────
+ *
+ * A shop's profile address is a doorway: /gp/profile/ carries no name and
+ * REDIRECTS to the one that does, /gp/profile/<the account>. When Amazon
+ * refuses the signed in read of that page it refuses the BODY — the redirect
+ * has already happened, and the address the answer came back from still names
+ * the account. The owner's own log on 17 September 2026 says exactly that:
+ *
+ *   status=400 ... landed=/gp/profile/amzn1.account.AH2TECW...
+ *
+ * So the one thing the blocked read does hand over is the only thing needed to
+ * ask again properly — and asking again without a sign in is answered 200 with
+ * the whole page (see buildPublicPageScript for that measurement).
+ *
+ * Answers null for the bare doorway, so a read that never got as far as the
+ * redirect cannot be mistaken for one that did.
+ */
+export function theResolvedProfileFrom(platformKey, landedUrl) {
+  const shop = howThisShopKeepsReviews(platformKey);
+  if (shop == null || typeof landedUrl !== 'string' || landedUrl === '') return null;
+  const doorway = String(shop.profile || '');
+  if (doorway === '' || landedUrl.indexOf(doorway) !== 0) return null;
+  // Whatever follows the doorway, up to the first / ? or #, is the account.
+  const rest = landedUrl.slice(doorway.length).split(/[/?#]/)[0];
+  // A doorway with nothing after it is the doorway, not a resolved address. The
+  // floor is deliberately low: it only has to rule out '' and a stray letter.
+  if (rest.length < 8) return null;
+  return doorway + rest;
+}
+
 /** How this shop keeps reviews, or null when nobody has measured it. */
 export function howThisShopKeepsReviews(platformKey) {
   if (typeof platformKey !== 'string') return null;
