@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# PUT A WALKTHROUGH BACK AT THE VERY START — EVEN AFTER MONEY MOVED.
+#
+#   bash demo-reset                    every Amazon claim
+#   bash demo-reset "Keep the Oil"     only the offers whose title matches
+#
+# ── WHY THIS EXISTS AND fresh-amazon IS NOT ENOUGH ──────────────────────────
+#
+# fresh-amazon refuses, on purpose, to remove any claim with a ledger movement
+# against it. That refusal is the money rule and it is correct: in the real
+# system a paid refund is history and history is not edited.
+#
+# But a rehearsal has to be run twice. Once the full journey completes — review
+# confirmed, window closed, refund released — the claim carries wallet entries,
+# a ledger transaction and ticket entries, so fresh-amazon leaves it where it is
+# and the offer can never be claimed again. Right for a real user, wrong for a
+# practice run on a laptop.
+#
+# ── AND IT CLEARS THE SHOP SIGN IN, WHICH IS THE ONE PEOPLE MISS ────────────
+#
+# src/backend/connectedShops.js reads shop_sign_ins — ONE ROW PER PERSON PER
+# SHOP, KEPT FOR EVER — and src/journey/JourneyScreen.js treats that row as
+# "connected". So deleting the claim is not enough to see the connect step
+# again: the app would skip straight past it, however many times you sign out
+# of Amazon itself. A demo that means to show connecting a marketplace has to
+# remove that row, so this does, for the shops of the offers in scope.
+#
+# ── WHAT KEEPS THIS HONEST ──────────────────────────────────────────────────
+#
+# It is not a code path. Nothing in the app, the backend or the panel can reach
+# it; it is a file you run by hand, and it refuses to run anywhere but a
+# practice database. The append-only guards in the database are switched off for
+# the length of one transaction and switched back on inside the same
+# transaction, so a failure part-way rolls the whole thing back WITH the guards
+# still in place — there is no state in which this leaves the ledger unguarded.
+
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
+
+WANTED="${1-}"
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+bad()  { printf '  \033[31m%s\033[0m\n' "$1"; }
+ok()   { printf '  \033[32m%s\033[0m\n' "$1"; }
+
+# ── WHICH DATABASE — ASKED OF THE ONE FILE THE BACKEND ITSELF READS ─────────
+ENVFILE="$HERE/backend/.env"
+[ -f "$ENVFILE" ] || { bad "Cannot find backend/.env, so I do not know which database the backend uses."; exit 1; }
+URL="$(sed -n 's/^DATABASE_URL=//p' "$ENVFILE" | head -1)"
+URL="${URL%\"}"; URL="${URL#\"}"; URL="${URL%\'}"; URL="${URL#\'}"
+[ -n "$URL" ] || { bad "backend/.env has no DATABASE_URL line."; exit 1; }
+DBNAME="${URL##*/}"; DBNAME="${DBNAME%%\?*}"
+
+case "$DBNAME" in
+  *_dev|*_test) : ;;
+  *) bad "Refusing to touch \"$DBNAME\": this deletes ledger rows and that is not a practice database."; exit 1 ;;
+esac
+
+DB=(docker exec -i fayr-postgres psql -U fayr -d "$DBNAME" -v ON_ERROR_STOP=1)
+
+docker exec fayr-postgres pg_isready -U fayr -d "$DBNAME" >/dev/null 2>&1 \
+  || { bad "The database is not answering. Start everything first with ./start"; exit 1; }
+
+bold ""
+bold "Database: $DBNAME   (read from backend/.env, not written into this script)"
+if [ -n "$WANTED" ]; then
+  bold "Scope:    offers whose title contains \"$WANTED\""
+else
+  bold "Scope:    EVERY Amazon offer"
+fi
+
+bold ""
+bold "BEFORE — the offers in scope"
+"${DB[@]}" -v want="$WANTED" <<'SQL'
+SELECT c.title AS offer, t.state, t."orderId", t."deliveredAt" IS NOT NULL AS delivered,
+       t."reviewPublished"
+FROM tasks t JOIN campaigns c ON c.id = t."campaignId"
+WHERE c.platform = 'AMAZON'
+  AND (:'want' = '' OR c.title ILIKE '%' || :'want' || '%')
+ORDER BY t."createdAt";
+
+SELECT u.mobile, wa.kind, COALESCE(SUM(we."amountPaise"), 0) AS balance_paise
+FROM wallet_accounts wa
+LEFT JOIN users u ON u.id = wa."userId"
+LEFT JOIN wallet_entries we ON we."accountId" = wa.id
+GROUP BY u.mobile, wa.kind ORDER BY wa.kind;
+SQL
+
+bold ""
+bold "REMOVING those claims, the money they produced, and the shop sign in"
+"${DB[@]}" -v want="$WANTED" <<'SQL'
+BEGIN;
+
+CREATE TEMP TABLE _doomed_tasks ON COMMIT DROP AS
+  SELECT t.id, t."userId", c.platform
+  FROM tasks t JOIN campaigns c ON c.id = t."campaignId"
+  WHERE c.platform = 'AMAZON'
+    AND (:'want' = '' OR c.title ILIKE '%' || :'want' || '%');
+
+CREATE TEMP TABLE _doomed_withdrawals ON COMMIT DROP AS
+  SELECT w.id FROM withdrawals w
+  WHERE w."userId" IN (SELECT DISTINCT "userId" FROM _doomed_tasks);
+
+CREATE TEMP TABLE _doomed_txns ON COMMIT DROP AS
+  SELECT l.id FROM ledger_transactions l
+  WHERE (l."referenceType" = 'task'       AND l."referenceId" IN (SELECT id::text FROM _doomed_tasks))
+     OR (l."referenceType" = 'withdrawal' AND l."referenceId" IN (SELECT id::text FROM _doomed_withdrawals));
+
+-- THE GUARDS COME OFF AND GO BACK ON INSIDE THIS TRANSACTION. A failure between
+-- these two points rolls back the ALTER as well, so the ledger is never left
+-- unguarded on disk.
+ALTER TABLE wallet_entries       DISABLE TRIGGER wallet_entries_append_only;
+ALTER TABLE ledger_transactions  DISABLE TRIGGER ledger_transactions_append_only;
+ALTER TABLE ticket_entries       DISABLE TRIGGER ticket_entries_append_only;
+
+DELETE FROM wallet_entries      WHERE "transactionId" IN (SELECT id FROM _doomed_txns);
+DELETE FROM ledger_transactions WHERE id             IN (SELECT id FROM _doomed_txns);
+DELETE FROM ticket_entries      WHERE "taskId"       IN (SELECT id FROM _doomed_tasks);
+
+ALTER TABLE wallet_entries       ENABLE TRIGGER wallet_entries_append_only;
+ALTER TABLE ledger_transactions  ENABLE TRIGGER ledger_transactions_append_only;
+ALTER TABLE ticket_entries       ENABLE TRIGGER ticket_entries_append_only;
+
+DELETE FROM withdrawals WHERE id IN (SELECT id FROM _doomed_withdrawals);
+DELETE FROM tasks       WHERE id IN (SELECT id FROM _doomed_tasks);
+
+-- The row that makes the app skip the connect step. Without this the demo
+-- cannot show connecting a marketplace, however often you sign out of Amazon.
+DELETE FROM shop_sign_ins s
+WHERE s.platform = 'AMAZON'
+  AND s."userId" IN (SELECT DISTINCT "userId" FROM _doomed_tasks);
+
+COMMIT;
+SQL
+RC=$?
+
+if [ "$RC" -ne 0 ]; then
+  bold ""
+  bad "Nothing was changed — the whole thing rolled back, guards included."
+  exit 1
+fi
+
+bold ""
+bold "AFTER"
+"${DB[@]}" -v want="$WANTED" <<'SQL'
+SELECT c.title AS offer, t.state
+FROM tasks t JOIN campaigns c ON c.id = t."campaignId"
+WHERE c.platform = 'AMAZON'
+  AND (:'want' = '' OR c.title ILIKE '%' || :'want' || '%')
+ORDER BY t."createdAt";
+
+SELECT u.mobile, wa.kind, COALESCE(SUM(we."amountPaise"), 0) AS balance_paise
+FROM wallet_accounts wa
+LEFT JOIN users u ON u.id = wa."userId"
+LEFT JOIN wallet_entries we ON we."accountId" = wa.id
+GROUP BY u.mobile, wa.kind ORDER BY wa.kind;
+
+SELECT platform, count(*) AS shop_sign_ins_left FROM shop_sign_ins GROUP BY platform;
+
+SELECT 'append-only guards' AS check, tgname, tgenabled
+FROM pg_trigger WHERE tgname LIKE '%append_only' ORDER BY tgname;
+SQL
+
+bold ""
+ok "Back at the very start. The offer reads CLAIM, and the connect step is back."
+echo "  The three guards above must all read  O  (enabled). If any reads D, stop and say so."
+echo "  Now press  r  in the window running ./start."
