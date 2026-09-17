@@ -34,10 +34,10 @@ import { WebView } from 'react-native-webview';
 import * as campaignStore from '../backend/campaignStore';
 import { getTaskId, refreshFromBackend } from '../taskStore';
 import { PLATFORMS } from '../platforms';
-import { buildPublicPageScript } from '../orderhistory';
+import { buildOrderListScript, buildPublicPageScript } from '../orderhistory';
 import {
-  harvestReviewLinks, readsReviewPages, reviewPageFor, theResolvedProfileFrom,
-  theReviewPagesAreDrawn,
+  harvestReviewLinks, readsReviewPages, reviewPageFor, reviewsPageFor,
+  theResolvedProfileFrom, theReviewPagesAreDrawn,
 } from './detailLook.js';
 import {
   LEAST_A_DRAW_CAN_TAKE_MS, anAnswerTag, answerWithStatus, isOurAnswer,
@@ -50,6 +50,15 @@ import { useMotion } from '../ui/celebration';
 import { COLOR, FONT, SPACE } from '../ui/theme';
 import { Screen } from '../ui/primitives';
 import { WAIT_LINES, WAIT_LINE_MS, waitLineAt } from '../ui/funnyWait.js';
+
+/**
+ * THE ROOM ANOTHER DOORWAY ASK NEEDS BEFORE IT IS WORTH STARTING.
+ *
+ * A fetch of its own carries LIST_TIMEOUT_MS as its ceiling, so starting one
+ * with less than that left buys a timeout and nothing else. Rounded up a little
+ * so the answer has somewhere to land as well.
+ */
+export const LEAST_A_DOORWAY_NEEDS_MS = 6000;
 
 /** The shortest this is on screen. Below it reads as a flicker, not a wait. */
 export const LEAST_TIME_MS = 1600;
@@ -206,78 +215,101 @@ export default function LookingForReviewScreen({ navigation, route }) {
         return;
       }
 
-      const answer = await openWith(theProfile);
-      if (!alive) return;
-      const outcome = readListStep(theProfile, answer);
-      let html = answer && typeof answer.html === 'string' ? answer.html : '';
-      let ids = harvestReviewLinks(html, platformKey);
+      // ── THE DOORWAY IS ASKED MORE THAN ONCE, BECAUSE ONE ASK IS NOT A FACT ─
+      //
+      // This read is not opened for its BODY. Amazon refuses the signed in body
+      // of the profile (see below); what it is opened for is the ADDRESS it
+      // redirects to, which names the account and is the whole input to the
+      // public read that follows. A refusal still carries that address.
+      //
+      // A fetch that fails OUTRIGHT carries nothing — status 0, no address, and
+      // then nothing downstream can run. That happened on 17 September 2026 on a
+      // run whose predecessor had been a clean 400 with the address on it, so it
+      // is a thing that comes and goes rather than a thing that is true. It is
+      // asked again instead of ending the look.
+      //
+      // THE SECOND ASK IS INJECTED, NOT NAVIGATED. The view is already sitting
+      // on the shop's front door after the first, and re-pointing it at the same
+      // address does not reload it — so the script would never run and the wait
+      // would hang to the ceiling. Same reason the order look injects its later
+      // fetches. See openWith: a job with no uri goes into the page already open.
+      const DOORWAY_TRIES = 3;
+      const doorway = reviewsPageFor(platformKey);
+      let answer = null;
+      let outcome = null;
+      let html = '';
+      let ids = [];
+      let resolved = null;
+      for (let go = 1; go <= DOORWAY_TRIES; go += 1) {
+        if (!alive) return;
+        let job = theProfile;
+        if (go > 1) {
+          if (doorway == null) break;
+          const again = aFreshName();
+          job = {
+            uri: null, script: buildOrderListScript(doorway, again), drawn: false, tag: again,
+          };
+        }
+        answer = await openWith(job);
+        if (!alive) return;
+        outcome = readListStep(job, answer);
+        html = answer && typeof answer.html === 'string' ? answer.html : '';
+        ids = harvestReviewLinks(html, platformKey);
+        resolved = theResolvedProfileFrom(platformKey, answer && answer.url);
 
-      // COUNTS ONLY, NEVER A REVIEW'S NAME AND NEVER ITS WORDS. A review id is
-      // an identifier tied to the account and the words are what somebody wrote
-      // under their own name; a count is what the question needs.
-      // ── AND WHETHER THE SHOP EVER DREW THE LIST, WHICH THIS DID NOT SAY ────
-      //
-      // The order read's own line has carried these since the day the list moved
-      // to being drawn, and this one never did — so a review read that came back
-      // with nothing had exactly one number to explain it, `found=0`, and that
-      // number is the same whether the page was a sign-in wall, a page that never
-      // finished drawing, or a page with genuinely no reviews on it.
-      //
-      // Three different problems, three different fixes, one silence. It cost
-      // the owner four rounds of pasting his own terminal at me on 16 September
-      // 2026, and the answer was on his screen every time.
-      //
-      // COUNTS AND STATUS WORDS ONLY, as everywhere else: `bytes` is the page's
-      // length and never the page, and a review id is never logged.
-      const drewIt = drawFacts(answer);
-      logLook('reviews', `status=${answer && answer.status} `
-        + `bytes=${html.length} looked=${outcome.looked} `
-        + `whyNot=${outcome.whyNot} wantsSignIn=${outcome.wantsSignIn} `
-        + `landed=${outcome.landed == null ? 'null' : outcome.landed} `
-        + `drawn=${theProfile.drawn} drew=${drewIt.drew} settled=${drewIt.settled} `
-        + `waited=${drewIt.waited} looks=${drewIt.looks} `
-        + `rows=${drewIt.linked}/${drewIt.marked} `
-        + `nodes=${drewIt.nodesFirst}/${drewIt.nodesNow} `
-        + `found=${ids.length}`
-        // WHEN THE PROFILE READ DID NOT COME BACK CLEAN, say which stock error
-        // page the shop sent. No page, no id, no number — see errorTell. This is
-        // the one line that turns "400 and nothing" into "400 because <which>".
-        + ((answer && answer.status === 200) ? '' : ` ${errorTell(html)}`));
+        // COUNTS AND STATUS WORDS ONLY, as everywhere else: `bytes` is the
+        // page's length and never the page, and a review id is never logged.
+        // `err` is the fetch's own message — "timed out", a TypeError — which is
+        // the shop's or the phone's words about the request and carries nothing
+        // of whose request it was. Without it a status of 0 said nothing at all.
+        const drewIt = drawFacts(answer);
+        logLook('reviews', `go=${go} status=${answer && answer.status} `
+          + `bytes=${html.length} looked=${outcome.looked} `
+          + `whyNot=${outcome.whyNot} wantsSignIn=${outcome.wantsSignIn} `
+          + `landed=${outcome.landed == null ? 'null' : outcome.landed} `
+          + `named=${resolved != null} `
+          + `drawn=${job.drawn} drew=${drewIt.drew} settled=${drewIt.settled} `
+          + `waited=${drewIt.waited} looks=${drewIt.looks} `
+          + `found=${ids.length} `
+          + `err=${answer && answer.error ? `"${String(answer.error).slice(0, 60)}"` : 'null'}`
+          + ((answer && answer.status === 200) ? '' : ` ${errorTell(html)}`));
+
+        if (ids.length > 0 || resolved != null) break;
+        // Nothing to show and nothing to go on. Another ask needs room to land.
+        if (whatIsLeft() < LEAST_A_DOORWAY_NEEDS_MS) break;
+      }
 
       // ── REFUSED WITH A SIGN IN ATTACHED, SO ASK AGAIN WITHOUT ONE ────────
       //
       // MEASURED 17 September 2026 on the owner's own account. Amazon answers
       // the signed in read of his own profile with its automation notice — 400,
       // 2163 bytes, and the line above says apiblock=1 — and answers the SAME
-      // address with no sign in attached 200, 336874 bytes, all four review
-      // links on it, the one we want among them.
+      // address with no sign in attached 200, 345616 bytes, all four review
+      // links in it, the one we want among them.
       //
       // A person's reviews are PUBLIC; that is what a review is. The sign in
       // buys nothing on this page and is the whole of what the refusal is
       // about, so the second ask drops it. Nothing is guessed and nothing is
       // typed: the address is the one the first read was REDIRECTED to, which
-      // arrives even when the body is refused, and the ask is for a page the
-      // shop publishes to anybody.
-      if (ids.length === 0) {
-        const asAStranger = theResolvedProfileFrom(platformKey, answer && answer.url);
-        if (asAStranger != null) {
-          const tag = aFreshName();
-          const again = {
-            uri: null, script: buildPublicPageScript(asAStranger, tag), drawn: false, tag,
-          };
-          const open = await openWith(again);
-          if (!alive) return;
-          const said = readListStep(again, open);
-          const strangerHtml = open && typeof open.html === 'string' ? open.html : '';
-          const strangerIds = harvestReviewLinks(strangerHtml, platformKey);
-          logLook('reviews-public', `status=${open && open.status} `
-            + `bytes=${strangerHtml.length} looked=${said.looked} `
-            + `whyNot=${said.whyNot} found=${strangerIds.length}`
-            + ((open && open.status === 200) ? '' : ` ${errorTell(strangerHtml)}`));
-          if (strangerIds.length > 0) {
-            html = strangerHtml;
-            ids = strangerIds;
-          }
+      // arrives even when the body is refused.
+      if (ids.length === 0 && resolved != null) {
+        const tag = aFreshName();
+        const again = {
+          uri: null, script: buildPublicPageScript(resolved, tag), drawn: false, tag,
+        };
+        const open = await openWith(again);
+        if (!alive) return;
+        const said = readListStep(again, open);
+        const strangerHtml = open && typeof open.html === 'string' ? open.html : '';
+        const strangerIds = harvestReviewLinks(strangerHtml, platformKey);
+        logLook('reviews-public', `status=${open && open.status} `
+          + `bytes=${strangerHtml.length} looked=${said.looked} `
+          + `whyNot=${said.whyNot} found=${strangerIds.length} `
+          + `err=${open && open.error ? `"${String(open.error).slice(0, 60)}"` : 'null'}`
+          + ((open && open.status === 200) ? '' : ` ${errorTell(strangerHtml)}`));
+        if (strangerIds.length > 0) {
+          html = strangerHtml;
+          ids = strangerIds;
         }
       }
 
