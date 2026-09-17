@@ -323,9 +323,25 @@ console.log('\n=== 7. "CHECK AMAZON" CHECKS AMAZON ===');
   // file explains what the old navigation did, and the first writing of the check
   // below read that explanation as the thing it forbids.
   const code = task.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  ok(/const goMarketplace = \(\) => navigation\.navigate\('LookingForIt', \{ campaignId \}\);/
+  // ── OUR OWN READ, AND WHICH ONE DEPENDS ON WHAT IS LEFT TO CHECK ────────
+  //
+  // This used to pin the exact one-liner, which said the same thing while there
+  // was only ever one read to run. There are two: before the review it is the
+  // ORDER that is unmatched, and once the review is in, the order cannot change
+  // and the only open question is whether the review is STILL PUBLIC. Sending
+  // the second case to the order read asked the shop for a fact we already had
+  // and handed straight back to the return-window page — the "it loads and
+  // bounces me back" loop of 17 September 2026.
+  //
+  // What the check is really for is unchanged: it must run a read of OURS, and
+  // never open the shop's own front page.
+  ok(/navigation\.navigate\('LookingForIt', \{ campaignId \}\)/.test(code),
+    'the order read is no longer reachable from here');
+  ok(/navigation\.navigate\('LookingForReview', \{ campaignId, thenRelease: true \}\)/
     .test(code),
-  'it now runs our own read instead of opening the shop front');
+  'the review re-check is not wired up');
+  ok(/STATES\.REVIEWED \|\| task\.state === STATES\.HOLDING/.test(code),
+    'nothing chooses between the two reads');
   ok(!/navigation\.navigate\(campaign\.marketplace, \{ campaignId \}\)/.test(code),
     'and the old navigation to the shop front is gone');
   // IT COSTS AMAZON ONE PAGE RATHER THAN A SIGN IN VISIT, which matters: every

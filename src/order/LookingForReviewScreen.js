@@ -46,6 +46,7 @@ import {
 import { restoreSession } from '../session';
 import { errorTell, logLook } from './lookLog.js';
 import { sendFoundReviews } from '../backend/reviewCandidatesApi';
+import { releaseRefund } from '../backend/tasksApi';
 import { useMotion } from '../ui/celebration';
 import { COLOR, FONT, SPACE } from '../ui/theme';
 import { Screen } from '../ui/primitives';
@@ -353,6 +354,37 @@ export default function LookingForReviewScreen({ navigation, route }) {
         if (sent.ok && sent.matched) break;
       }
 
+      // ── AND IF THIS WAS THE LAST CHECK, ASK FOR THE MONEY ────────────────
+      //
+      // Only when the caller asked for it — the return window's own "re-check",
+      // which is the one place somebody is deliberately saying "look at my
+      // review again now". The ordinary review-step read does not come through
+      // here and must not: it runs before the window has closed, when the
+      // answer could only ever be no.
+      //
+      // THE TAP IS NOT WHAT RELEASES ANYTHING. Our side's gate is, unchanged and
+      // still the only thing that decides: it wants the window closed, the
+      // review still public, and the order not returned. A refusal is an
+      // ORDINARY answer here and not an error — the window may not be closed
+      // yet, or the review may have gone — so it is tried, its answer is
+      // logged, and nothing is put on this screen either way. The journey's next
+      // screen says where the claim really stands, in words, from the record.
+      //
+      // Safe to repeat: REFUNDED is terminal, attemptRelease short-circuits to
+      // 'already', and the engine event carries release:<taskId> so a replay
+      // hits the applied-key set. See backend/src/tasks/task.service.ts.
+      if (params.thenRelease === true && taskId) {
+        let out = null;
+        try {
+          out = await releaseRefund(taskId);
+        } catch (e) {
+          out = null;
+        }
+        if (!alive) return;
+        logLook('release', `asked=true ok=${out ? out.ok : false} `
+          + `status=${out ? out.status : 0}`);
+      }
+
       await refreshFromBackend();
       await settle();
       if (alive) moveOn();
@@ -363,7 +395,7 @@ export default function LookingForReviewScreen({ navigation, route }) {
       clearTimeout(giveUp);
       waiting.current = null;
     };
-  }, [campaignId, platformKey, platform, moveOn, sessionReady]);
+  }, [campaignId, platformKey, platform, moveOn, sessionReady, params.thenRelease]);
 
   const turn = spin.interpolate({
     inputRange: [0, 1], outputRange: ['0deg', '360deg'],

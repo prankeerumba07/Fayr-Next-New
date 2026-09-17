@@ -511,7 +511,28 @@ export default function TaskScreen({ navigation, route }) {
    * again" really is a check, and it costs Amazon one page rather than a visit to
    * a sign in page it has already started refusing.
    */
-  const goMarketplace = () => navigation.navigate('LookingForIt', { campaignId });
+  // ── "RE-CHECK ON <SHOP>" MEANS TWO DIFFERENT CHECKS ─────────────────────
+  //
+  // Before the parcel and the review, the thing to look at is the ORDER: the
+  // claim is waiting to be matched to a purchase, and LookingForIt is that read.
+  //
+  // ONCE THE REVIEW IS IN, IT IS THE REVIEW. The order was matched pages ago and
+  // nothing about it can change; what the return window is actually waiting on
+  // is whether the review is STILL PUBLIC. Sending that tap to the order read
+  // asked the shop for a fact we already had, changed nothing, and handed back
+  // to the journey — which correctly put the person back on the return-window
+  // page. That is the "it loads and bounces me back to step ten" loop, and it is
+  // also one more request against the endpoint that rate-limits us.
+  //
+  // The release is asked for on the way out of that read, not here — the gate on
+  // our side is what decides, and it is unchanged. See LookingForReviewScreen.
+  const rechecksTheReview =
+    task && (task.state === STATES.REVIEWED || task.state === STATES.HOLDING);
+  const goMarketplace = () => (
+    rechecksTheReview
+      ? navigation.navigate('LookingForReview', { campaignId, thenRelease: true })
+      : navigation.navigate('LookingForIt', { campaignId })
+  );
 
   const stages = [
     {
