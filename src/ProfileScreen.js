@@ -23,7 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { signOut } from './backend/authApi';
-import { clearAllCookies, forgetAllSnapshots } from './session';
+import { clearAllCookies, forgetAllSnapshots, sessionPersistenceAvailable } from './session';
 import { currentUser } from './backend/authSession';
 import { getWallet } from './backend/meApi';
 import { getWithdrawals } from './backend/withdrawalsApi';
@@ -220,6 +220,30 @@ export default function ProfileScreen({ navigation }) {
             activeOpacity={0.85}
             disabled={forgetting}
             onPress={() => {
+              // ── IT SAYS SO WHEN IT CANNOT DO IT ──────────────────────────
+              //
+              // In Expo Go the native cookie module is not there — session.js
+              // says so at the top of itself, and adds that a shop login "only
+              // survived via WebKit's own native persistence". So there is
+              // nothing here that can reach the shop's cookies: they belong to
+              // Expo Go's own web view store, not to Fayr.
+              //
+              // A button that quietly does nothing is worse than no button. It
+              // was shipped that way on 17 September 2026 and cost a reset
+              // walkthrough that went on saying "you are already signed in".
+              if (!sessionPersistenceAvailable) {
+                Alert.alert(
+                  'Cannot do that in Expo Go',
+                  'The shop sign in is held by Expo Go\u2019s own web view, not by '
+                  + 'Fayr, and the module that could clear it is not in Expo Go.\n\n'
+                  + 'To start from a signed-out shop: delete Expo Go from the '
+                  + 'simulator (press and hold it, Delete App) and press i in the '
+                  + 'terminal to put it back. A development build can do this '
+                  + 'from here instead.',
+                  [{ text: 'OK' }],
+                );
+                return;
+              }
               Alert.alert(
                 'Forget every shop sign in?',
                 'This phone will forget the marketplaces you are signed in to, so '
@@ -245,7 +269,11 @@ export default function ProfileScreen({ navigation }) {
             }}
           >
             <Text style={styles.forgetShopsText}>
-              {forgetting ? 'Forgetting…' : 'Forget shop sign-ins (dev)'}
+              {forgetting
+                ? 'Forgetting…'
+                : sessionPersistenceAvailable
+                  ? 'Forget shop sign-ins (dev)'
+                  : 'Forget shop sign-ins (not in Expo Go)'}
             </Text>
           </TouchableOpacity>
         ) : null}
