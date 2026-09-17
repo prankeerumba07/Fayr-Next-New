@@ -40,9 +40,17 @@ console.log('\n=== 2. only the steps with real user work carry a CTA ===');
 {
   ok(taskStage({ state: STATES.CLAIMED }).cta === 'Buy now', 'buy is on the user');
   ok(taskStage({ state: STATES.DELIVERED }).cta === 'Write review', 'the review is on the user');
+  // ── AND RELEASING IS NOT ONE OF THEM, SINCE 17 SEPTEMBER 2026 ────────────
+  //
+  // It read "Release refund" and that was wrong in the owner's own words:
+  // "Release is an operator's verb. A person does not release their own refund."
+  // The scheduler does it, gated on the refund rules, after re-checking that the
+  // review is still on the product page. There is nothing here for a person to
+  // do, so there is nothing to offer, and a button offering to do a thing that
+  // is already being done is worse than empty space.
   ok(
-    taskStage({ state: STATES.HOLDING, windowEndsAt: NOW - DAY, now: NOW }).cta === 'Release refund',
-    'releasing is on the user',
+    taskStage({ state: STATES.HOLDING, windowEndsAt: NOW - DAY, now: NOW }).cta === null,
+    'a refund that is ready needs nothing from the person',
   );
   // These used to show "upload order proof" / "upload delivery proof" in the
   // design; the scraper reads both, so asking would be asking for nothing.

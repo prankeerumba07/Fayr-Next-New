@@ -92,6 +92,22 @@ type ReleaseOutcome =
  * write: claiming deducts tickets, releasing posts the wallet refund. If a ticket
  * deduction fails, the whole claim rolls back — no orphan task.
  */
+/**
+ * THE STATES A REVIEW VISIT MAY BE RECORDED FROM.
+ *
+ * DELIVERED is the ordinary one: the review step is exactly where a delivered
+ * task sits. The three above it are kept because a second tap must not start
+ * failing once the review has landed — somebody who opens the shop again while
+ * the review is being checked has still gone to the review, and refusing them
+ * would put a red message in front of a person who did nothing wrong.
+ *
+ * CLAIMED and PURCHASED are refused: the parcel has not arrived, so there is
+ * nothing to have gone and reviewed.
+ */
+const MAY_GO_TO_THE_REVIEW: string[] = [
+  STATES.DELIVERED, STATES.REVIEWED, STATES.HOLDING, STATES.REFUNDED,
+];
+
 @Injectable()
 export class TaskService {
   private readonly logger = new Logger(TaskService.name);
@@ -885,6 +901,70 @@ export class TaskService {
     });
     if (written.count === 0) return this.getForUser(userId, taskId);
 
+    return this.getForUser(userId, taskId);
+  }
+
+  /**
+   * THEY TAPPED THROUGH TO WRITE THE REVIEW, AND OUR SIDE RECORDS IT.
+   *
+   * ── THE SAME SHAPE AS goToShop, AND DELIBERATELY A SMALLER ONE ───────────
+   *
+   * It writes one instant and nothing else. No hold is started, no notice is
+   * frozen and no deadline is set, because none of those exist for the review
+   * half: nobody loses their place by taking a week to write one.
+   *
+   * WRITE ONCE. A second tap returns the first tap's instant unchanged. Tapping
+   * twice is a normal thing to do on a phone and is not reported as an error.
+   *
+   * ── AND IT SETTLES NOTHING ABOUT A REVIEW ────────────────────────────────
+   *
+   * Whether a review is publicly visible is read off the shop's own page and is
+   * decided nowhere else. This route says only that somebody left to write one,
+   * which is why it moves no state and fires no event.
+   *
+   * IT IS REFUSED BEFORE THE PARCEL ARRIVES. A review visit recorded on a task
+   * that has not been delivered is a record of something that cannot have
+   * happened: the screen that sends somebody to write one is only reachable once
+   * the record carries a delivery.
+   */
+  async goToReview(userId: string, taskId: string): Promise<TaskResponse> {
+    const row = await this.prisma.task.findFirst({
+      where: { id: taskId, userId },
+      select: { id: true, state: true, wentToReviewAt: true },
+    });
+    // A task that is not theirs reads as missing, never as forbidden, so nothing
+    // leaks the existence of somebody else's task. Same as every route here.
+    if (!row) throw new NotFoundException('Task not found');
+
+    // ALREADY TAPPED: hand back what was recorded then, and change nothing.
+    //
+    // ── THERE ARE TWO GUARDS HERE AND EITHER ONE IS ENOUGH ────────────────
+    //
+    // This one, and the `wentToReviewAt: null` on the update below. Measured by
+    // deleting each of them in turn on 17 September 2026: every check still
+    // passed both times, and only deleting BOTH lets a second tap move the
+    // instant.
+    //
+    // THAT IS WRITTEN DOWN RATHER THAN TIDIED AWAY, because a reader who removes
+    // one of them will see nothing break and reasonably conclude it was dead.
+    // They do different jobs: this one saves a pointless write on the ordinary
+    // second tap, and the one below is what holds when two taps arrive together
+    // and both get past this line.
+    if (row.wentToReviewAt != null) return this.getForUser(userId, taskId);
+
+    if (!MAY_GO_TO_THE_REVIEW.includes(row.state)) {
+      throw new BadRequestException(
+        'Your product has not arrived yet, so there is nothing to review.',
+      );
+    }
+
+    // CONDITIONAL ON wentToReviewAt STILL BEING NULL, so two taps arriving
+    // together cannot both write. The second updates no rows and reads the
+    // first's back.
+    await this.prisma.task.updateMany({
+      where: { id: taskId, userId, wentToReviewAt: null },
+      data: { wentToReviewAt: new Date() },
+    });
     return this.getForUser(userId, taskId);
   }
 

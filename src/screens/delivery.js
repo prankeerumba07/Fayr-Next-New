@@ -1,48 +1,68 @@
 // delivery — fayr-design.browser.jsx:2963 (DeliveryConfirm)
 //
-// "Delivered?" — the screen that opens the review step. Split out of
-// src/journey/JourneyScreen.js on 1 September 2026, where it was one page of ten
-// inside one file.
+// "Is the product delivered?" — the screen that opens the review step. Split out
+// of src/journey/JourneyScreen.js on 1 September 2026, where it was one page of
+// ten inside one file.
 //
-// ── IT NO LONGER ASKS. IT READS. ──────────────────────────────────────────
+// ── IT ASKS AGAIN, AND THE QUESTION IS NOT WHAT IT WAS BEFORE ─────────────
 //
-// THE CLAIM THE WHOLE PRODUCT IS MAKING is that Fayr finds your purchase and
-// confirms the delivery by itself. This screen was the last place that was not
-// true: it drew a green "YES — IT IS DELIVERED" button and waited to be tapped.
+// On 16 September 2026 the question was taken off this screen, in the owner's
+// own words: "Fayr must confirm delivery by reading the user's own Amazon order
+// page, with no buttons and no user input. src/screens/delivery.js currently
+// asks the user, which is wrong." It was rebuilt to read the shop by itself the
+// moment it opened.
 //
-// A TAP CANNOT SETTLE A DELIVERY, and never could. A refund that moved because
-// somebody said "it came" is a refund anybody could have, which is the whole
-// reason the shop's own page is the evidence and not the person's word. So the
-// button asked Fayr to look anyway — meaning the read already had to exist, and
-// the tap in front of it was doing nothing except delaying it.
+// On 17 September REVIEW-FLOW-PROMPT.md puts a question back at step eight —
+// "the app asks: Is the product delivered? with Yes / No" — and step nine says
+// what Yes does: "reads the delivery off the shop's own page".
 //
-// SO IT LOOKS ON ITS OWN, the moment it opens, and nobody is asked anything.
+// ── THE TWO INSTRUCTIONS AGREE, AND IT IS WORTH BEING EXACT ABOUT WHY ─────
+//
+// What the first one forbids is A TAP SETTLING A DELIVERY. The old button did
+// exactly that: it was labelled "YES — IT IS DELIVERED", it was an assertion by
+// the person being paid, and a refund that moves because somebody said "it came"
+// is a refund anybody could have.
+//
+// THIS TAP ASSERTS NOTHING. It starts the read. The shop's own page is still the
+// only evidence, the server still decides, and somebody who taps Yes on a parcel
+// that has not arrived gets exactly what somebody who taps nothing gets: the
+// screen below, saying the shop has not said it arrived. What the question buys
+// is that Fayr does not go asking a shop for pages every time an app is opened —
+// which is the thing that gets an account blocked.
 //
 // ── THE SAME READ, NOT A SECOND ONE ───────────────────────────────────────
 //
 // It starts src/order/LookingForItScreen.js, which is the read the purchase step
-// already runs: the shop's own list of recent orders opened from inside the web
-// view the person is signed in to, each order's own page read as words, and the
-// text handed to the server. Writing a second reader here would be two copies of
-// one thing, in one language, both deciding things about somebody's refund.
+// already runs. Writing a second reader here would be two copies of one thing,
+// in one language, both deciding things about somebody's refund.
 //
 // THE SERVER DOES THE REST WITHOUT BEING TOLD TO. A later look at an order
-// somebody has already said is theirs now fills in the delivery it did not have
-// — see deliveryFromALaterLook in backend/src/tasks/order-candidates.service.ts —
+// somebody has already said is theirs fills in the delivery it did not have —
+// see deliveryFromALaterLook in backend/src/tasks/order-candidates.service.ts —
 // and a delivery fragment moves the task to DELIVERED through the ordinary
-// funnel. The journey then works its own step out from the record and lands on
-// the review step by itself. Nothing on this screen chooses that.
+// funnel. The journey then works its own step out from the record. Nothing on
+// this screen chooses that.
 //
-// ── WHAT WAS REMOVED, AND WHY EACH ONE HAD TO GO ──────────────────────────
+// ── AND IT CARRIES STEP SEVEN'S SENTENCE, WHICH HAS NOWHERE ELSE TO GO ────
 //
-// "YES — IT IS DELIVERED" is gone. It was a question whose answer Fayr does not
-// accept, dressed as a decision.
+// "Thank you for confirming. Once your product is delivered, use it and give a
+// fair review." is what the owner asks for the moment somebody confirms the
+// order is theirs. Confirming moves the record to this step, so this is the
+// first screen they see afterwards and this is where the sentence belongs.
+//
+// IT IS SHOWN EVERY TIME UNTIL THE PARCEL ARRIVES, rather than only on the first
+// arrival, and that is a decision rather than an oversight. The alternative is a
+// note on the phone recording that a sentence has been read once, which is state
+// kept for the sake of hiding a true sentence. Both halves stay true for the
+// whole of this step.
+//
+// ── WHAT WAS REMOVED EARLIER STAYS REMOVED ────────────────────────────────
 //
 // "Open <shop> so we can read it" is gone, and it was a bug. It called
 // navigation.navigate(key) — the marketplace's own web view, which is the screen
 // for READING A REVIEW — and landed the person on the shop's home page with no
 // reason to be there and nothing to do. Nobody has to open their shop for Fayr:
-// the read above opens it.
+// the read opens it.
 //
 // "It is late, or there is a problem" stays. The design's own deliverydelayed
 // screen has not been built, so it says so plainly and opens help.
@@ -57,13 +77,18 @@ import {
   alreadyLookedForDelivery, rememberWeLookedForDelivery,
 } from '../order/deliveryLook';
 import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
-import { Ghost, TextBtn, hSub, hTitle } from '../ui/brand';
+import { Ghost, Pill, TextBtn, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
+import {
+  IS_THE_PRODUCT_DELIVERED, NO, THANK_YOU_FOR_CONFIRMING,
+  USE_IT_AND_REVIEW_FAIRLY, YES,
+} from '../ui/journeyWords';
+import { goBackOrHome } from '../ui/nav';
 
 /**
- * HOW LONG THE READ IS GIVEN TO TAKE THIS SCREEN AWAY.
+ * HOW LONG THE READ IS GIVEN TO TAKE THIS SCREEN AWAY, ONCE IT IS ASKED FOR.
  *
- * Starting the read means leaving for it, so in the ordinary case this screen is
+ * Tapping Yes means leaving for the read, so in the ordinary case this screen is
  * gone within a frame and this timer never fires. It is here for the case where
  * it is not gone: a navigator that refused the move, or this screen opened
  * somewhere that has no navigator at all, like the walk through.
@@ -87,15 +112,20 @@ export default function DeliveryScreen({ navigation, route }) {
 
   // ── WHERE THIS SCREEN IS, IN ONE WORD ────────────────────────────────────
   //
-  //   'reading'  the shop is being read, right now
+  //   'asking'   the question is up, and nothing has been asked of the shop
+  //   'reading'  they said yes, and the read is being opened
   //   'nothing'  it was read, and the shop's page does not say it arrived
   //
-  // There is no third value for "delivered": that is not a state of this screen,
+  // There is no fourth value for "delivered": that is not a state of this screen,
   // it is a state of the RECORD, and when the record says so the journey has
   // already moved somebody past here. Keeping a copy of it on this side is how
   // two places end up disagreeing about where somebody is.
+  //
+  // THE NOTE DECIDES BETWEEN THE FIRST AND THE LAST. A read that has already run
+  // in this sitting and found nothing must not put the question back up, or the
+  // person answers Yes and watches the same nothing happen again.
   const looked = alreadyLookedForDelivery(taskId);
-  const [where, setWhere] = useState(looked ? 'nothing' : 'reading');
+  const [where, setWhere] = useState(looked ? 'nothing' : 'asking');
   const started = useRef(false);
 
   useEffect(() => {
@@ -115,18 +145,24 @@ export default function DeliveryScreen({ navigation, route }) {
   }, [navigation, campaignId]);
 
   // ── THE READ, STARTED BY THIS SCREEN OPENING AND BY NOTHING ELSE ─────────
-  useEffect(() => {
-    if (started.current) return undefined;
+  // ── THE READ, STARTED BY THE ANSWER AND BY NOTHING ELSE ─────────────────
+  //
+  // Not on mount, and that is the change of 17 September 2026. See the note at
+  // the top of this file for why a question is allowed here at all and what it
+  // is and is not allowed to settle.
+  const theySaidYes = useCallback(() => {
+    if (started.current) return;
     started.current = true;
     // NO TASK IS NOTHING TO READ. The read is of one person's orders against one
     // claim, and without a task there is no claim to read them against.
     if (taskId == null || alreadyLookedForDelivery(taskId)) {
       setWhere('nothing');
-      return undefined;
+      return;
     }
     // THE NOTE IS WRITTEN BEFORE THE MOVE, not after it. Written after, a screen
     // that comes straight back has no note and starts again.
     rememberWeLookedForDelivery(taskId);
+    setWhere('reading');
     if (navigation && typeof navigation.navigate === 'function') {
       // ── AND WHICH ORDER, BECAUSE BY NOW WE KNOW ────────────────────────
       //
@@ -154,9 +190,19 @@ export default function DeliveryScreen({ navigation, route }) {
         && known.order.id !== '' ? known.order.id : null;
       navigation.navigate('LookingForIt', { campaignId, onlyThisOrder: itsOrder });
     }
+  }, [navigation, campaignId, taskId]);
+
+  // ── AND NOBODY IS LEFT WATCHING A WORD THAT NEVER CHANGES ───────────────
+  //
+  // Leaving for the read normally takes this screen away within a frame. When it
+  // does not — a navigator that refused the move, or this screen opened with no
+  // navigator at all, as the walk through opens it — the reading state has to
+  // end by itself. Same rule as the read's own ceiling next door.
+  useEffect(() => {
+    if (where !== 'reading') return undefined;
     const giveUp = setTimeout(() => setWhere('nothing'), READ_SHOULD_HAVE_LEFT_MS);
     return () => clearTimeout(giveUp);
-  }, [navigation, campaignId, taskId]);
+  }, [where]);
 
   const problem = useCallback(() => {
     Alert.alert(
@@ -174,27 +220,49 @@ export default function DeliveryScreen({ navigation, route }) {
   const task = campaignId ? getAuthoritative(campaignId) : null;
   const delivered = !!(task && task.delivery);
   const reading = where === 'reading' && !delivered;
+  const asking = where === 'asking' && !delivered;
 
   return (
     <Screen bg={COLOR.cream}>
       <View style={styles.body}>
         <Text style={styles.parcel}>📦</Text>
+
+        {/* ── STEP SEVEN, ABOVE EVERYTHING ELSE ON THIS STEP ──────────────
+            The sentence the owner asks for the moment somebody confirms the
+            order is theirs. Confirming is what moves the record to this step, so
+            this screen is the first thing they see afterwards.
+
+            IT GOES AS SOON AS THE PARCEL IS KNOWN TO HAVE ARRIVED, because by
+            then it is about a thing that has already happened. */}
+        {!delivered ? (
+          <Text style={[hSub, styles.thanks]}>
+            {THANK_YOU_FOR_CONFIRMING} {USE_IT_AND_REVIEW_FAIRLY}
+          </Text>
+        ) : null}
+
         <Text style={[hTitle, styles.title]}>
-          {delivered ? 'It arrived' : reading ? 'Checking' : 'Not yet'}
+          {delivered
+            ? 'It arrived'
+            : asking
+              ? IS_THE_PRODUCT_DELIVERED
+              : reading ? 'Checking' : 'Not yet'}
         </Text>
         <Text style={[hSub, styles.sub]}>
           {delivered
             ? `${shop} has told us it arrived. The review step is open.`
-            : reading
-              ? `Checking your ${shop} orders…`
-              : product
-                ? `We checked your ${shop} orders. ${shop} has not said your `
-                  + `${product} arrived yet.`
-                : `We checked your ${shop} orders. ${shop} has not said it `
-                  + 'arrived yet.'}
+            : asking
+              ? `Tell us and we will read it off your own ${shop} orders. `
+                + 'There is nothing to send us.'
+              : reading
+                ? `Checking your ${shop} orders…`
+                : product
+                  ? `We checked your ${shop} orders. ${shop} has not said your `
+                    + `${product} arrived yet.`
+                  : `We checked your ${shop} orders. ${shop} has not said it `
+                    + 'arrived yet.'}
         </Text>
 
-        {!reading && !delivered ? (
+        {!reading && !asking && !delivered ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Nothing to do</Text>
             <Text style={styles.cardBody}>
@@ -208,10 +276,31 @@ export default function DeliveryScreen({ navigation, route }) {
       </View>
 
       <View style={styles.foot}>
+        {/* ── STEP EIGHT'S TWO ANSWERS, AND NEITHER ONE SETTLES ANYTHING ───
+            YES starts the read of the shop's own page. It does not say the
+            parcel came, it does not move the task, and it does not reach
+            anything that decides money. NO simply leaves: nothing has changed,
+            their place is still held, and My Products brings them back here.
+
+            BOTH WORDS COME FROM src/ui/journeyWords.js, which Fayr's plain
+            language rule reads off disk. */}
+        {asking ? (
+          <>
+            <Pill onPress={theySaidYes} color={COLOR.greenDeep}>
+              {YES.toUpperCase()}
+            </Pill>
+            <Pill onPress={() => goBackOrHome(navigation)} color={COLOR.line}>
+              {NO.toUpperCase()}
+            </Pill>
+          </>
+        ) : null}
+
         {/* THE ONE THING THERE IS TO OFFER, and only once the read has run.
             Offering it while the shop is still being read would be asking for a
-            photograph of something Fayr is in the middle of reading for itself. */}
-        {!reading && !delivered ? (
+            photograph of something Fayr is in the middle of reading for itself,
+            and offering it before the question is answered would be asking for
+            one before anybody had looked at all. */}
+        {!reading && !asking && !delivered ? (
           <Ghost
             onPress={() => navigation.navigate('ProofUpload', {
               campaignId, kind: 'DELIVERY',
@@ -231,6 +320,7 @@ const styles = StyleSheet.create({
   parcel: { fontSize: 56 },
   title: { marginTop: 16, textAlign: 'center' },
   sub: { textAlign: 'center', maxWidth: 285 },
+  thanks: { textAlign: 'center', maxWidth: 300, marginTop: 14 },
   card: {
     marginTop: SPACE.xl, backgroundColor: COLOR.amberBg, borderWidth: 1,
     borderColor: COLOR.amberLine, borderRadius: RADIUS.md,

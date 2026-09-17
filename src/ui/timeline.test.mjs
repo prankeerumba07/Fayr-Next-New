@@ -116,7 +116,18 @@ console.log('\n=== 7. released, and only then done ===');
 {
   const r = releaseStageState({ ...heels, refunded: true });
   ok(r.state === 'done', 'a real RELEASE_REFUND event is the ONLY thing that ticks this stage');
-  ok(r.chip != null && r.chip.label === 'Released', 'and it reads "Released", not "Confirmed"');
+  // ── AND IT READS AS THE PERSON WOULD SAY IT, SINCE 17 SEPTEMBER 2026 ──────
+  //
+  // It said "Released", which is the operator's word for it. Section A of
+  // REVIEW-FLOW-PROMPT.md took the operator's verb off this person's screen in
+  // the owner's own words: "A person does not release their own refund." What
+  // has actually happened, from where they are standing, is that it is in their
+  // wallet.
+  //
+  // THE RULE THIS CHECK GUARDS IS UNCHANGED: a chip appears here only once the
+  // money has really moved, and the line above is what proves it.
+  ok(r.chip != null && r.chip.label === 'In your wallet',
+    'and it says where the money is, not what an operator did');
 }
 
 console.log('\n=== 8. eligible but the amount needs staff ===');

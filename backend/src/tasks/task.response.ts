@@ -143,6 +143,14 @@ export interface TaskResponse {
   /** When the two hour hold ends. Null until the tap above is recorded. */
   shopHoldEndsAt: string | null;
   /**
+   * THEY TAPPED THROUGH TO WRITE THE REVIEW, or they have not. Null means not.
+   *
+   * The review step draws three different things off this: the guide before they
+   * have gone, the question when they come back, and the line that says how long
+   * ago they told us they posted it.
+   */
+  wentToReviewAt: string | null;
+  /**
    * The pop-up's own words, frozen at the tap, with the real time inside them.
    *
    * The screen draws THESE rather than writing its own, so the sentence kept as
@@ -302,6 +310,7 @@ export function toTaskResponse(
     claimExpiresAt: iso(row.claimExpiresAt),
     wentToShopAt: iso(row.wentToShopAt),
     shopHoldEndsAt: iso(row.shopHoldEndsAt),
+    wentToReviewAt: iso(row.wentToReviewAt),
     shopVisitNoticeText: row.shopVisitNoticeText ?? null,
     practiceWindowDays: row.practiceWindowDays ?? null,
     // BUILT HERE AND NOWHERE ELSE. `now` is the same instant the rest of this

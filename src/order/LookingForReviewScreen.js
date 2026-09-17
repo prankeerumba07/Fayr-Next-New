@@ -129,7 +129,19 @@ export default function LookingForReviewScreen({ navigation, route }) {
     // works its own step out from the record, which has just changed if the
     // server matched anything. A screen naming the next screen is a second
     // opinion about where somebody is.
-    navigation.replace('Journey', { campaignId });
+    //
+    // ── AND IT SAYS THAT IT RAN, WHICH IS ONE WORD AND NOT A DECISION ─────
+    //
+    // REVIEW-FLOW-PROMPT.md asks for two different screens after this: step
+    // seventeen, where a look has just come back empty and the screen says so
+    // knowing when they posted it, and step twenty, where somebody opens the app
+    // days later and must not be shown the first-time message again.
+    //
+    // The difference between them is exactly "a look has just handed back", and
+    // this is the only place that knows it. It says nothing about what the look
+    // FOUND — that is the record's business and the record has already been
+    // refreshed above — so it cannot be mistaken for an answer about a review.
+    navigation.replace('Journey', { campaignId, reviewLookRan: true });
   }, [navigation, campaignId]);
 
   const onMessage = useCallback((event) => {

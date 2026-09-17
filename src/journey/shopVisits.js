@@ -42,7 +42,33 @@ const FILE = 'fayr-shop-visits.json';
 export const SIGNED_IN = 'signin';
 export const WENT_TO_BUY = 'buy';
 export const SAID_THEY_BOUGHT = 'bought';
-const REASONS = [SIGNED_IN, WENT_TO_BUY, SAID_THEY_BOUGHT];
+/**
+ * ── AND THREE MORE FOR THE REVIEW HALF, ADDED 17 SEPTEMBER 2026 ───────────
+ *
+ *   review       they were sent to the shop to write the review
+ *   reviewwait   they have been told the shop takes 48 to 72 hours
+ *   sawarrived   this phone has shown the "Product delivered." moment
+ *
+ * ── THE FIRST ONE IS ALSO ON THE RECORD, AND THAT IS NOT A DUPLICATE ──────
+ *
+ * REVIEW-FLOW-PROMPT.md step fourteen asks for the review visit on the record in
+ * those words: "the backend must know they left for the review ... It belongs on
+ * the record, not only on the phone." So tasks.wentToReviewAt is the answer and
+ * this note is not read by anything that decides a screen. It is kept for the
+ * same reason WENT_TO_BUY is kept beside wentToShopAt: our side may be a moment
+ * behind, and the note is written before the request goes out.
+ *
+ * THE OTHER TWO ARE ABOUT WHAT THIS PHONE HAS ALREADY SHOWN, which is not a fact
+ * about the claim at all and has no business on the record. Losing either costs
+ * one repeated sentence, and nothing about anybody's money.
+ */
+export const WENT_TO_REVIEW = 'review';
+export const TOLD_ABOUT_THE_REVIEW_WAIT = 'reviewwait';
+export const SAW_IT_ARRIVED = 'sawarrived';
+const REASONS = [
+  SIGNED_IN, WENT_TO_BUY, SAID_THEY_BOUGHT,
+  WENT_TO_REVIEW, TOLD_ABOUT_THE_REVIEW_WAIT, SAW_IT_ARRIVED,
+];
 
 let visited = null; // null = not read yet
 

@@ -387,6 +387,29 @@ model Task {
   /// sentence kept.
   shopVisitNoticeText String?
 
+  /// THEY TAPPED THROUGH TO WRITE THE REVIEW. The moment our side recorded it.
+  ///
+  /// ── WHY IT IS HERE AND NOT ONLY ON THE PHONE ──────────────────────────────
+  ///
+  /// REVIEW-FLOW-PROMPT.md, step fourteen, in the owner's own words: "When they
+  /// tap through to the review page, the backend must know they left for the
+  /// review — the same way the shop visit for buying is recorded. It belongs on
+  /// the record, not only on the phone."
+  ///
+  /// It buys two things a note on a phone cannot. The screen that says "you told
+  /// us you posted it two hours ago" needs an instant anybody can vouch for, and
+  /// a person who reinstalls the app or picks up a second phone must not be asked
+  /// to start the review half again.
+  ///
+  /// WRITE ONCE, like wentToShopAt above it and for a weaker reason: nothing
+  /// hangs off this deadline, so a second write would cost nothing. It is still
+  /// refused, because "when did they go" has one answer and the first one is it.
+  ///
+  /// NOT A CLAIM THAT A REVIEW EXISTS. Whether a review is publicly visible is
+  /// settled from the shop's own page and from nowhere else. This says only that
+  /// somebody left to write one.
+  wentToReviewAt      DateTime?
+
   /// HOW MANY DAYS THE ORDER WINDOW WAS WIDENED BY, FOR TESTING, WHEN IT WAS.
   ///
   /// NULL ON EVERY REAL TASK, and null is what it stays unless two things are

@@ -33,6 +33,9 @@ import * as campaignStore from './backend/campaignStore';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW } from './ui/theme';
 import { Card, RefundBadge, ProductImage } from './ui/primitives';
 import { clampMonotonic, releaseStageState } from './ui/timeline';
+import {
+  REFUND_CONFIRMED, REVIEW_LIVE_AND_WINDOW_CLOSED, addedToYourWallet,
+} from './ui/journeyWords';
 import { closedInfo, explainBlocker, nextStepLine } from './ui/stages';
 import { countdownFor, messageText } from './journey/theNotice';
 import { goBackOrHome } from './ui/nav';
@@ -617,24 +620,41 @@ export default function TaskScreen({ navigation, route }) {
       // heading for" without claiming it has been reached.
       icon: '🏁',
       title: 'Refund confirmed',
+      // ── WHAT A PERSON READS WHEN THE MONEY HAS MOVED ────────────────────
+      //
+      // Section A of REVIEW-FLOW-PROMPT.md, quoted in full there and named from
+      // src/ui/journeyWords.js here so there is one copy of it:
+      //
+      //   Refund confirmed. Your review is live and the return window has
+      //   closed. ₹4,495.50 has been added to your wallet.
+      //
+      // THE AMOUNT IS DROPPED RATHER THAN GUESSED when there is no figure. A
+      // sentence saying something has been added to a wallet without saying what
+      // is worse than the shorter one.
       sub: refunded
-        ? 'Released to your fayr Wallet'
+        ? (refundLabel
+          ? `${REVIEW_LIVE_AND_WINDOW_CLOSED} ${addedToYourWallet(refundLabel)}`
+          : REVIEW_LIVE_AND_WINDOW_CLOSED)
         : eligible && !refundLabel
           ? 'Waiting on a Fayr reviewer to confirm the amount you paid'
           : eligible
-            ? 'Review is live and the window has closed'
+            ? REVIEW_LIVE_AND_WINDOW_CLOSED
             : 'Confirms when your review is live and the window closes',
-      // Releasable is NOT released. This used to read `done` the moment a
-      // refund became calculable, which hid the action below it (Stage draws an
-      // action only while a stage is 'active') — see releaseStageState.
+      // Releasable is NOT released, and that is still true and still load
+      // bearing: it is what keeps a payable task from reading as a paid one.
       state: release.state,
       chip: release.chip,
-      action: eligible && !refunded && refundLabel
-        ? {
-            label: `Release ${refundLabel} to wallet`,
-            onPress: () => act({ type: 'RELEASE_REFUND', key: 'release', at: Date.now(), policy: POLICY }),
-          }
-        : null,
+      // ── AND THERE IS NOTHING TO TAP ─────────────────────────────────────
+      //
+      // "No button. Nothing to tap. The money is already there." A person does
+      // not release their own refund: the scheduler does, gated on the same
+      // refund rules, after re-checking that the review is still on the product
+      // page. See backend/src/scheduler/scheduler.service.ts, which re-checks
+      // and then calls autoRelease.
+      //
+      // THE STAFF PANEL KEEPS ITS OWN RELEASE ACTION. That is an operator doing
+      // an operator's job and it is correctly worded there.
+      action: null,
     },
     {
       key: 'wallet',
@@ -900,7 +920,7 @@ export default function TaskScreen({ navigation, route }) {
                 refund is released — without this branch a paid task read
                 "Refund on hold · state is REFUNDED, expected HOLDING". */}
             {refunded ? (
-              <Text style={styles.eligible}>✓ Released to your wallet</Text>
+              <Text style={styles.eligible}>✓ {REFUND_CONFIRMED}</Text>
             ) : !payable ? (
               <View style={styles.blockedBox}>
                 <Text style={styles.blockedTitle}>Refund on hold</Text>
@@ -917,7 +937,9 @@ export default function TaskScreen({ navigation, route }) {
                 ) : null}
               </View>
             ) : (
-              <Text style={styles.eligible}>✓ Ready to release</Text>
+              // NOT "ready to release", which asked somebody to do a thing they
+              // have no way of doing. Nothing is waiting on them.
+              <Text style={styles.eligible}>✓ {REVIEW_LIVE_AND_WINDOW_CLOSED}</Text>
             )}
           </Card>
 

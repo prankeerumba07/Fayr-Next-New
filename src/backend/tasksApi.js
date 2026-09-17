@@ -97,6 +97,24 @@ export async function goingToTheShop(taskId) {
     : { ok: false, status: res.status, error: res.body && res.body.message };
 }
 
+/**
+ * THEY TAPPED THROUGH TO WRITE THE REVIEW, TOLD TO OUR OWN SIDE.
+ *
+ * The same shape as goingToTheShop above, and deliberately a smaller one: it
+ * records an instant and starts no hold, because nobody loses their place by
+ * taking a week to write a review.
+ *
+ * IT SETTLES NOTHING. Whether a review is publicly visible is read off the shop's
+ * own page and decided nowhere else. This says only that somebody left.
+ */
+export async function goingToTheReview(taskId) {
+  if (!taskId) return { ok: false, status: 0, error: 'no task' };
+  const res = await authedFetch(`/tasks/${taskId}/going-to-the-review`, { method: 'POST' });
+  return res.ok
+    ? { ok: true, status: res.status, task: res.body }
+    : { ok: false, status: res.status, error: res.body && res.body.message };
+}
+
 // Named wrappers, for callers that want the intent rather than the event type.
 export const confirmOrder = (taskId) => postTaskAction(taskId, 'CONFIRM_ORDER');
 export const markReviewed = (taskId) => postTaskAction(taskId, 'MARK_REVIEWED');

@@ -44,9 +44,26 @@ import { journeyView } from '../ui/journey';
 import { goBackOrHome } from '../ui/nav';
 import { screenFor } from '../screens';
 import {
-  SAID_THEY_BOUGHT, SIGNED_IN, WENT_TO_BUY, hasVisitedShop,
+  SAID_THEY_BOUGHT, SAW_IT_ARRIVED, SIGNED_IN, WENT_TO_BUY,
+  hasVisitedShop, markVisitedShop,
 } from './shopVisits';
+import ArrivedMoment from './ArrivedMoment';
+import { shouldCelebrateDelivery } from './arrived';
 import { isConnected as isShopConnected } from '../backend/connectedShops';
+
+/**
+ * WHEN THE PARCEL ARRIVED, OFF THE RECORD, IN MILLISECONDS.
+ *
+ * The response carries it as a written date, because that is what travels on a
+ * wire. Parsed here rather than trusted: a date our side could not read is not a
+ * delivery instant, and null is the honest answer for one.
+ */
+function deliveredInstant(task) {
+  const at = task && task.delivery ? task.delivery.at : null;
+  if (typeof at !== 'string' || at === '') return null;
+  const ms = Date.parse(at);
+  return Number.isNaN(ms) ? null : ms;
+}
 
 /** The tone each step is drawn in, from the design's own palette. */
 const TONE = {
@@ -192,6 +209,43 @@ export default function JourneyScreen({ navigation, route }) {
   }
 
   const tone = TONE[stepKey] || 'blue';
+
+  // ── STEP TEN: "PRODUCT DELIVERED.", AND THEN THE REVIEW STEP BY ITSELF ───
+  //
+  // ── WHY IT IS DRAWN HERE AND IS NOT A STEP OF ITS OWN ──────────────────
+  //
+  // Because it is not a place the record can put somebody and leave them. Three
+  // and a half seconds after the parcel is known to have arrived it is over, and
+  // nothing about the record changed while it was on screen. A journey step is a
+  // state; this is a moment on the way past one.
+  //
+  // So the router draws it OVER the step the record really says, and the note
+  // that this phone has shown it is a note on the phone — the same file and the
+  // same reasoning as every other "what has this person already done" note.
+  // Losing the note costs one repeated celebration and nothing else.
+  //
+  // THE DECISION IS NEXT DOOR AND IS PURE, so every combination of step, record
+  // and note can be walked under node. This line only asks.
+  const celebrate = shouldCelebrateDelivery({
+    stepKey,
+    deliveredAt: deliveredInstant(authoritative),
+    alreadySeen: hasVisitedShop(campaignId, SAW_IT_ARRIVED),
+  });
+  if (celebrate) {
+    return (
+      <View style={styles.root}>
+        <ArrivedMoment
+          onDone={() => {
+            // THE NOTE IS WRITTEN WHEN IT ENDS, not when it starts. Written at
+            // the start, a phone that was put down mid-celebration would never
+            // show it at all.
+            if (campaignId) markVisitedShop(campaignId, SAW_IT_ARRIVED);
+            setTick((n) => n + 1);
+          }}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>

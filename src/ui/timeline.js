@@ -42,21 +42,33 @@ export const GATING_STAGES = [
  * stage's action ONLY while it is 'active'. That single word hid the app's only
  * RELEASE_REFUND button, so a task sat at HOLDING showing "Refund confirmed"
  * with nothing to tap and zero rows in the ledger. Releasable is not released:
- * only a real RELEASE_REFUND event may tick this stage off.
+ * only a real release may tick this stage off, and that half is unchanged.
+ *
+ * ── AND THE BUTTON IT WAS GUARDING IS GONE, 17 SEPTEMBER 2026 ────────────
+ *
+ * Section A of REVIEW-FLOW-PROMPT.md, in the owner's words: "Release is an
+ * operator's verb. A person does not release their own refund." The scheduler
+ * does it, gated on the refund rules, and by the time anybody reads this screen
+ * the decision has already been made and the money has already moved.
+ *
+ * SO THE CHIPS REPORT RATHER THAN OFFER. "Released" was the operator's word for
+ * it and is now what a person would actually say: it is in their wallet. The
+ * state machine below is untouched — what it guards is still true, and it is
+ * what keeps a releasable task from reading as a paid one.
  *
  * @param {{refunded: boolean, eligible: boolean, hasAmount: boolean}} f
- *   refunded  — a RELEASE_REFUND event has been applied (task.state REFUNDED)
+ *   refunded  — the refund has been released (task.state REFUNDED)
  *   eligible  — the engine's refund gate passes (HOLDING, published, window shut)
- *   hasAmount — the charged amount resolved, so there is a number to release
+ *   hasAmount — the charged amount resolved, so there is a number to pay
  */
 export function releaseStageState({ refunded, eligible, hasAmount }) {
-  if (refunded) return { state: 'done', chip: { label: 'Released', tone: 'ok' } };
+  if (refunded) return { state: 'done', chip: { label: 'In your wallet', tone: 'ok' } };
   if (!eligible) return { state: 'pending', chip: null };
   // Eligible but no number: the engine would refuse with 'amount-unknown', so
-  // say the manual step out loud rather than offering a button with no amount.
+  // say the manual step out loud rather than claiming a figure nobody has.
   if (!hasAmount) return { state: 'active', chip: { label: 'Needs staff check', tone: 'warn' } };
-  // Releasable. No chip — the action button already reads "Release ₹X to
-  // wallet", and any 'ok' chip here is the overclaim this function replaced.
+  // Payable, and nothing for anybody here to do about it. No chip: an 'ok' chip
+  // on a refund that has not moved is the overclaim this function replaced.
   return { state: 'active', chip: null };
 }
 

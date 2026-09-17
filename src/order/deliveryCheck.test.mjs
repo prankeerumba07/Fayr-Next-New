@@ -79,13 +79,67 @@ it('and the note is in memory only, so tomorrow is a fresh look', () => {
     'the note must not be written down anywhere');
 });
 
-console.log('\nthe screen asks nobody anything');
+console.log('\nthe screen asks one thing, and the answer settles nothing');
 
-it('THE BUTTON THAT ASKED IS GONE', () => {
-  // "YES — IT IS DELIVERED" was a question whose answer Fayr does not accept,
-  // dressed as a decision.
+/*
+ * ── THE INSTRUCTION THAT CHANGED, AND WHAT DID NOT CHANGE WITH IT ─────────
+ *
+ * 16 SEPTEMBER 2026, the owner: "Fayr must confirm delivery by reading the
+ * user's own Amazon order page, with no buttons and no user input.
+ * src/screens/delivery.js currently asks the user, which is wrong." The question
+ * came off and the screen read the shop the moment it opened.
+ *
+ * 17 SEPTEMBER 2026, REVIEW-FLOW-PROMPT.md step eight: "the app asks: Is the
+ * product delivered? with Yes / No", and step nine: "Yes reads the delivery off
+ * the shop's own page."
+ *
+ * THE THING THE FIRST ONE FORBIDS IS A TAP SETTLING A DELIVERY, and that is
+ * still forbidden and still checked below. The old button was labelled "YES — IT
+ * IS DELIVERED": an assertion, by the person being paid, about the one fact the
+ * refund turns on. The new one answers a question and starts a read. Somebody
+ * who taps Yes on a parcel that has not arrived gets exactly what somebody who
+ * taps nothing gets.
+ */
+it('THE BUTTON THAT ASSERTED A DELIVERY IS STILL GONE', () => {
+  // The words matter, not the presence of a control. "YES — IT IS DELIVERED"
+  // was a claim; "Yes", under "Is the product delivered?", is an answer that
+  // starts a read.
   ok(!/IT IS DELIVERED/i.test(CODE), 'the screen still offers to be told');
   ok(!/Yes,? it is delivered/i.test(CODE));
+});
+
+/**
+ * THE SCREEN'S CODE WITH ITS IMPORT LINES TAKEN OUT.
+ *
+ * ── AND THAT IS NOT TIDINESS, IT IS THE DIFFERENCE BETWEEN TWO CHECKS ────
+ *
+ * "the screen names THANK_YOU_FOR_CONFIRMING" is true of a file that imports the
+ * word and never draws it. Caught by breaking it deliberately on 17 September
+ * 2026: the sentence was taken off the screen and replaced with one typed in
+ * place, and the check went on passing because the import at the top still
+ * mentioned the name. What has to be true is that the name reaches the DRAWING.
+ */
+const DRAWN = CODE.split('\n')
+  .filter((l) => !/^\s*(import\b|\}\s*from\b|[A-Z_, ]+,?\s*$)/.test(l))
+  .join('\n');
+
+it('THE QUESTION IS THE OWNER\u2019S OWN, AND IT IS NAMED RATHER THAN WRITTEN', () => {
+  // Every sentence a person reads lives in src/ui/journeyWords.js, where Fayr's
+  // plain language rule reads it off disk.
+  ok(/IS_THE_PRODUCT_DELIVERED/.test(DRAWN), 'the screen must ask the question');
+  ok(!/Is the product delivered\?/.test(CODE),
+    'the screen holds its own copy of the question');
+  ok(/\{YES\.toUpperCase\(\)\}/.test(DRAWN) && /\{NO\.toUpperCase\(\)\}/.test(DRAWN),
+    'both answers must come from the one words file');
+});
+
+it('AND STEP SEVEN\u2019S SENTENCE IS ON IT, WHICH HAS NOWHERE ELSE TO GO', () => {
+  // "Thank you for confirming. Once your product is delivered, use it and give a
+  // fair review." Confirming the order is what moves the record to this step, so
+  // this screen is the first thing somebody sees afterwards.
+  ok(/THANK_YOU_FOR_CONFIRMING/.test(DRAWN) && /USE_IT_AND_REVIEW_FAIRLY/.test(DRAWN),
+    'the screen must DRAW the sentence that follows confirming the order');
+  ok(!/Thank you for confirming/.test(CODE), 'and must not hold a copy of it');
 });
 
 it('AND SO IS "OPEN THE SHOP", WHICH WAS A BUG', () => {
@@ -108,14 +162,44 @@ it('it starts the SAME read, by name, and does not write a second one', () => {
     'the delivery screen must not read the shop itself');
 });
 
-it('the read starts on its own, with nothing tapped to begin it', () => {
-  ok(/useEffect\(/.test(CODE), 'the read must start from the screen opening');
+it('THE READ STARTS FROM THE ANSWER, AND ONCE PER SITTING', () => {
+  // It started from the screen opening until 17 September 2026. Step nine puts
+  // it behind the answer, which is what stops Fayr asking a shop for pages every
+  // time an app is opened — the thing that gets an account blocked.
+  ok(/const theySaidYes = useCallback\(/.test(CODE),
+    'the read must be started by the answer');
+  ok(!/if \(started\.current\) return undefined;\s*started\.current = true;\s*\/\/ NO TASK/
+    .test(CODE), 'the read still starts from the screen opening');
   // The note is written BEFORE the move. Written after, a screen that comes
   // straight back has no note and starts the same read again.
   const startedAt = CODE.indexOf('rememberWeLookedForDelivery(taskId)');
   const movedAt = CODE.indexOf("navigation.navigate('LookingForIt'");
   ok(startedAt > -1 && movedAt > -1, 'the read is not started here at all');
   ok(startedAt < movedAt, 'the note must be written before the screen leaves');
+  // AND A READ THAT ALREADY RAN DOES NOT PUT THE QUESTION BACK UP. Otherwise
+  // somebody answers Yes and watches the same nothing happen again.
+  ok(/looked \? 'nothing' : 'asking'/.test(CODE),
+    'a sitting that has already looked must not be asked again');
+});
+
+it('AND THE ANSWER SETTLES NOTHING ABOUT A DELIVERY', () => {
+  // The whole of what makes a question allowable here. Tapping Yes starts a
+  // read; it writes no evidence, moves no task and touches nothing that decides
+  // money. The only thing it changes on this side is which screen is drawn.
+  // BOUNDED BY TWO THINGS THAT SURVIVE COMMENT STRIPPING, because CODE has its
+  // comments taken out and a slice ending at a comment ends at minus one — which
+  // reads the whole rest of the file and fails on the first word that looks bad.
+  const from = CODE.indexOf('const theySaidYes');
+  const to = CODE.indexOf('useEffect(() => {', from);
+  ok(from > -1 && to > from, 'the answer handler is not where this check thinks it is');
+  const said = CODE.slice(from, to);
+  for (const forbidden of [
+    'submitEvidence', 'sendFoundOrders', 'markReviewed', 'confirmOrder',
+    'applyAuthoritative', 'postTaskAction', 'delivery:',
+  ]) {
+    ok(!said.includes(forbidden),
+      `the answer reaches ${forbidden}, which is a decision and not a read`);
+  }
 });
 
 it('IT SAYS WHAT IT IS DOING while it is doing it', () => {
@@ -139,8 +223,17 @@ it('ONLY ONE THING IS OFFERED once the read has run, and it is the picture', () 
   ok(/kind: 'DELIVERY'/.test(CODE));
   // And nothing is offered WHILE the shop is being read, which would be asking
   // for a photograph of the very thing Fayr is in the middle of reading.
-  ok(/\{!reading && !delivered \?/.test(CODE),
-    'the offer is not held back until the read has run');
+  // ── AND THE GUARD READ IS THE OFFER'S OWN, NOT ANY GUARD SHAPED LIKE IT ──
+  //
+  // The same three words guard the "nothing to do" card further up the screen.
+  // Caught by breaking it deliberately: the OFFER's guard was loosened and this
+  // check went on passing, because it was reading the card's.
+  const offerAt = CODE.indexOf('Send a picture of the delivery');
+  ok(offerAt > -1, 'the offer is not on the screen at all');
+  const guard = CODE.lastIndexOf('?', CODE.lastIndexOf('<Ghost', offerAt));
+  const itsGuard = CODE.slice(CODE.lastIndexOf('{', guard), guard + 1);
+  ok(/!reading && !asking && !delivered/.test(itsGuard),
+    `the picture is offered under "${itsGuard.trim()}", which is not the whole rule`);
 });
 
 it('it never decides it is delivered on this side', () => {

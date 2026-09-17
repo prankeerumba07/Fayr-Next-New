@@ -39,8 +39,16 @@ export function taskStage(task) {
     return { step: 7, label: 'Refunded', tone: 'green', cta: null };
   }
   if (state === STATES.HOLDING) {
+    // ── NO ACTION ON THE PERSON'S SIDE, AND THAT IS THE WHOLE CHANGE ──────
+    //
+    // 17 September 2026, section A of REVIEW-FLOW-PROMPT.md: "Release is an
+    // operator's verb. A person does not release their own refund." The
+    // scheduler releases it, gated on the refund rules, so there is nothing
+    // here to offer and a button would be offering to do a thing that is
+    // already being done. The staff panel keeps its own release action, which
+    // is an operator doing an operator's job.
     return windowClosed
-      ? { step: 6, label: 'Refund ready', tone: 'green', cta: 'Release refund' }
+      ? { step: 6, label: 'Refund ready', tone: 'green', cta: null }
       : { step: 5, label: 'In return window', tone: 'green', cta: null };
   }
   if (state === STATES.REVIEWED) {
@@ -194,7 +202,7 @@ export function nextStepLine(task) {
     case 3: return 'Write your review on the marketplace, then tap the button.';
     case 4: return 'We are checking your review is publicly visible.';
     case 5: return 'Waiting out the return window. We re-check your review during it.';
-    case 6: return 'Ready — release the refund to your wallet.';
+    case 6: return 'Your refund is on its way to your wallet.';
     default: return 'Paid. It is in your wallet.';
   }
 }

@@ -137,12 +137,25 @@ export default function LinkAccountScreen({ navigation, route }) {
   // or showing its own sign out — and a shop that gives neither leaves somebody
   // with no way forward. So the button remains the way through when Fayr could
   // not see it, and it is no longer the ONLY way.
+  //
+  // ── AND THE NEXT SCREEN COMES UP BY ITSELF, WHICH IT DID NOT ─────────────
+  //
+  // REVIEW-FLOW-PROMPT.md step two: "When it is connected, the next screen
+  // appears by itself — no tap." It did not. This effect marked the note, set
+  // this screen's own two words and stopped, so the journey's router — which is
+  // what decides which screen is drawn — was never asked to look again. The
+  // person sat on a screen that now said they were connected, with a button on
+  // it, and the only way forward was to press the button.
+  //
+  // THE SAME ONE LINE THE "I have signed in" BUTTON ALREADY USED. There was
+  // never a second mechanism missing; this path simply did not call it.
   useEffect(() => {
     if (params.justSignedIn !== true) return;
     if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
     setConnected(true);
     setSent(true);
-  }, [params.justSignedIn, campaignId]);
+    if (params.onJourneyMoved) params.onJourneyMoved();
+  }, [params.justSignedIn, params, campaignId]);
 
   /** Tapping connect. The sheet comes up; nothing opens yet. */
   const askFirst = useCallback(() => setSheetUp(true), []);

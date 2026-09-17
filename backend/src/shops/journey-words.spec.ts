@@ -67,6 +67,66 @@ describe('the journey’s own screen words', () => {
     }
   });
 
+  /**
+   * THE SENTENCES THE FILE BUILDS, WHICH THE LITERALS ABOVE CANNOT SEE.
+   *
+   * ── AND THAT GAP WAS REAL, NOT THEORETICAL ────────────────────────────────
+   *
+   * everyLiteral above reads SINGLE-QUOTED strings off disk. Every sentence
+   * assembled from a template literal — the ones that take a shop's name, the
+   * ones that take a span of time — is invisible to it. On 17 September 2026 the
+   * review half of the journey added six of those, and not one of them was being
+   * read by the rule this file exists to apply.
+   *
+   * ── READ OFF DISK, NOT WRITTEN OUT HERE ───────────────────────────────────
+   *
+   * The first version of this check listed the assembled sentences by hand. That
+   * was caught by breaking one: the function was changed to say something the
+   * rule forbids and the check went on passing, because it was reading a copy
+   * somebody had typed rather than the file. So the templates are taken off disk
+   * and their holes filled with a sample, which is the same thing a person sees.
+   */
+  const everyTemplate = (source: string): string[] => {
+    const code = withoutComments(source);
+    const out: string[] = [];
+    for (const m of code.matchAll(/`((?:[^`\\]|\\.)*)`/g)) {
+      const filled = m[1]
+        // The only holes these sentences have are a shop's name, a span of time
+        // and an amount. A name is the longest of the three and the one that can
+        // push a sentence over the length rule, so a name is what goes in.
+        .replace(/\$\{[^}]*\}/g, 'Amazon')
+        // AND A CHARACTER WRITTEN AS AN ESCAPE IS STILL THAT CHARACTER. Caught
+        // by breaking it: a long dash typed as \u2014 in the source reads as six
+        // ordinary letters to anything looking at the file, and sailed past a
+        // rule whose whole job is to refuse long dashes.
+        .replace(/\\u([0-9a-fA-F]{4})/g,
+          (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (/ /.test(filled)) out.push(filled);
+    }
+    return out;
+  };
+
+  it('and the sentences it BUILDS pass it too, read off disk', () => {
+    const built = everyTemplate(source);
+    // A FLOOR, so a file whose templates stopped being found cannot pass by
+    // having nothing to check.
+    expect(built.length).toBeGreaterThanOrEqual(5);
+    for (const said of built) {
+      const verdict = checkPlainLanguage(said, 'en');
+      expect(verdict.problems.map((p) => `${said} :: ${p.detail}`)).toEqual([]);
+    }
+  });
+
+  it('and so do the spans of time it counts backwards', () => {
+    for (const said of [
+      'a moment', '1 minute', '5 minutes', '1 hour', '3 hours', '1 day', '3 days',
+    ]) {
+      expect(checkPlainLanguage(said, 'en').ok).toBe(true);
+    }
+  });
+
   it('holds no sentence about a campaign’s state, because the server owns those', () => {
     // THE OWNER'S RULE FROM THIS SIDE. If this file grew one of the server's
     // sentences there would be two sources for one message.

@@ -158,6 +158,25 @@ export class TaskController {
     return this.tasks.goToShop(user.id, id);
   }
 
+  /**
+   * THEY TAPPED THROUGH TO WRITE THE REVIEW.
+   *
+   * Records the moment and returns the task. Nothing else: no hold, no notice,
+   * no deadline, and no claim that a review exists — that is read off the shop's
+   * own page and settled nowhere else.
+   *
+   * Tapping twice is not an error. The second call returns the first tap's
+   * instant unchanged. See goToReview.
+   */
+  @Post(':id/going-to-the-review')
+  @HttpCode(HttpStatus.OK)
+  goToReview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<TaskResponse> {
+    return this.tasks.goToReview(user.id, id);
+  }
+
   @Post(':id/confirm-order')
   @HttpCode(HttpStatus.OK)
   confirmOrder(

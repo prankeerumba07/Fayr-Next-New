@@ -203,7 +203,18 @@ console.log('\n=== 8. AND NO SCREEN WRITES THOSE SENTENCES ITSELF ===');
 
 console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
 {
-  ok(EVERY_SENTENCE.length === 20, 'the list of them is complete');
+  // FORTY-SIX SINCE 17 SEPTEMBER 2026, AND THE COUNT IS THE POINT OF IT.
+  //
+  // Twenty until the review half of the journey was written down at length in
+  // REVIEW-FLOW-PROMPT.md, which put twenty six more sentences in front of a
+  // person: the delivery question, the celebration, the day the review step is
+  // shut for, the shop's own waiting period, the two answers under it, and the
+  // three that say the money has moved.
+  //
+  // A NUMBER AND NOT A "MORE THAN", so that adding a sentence is something
+  // somebody has to come here and think about. That is the same reason the look
+  // log's call sites are counted rather than bounded.
+  ok(EVERY_SENTENCE.length === 46, `the list of them is complete (${EVERY_SENTENCE.length})`);
   for (const sentence of EVERY_SENTENCE) {
     ok(typeof sentence === 'string' && sentence.trim() !== '',
       `"${sentence}" is a real sentence`);
