@@ -5,43 +5,86 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex" />
   <title>Fayr · Support Panel</title>
+  <!-- Fayr's own three faces, the same families and weights the app loads in
+       fayr-design.browser.jsx. display=swap on purpose: the panel is a working
+       tool and must be readable in the fallback stack the moment it paints, not
+       blank while a font downloads. Every rule below names a system fallback, so
+       a blocked or slow CDN costs the look and never the legibility. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alexandria:wght@700;800&family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" />
   <style>
-    /* ── Theme tokens ─────────────────────────────────────────────────────── */
+    /* ── Theme tokens ───────────────────────────────────────────────
+       FAYR'S OWN PALETTE, read from fayr-design.browser.jsx. Nothing here was
+       invented: every value is either a constant from that file's `C` block, or
+       one of those constants darkened to carry small text, and each says which.
+
+       ONE THEME, LIGHT. The prefers-color-scheme block that used to sit here is
+       gone on purpose. Fayr's design system has no dark counterpart, so a dark
+       mode could only ever be a half-converted guess at one — and a staff member
+       on a dark-mode laptop was getting a different product from the one beside
+       them. panel.test.mjs fails if it comes back.
+
+       ── WHY FOUR OF THESE ARE DARKER THAN THE DESIGN FILE ───────────────
+
+       MEASURED, not assumed. Fayr's published state colours are built for large
+       bold type on a phone. As 11.5px pill text on these grounds not one of them
+       reaches 4.5:1, and the worst is not close:
+
+         greenDeep #30A90F   2.34:1        amber #F5A623   1.64:1
+         red       #E5392B   3.04:1        refundInk #3E8E00   3.06:1
+
+       So each keeps its HUE and SATURATION exactly and loses lightness until it
+       clears 4.5:1 on the worst of the three grounds. That is the same move the
+       design file already makes for itself — refundInk is a darkened green, and
+       #A66A12 is a darkened amber — so it follows the system rather than leaving
+       it. purple and sub already cleared and are untouched.
+
+       WHAT THIS COSTS: pure #30A90F appears nowhere below. Every green surface in
+       this panel carries text, and at these sizes it cannot. It is waiting for the
+       layout step, where a large fill with no words on it can hold it properly. */
     :root {
-      --bg: #f5f6f8;
-      --surface: #ffffff;
-      --surface-2: #eef0f4;
-      --border: #e0e3ea;
-      --text: #191c22;
-      --muted: #697084;
-      --accent: #3b5bdb;
-      --accent-fg: #ffffff;
-      --ok: #2f9e44;
-      --warn: #d9820b;
-      --bad: #e03131;
-      --info: #3b5bdb;
-      --neutral: #7a8194;
-      --shadow: 0 1px 2px rgba(20,24,33,.05), 0 4px 16px rgba(20,24,33,.06);
+      /* Grounds. */
+      --bg: #F9FAE9;          /* C.cream */
+      --surface: #FFFFFF;     /* C.white */
+      --surface-2: #F1F2D9;   /* C.creamDeep */
+      --border: #ECEDDC;      /* C.line */
+
+      /* Ink. */
+      --text: #191919;        /* C.ink */
+      --muted: #5C5C5C;       /* C.sub — 6.33:1 on cream, untouched */
+
+      /* Brand chrome: links, the active section, the primary button. */
+      --accent: #1F6E0A;      /* C.greenDeep darkened — 4.52:1 at its worst use */
+      --accent-fg: #FFFFFF;   /* on --accent: 6.38:1 */
+      --yellow: #FFE000;      /* C.yellow */
+      --yellow-deep: #F5C400; /* C.yellowDeep — the wordmark's full stop */
+
+      /* State. Semantic, never decorative, and never the brand's job.
+         --ok and --accent are the same green today because Fayr has one green and
+         it has two jobs. They stay two tokens so moving one cannot move the other
+         by accident. */
+      --ok: #1F6E0A;          /* C.greenDeep darkened — 4.52:1 */
+      --warn: #855506;        /* C.amber darkened — 4.53:1 */
+      --bad: #B52216;         /* C.red darkened — 4.52:1 */
+      --info: #7926D9;        /* C.purple — 4.68:1, untouched */
+      --neutral: #5C5C5C;     /* C.sub — 4.80:1, untouched */
+
+      /* A real shadow. The old one was two near-black films at 5% and 6% on a
+         grey ground, which on cream is invisible. This is warm rather than grey,
+         so a card lifts off the cream instead of smudging it. */
+      --shadow: 0 1px 2px rgba(25,25,20,.05), 0 10px 28px rgba(25,25,20,.08);
+
+      /* Softer surfaces. Named so a future screen cannot pick a sixth radius. */
+      --radius: 16px;
+      --radius-sm: 10px;
+      --radius-xs: 8px;
+
+      /* Fayr's three faces, each with the system stack behind it. */
       --mono: ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace;
-      --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0e1116;
-        --surface: #161a20;
-        --surface-2: #1e232b;
-        --border: #2a303a;
-        --text: #e6e8ec;
-        --muted: #98a1b0;
-        --accent: #5c7cfa;
-        --accent-fg: #0e1116;
-        --ok: #51cf66;
-        --warn: #ffa94d;
-        --bad: #ff6b6b;
-        --info: #74a0ff;
-        --neutral: #8b93a4;
-        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
-      }
+      --sans: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --display: 'Poppins', 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --logo: 'Alexandria', 'Poppins', system-ui, sans-serif;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
@@ -65,14 +108,14 @@
     .btn {
       display: inline-flex; align-items: center; gap: 6px;
       border: 1px solid var(--border); background: var(--surface);
-      color: var(--text); border-radius: 8px; padding: 8px 14px;
+      color: var(--text); border-radius: var(--radius-sm); padding: 9px 15px;
       font-size: 14px; font-weight: 600; cursor: pointer; transition: background .12s, border-color .12s;
     }
     .btn:hover { background: var(--surface-2); }
     .btn:disabled { opacity: .55; cursor: default; }
     .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
     .btn-primary:hover { filter: brightness(1.06); background: var(--accent); }
-    .btn-sm { padding: 5px 10px; font-size: 13px; border-radius: 7px; }
+    .btn-sm { padding: 5px 11px; font-size: 13px; border-radius: var(--radius-xs); }
     .btn-ghost { background: transparent; border-color: transparent; }
     .btn-ghost:hover { background: var(--surface-2); }
     .btn-danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }
@@ -80,7 +123,7 @@
     input[type=text], input[type=email], input[type=password], textarea {
       width: 100%; font-family: inherit; font-size: 14px;
       background: var(--surface); color: var(--text);
-      border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+      border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px;
     }
     input:focus, textarea:focus { outline: none; border-color: var(--accent); }
     textarea { resize: vertical; min-height: 60px; }
@@ -106,8 +149,20 @@
       background: var(--surface); border-right: 1px solid var(--border);
       padding: 16px 12px 12px; overflow-y: auto;
     }
-    .brand { font-weight: 800; letter-spacing: -.02em; font-size: 20px; padding: 0 10px 16px; }
-    .brand .dot { color: var(--accent); }
+    /* THE WORDMARK, as fayr-design.browser.jsx draws it: Alexandria 800, tight
+       letter-spacing, ink, and the full stop in yellow.
+
+       The dot is scoped to the sidebar. The login card reuses .brand for a second,
+       different lockup ("Fayr · Support") whose dot is a separator rather than the
+       wordmark's stop, and a yellow middot there would be a decoration nobody can
+       read. The two lockups disagreeing is older than this change and is a layout
+       question, so this step makes the sidebar right and leaves the other alone. */
+    .brand {
+      font-family: var(--logo); font-weight: 800; letter-spacing: -.04em;
+      font-size: 21px; padding: 2px 10px 18px; color: var(--text); line-height: 1;
+    }
+    .sidebar .brand .dot { color: var(--yellow-deep); }
+    .login-card .brand .dot { color: var(--accent); }
     .brand-sub {
       font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
       color: var(--muted); margin-left: 7px; vertical-align: 3px;
@@ -119,7 +174,7 @@
     .nav-group { margin-bottom: 2px; }
     .team {
       display: flex; align-items: center; gap: 10px;
-      padding: 9px 10px; border-radius: 8px; cursor: pointer;
+      padding: 9px 10px; border-radius: var(--radius-sm); cursor: pointer;
       font-weight: 650; color: var(--text); line-height: 1.3;
       font-size: 13.5px; letter-spacing: -.005em;
     }
@@ -147,7 +202,7 @@
     }
     .nav-item {
       display: flex; align-items: center; gap: 9px;
-      padding: 6px 9px; border-radius: 7px; cursor: pointer;
+      padding: 7px 10px; border-radius: var(--radius-xs); cursor: pointer;
       font-weight: 550; font-size: 13px; color: var(--muted); line-height: 1.3;
     }
     .nav-item:hover { background: var(--surface-2); color: var(--text); }
@@ -186,16 +241,16 @@
       font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
       color: var(--muted); margin-bottom: 3px;
     }
-    .top-title { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.015em; line-height: 1.2; }
+    .top-title { margin: 0; font-family: var(--display); font-size: 19px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; }
     .top-sub { font-size: 12.5px; color: var(--muted); margin-top: 3px; max-width: 68ch; }
     .spacer { flex: 1; }
     .quickfind {
-      width: 260px; padding: 7px 11px; border-radius: 8px;
+      width: 260px; padding: 8px 12px; border-radius: var(--radius-sm);
       border: 1px solid var(--border); background: var(--bg); color: var(--text);
       font-family: inherit; font-size: 13px;
     }
     .quickfind:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-    main { flex: 1; overflow-y: auto; max-width: 1100px; width: 100%; padding: 22px 28px 96px; }
+    main { flex: 1; overflow-y: auto; max-width: 1100px; width: 100%; padding: 26px 30px 96px; }
 
     @media (max-width: 860px) {
       .shell { flex-direction: column; height: auto; overflow: visible; }
@@ -206,14 +261,14 @@
       .quickfind { width: 160px; }
     }
 
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 18px 20px; margin-bottom: 18px; }
-    .card > h3 { margin: 0 0 14px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px 24px; margin-bottom: 20px; }
+    .card > h3 { margin: 0 0 14px; font-family: var(--display); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; display: flex; align-items: center; gap: 8px; }
 
     /* One finding: a severity, a plain sentence, and what it does to a user. The
        left rail keeps several findings on one offer readable as a list. */
     .finding { border-left: 2px solid var(--border); padding: 6px 0 6px 11px; margin-top: 8px; }
     .finding:first-child { margin-top: 0; }
-    .stat { font-size: 26px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .stat { font-family: var(--display); font-size: 26px; font-weight: 700; letter-spacing: -.025em; font-variant-numeric: tabular-nums; line-height: 1.1; }
     .stat-bad { color: var(--bad); }
     .stat-warn { color: var(--warn); }
     .stat-ok { color: var(--ok); }
@@ -227,9 +282,10 @@
       gap: 14px;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px 18px;
-      margin-bottom: 18px;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px 22px;
+      margin-bottom: 20px;
     }
     .group-list { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 12.5px; }
     .group-list li { margin-bottom: 2px; }
@@ -246,15 +302,45 @@
     .amt-neg { color: var(--bad); }
     .table-wrap { overflow-x: auto; }
 
-    .task { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface-2); }
+    .task { border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; background: var(--surface-2); }
     .task:last-child { margin-bottom: 0; }
     .task .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .task .title { font-weight: 700; }
     .task .meta { color: var(--muted); font-size: 12.5px; margin-top: 4px; display: flex; gap: 14px; flex-wrap: wrap; }
 
-    .thread { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; background: var(--surface-2); }
+    /* ── One person, as a dashboard ─────────────────────────────────────────
+       Two columns: the offers, which are what people ring about, and a narrow
+       rail of ledgers beside them. Roughly 2:1, and ONE column under 900px —
+       a side rail on a narrow screen becomes a footer nobody scrolls to. */
+    .userpage { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+    @media (max-width: 900px) { .userpage { grid-template-columns: minmax(0, 1fr); } }
+    .col-head { margin: 0 0 10px; font-family: var(--display); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; display: flex; align-items: center; gap: 8px; }
+
+    /* Who they are. The large line is the name when there is one and the mobile
+       when there is not — never a blank space and never a placeholder. */
+    .ident { display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+    .ident .who-name { font-family: var(--display); font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; word-break: break-word; }
+    .ident .who-mobile { font-size: 15px; font-weight: 600; margin-top: 3px; }
+    .ident .no-name { color: var(--muted); font-style: italic; font-size: 13.5px; margin-top: 4px; }
+    .ident .who-under { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+
+    /* One offer, whole. The strip is six real states, so every step draws its
+       own word AND what it says about itself — colour is never the only signal. */
+    .offer .offer-title { font-family: var(--display); font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+    .journey { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin: 12px 0 10px; }
+    .jstep { min-width: 0; }
+    .jbar { height: 5px; border-radius: 999px; background: var(--border); }
+    .jword { font-size: 11px; margin-top: 5px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .jmark { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+    .jstep.done .jbar { background: var(--ok); }
+    .jstep.done .jword, .jstep.done .jmark { color: var(--ok); }
+    .jstep.current .jbar { background: var(--warn); }
+    .jstep.current .jword { color: var(--warn); font-weight: 700; }
+    .jstep.current .jmark { color: var(--warn); font-weight: 600; }
+
+    .thread { border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 12px; background: var(--surface-2); }
     .thread:last-child { margin-bottom: 0; }
-    .thread .subj { font-weight: 700; font-size: 15px; }
+    .thread .subj { font-family: var(--display); font-weight: 700; font-size: 15px; }
     .thread .op { margin: 8px 0 12px; white-space: pre-wrap; }
     .reply { border-left: 3px solid var(--border); padding: 4px 0 4px 12px; margin: 8px 0; white-space: pre-wrap; }
     .reply.staff { border-left-color: var(--accent); }
@@ -263,7 +349,7 @@
     .composer { margin-top: 12px; }
     .composer .row { justify-content: flex-end; margin-top: 8px; }
 
-    .flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 500; }
+    .flash { padding: 11px 15px; border-radius: var(--radius-sm); margin-bottom: 16px; font-weight: 500; }
     .flash-err { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
     .flash-info { color: var(--info); background: color-mix(in srgb, var(--info) 12%, transparent); border: 1px solid color-mix(in srgb, var(--info) 28%, transparent); }
     /* Used when something is worth saying but is not a refusal — the reply that
@@ -339,6 +425,7 @@
       // sentence on it comes down with the data, so the screen writes none of its
       // own words.
       running: { loading: false, error: null, data: null },
+      growth: { loading: false, error: null, data: null, days: 30 },
       // This morning's look at every offer's real shop page. Read-only here: the
       // looking itself can only happen on a phone with a signed-in shop session.
       livepages: { loading: false, error: null, data: null },
@@ -354,7 +441,14 @@
       staffMgmt: { loading: false, error: null, items: null },
       campaigns: { loading: false, error: null, items: null, filter: "ALL" },
       reports: { type: null, from: null, to: null, granularity: "", loading: false, error: null, data: null },
-      user: { loading: false, error: null, data: null, from: "search" },
+      // The profile, and the trail underneath it. The trail is its own branch
+      // because it loads separately and has its own window — but it lives inside
+      // `user` rather than beside it, so leaving the screen cannot leave one
+      // person's trail on screen under another person's name.
+      user: {
+        loading: false, error: null, data: null, from: "search", id: null,
+        activity: { loading: false, error: null, data: null, days: 30 },
+      },
       verifications: {
         loading: false, error: null, items: null, notice: null,
         selId: null, detail: null, detailLoading: false, detailError: null,
@@ -393,6 +487,9 @@
       // no order, no personal detail at all, only counts and totals. Decided by
       // the owner on 3 September 2026, and the server's own guard says the same.
       running: ["SUPPORT", "FINANCE", "OPERATIONS", "ADMIN"],
+      // Counts of steps. No name, no number, no order, nothing personal — the
+      // same reasoning as the row above, and the server guards it as SUPPORT.
+      growth: ["SUPPORT", "FINANCE", "OPERATIONS", "ADMIN"],
       withdrawals: ["FINANCE", "ADMIN"],
       queue: ["SUPPORT", "ADMIN"],
       verifications: ["SUPPORT", "ADMIN"],
@@ -434,6 +531,7 @@
       else if (id === "answers" && state.answers.items === null && !state.answers.loading) { loadAnswerBook(); loadWhatToWriteNext(); }
       else if (id === "livepages" && state.livepages.data === null && !state.livepages.loading) loadLivePages();
       else if (id === "running" && state.running.data === null && !state.running.loading) loadRunning();
+      else if (id === "growth" && state.growth.data === null && !state.growth.loading) loadGrowth();
     }
     function saveSession() {
       if (state.token) sessionStorage.setItem(SS + "token", state.token);
@@ -676,12 +774,289 @@
       state.search.loading = false; render();
     }
     async function loadUser(id, from) {
-      state.user = { loading: true, error: null, data: null, from: from || "search" };
+      state.user = {
+        loading: true, error: null, data: null, from: from || "search", id: id,
+        // A fresh window every time. Carrying the last person's 90 days over to
+        // the next one would make two trails look like the same span of time.
+        activity: { loading: false, error: null, data: null, days: 30 },
+      };
       state.screen = "user"; render();
       try { state.user.data = await api("GET", "/admin/users/" + id); }
       catch (e) { state.user.error = e.message; }
       state.user.loading = false; render();
+      // Only once the profile is there. A trail under a failed profile read would
+      // be a person's whole behaviour with no name on it.
+      if (state.user.data) loadActivity();
     }
+
+    // ── one person's trail: begin ─────────────────────────────────────────────
+    //
+    // WHAT THIS SCREEN IS FOR. A support agent has somebody on the phone and needs
+    // "what did they do, and when" without knowing the schema. Every line is a
+    // sentence the server wrote; this screen groups them, times them and colours
+    // them, and writes none of its own words about what happened.
+    //
+    // WHAT IT DELIBERATELY DOES NOT DO. It never calls the chat or screenshot
+    // endpoints to show a message body or an image. Those are audited separately
+    // on purpose — an agent who needs somebody's actual words opens the
+    // conversation through the route that records that they did. Pulling them in
+    // here would widen who can read a conversation without anybody deciding to.
+    //
+    // AND IT NEVER SORTS. The server's order is already total and deterministic
+    // (instant, then kind, then row id). Re-sorting here would be a second opinion
+    // about the same question, and the two would disagree the first time either
+    // changed.
+
+    /** How many entries one read asks for. The server refuses more than 2000. */
+    var ACTIVITY_LIMIT = 500;
+
+    /**
+     * The windows, and what each is CALLED.
+     *
+     * 365 is labelled "a year" and never "all". The server caps at 365 days, so a
+     * person who has been on Fayr longer than that would be shown less than
+     * everything under a label promising everything — which is the one thing a
+     * trail must never do.
+     */
+    var ACTIVITY_WINDOWS = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "a year"]];
+
+    /**
+     * HOW MANY STEPS THE SETUP SEQUENCE HAS.
+     *
+     * The response says which step somebody stopped at but not how many there are,
+     * so the "of 3" is written here. SETUP_STEPS in backend/src/events/activity.ts
+     * is the source of truth, and panel.test.mjs reads that file and fails if this
+     * number and that one have drifted apart.
+     */
+    var ACTIVITY_SETUP_STEPS = 3;
+
+    /**
+     * THE NINE KINDS: A WORD AND A COLOUR, AND THE WORD IS ALWAYS DRAWN.
+     *
+     * COLOUR IS NEVER THE ONLY SIGNAL. Every row prints its kind as a word beside
+     * the colour, so the screen works for somebody who cannot tell two of these
+     * apart. That is also why the colours are FAMILIES rather than nine distinct
+     * hues: the panel has about six usable tones, and inventing three more would
+     * mean a second palette living outside the token block at the top of this file.
+     *
+     *   money       green    withdrawal
+     *   an offer    blue     task, evidence — evidence is sent FOR an offer
+     *   they wrote  amber    chat, question
+     *   getting in  ink      signup, shop
+     *   the session grey     session
+     *   screens     faintest screen — the background hum everything else sits on
+     *
+     * Keyed by the kind the server sends. panel.test.mjs reads ACTIVITY_KINDS out
+     * of backend/src/events/activity.ts and fails if a kind is added there without
+     * being given a word and a colour here — otherwise it would simply render
+     * unstyled and nobody would notice.
+     */
+    var ACTIVITY_KIND = {
+      screen: { word: "Screen", tone: "var(--muted)" },
+      signup: { word: "Signing up", tone: "var(--text)" },
+      task: { word: "Offer", tone: "var(--info)" },
+      chat: { word: "Chat", tone: "var(--warn)" },
+      question: { word: "Question", tone: "var(--warn)" },
+      withdrawal: { word: "Money", tone: "var(--ok)" },
+      shop: { word: "Shop", tone: "var(--text)" },
+      evidence: { word: "Evidence", tone: "var(--info)" },
+      session: { word: "Session", tone: "var(--neutral)" },
+    };
+
+    async function loadActivity() {
+      var a = state.user.activity;
+      a.loading = true; a.error = null; render();
+      try {
+        a.data = await api("GET", "/admin/users/" + state.user.id
+          + "/activity?days=" + a.days + "&limit=" + ACTIVITY_LIMIT);
+      } catch (e) {
+        a.error = e.message;
+      } finally {
+        a.loading = false; render();
+      }
+    }
+
+    function setActivityWindow(days) {
+      state.user.activity.days = days;
+      state.user.activity.data = null;
+      loadActivity();
+    }
+
+    /** The clock time on a row. Date lives in the heading above it. */
+    function fmtTime(iso) {
+      if (!iso) return "—";
+      return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+    }
+
+    /** A count with Indian grouping, so 1342 reads 1,342. */
+    function fmtCount(n) {
+      return Number(n).toLocaleString("en-IN");
+    }
+
+    /**
+     * A COUNT AND ITS NOUN, AGREEING WITH EACH OTHER.
+     *
+     * "1 offers joined" was on the screen. Nothing was wrong with the number,
+     * and that is the point: a sentence that does not agree with itself makes a
+     * person wonder what else on the page was written by something that is not
+     * reading what it says.
+     *
+     * NOUGHT TAKES THE PLURAL, because that is what English does — no screens,
+     * not no screen. Only exactly one is singular.
+     *
+     * BOTH FORMS ARE PASSED IN rather than an "s" being added here. English does
+     * not make its plurals that way often enough to guess: "entry" and "entries"
+     * are one of the two places this is used on the very first day.
+     *
+     * It sits beside fmtCount because that is where the counts are written. If a
+     * second screen needs it, it moves up to the formatting helpers with the
+     * rest and nothing else changes.
+     */
+    function plural(n, one, many) {
+      return fmtCount(n) + " " + (Number(n) === 1 ? one : many);
+    }
+
+    /**
+     * ENTRIES INTO DAYS, IN THE ORDER THEY ARRIVED.
+     *
+     * The heading IS the grouping key: two entries land under one heading exactly
+     * when they format to the same date. Deriving the key any other way would let
+     * the heading and the grouping drift, which shows up as one date printed twice
+     * with a gap between them.
+     *
+     * No sorting. The server already decided the order and it is total; this walks
+     * it once and cuts it where the day changes.
+     */
+    function activityByDay(entries) {
+      var days = [];
+      var seen = {};
+      (entries || []).forEach(function (e) {
+        var key = fmtDay(e.at);
+        if (!Object.prototype.hasOwnProperty.call(seen, key)) {
+          seen[key] = { day: key, entries: [] };
+          days.push(seen[key]);
+        }
+        seen[key].entries.push(e);
+      });
+      return days;
+    }
+
+    /** Where setup got to, in words. Never a field name and never a bare number. */
+    function activitySetupLine(summary) {
+      if (summary.setupFinished) return "Finished setting up.";
+      if (summary.setupStoppedAt == null) {
+        return "Setup was never marked finished, though every step was done.";
+      }
+      return "Stopped at setup step " + String(summary.setupStoppedAt)
+        + " of " + String(ACTIVITY_SETUP_STEPS) + ".";
+    }
+
+    /** How long since we last saw them, as a person would say it. */
+    function activityQuietLine(summary) {
+      var days = summary.daysQuiet;
+      if (days == null) return "Never seen.";
+      if (days === 0) return "Seen today.";
+      if (days === 1) return "Quiet for a day.";
+      return "Quiet for " + fmtCount(days) + " days.";
+    }
+
+    /**
+     * THE TRIM MESSAGE. Both numbers, always, or none.
+     *
+     * "Showing 500" on its own reads as "there were 500". The count without the
+     * total is the lie this sentence exists to prevent, so the two are built in one
+     * string and there is no branch that can produce one without the other.
+     */
+    function activityTrimLine(timeline) {
+      if (!timeline || !(timeline.trimmed > 0)) return null;
+      return "Showing " + fmtCount(timeline.shown) + " of " + fmtCount(timeline.total)
+        + " — narrow the window to see more.";
+    }
+
+    /** What an empty trail says. A sentence, never a blank box. */
+    function activityEmptyLine(days) {
+      if (days === 365) {
+        return "Nothing recorded for this person in the last year.";
+      }
+      return "Nothing recorded for this person in the last " + String(days)
+        + " days. Try a longer window.";
+    }
+
+    // ONE CARD HOLDING ALL OF THIS USED TO SIT HERE, and it is gone rather than
+    // left behind. Its four parts were pulled apart by the user page above: the
+    // window picker and the summary moved to the top of that page, and the
+    // timeline is now drawn twice — once per offer, and once for everything that
+    // belongs to no offer. A spare render function nobody calls is how a screen
+    // comes back by accident.
+
+    function ActivityWindowPicker() {
+      return h("div", { class: "row", style: "margin-bottom:12px" },
+        h("span", { class: "muted" }, "Looking back"),
+        ACTIVITY_WINDOWS.map(function (w) {
+          return h("button", {
+            class: "btn btn-sm" + (state.user.activity.days === w[0] ? " btn-primary" : ""),
+            onClick: function () { setActivityWindow(w[0]); },
+          }, w[1]);
+        }));
+    }
+
+    // One readable line each, because a support agent reads this while somebody is
+    // waiting on the phone. The window moves the timeline underneath; these numbers
+    // are about the PERSON and do not move with it, which is what the note says.
+    function ActivitySummary(s) {
+      return h("div", { style: "margin-bottom:14px" },
+        h("div", null, "First seen ", fmtDay(s.firstSeen),
+          ", last seen ", fmtDay(s.lastSeen), ". ", activityQuietLine(s)),
+        h("div", { style: "margin-top:4px" },
+          plural(s.totalScreens, "screen", "screens"), " opened, ",
+          plural(s.totalTasks, "offer", "offers"), " joined."),
+        h("div", { style: "margin-top:4px" }, activitySetupLine(s)),
+        h("div", { class: "muted", style: "margin-top:6px;font-size:12.5px" },
+          "These three lines count everything ever recorded about this person. "
+          + "Only the list below moves with the window."));
+    }
+
+    function ActivityTimeline(d) {
+      if (d.timeline.entries.length === 0) {
+        return h("div", { class: "empty" }, activityEmptyLine(d.window.days));
+      }
+      var trim = activityTrimLine(d.timeline);
+      return h("div", null,
+        activityByDay(d.timeline.entries).map(function (group) {
+          return h("div", { style: "margin-top:14px" },
+            h("div", {
+              style: "font-weight:700;font-size:12.5px;text-transform:uppercase;"
+                + "letter-spacing:.06em;color:var(--muted);"
+                + "border-bottom:1px solid var(--border);padding-bottom:5px",
+            }, group.day),
+            group.entries.map(ActivityRow));
+        }),
+        trim
+          ? h("div", { class: "muted", style: "margin-top:14px;font-size:13px" }, trim)
+          : null);
+    }
+
+    function ActivityRow(e) {
+      // An unknown kind still draws, in the neutral tone and under its own name.
+      // A row that vanished because the server grew a kind would be a gap in a
+      // trail, and a gap in a trail is invisible.
+      var k = ACTIVITY_KIND[e.kind] || { word: e.kind, tone: "var(--neutral)" };
+      return h("div", { style: "display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)" },
+        h("div", {
+          class: "num muted",
+          style: "min-width:52px;font-size:12.5px;padding-top:1px;white-space:nowrap",
+        }, fmtTime(e.at)),
+        h("div", {
+          style: "min-width:82px;font-size:12px;font-weight:700;padding-top:1px;"
+            + "text-transform:uppercase;letter-spacing:.04em;color:" + k.tone,
+        }, k.word),
+        h("div", { style: "min-width:0" },
+          h("div", null, e.what),
+          e.detail
+            ? h("div", { class: "muted", style: "font-size:12.5px;margin-top:2px" }, e.detail)
+            : null));
+    }
+    // ── one person's trail: end ───────────────────────────────────────────────
 
     // Replace a question in whatever list currently holds it, then re-render.
     function replaceQuestion(updated) {
@@ -772,6 +1147,7 @@
       // asks, and it belongs to no single team: everybody who runs Fayr needs it.
       ["everyone", "Everyone", "◎", [
         ["running", "How Fayr is running", "◎"],
+        ["growth", "Signing up", "↗"],
       ]],
       ["finance", "Finance", "₹", [
         ["withdrawals", "Withdrawals", "↗"],
@@ -909,6 +1285,7 @@
 
     var SCREEN_TITLE = {
       running: ["How Fayr is running", "Read out of our own records, on open. No form, and nothing here changes anything."],
+      growth: ["Signing up", "How many people reach each step, and where the rest stop. Read on open; nothing here changes anything."],
       withdrawals: ["Withdrawals", "Money leaving Fayr. Approve, reject, then mark paid once the transfer is out."],
       queue: ["Questions", "Users waiting on an answer. Oldest first."],
       verifications: ["Screenshot verifications", "Tier-3 supporting evidence. Nothing here approves itself."],
@@ -1581,6 +1958,337 @@
             h("button", { class: "btn", onclick: checkAnswerWords }, "Check the words"),
             h("button", { class: "btn", onclick: cancelAnswerEdit }, "Cancel"))));
     }
+
+    // ── signing up: begin ─────────────────────────────────────────────────────
+    //
+    // HOW MANY PEOPLE REACH EACH STEP, AND WHERE THE REST STOP.
+    //
+    // Read-only, like "How Fayr is running" next to it. Nothing on this screen
+    // has a form on it and nothing on it changes anything.
+    //
+    // ── THE ONE RULE THAT SHAPES EVERY NUMBER HERE ────────────────────────
+    //
+    // A percentage over nobody is a DASH, never a nought. "0% finished setup"
+    // reads as a product that is failing; the truth in that case is that nobody
+    // reached the step before it, which is a different fact and has to look
+    // different. A percentage over a handful of people is shown but greyed, with
+    // the count beside it, because "50% of people finish setup" is two people on
+    // a quiet Tuesday and somebody will repeat it in a meeting as a finding.
+    //
+    // Both decisions are enforced in backend/src/events/funnel.ts and tested
+    // there. This screen only has to draw what it is handed and never invent a
+    // nought of its own.
+
+    var GROWTH_WINDOWS = [7, 30, 90];
+
+    async function loadGrowth() {
+      state.growth.loading = true; state.growth.error = null; render();
+      try {
+        state.growth.data = await api("GET", "/admin/insights/funnel?days=" + state.growth.days);
+      } catch (e) {
+        state.growth.error = e.message;
+      } finally {
+        state.growth.loading = false; render();
+      }
+    }
+
+    function setGrowthWindow(days) {
+      state.growth.days = days;
+      state.growth.data = null;
+      loadGrowth();
+    }
+
+    /** A share, or a dash. Never a nought that was really a nothing. */
+    function pct(v) { return v == null ? "—" : String(v) + "%"; }
+
+    function GrowthScreen() {
+      var st = state.growth;
+      if (st.loading && !st.data) return h("div", { class: "muted" }, h("span", { class: "spin" }), " Reading…");
+      if (st.error) return h("div", { class: "flash flash-err" }, st.error);
+      if (!st.data) return h("div", { class: "empty" }, "Nothing yet.");
+      var d = st.data;
+
+      return h("div", null,
+        GrowthWindowPicker(),
+        GrowthHeadline(d),
+        GrowthFunnel(d),
+        GrowthSessions(d.sessions));
+    }
+
+    function GrowthWindowPicker() {
+      return h("div", { class: "card", style: "display:flex;gap:8px;align-items:center;flex-wrap:wrap" },
+        h("span", { class: "muted" }, "Looking back"),
+        GROWTH_WINDOWS.map(function (days) {
+          return h("button", {
+            class: "btn" + (state.growth.days === days ? " btn-primary" : ""),
+            onClick: function () { setGrowthWindow(days); },
+          }, days + " days");
+        }));
+    }
+
+    // WHERE MOST PEOPLE STOP, AT THE TOP. It is the only question anybody opens
+    // a funnel to answer, so it does not make them read a table to find it.
+    function GrowthHeadline(d) {
+      var delivery = d.codeDeliveryRate;
+      // Below nine in ten is the line. A code that does not arrive is somebody
+      // who wanted Fayr and could not get in, and no product work fixes it.
+      var deliveryBad = delivery != null && delivery < 90;
+
+      return h("div", { class: "card" },
+        h("div", { style: "font-weight:700;font-size:15px" },
+          d.worst
+            ? "Most people stop at: " + d.worst.label
+            : "Nobody dropped out in this window."),
+        d.worst
+          ? h("div", { class: "muted", style: "margin-top:6px" },
+              String(d.worst.dropped) + " people did not get that far.")
+          : null,
+        h("div", {
+          style: "margin-top:10px;font-weight:650;color:" + (deliveryBad ? "var(--bad)" : "var(--text)"),
+        },
+          "Codes asked for: " + String(d.codesRequested)
+          + "  ·  entered correctly: " + String(d.codesVerified)
+          + "  ·  " + pct(delivery)),
+        deliveryBad
+          ? h("div", { style: "margin-top:6px;color:var(--bad);font-size:13px" },
+              "Under nine in ten. Codes that never arrive are people who wanted Fayr "
+              + "and could not get in — check the SMS provider before anything else.")
+          : h("div", { class: "muted", style: "margin-top:6px;font-size:13px" },
+              "Counted per NUMBER, not per request: somebody who asks three times "
+              + "because the first two never came is one person trying to get in."));
+    }
+
+    // ── THE FUNNEL AS A SHAPE ────────────────────────────────────────────────
+    //
+    // WHY A CHART HERE AND NOT ON A PERSON'S PAGE. This screen counts hundreds
+    // of people, so a proportion drawn as a length is a real proportion. One
+    // person's page has no distribution to draw and gets no chart at all.
+    //
+    // WHAT THE EYE IS MEANT TO DO. Land on the biggest gap. "Where do people
+    // stop" is the only question anybody opens a funnel to answer, and the gap
+    // between one bar and the one above it IS the number of people who did not
+    // get from there to here. So the widest gap is the worst drop by
+    // construction, and nothing has to be read to find it.
+    //
+    // IT INVENTS NOTHING. Every length is one count the server sent over another
+    // count the server sent. No smoothing, no interpolation, no projected line,
+    // and no step drawn at a length nobody measured.
+    //
+    // AND IT MEASURES ONCE. The table below carries the percentages, the drop
+    // counts and the thin-base warning in words; the chart carries the shape and
+    // repeats none of those numbers except each step's own count, which is what
+    // labels the bar.
+
+    /** The drawing, in viewBox units. One place, so no two of them can drift. */
+    var FUNNEL_CHART = { w: 680, rowH: 30, barH: 14, padL: 196, padR: 58, padT: 10, padB: 8 };
+
+    /**
+     * WHAT EVERY BAR IS MEASURED AGAINST: the first step that has counted
+     * anybody.
+     *
+     * Normally that is the first step of the journey, and the chart says so.
+     *
+     * IT IS NOT ALWAYS. The first three steps are reported by the app and read
+     * nought until a release that sends them is out, and a share of nobody is
+     * not a number — funnel.ts returns null for it rather than a nought, for the
+     * same reason. Measuring everything against a nought would draw no chart at
+     * all on the very data this screen exists to show. So the base falls through
+     * to the first step that has a real count, and the chart NAMES the step it
+     * is measuring against every time, because a bar whose denominator is a
+     * surprise is worse than no bar.
+     */
+    function funnelBase(steps) {
+      for (var i = 0; i < (steps || []).length; i++) {
+        if (steps[i] && steps[i].count > 0) return steps[i];
+      }
+      return null;
+    }
+
+    /** This step's count over the base's. Null when there is nothing to divide by. */
+    function funnelShare(count, base) {
+      if (!base || !(base.count > 0)) return null;
+      if (typeof count !== "number" || !isFinite(count)) return null;
+      return count / base.count;
+    }
+
+    function GrowthFunnelChart(d) {
+      var steps = (d && d.funnel) || [];
+      var base = funnelBase(steps);
+      if (!base) {
+        return h("div", { class: "empty" },
+          "Nothing has been counted at any step in this window, so there is no "
+          + "shape to draw. The table below still shows every step.");
+      }
+
+      var g = FUNNEL_CHART;
+      var innerW = g.w - g.padL - g.padR;
+      var height = g.padT + steps.length * g.rowH + g.padB;
+      // A step CAN be bigger than the base — a funnel counted over a fixed
+      // window shows people finishing setup who started it last week, and
+      // funnel.ts reports that rather than clamping it away. The drawn length
+      // stops at the end of the track because there is nowhere else for it to
+      // go; the count beside it is always the real one.
+      var xOf = function (share) { return g.padL + Math.min(1, Math.max(0, share)) * innerW; };
+
+      var els = [s("title", { text: "Each step of signing up, drawn against “" + base.label + "”" })];
+      var previous = null; // the step above, only when it drew a bar of its own
+
+      steps.forEach(function (step, i) {
+        var top = g.padT + i * g.rowH;
+        var y = top + (g.rowH - g.barH) / 2;
+        var textY = y + g.barH - 3;
+        var share = funnelShare(step.count, base);
+        var drawsBar = share != null && step.count > 0;
+        var worst = !!(d.worst && d.worst.key === step.key);
+
+        els.push(s("rect", {
+          class: "ftrack", x: g.padL, y: y, width: innerW, height: g.barH, rx: 3,
+          style: "fill:var(--surface-2)",
+        }));
+
+        // THE DROP, DRAWN AS THE GAP. From where this bar ends to where the one
+        // above it ended — which is exactly the people who did not get here.
+        //
+        // Only between two bars that both exist. A gap drawn back to a step that
+        // has counted nothing would draw an ABSENCE as a collapse, which is the
+        // one misreading this chart is built to avoid. The table's "Stopped
+        // here" column still names that number.
+        if (drawsBar && previous !== null && step.dropped > 0) {
+          var from = xOf(share), to = xOf(funnelShare(previous.count, base));
+          if (to > from) {
+            els.push(s("rect", {
+              class: "fdrop" + (worst ? " worst" : ""),
+              x: from, y: y, width: to - from, height: g.barH, rx: 3,
+              style: "fill:var(--warn);fill-opacity:" + (worst ? ".55" : ".2"),
+            }, s("title", {
+              text: String(step.dropped) + " did not get from “" + previous.label
+                + "” to “" + step.label + "”",
+            })));
+          }
+        }
+
+        if (drawsBar) {
+          // A THIN BASE IS NOT DRAWN AS THOUGH IT WERE SOLID. Hardly anybody
+          // reached the step above this one, so the share is arithmetic rather
+          // than a finding: the bar is pale and dashed as well as muted, so it
+          // reads as provisional to somebody who cannot tell two greys apart.
+          els.push(s("rect", {
+            class: "fbar" + (step.thin ? " thin" : ""),
+            x: g.padL, y: y, width: Math.max(1, xOf(share) - g.padL), height: g.barH, rx: 3,
+            style: step.thin
+              ? "fill:var(--muted);fill-opacity:.3;stroke:var(--muted);stroke-dasharray:3 2"
+              : "fill:var(--text)",
+          }, s("title", {
+            text: step.label + ": " + String(step.count) + " of " + String(base.count),
+          })));
+        } else {
+          // NOUGHT AND NOT-MEASURED-YET ARE DIFFERENT FACTS. A bar of length
+          // zero reads as a step people failed at; these steps are ones nothing
+          // has counted. So no bar, and the row says which it is in words.
+          els.push(s("text", {
+            class: "fnone", x: g.padL + 8, y: textY, "font-size": "11",
+            style: "fill:var(--muted)",
+          }, "nothing counted at this step"));
+        }
+
+        els.push(s("text", {
+          class: "flabel", x: g.padL - 10, y: textY, "text-anchor": "end",
+          "font-size": "11.5", style: "fill:var(--text)",
+        }, step.label));
+        // THE COUNT, BESIDE EVERY BAR AND NEVER IN A LEGEND — including the thin
+        // ones and the ones with no bar at all, because the count is the fact
+        // and the bar is only how it is drawn.
+        els.push(s("text", {
+          class: "fcount", x: g.w - 6, y: textY, "text-anchor": "end",
+          "font-size": "11.5", style: "fill:var(" + (step.thin ? "--muted" : "--text") + ")",
+        }, String(step.count)));
+
+        previous = drawsBar ? step : null;
+      });
+
+      var measuredAgainst = steps[0] && base.key === steps[0].key
+        ? "Every bar is that step’s count against “" + base.label + "”, the step "
+          + "all the others are drawn from."
+        : "Measured against “" + base.label + "” — nothing has been counted at "
+          + "the steps above it, so there is no number there to measure against.";
+
+      return h("div", null,
+        s("svg", {
+          viewBox: "0 0 " + g.w + " " + height, width: "100%", height: String(height),
+          role: "img", style: "display:block;max-width:100%;height:auto",
+        }, els),
+        h("div", { class: "muted", style: "font-size:12.5px;margin-top:8px" },
+          measuredAgainst
+          + " The pale block after a bar is the people who did not get there from "
+          + "the step above; the solid one is the drop named at the top of the "
+          + "screen. A dashed bar means hardly anybody reached the step above it, "
+          + "so its share is arithmetic rather than a finding."));
+    }
+
+    function GrowthFunnel(d) {
+      var head = h("thead", null, h("tr", null,
+        h("th", null, "Step"),
+        h("th", { class: "num" }, "People"),
+        h("th", { class: "num" }, "Of the step before"),
+        h("th", { class: "num" }, "Of everyone who opened"),
+        h("th", { class: "num" }, "Stopped here")));
+
+      var rows = d.funnel.map(function (step) {
+        var thin = step.thin && step.ofPrevious != null;
+        return h("tr", null,
+          h("td", { style: "font-weight:650" }, step.label),
+          h("td", { class: "num" }, String(step.count)),
+          // Greyed when hardly anybody reached the step above it — the number is
+          // still shown, because hiding it would be its own kind of lie.
+          h("td", { class: "num", style: thin ? "color:var(--muted)" : "" },
+            pct(step.ofPrevious),
+            thin ? h("span", { class: "muted", style: "font-size:11.5px" }, " too few to mean much") : null),
+          h("td", { class: "num", style: thin ? "color:var(--muted)" : "" }, pct(step.ofStart)),
+          h("td", { class: "num", style: step.dropped > 0 ? "color:var(--warn)" : "" },
+            step.dropped > 0 ? String(step.dropped) : "—"));
+      });
+
+      return h("div", { class: "card" },
+        h("div", { style: "font-weight:700;margin-bottom:8px" }, "From opening the app to claiming a campaign"),
+        h("div", { class: "muted", style: "margin-bottom:10px;font-size:13px" },
+          "The first three steps are reported by the app itself and will read nought "
+          + "until a release that sends them is out. Everything from the code onward "
+          + "is read from records Fayr has kept since the beginning."),
+        // THE SHAPE FIRST, THE NUMBERS UNDER IT. The chart is beside the table
+        // rather than instead of it: every percentage, every drop count and the
+        // thin-base warning are still written out below in words.
+        GrowthFunnelChart(d),
+        h("div", { style: "height:14px" }),
+        h("table", { class: "table" }, head, h("tbody", null, rows)));
+    }
+
+    function GrowthSessions(sx) {
+      var rows = [
+        ["Sessions that ran out unused", String(sx.expiredUnused),
+         "Nobody opened the app for " + String(sx.sessionDays) + " days, so the sign-in lapsed."],
+        ["Of those, signed in again", String(sx.cameBack) + "  (" + pct(sx.cameBackRate) + ")",
+         "Asked for a code AFTER theirs ran out — the act of being asked to sign in again and doing it."],
+        ["Signed out on purpose", String(sx.signedOut),
+         "Tapped sign out. A different thing from a session lapsing, and counted apart."],
+      ].map(function (r) {
+        return h("tr", null,
+          h("td", { style: "min-width:240px" },
+            h("div", { style: "font-weight:650" }, r[0]),
+            h("div", { class: "muted", style: "font-size:12.5px;margin-top:3px" }, r[2])),
+          h("td", { class: "num", style: "vertical-align:top;font-weight:650" }, r[1]));
+      });
+
+      return h("div", { class: "card" },
+        h("div", { style: "font-weight:700;margin-bottom:8px" },
+          "Sessions — a sign-in lasts " + String(sx.sessionDays) + " days of silence"),
+        h("div", { class: "muted", style: "margin-bottom:10px;font-size:13px" },
+          "Every time somebody opens the app the clock starts again, so this is "
+          + String(sx.sessionDays) + " days of never opening it, not "
+          + String(sx.sessionDays) + " days since signing in."),
+        h("table", { class: "table" }, h("tbody", null, rows)));
+    }
+    // ── signing up: end ───────────────────────────────────────────────────────
+
     // ── how it is running: begin ──────────────────────────────────────────────
     // (the markers let panel.test.mjs lift these functions out and really draw
     //  them against realistic data. A parse check cannot catch a call to a helper
@@ -2242,6 +2950,12 @@
       var slotsIn = inp({ type: "number", min: "1", placeholder: "unlimited", value: campaign.totalSlots != null ? String(campaign.totalSlots) : "" });
       var asinIn = inp({ type: "text", placeholder: "optional (Amazon ASIN)", value: campaign.asin || "" });
       var urlIn = inp({ type: "text", placeholder: "optional product URL", value: campaign.productUrl || "" });
+      // THE EXACT PHRASE A PERSON TYPES INTO THE SHOP'S OWN SEARCH BOX, and it is
+      // NOT the product name. The product name is the catalogue's; this is what
+      // somebody types to find the thing on that shop, and a catalogue name
+      // pasted into a quick-commerce search box often finds nothing. Left empty,
+      // the app says so on the bar rather than falling back to the product name.
+      var keywordIn = inp({ type: "text", maxlength: "200", placeholder: "what a person types to find it, e.g. purple corrector toothpaste perfora, 75 ml", value: campaign.searchKeyword || "" });
       var termsIn = h("textarea", { placeholder: "One rule per line — shown to users before they claim.", style: "min-height:90px" }, campaign.terms || "");
 
       // Image upload.
@@ -2284,6 +2998,7 @@
             totalSlots: slotsIn.value === "" ? null : Number(slotsIn.value),
             asin: asinIn.value.trim(),
             productUrl: urlIn.value.trim(),
+            searchKeyword: keywordIn.value.trim(),
             imageUrl: imageUrl || "",
             terms: termsIn.value.trim()
           };
@@ -2298,6 +3013,7 @@
           if (slotsIn.value !== "") body.totalSlots = Number(slotsIn.value);
           if (asinIn.value.trim()) body.asin = asinIn.value.trim();
           if (urlIn.value.trim()) body.productUrl = urlIn.value.trim();
+          if (keywordIn.value.trim()) body.searchKeyword = keywordIn.value.trim();
           if (imageUrl) body.imageUrl = imageUrl;
           if (termsIn.value.trim()) body.terms = termsIn.value.trim();
         }
@@ -2335,6 +3051,8 @@
           h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;margin-top:2px" },
             fld("ASIN", asinIn, "flex:0 0 180px"),
             fld("Product URL", urlIn, "flex:1;min-width:220px")),
+          h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;margin-top:2px" },
+            fld("Search keyword (what a person types)", keywordIn, "flex:1;min-width:260px")),
           h("label", { class: "field", style: "margin-top:2px" }, h("span", null, "Product image"),
             h("div", { class: "row", style: "gap:12px;align-items:center;flex-wrap:wrap" },
               preview, fileIn, imageUrl ? removeImg : null, upStatus)),
@@ -3870,39 +4588,6 @@
     }
     function KV(k, v) { return h("div", { class: "kv" }, h("div", { class: "k" }, k), h("div", { class: "v num" }, v)); }
 
-    function UserScreen() {
-      var back = h("button", { class: "btn btn-sm btn-ghost", onclick: function () { state.screen = state.user.from; render(); } }, "← Back");
-      if (state.user.loading) return h("div", null, back, h("div", { class: "muted", style: "margin-top:14px" }, h("span", { class: "spin" }), " Loading activity…"));
-      if (state.user.error) return h("div", null, back, h("div", { class: "flash flash-err", style: "margin-top:14px" }, state.user.error));
-      var d = state.user.data;
-      if (!d) return h("div", null, back);
-      var p = d.profile;
-
-      return h("div", null,
-        h("div", { style: "margin-bottom:14px" }, back),
-        // Profile
-        h("div", { class: "card" },
-          h("div", { class: "row", style: "justify-content:space-between" },
-            h("div", null,
-              h("div", { class: "row" }, h("span", { class: "mono", style: "font-weight:800;font-size:18px" }, p.mobile), pill(p.status, USER_PILL[p.status])),
-              h("div", { class: "muted mono", style: "margin-top:3px" }, p.displayId, "  ·  joined ", fmtDay(p.createdAt))),
-            h("div", { class: "row" },
-              KV("Tickets", String(d.tickets.balance)),
-              KV("Wallet", rupees(d.wallet.balancePaise))))),
-        // Tasks
-        h("div", { class: "card" }, h("h3", null, "Tasks", h("span", { class: "muted" }, String(d.tasks.length))), TasksBlock(d.tasks)),
-        // Wallet
-        h("div", { class: "card" }, h("h3", null, "Wallet ledger", h("span", { class: "muted" }, rupees(d.wallet.balancePaise))), WalletTable(d.wallet.entries)),
-        // Withdrawals
-        h("div", { class: "card" }, h("h3", null, "Withdrawals", h("span", { class: "muted" }, String(d.withdrawals.length))), WalletTable(d.withdrawals)),
-        // Tickets
-        h("div", { class: "card" }, h("h3", null, "Ticket ledger", h("span", { class: "muted" }, String(d.tickets.balance))), TicketTable(d.tickets.entries)),
-        // Questions
-        h("div", { class: "card" }, h("h3", null, "Support questions", h("span", { class: "muted" }, String(d.questions.length))),
-          d.questions.length === 0 ? h("div", { class: "empty" }, "No questions raised.")
-            : h("div", null, d.questions.map(function (q) { return ThreadCard(q, { withUser: false }); }))));
-    }
-
     /**
      * THE ORDER WINDOW WAS WIDENED FOR TESTING ON THIS TASK.
      *
@@ -3920,41 +4605,396 @@
       return pill("PRACTICE WINDOW " + String(days) + "d", "bad");
     }
 
-    function TasksBlock(tasks) {
-      if (!tasks || tasks.length === 0) return h("div", { class: "empty" }, "No tasks.");
-      return h("div", null, tasks.map(function (t) {
-        var c = t.campaign || {};
-        var refund = t.refund || {};
-        return h("div", { class: "task" },
-          h("div", { class: "head" },
-            h("span", { class: "title" }, c.title || c.productName || "Task"),
-            pill(t.state, TASK_PILL[t.state]),
-            c.platform ? h("span", { class: "muted", style: "font-size:12.5px" }, c.platform) : null,
-            h("div", { class: "spacer" }),
-            // ── THE PRACTICE WINDOW MARK, AND IT IS LOUD ON PURPOSE ────────
-            //
-            // A task matched through a widened order window must never be
-            // mistaken for a real one. This is the pill somebody sees before
-            // they decide whether to release money, so it sits beside the state
-            // in the "bad" tone rather than in the quiet line underneath: the
-            // owner's requirement is that a widened match "can never be mistaken
-            // for a real one", and a grey note in a meta row can be.
-            //
-            // It names the NUMBER OF DAYS, because a window widened by one day
-            // and one widened by three years are different claims about how much
-            // was let through. Null on every real task — the setting only applies
-            // on a database whose own name ends _dev or _test.
-            practiceMark(t),
-            refund.eligible ? pill("REFUND READY", "ok") : null),
-          h("div", { class: "meta" },
-            h("span", null, "Refund: ", h("span", { class: "num" }, rupees(refund.amountPaise))),
-            t.windowEndsAt ? h("span", null, "Window ends ", fmtDay(t.windowEndsAt)) : null,
-            h("span", null, "Created ", fmtDay(t.createdAt))),
-          (!refund.eligible && refund.reasons && refund.reasons.length)
-            ? h("div", { class: "muted", style: "font-size:12.5px;margin-top:6px" }, "Not eligible: " + refund.reasons.join("; "))
-            : null);
+    // ── the user page: begin ─────────────────────────────────────────────────
+    //
+    // ONE PERSON, READ IN FIVE SECONDS.
+    //
+    // Somebody is on the phone. Before their sentence is finished the agent needs
+    // to know who they are speaking to, whether money is involved, and what is
+    // happening with the offer they are ringing about.
+    //
+    // WHAT CHANGED, AND IT IS THE WHOLE POINT. Everything about one offer sits in
+    // one card: its state, how far along it is, what it would pay, and its own
+    // entries out of the trail. It used to be scattered — the offer in one list,
+    // its claim and its screenshot somewhere down a chronological trail with
+    // screens and chats in between — so "what happened with my kettle" meant
+    // reassembling the offer by reading around it.
+    //
+    // WHAT IT STILL REFUSES TO DO. No message bodies, no question words, no
+    // pictures. Those have their own audited routes, and why is written at the
+    // top of the trail block above.
+    //
+    // AND NO CHART. One person does not produce a distribution, so a histogram of
+    // one person's fortnight is a picture pretending to be analysis. Charts
+    // belong on the screen that reads everybody.
+
+    /**
+     * THE SIX STEPS OF AN OFFER, IN ORDER, AS A PERSON SAYS THEM.
+     *
+     * The keys are the server's own task states — the whole TaskState enum, which
+     * has exactly these six and nothing else. panel.test.mjs reads them out of
+     * backend/src/tasks/engine/states.ts and fails if the two lists drift apart,
+     * because a strip that quietly stopped knowing about a state would draw every
+     * task in it as though it had never started.
+     */
+    var JOURNEY = [
+      ["CLAIMED", "claimed"],
+      ["PURCHASED", "bought"],
+      ["DELIVERED", "arrived"],
+      ["REVIEWED", "reviewed"],
+      ["HOLDING", "holding"],
+      ["REFUNDED", "refunded"],
+    ];
+
+    /** What each step says about itself, so colour is never the only signal. */
+    var JOURNEY_MARK = { done: "done", current: "now", later: "to come" };
+
+    /**
+     * WHICH STEPS THIS OFFER HAS REACHED. REAL STATE, NEVER A PERCENTAGE.
+     *
+     * The task's own state is the whole answer: the states are ordered, so
+     * everything before it happened, and it is where the offer is now. Nothing
+     * here is worked out from a proportion, a count or a date — a strip that
+     * showed "60% complete" would be a number Fayr does not hold, dressed up as
+     * one it does.
+     *
+     * REFUNDED IS DONE, NOT CURRENT. The money is out and there is nothing in
+     * progress, so the last step reads as finished and no step is current. Every
+     * other state is a step still being worked through.
+     *
+     * A STATE THIS LIST HAS NEVER HEARD OF reaches none of them rather than
+     * guessing a position. The card still draws the state pill beside the strip,
+     * so the truth is on the screen even when the strip cannot place it.
+     */
+    function journeySteps(task) {
+      var state = task && task.state;
+      var at = -1;
+      for (var i = 0; i < JOURNEY.length; i++) if (JOURNEY[i][0] === state) at = i;
+      var finished = at === JOURNEY.length - 1;
+      return JOURNEY.map(function (step, ix) {
+        var status = "later";
+        if (at >= 0) {
+          if (ix < at || (finished && ix === at)) status = "done";
+          else if (ix === at) status = "current";
+        }
+        return { key: step[0], word: step[1], status: status, mark: JOURNEY_MARK[status] };
+      });
+    }
+
+    /**
+     * ONE CARD PER CAMPAIGN, even when the same offer was claimed twice.
+     *
+     * A trail entry names the OFFER it belongs to and not the claim, so two cards
+     * for one campaign would show the same entries twice and neither would be
+     * wrong about it. The newest claim is the one drawn — the server sends tasks
+     * newest first — and a second claim is said in words on the card rather than
+     * hidden.
+     */
+    function offersByCampaign(tasks) {
+      var out = [], at = {};
+      (tasks || []).forEach(function (t) {
+        var id = t && t.campaign && t.campaign.id;
+        if (!id) { out.push({ id: null, task: t, claims: 1 }); return; }
+        if (Object.prototype.hasOwnProperty.call(at, id)) { at[id].claims += 1; return; }
+        at[id] = { id: id, task: t, claims: 1 };
+        out.push(at[id]);
+      });
+      return out;
+    }
+
+    /**
+     * THE TRAIL, SPLIT — AND EVERY ENTRY LANDS SOMEWHERE.
+     *
+     * An entry goes to an offer only when it names one AND that offer is on the
+     * screen. Everything else — no offer at all, or an offer this person has no
+     * task for — goes to "Everything else", because the one thing a trail may
+     * never do is drop a line. A gap in a trail is invisible.
+     */
+    function splitActivityByOffer(entries, offers) {
+      var byOffer = {};
+      (offers || []).forEach(function (o) { if (o.id) byOffer[o.id] = []; });
+      var rest = [];
+      (entries || []).forEach(function (e) {
+        var id = e && e.campaignId;
+        if (id && Object.prototype.hasOwnProperty.call(byOffer, id)) byOffer[id].push(e);
+        else rest.push(e);
+      });
+      return { byOffer: byOffer, rest: rest };
+    }
+
+    /**
+     * WHO THEY ARE, AND NOTHING INVENTED.
+     *
+     * Most people have no name: setup can be finished without giving one and the
+     * practice data creates none at all. So the missing case is the ordinary one
+     * and it is drawn deliberately — the mobile becomes the large line, and a
+     * muted "No name given" sits under it.
+     *
+     * NEVER A PLACEHOLDER. No "Unknown", no dash, nothing that reads like a name.
+     * An agent confirming who they are speaking to must not be shown an
+     * invention, and a blank space where a name should be is its own kind of
+     * invention: it looks like a page that failed to load.
+     */
+    function IdentityHeader(p, summary) {
+      var named = typeof p.name === "string" && p.name !== "";
+      return h("div", { class: "card" },
+        h("div", { class: "ident" },
+          h("div", { style: "min-width:0;flex:1 1 280px" },
+            named
+              ? h("div", { class: "who-name" }, p.name)
+              : h("div", { class: "who-name mono" }, p.mobile),
+            named
+              ? h("div", { class: "who-mobile mono" }, p.mobile)
+              : h("div", { class: "no-name" }, "No name given"),
+            h("div", { class: "who-under" },
+              h("span", { class: "mono" }, p.displayId),
+              h("span", null, "joined " + fmtDay(p.createdAt)),
+              pill(p.status, USER_PILL[p.status]))),
+          summary
+            ? h("div", { style: "flex:1 1 300px;min-width:0" }, ActivitySummary(summary))
+            : null));
+    }
+
+    /**
+     * THE FOUR NUMBERS, AND EACH ONE SAYS WHAT IT IS COUNTING.
+     *
+     * A supporting line under every number, because a bare 3 on a dashboard gets
+     * read as whatever the reader was already thinking about. Every supporting
+     * line is a count of real rows or a sentence the trail wrote — there is no
+     * proportion here that is not two real numbers.
+     *
+     * DAYS QUIET IS A DASH UNTIL THE TRAIL IS READ, never a nought. The trail
+     * loads after the profile, and a zero drawn while it is still loading says
+     * "seen today" about somebody nobody has looked up yet.
+     */
+    function UserTiles(d, a) {
+      var refunded = (d.tasks || []).filter(function (t) { return t.state === "REFUNDED"; }).length;
+      var s = a.data ? a.data.summary : null;
+      var quietBig = s && s.daysQuiet != null ? fmtCount(s.daysQuiet) : "—";
+      var quietUnder = s
+        ? activityQuietLine(s) + " Last seen " + fmtDay(s.lastSeen) + "."
+        : (a.error ? "The trail could not be read." : "Reading the trail…");
+      return h("div", { class: "stat-row" },
+        Tile(rupees(d.wallet.balancePaise), "Wallet balance",
+          plural((d.wallet.entries || []).length, "entry", "entries") + " in the ledger"),
+        Tile(fmtCount(d.tickets.balance), "Tickets",
+          plural((d.tickets.entries || []).length, "change", "changes") + " recorded"),
+        Tile(fmtCount((d.tasks || []).length), "Offers joined",
+          fmtCount(refunded) + " of " + fmtCount((d.tasks || []).length) + " refunded"),
+        Tile(quietBig, "Days quiet", quietUnder));
+    }
+
+    function Tile(big, label, under) {
+      return h("div", { class: "kv" },
+        h("div", { class: "stat" }, big),
+        h("div", { class: "k" }, label),
+        h("div", { class: "muted", style: "font-size:12px;margin-top:3px" }, under));
+    }
+
+    /** The six steps, each drawing a bar, its word, and what it says about itself. */
+    function JourneyStrip(task) {
+      return h("div", { class: "journey" }, journeySteps(task).map(function (s) {
+        return h("div", { class: "jstep " + s.status },
+          h("div", { class: "jbar" }),
+          h("div", { class: "jword" }, s.word),
+          h("div", { class: "jmark" }, s.mark));
       }));
     }
+
+    /**
+     * ONE OFFER, WHOLE.
+     *
+     * The state pill, the practice-window mark and the not-eligible reasons are
+     * the ones that used to live in the task list, unchanged: they decide whether
+     * somebody releases money and nothing here may quieten them.
+     */
+    function OfferCard(offer, entries) {
+      var t = offer.task;
+      var c = t.campaign || {};
+      var refund = t.refund || {};
+      return h("div", { class: "card offer" },
+        h("div", { class: "row", style: "justify-content:space-between;align-items:flex-start;gap:14px" },
+          h("div", { style: "min-width:0;flex:1 1 200px" },
+            h("div", { class: "offer-title" }, c.title || c.productName || "An offer"),
+            h("div", { class: "muted", style: "font-size:12.5px;margin-top:2px" },
+              (c.platform || "—") + " · claimed " + fmtDay(t.createdAt))),
+          h("div", { class: "kv", style: "text-align:right" },
+            h("div", { class: "num", style: "font-weight:700;white-space:nowrap" }, rupees(refund.amountPaise)),
+            h("div", { class: "k" }, "refund"))),
+        h("div", { class: "row", style: "margin-top:10px;gap:8px" },
+          pill(t.state, TASK_PILL[t.state]),
+          practiceMark(t),
+          refund.eligible ? pill("REFUND READY", "ok") : null,
+          offer.claims > 1
+            ? h("span", { class: "muted", style: "font-size:12px" },
+                "claimed " + fmtCount(offer.claims) + " times — the newest is shown")
+            : null),
+        JourneyStrip(t),
+        t.windowEndsAt
+          ? h("div", { class: "muted", style: "font-size:12.5px" },
+              "Return window ends " + fmtDay(t.windowEndsAt) + ".")
+          : null,
+        (!refund.eligible && refund.reasons && refund.reasons.length)
+          ? h("div", { class: "muted", style: "font-size:12.5px;margin-top:4px" },
+              "Not eligible: " + refund.reasons.join("; "))
+          : null,
+        OfferEntries(entries));
+    }
+
+    /**
+     * THIS OFFER'S OWN ENTRIES, in the order the server sent them.
+     *
+     * Newest first, like everywhere else on this page, and never re-sorted: the
+     * server's order is already total and a second opinion here would disagree
+     * with it the first time either changed.
+     *
+     * The full date on every row rather than a day heading, because a card holds
+     * a handful of entries spread over weeks and a heading per day would be
+     * mostly headings.
+     */
+    function OfferEntries(entries) {
+      var list = entries || [];
+      if (list.length === 0) {
+        return h("div", { class: "muted", style: "font-size:12.5px;margin-top:10px" },
+          "Nothing recorded for this offer in the window above.");
+      }
+      return h("div", { style: "margin-top:10px" },
+        h("div", { class: "kv", style: "margin-bottom:2px" },
+          h("div", { class: "k" }, plural(list.length, "entry", "entries"))),
+        list.map(OfferEntryRow));
+    }
+
+    function OfferEntryRow(e) {
+      var k = ACTIVITY_KIND[e.kind] || { word: e.kind, tone: "var(--neutral)" };
+      return h("div", { style: "display:flex;gap:10px;padding:5px 0;border-top:1px solid var(--border)" },
+        h("div", {
+          class: "num muted",
+          style: "flex:0 0 118px;font-size:12px;padding-top:1px",
+        }, fmtDate(e.at)),
+        h("div", {
+          style: "flex:0 0 66px;font-size:11px;font-weight:700;padding-top:2px;"
+            + "text-transform:uppercase;letter-spacing:.04em;color:" + k.tone,
+        }, k.word),
+        h("div", { style: "min-width:0;font-size:13px" },
+          h("div", null, e.what),
+          e.detail
+            ? h("div", { class: "muted", style: "font-size:12px;margin-top:2px" }, e.detail)
+            : null));
+    }
+
+    /** The offers column. A person with none gets a sentence, never a blank. */
+    function OffersColumn(offers, byOffer) {
+      if (!offers || offers.length === 0) {
+        return h("div", { class: "card" },
+          h("h3", null, "Offers"),
+          h("div", { class: "empty" },
+            "They have not joined an offer yet, so there is nothing to follow here."));
+      }
+      return h("div", null,
+        h("h3", { class: "col-head" }, "Offers",
+          h("span", { class: "muted" }, fmtCount(offers.length))),
+        offers.map(function (o) {
+          return OfferCard(o, o.id ? (byOffer[o.id] || []) : []);
+        }));
+    }
+
+    /**
+     * THE RAIL. The same four tables as before, moved rather than rewritten.
+     *
+     * They are beside the offers instead of under them because they answer a
+     * different question: the offers are what somebody is ringing about, and
+     * these are what the answer costs.
+     */
+    function ContextRail(d) {
+      return h("div", null,
+        h("h3", { class: "col-head" }, "Money, tickets and questions"),
+        h("div", { class: "card" },
+          h("h3", null, "Wallet ledger", h("span", { class: "muted" }, rupees(d.wallet.balancePaise))),
+          WalletTable(d.wallet.entries)),
+        h("div", { class: "card" },
+          h("h3", null, "Withdrawals", h("span", { class: "muted" }, fmtCount(d.withdrawals.length))),
+          WalletTable(d.withdrawals)),
+        h("div", { class: "card" },
+          h("h3", null, "Ticket ledger", h("span", { class: "muted" }, fmtCount(d.tickets.balance))),
+          TicketTable(d.tickets.entries)),
+        h("div", { class: "card" },
+          h("h3", null, "Support questions", h("span", { class: "muted" }, fmtCount(d.questions.length))),
+          d.questions.length === 0
+            ? h("div", { class: "empty" }, "No questions raised.")
+            : h("div", null, d.questions.map(function (q) { return ThreadCard(q, { withUser: false }); }))));
+    }
+
+    /**
+     * EVERYTHING THAT BELONGS TO THE PERSON RATHER THAN TO ONE OFFER.
+     *
+     * Signing up, screens, sessions, chats, questions — grouped by day and
+     * coloured by kind exactly as before, because that part was right.
+     *
+     * THE TWO EMPTY CASES ARE DIFFERENT SENTENCES. Nothing recorded at all is not
+     * the same as everything recorded belonging to an offer above, and one
+     * sentence for both would send an agent looking for a longer window that
+     * would not help.
+     */
+    function EverythingElse(a, rest) {
+      var body;
+      if (!a.data) {
+        body = a.error
+          ? null
+          : h("div", { class: "muted" }, h("span", { class: "spin" }), " Reading…");
+      } else if (rest.length === 0) {
+        body = a.data.timeline.total === 0
+          ? h("div", { class: "empty" }, activityEmptyLine(a.data.window.days))
+          : h("div", { class: "empty" },
+              "Everything in this window belongs to an offer above.");
+      } else {
+        // The counts stay the SERVER'S counts — how many it sent and how many it
+        // left out — rather than being recomputed from this half of the split.
+        // "Showing 500 of 1,342" is about the read, and it is true of the read.
+        body = ActivityTimeline({
+          window: a.data.window,
+          timeline: {
+            entries: rest,
+            total: a.data.timeline.total,
+            shown: a.data.timeline.shown,
+            trimmed: a.data.timeline.trimmed,
+          },
+        });
+      }
+      return h("div", { class: "card" },
+        h("h3", null, "Everything else",
+          a.data ? h("span", { class: "muted" }, fmtCount(rest.length)) : null),
+        h("div", { class: "muted", style: "font-size:12.5px;margin-bottom:6px" },
+          "Signing up, screens, sessions, conversations and questions — what "
+          + "belongs to the person rather than to one offer."),
+        a.error ? h("div", { class: "flash flash-err" }, a.error) : null,
+        body);
+    }
+
+    function UserScreen() {
+      var back = h("button", { class: "btn btn-sm btn-ghost", onclick: function () { state.screen = state.user.from; render(); } }, "← Back");
+      if (state.user.loading) return h("div", null, back, h("div", { class: "muted", style: "margin-top:14px" }, h("span", { class: "spin" }), " Loading activity…"));
+      if (state.user.error) return h("div", null, back, h("div", { class: "flash flash-err", style: "margin-top:14px" }, state.user.error));
+      var d = state.user.data;
+      if (!d) return h("div", null, back);
+
+      var a = state.user.activity;
+      var offers = offersByCampaign(d.tasks);
+      var split = splitActivityByOffer(a.data ? a.data.timeline.entries : [], offers);
+
+      return h("div", null,
+        h("div", { style: "margin-bottom:14px" }, back),
+        IdentityHeader(d.profile, a.data ? a.data.summary : null),
+        UserTiles(d, a),
+        // ONE WINDOW FOR THE WHOLE PAGE. It moves the entries inside the offer
+        // cards and the list at the bottom together, because they are two halves
+        // of one read and two windows would let them disagree.
+        ActivityWindowPicker(),
+        h("div", { class: "userpage" },
+          h("div", { style: "min-width:0" }, OffersColumn(offers, split.byOffer)),
+          h("div", { style: "min-width:0" }, ContextRail(d))),
+        EverythingElse(a, split.rest));
+    }
+    // ── the user page: end ───────────────────────────────────────────────────
 
     function WalletTable(entries) {
       if (!entries || entries.length === 0) return h("div", { class: "empty" }, "No entries.");
@@ -4047,6 +5087,7 @@
       if (state.screen !== "user" && !roleCanSee(state.screen)) state.screen = defaultScreen();
       var content;
       if (state.screen === "running") content = RunningScreen();
+      else if (state.screen === "growth") content = GrowthScreen();
       else if (state.screen === "withdrawals") content = WithdrawalsScreen();
       else if (state.screen === "queue") content = QueueScreen();
       else if (state.screen === "verifications") content = VerificationsScreen();

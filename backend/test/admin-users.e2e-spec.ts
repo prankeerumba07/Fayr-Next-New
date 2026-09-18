@@ -234,6 +234,39 @@ describe('Admin user view (e2e)', () => {
       expect(audits[0].targetUserId).toBe(user.id);
     });
 
+    it('carries the name when there is one, and null when there is not', async () => {
+      // ── THE FIELD A SUPPORT AGENT READS BACK ALOUD ────────────────────
+      //
+      // Both halves in one test, because the risk is the pair: a view that can
+      // only be trusted to show a name honestly if the absence of one arrives as
+      // an absence. The seeded user gives no name, which is the ordinary case \u2014
+      // setup can be finished without one and the practice data creates none.
+      const token = await adminToken();
+      const nameless = await seedUser();
+      const named = await prisma.user.create({
+        data: { mobile: newMobile(), name: 'Asha Kumari' },
+      });
+
+      const view = (id: string) =>
+        request(server())
+          .get(`/admin/users/${id}`)
+          .set('authorization', `Bearer ${token}`)
+          .expect(200);
+
+      const without = await view(nameless.id);
+      expect(without.body.profile.name).toBeNull();
+      // NOT an empty string, and not a placeholder somebody could read back.
+      expect(without.body.profile.name).not.toBe('');
+      expect(JSON.stringify(without.body.profile)).not.toMatch(/Unknown|Anonymous/i);
+      // And the mobile is still there, so the screen always has something real
+      // to identify somebody by.
+      expect(without.body.profile.mobile).toBe(nameless.mobile);
+
+      const with_ = await view(named.id);
+      expect(with_.body.profile.name).toBe('Asha Kumari');
+      expect(with_.body.profile.mobile).toBe(named.mobile);
+    });
+
     it('rejects a non-UUID id (e.g. a display id) at the route (400)', async () => {
       const token = await adminToken();
       await request(server())

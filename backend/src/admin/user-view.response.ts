@@ -27,6 +27,20 @@ import type {
 export interface UserProfile {
   id: string;
   displayId: string;
+  /**
+   * THE NAME THEY GAVE, OR NULL — AND MOST PEOPLE HAVE NONE.
+   *
+   * `name` is optional on the model, first-run setup can be finished without
+   * giving one, and the practice data creates none at all. So null is the
+   * ordinary case here rather than the exception, and every screen that reads
+   * this has to be built for it.
+   *
+   * IT IS NEVER AN EMPTY STRING AND NEVER A PLACEHOLDER. No "Unknown", no dash,
+   * nothing that could be read back to somebody as if it were their name. What
+   * to draw in place of a missing name is the panel's decision, and it can only
+   * make it honestly if the absence arrives as an absence.
+   */
+  name: string | null;
   mobile: string;
   status: UserStatus;
   createdAt: string;
@@ -69,10 +83,24 @@ export interface UserViewResponse {
   questions: QuestionResponse[];
 }
 
+/**
+ * A NAME, OR NOTHING AT ALL.
+ *
+ * Blank and whitespace-only collapse to null with a genuinely absent name,
+ * because a screen asked to tell "no name" from "a name that is one space" will
+ * get it wrong, and the one place to settle that is here. Trimmed, so a stray
+ * space around a real name cannot decide how it is drawn.
+ */
+function nameOrNull(name: string | null | undefined): string | null {
+  const trimmed = String(name ?? '').trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 export function toUserProfile(u: User): UserProfile {
   return {
     id: u.id,
     displayId: u.displayId,
+    name: nameOrNull(u.name),
     mobile: u.mobile,
     status: u.status,
     createdAt: u.createdAt.toISOString(),

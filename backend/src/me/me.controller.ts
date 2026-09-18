@@ -18,6 +18,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ShopSignInService } from '../shops/shop-sign-in.service';
 import { AS_THE_APP_SPELLS_IT } from '../common/platform-name';
+import { UserEventService } from '../events/user-event.service';
 
 /** The signed-in user's own balances. Money is integer paise as a STRING. */
 export interface MyWalletResponse {
@@ -88,6 +89,7 @@ export class MeController {
     private readonly prisma: PrismaService,
     private readonly contact: ContactService,
     private readonly signIns: ShopSignInService,
+    private readonly events: UserEventService,
   ) {}
 
   /**
@@ -183,7 +185,8 @@ export class MeController {
     });
     // One-way latch: completing setup can be stamped but never cleared, so a
     // later profile edit cannot reopen onboarding for someone who finished it.
-    if (dto.setupDone === true && row.setupDoneAt == null) {
+    const finishingSetupNow = dto.setupDone === true && row.setupDoneAt == null;
+    if (finishingSetupNow) {
       data.setupDoneAt = new Date();
     }
 
@@ -191,6 +194,27 @@ export class MeController {
       where: { id: user.id },
       data,
     });
+
+    // ── THE TWO STEPS THIS SCREEN IS WORTH COUNTING FOR ──────────────────
+    //
+    // SETUP_DONE hangs off the same one-way latch as the column, so it is
+    // written once per person for the same reason the column is stamped once.
+    //
+    // SETUP_STEP_DONE is every save the setup sequence makes on the way there,
+    // and it is what answers "which of the three questions do people give up
+    // on". It carries a step NUMBER and nothing else — not the answer. What
+    // somebody chose is already on their profile, where it belongs; a copy of it
+    // in a table that dashboards read is a copy that will eventually be
+    // exported.
+    if (finishingSetupNow) {
+      await this.events.record({ type: 'SETUP_DONE', userId: user.id });
+    } else if (dto.ageBand !== undefined || dto.gender !== undefined) {
+      await this.events.record({ type: 'SETUP_STEP_DONE', userId: user.id, payload: { step: 1 } });
+    } else if (dto.categories !== undefined) {
+      await this.events.record({ type: 'SETUP_STEP_DONE', userId: user.id, payload: { step: 2 } });
+    } else if (dto.platforms !== undefined) {
+      await this.events.record({ type: 'SETUP_STEP_DONE', userId: user.id, payload: { step: 3 } });
+    }
     // THE CONNECTED SHOPS ARE READ HERE TOO. This response and the one from GET
     // /me are the same shape, and a field that appeared on one and not the other
     // would be a field the app could not rely on.

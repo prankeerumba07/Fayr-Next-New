@@ -40,6 +40,32 @@ export function normalizeCampaign(c) {
     seatsLeft: Number.isInteger(c.seatsLeft) ? c.seatsLeft : null,
     category: c.category || null,
     asin: c.asin || null,
+    // THE PRODUCT'S OWN PAGE AT THE SHOP, WHEN THE CAMPAIGN CARRIES ONE.
+    //
+    // ADDED 18 SEPTEMBER 2026, AND IT WAS A REAL HOLE. The backend has sent this
+    // field all along (CampaignResponse.productUrl) and this normalizer's
+    // hand-written field list quietly dropped it, so every screen in the app saw
+    // undefined. Nothing noticed, because all fifteen campaigns carry null
+    // today — which is exactly how a dead branch stays dead: the shop-inside-Fayr
+    // screen is meant to land on this address when there is one, and it could
+    // never have, not even after ops filled the field in.
+    //
+    // `|| null` for the same reason as asin and imageUrl above: a missing field
+    // and an empty string must arrive as the same absence, so nothing downstream
+    // has to tell them apart.
+    productUrl: c.productUrl || null,
+    // THE EXACT PHRASE A PERSON TYPES INTO THE SHOP'S SEARCH BOX, or null.
+    //
+    // CARRIED THE SAME WAY productUrl NOW IS, AND FOR THE SAME REASON. This list
+    // is hand-written, so a field the backend sends is invisible to the whole app
+    // until somebody adds a line here — which is exactly how productUrl came to be
+    // dead code that no check could see. src/shop/insideFayr.test.mjs pins both.
+    //
+    // `|| null` so a missing field and an empty string arrive as the same
+    // absence. NOTHING FALLS BACK TO productName: a keyword that finds the wrong
+    // product is worse than no keyword, and a quiet fallback would hide from ops
+    // that the field needs writing.
+    searchKeyword: c.searchKeyword || null,
     pid: null, // discovered on a prior fetch only; never from the campaign
     styleId: null,
     imageUrl: c.imageUrl || null,

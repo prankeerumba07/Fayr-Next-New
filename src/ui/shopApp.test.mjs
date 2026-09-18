@@ -251,9 +251,34 @@ console.log('\n=== 6. THE THREE SCREENS THAT SEND SOMEBODY SHOPPING REALLY DO IT
     //                            whether a review is really there is the fact a
     //                            refund turns on, and it must come off the shop's
     //                            own page rather than from anybody's word for it.
+    // ── AND A FIFTH, ADDED 18 SEPTEMBER 2026, WHICH REVERSES THE RULE ABOVE
+    //    FOR THREE SHOPS AND ON PURPOSE ────────────────────────────────────
+    //
+    //   shop/ShopScreen.js       a shop shown to a shopper to shop in. That is
+    //                            the exact thing the four entries above are
+    //                            written to forbid, and it is now what the owner
+    //                            has asked for: Zepto, Blinkit and Swiggy
+    //                            Instamart are to be shopped INSIDE Fayr, in
+    //                            Fayr's own web view, with the product name on a
+    //                            bar across the top so nobody copies or pastes
+    //                            anything. His words: "A person never leaves Fayr
+    //                            to shop."
+    //
+    // THIS IS A DELIBERATE REVERSAL OF AN EXISTING DESIGN AND NOT A HOLE. The
+    // rule above is not being loosened to let it through — the entry is named,
+    // like the other four, and the grounds that make it honest are checked below
+    // rather than trusted, exactly as the two reading screens' grounds are.
+    //
+    // ITS GROUNDS ARE DIFFERENT FROM EVERY OTHER ENTRY'S. The two readers are
+    // allowed because their view is invisible and has nothing to tap. This one is
+    // allowed because of WHICH SHOPS REACH IT: only a shop listed in
+    // src/shop/insideFayr.js, which today is Zepto alone. Amazon, Flipkart,
+    // Meesho and Myntra still go to their own installed app through
+    // src/openShop.js, and neither of the two guards that keeps them there is in
+    // this file — see src/shop/insideFayr.test.mjs, which walks both.
     const ALLOWED = [
       'ConnectScreen.js', 'LiveCheckScreen.js', 'order/LookingForItScreen.js',
-      'order/LookingForReviewScreen.js',
+      'order/LookingForReviewScreen.js', 'shop/ShopScreen.js',
     ];
     const extra = webViews.filter((f) => !ALLOWED.includes(f));
     ok(extra.length === 0, `these render a web view and should not: ${extra.join(', ')}`);
@@ -279,18 +304,76 @@ console.log('\n=== 6. THE THREE SCREENS THAT SEND SOMEBODY SHOPPING REALLY DO IT
       ok(/position: 'absolute', width: 1, height: 1, opacity: 0/.test(src),
         `${reader} must keep its web view one point across and invisible`);
     }
+    // AND THE NEW ONE'S GROUNDS ARE CHECKED IN THE SAME SPIRIT. Its claim is not
+    // that it is invisible — it is deliberately visible — but that only a listed
+    // shop can reach it. A version of it that opened any marketplace handed to it
+    // would be the thing the rule above forbids, wearing the exception's name.
+    {
+      const shop = strip(readFileSync(join(dir, 'shop/ShopScreen.js'), 'utf8'));
+      ok(/whereToLand\(/.test(shop),
+        'shop/ShopScreen.js must ask insideFayr.js where it may land, which refuses an unlisted shop');
+      ok(/if \(!landing \|\| !platform\)/.test(shop),
+        'and it must show no shop page at all when the answer is nothing');
+      ok(/styles\.bar/.test(shop),
+        'and it must carry the bar, which is the whole reason a shop may be shown here');
+    }
+
     // And the two that may are still there, so this cannot pass by them being
     // deleted.
     for (const f of ALLOWED) {
       ok(webViews.includes(f), `${f} no longer renders a web view`);
     }
 
-    // AND NO SHOPPING SCREEN SENDS ANYBODY INTO IT. The screens that take somebody
-    // to a shop to buy or to review must use the shop's own app, never a route
-    // inside Fayr.
+    // AND NO SHOPPING SCREEN SENDS ANYBODY TO A MARKETPLACE'S OWN ROUTE. The
+    // per-marketplace routes are the CONNECT screen — App.js names one after each
+    // shop's key — and going shopping is not connecting. That ban is unchanged.
     for (const key of ['buyinterstitial', 'reviewguide']) {
       ok(!/navigation\.(navigate|replace|push)\(key/.test(read(key)),
         `${key} opens a marketplace route inside Fayr`);
+    }
+
+    // ── THE ONE ROUTE THAT NOW MAY, AND WHAT KEEPS IT HONEST ────────────────
+    //
+    // UPDATED 18 SEPTEMBER 2026 rather than loosened. Until today no shopping
+    // screen could send anybody to a shop inside Fayr at all. One now can, for a
+    // listed shop only, so the thing to check is no longer "does it navigate"
+    // but "is the navigation gated" — and the gate is the FIRST of the two
+    // guards, the second being whereToLand refusing an unlisted shop.
+    {
+      const door = strip(read('buyinterstitial'));
+      ok(/shopsInsideFayr\(key\)/.test(door),
+        'buyinterstitial must ask the in-app list before it sends anybody anywhere');
+      const gate = door.indexOf('if (shopsInsideFayr(key)) {');
+      const route = door.indexOf("navigation.navigate('Shop'");
+      ok(gate > -1 && route > gate,
+        'and the route into Fayr’s own shop screen must sit INSIDE that question');
+      // ── TWO SUCH ROUTES SINCE 18 SEPTEMBER 2026, AND BOTH ARE GATED ──────
+      //
+      // This read "exactly one, so there is one thing to gate". The second is
+      // the way BACK into the shop, added the same day for the person whose trip
+      // was interrupted between tapping Buy and the pop-up appearing — measured
+      // on the owner's own run, where the pop-up never appeared at all.
+      //
+      // THE RULE IS NOT LOOSENED. It is still "every route is gated", checked
+      // for each one rather than for the only one: the first sits inside the
+      // `if`, and the second is a callback whose only caller is drawn inside
+      // `shopsInsideFayr(key) ? ... : null`. What would fail this is an
+      // ungated third.
+      const routes = [...door.matchAll(/navigation\.navigate\('Shop'/g)].map((m) => m.index);
+      ok(routes.length === 2, 'there are exactly two routes into Fayr’s own shop screen');
+      ok(/const backIntoTheShop = useCallback\(\(\) => \{\s*navigation\.navigate\('Shop'/
+        .test(door), 'the second is the way back in');
+      ok(/\{shopsInsideFayr\(key\) \? \(\s*<Pill onPress=\{backIntoTheShop\}/.test(door),
+        'and the only thing that calls it is drawn for a listed shop and nobody else');
+      ok([...door.matchAll(/shopsInsideFayr\(key\)/g)].length === 2,
+        'so there are exactly as many gates as there are doors');
+
+      // THE REVIEW STEP IS NOT PART OF THIS. Tapping review going straight to the
+      // rating page is a later phase; today it still opens the shop's own app.
+      ok(!/navigation\.(navigate|replace|push)\('Shop'/.test(strip(read('reviewguide'))),
+        'reviewguide must not reach the in-app shop screen yet');
+      ok(!/navigation\.(navigate|replace|push)\('Shop'/.test(strip(read('linkaccount'))),
+        'and neither must linkaccount');
     }
   }
 

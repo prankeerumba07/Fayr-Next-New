@@ -1,0 +1,17 @@
+-- THE EXACT PHRASE A PERSON TYPES INTO THE SHOP'S OWN SEARCH BOX.
+--
+-- NOT THE PRODUCT NAME, AND THE DIFFERENCE IS THE WHOLE POINT. "productName" is
+-- the catalogue's name for the thing -- "Perfora Purple Whitening Toothpaste,
+-- 75ml" -- and it is what the refund is matched against. This is what somebody
+-- actually types to find it on that shop: "purple corrector toothpaste perfora,
+-- 75 ml". They are different strings, written by different people for different
+-- jobs, and one cannot be derived from the other. A catalogue name pasted into a
+-- quick-commerce search box very often finds nothing at all.
+--
+-- ADDITIVE, NULLABLE, NO DEFAULT. Every campaign that exists was written without
+-- one, and a default would put a phrase nobody chose in front of a shopper. NULL
+-- means "ops has not written one yet", and the app says exactly that rather than
+-- falling back to the product name -- a keyword that finds the WRONG product is
+-- worse than no keyword, and a silent fallback would hide from ops that the
+-- field needs filling in.
+ALTER TABLE "campaigns" ADD COLUMN "searchKeyword" TEXT;

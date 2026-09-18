@@ -24,6 +24,15 @@ import LiveCheckScreen from './src/LiveCheckScreen';
 import LookingForItScreen from './src/order/LookingForItScreen';
 import LookingForReviewScreen from './src/order/LookingForReviewScreen';
 import IsThisYourOrderScreen from './src/order/IsThisYourOrderScreen';
+// The shop, inside Fayr. Only a shop listed in src/shop/insideFayr.js is ever
+// sent here — today that is Zepto alone. Every other shop still opens its own
+// installed app through src/openShop.js, exactly as it does now.
+import ShopScreen from './src/shop/ShopScreen';
+// Writing the review inside Fayr. Zepto, Blinkit and Instamart have no review
+// form — only a private star rating on the order — so for those shops the words
+// are written here and stay with Fayr. Not one of the design's sixty one, which
+// is why it is not in src/screens/.
+import WriteReviewScreen from './src/review/WriteReviewScreen';
 // Every design screen is looked up by its own key in one place. See
 // src/screens/keys.js for which screens have their own file, and
 // src/screens/keys.test.mjs, which checks that against the design itself.
@@ -375,6 +384,8 @@ function AppInner() {
           <Stack.Screen name="LookingForIt" component={LookingForItScreen} options={{ headerShown: false }} />
           <Stack.Screen name="LookingForReview" component={LookingForReviewScreen} options={{ headerShown: false }} />
           <Stack.Screen name="IsThisYourOrder" component={IsThisYourOrderScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="Shop" component={ShopScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="WriteReview" component={WriteReviewScreen} options={{ headerShown: false }} />
           {/* The walk through: every screen in the design, reachable by tapping.
               Beside the offer page check because it is the same audience — the
               team, not shoppers — and both own their own headers. Nothing in it
@@ -410,6 +421,7 @@ function AppInner() {
               The other two are the moments after something lands: the refund being
               tracked, and the pictures arriving. */}
           <Stack.Screen name="returncatch" component={DESIGN_SCREENS.returncatch} options={{ headerShown: false }} />
+          <Stack.Screen name="shop" component={DESIGN_SCREENS.shop} options={{ headerShown: false }} />
           <Stack.Screen name="emailconnect" component={DESIGN_SCREENS.emailconnect} options={{ headerShown: false }} />
           <Stack.Screen name="emailcode" component={DESIGN_SCREENS.emailcode} options={{ headerShown: false }} />
           <Stack.Screen name="orderverified" component={DESIGN_SCREENS.orderverified} options={{ headerShown: false }} />

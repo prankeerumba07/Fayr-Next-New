@@ -17,7 +17,8 @@ const PAISE_OR_EMPTY = /^(\d{1,15})?$/;
 /**
  * Body for PATCH /admin/campaigns/:id. Every field optional — only those present
  * are changed. For the clearable text/money fields (category, payoutCapPaise,
- * returnWindowDays override, terms, image, asin, productUrl) an empty string ""
+ * returnWindowDays override, terms, image, asin, productUrl, searchKeyword) an
+ * empty string ""
  * means "clear it" (the service maps that to null); omitting leaves it as-is.
  * Editing is allowed only while a campaign is DRAFT or PAUSED (enforced in the
  * service), so a live campaign's terms can't shift under an already-claimed task.
@@ -99,6 +100,17 @@ export class UpdateCampaignDto {
   @IsString()
   @MaxLength(2000)
   productUrl?: string;
+
+  /**
+   * THE EXACT PHRASE TO TYPE INTO THE SHOP'S SEARCH BOX. Not the product name —
+   * see the note on the column. 200 characters because it is a search phrase a
+   * person types, not a catalogue entry; anything longer is a product name that
+   * has been pasted in by mistake.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  searchKeyword?: string;
 
   @IsOptional()
   @IsString()

@@ -101,13 +101,18 @@ function build(sms: SmsSender) {
   };
   const tokens = { issueTokens: jest.fn().mockResolvedValue({}) };
   const tickets = { grantSignup: jest.fn().mockResolvedValue({}) };
+  const events = {
+    record: jest.fn().mockResolvedValue(true),
+    recordOnce: jest.fn().mockResolvedValue(true),
+  };
   const service = new AuthService(
     prisma as never,
     tokens as never,
     tickets as never,
+    events as never,
     sms as never,
   );
-  return { service, prisma };
+  return { service, prisma, events };
 }
 
 describe.each([['dev'], ['messagecentral'], ['2factor'], ['twilio'], ['fast2sms']])(

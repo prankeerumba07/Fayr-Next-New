@@ -46,9 +46,16 @@ console.log('=== 1. twelve steps, in the order the journey runs in ===');
   // page out of the path, because the claim now happens on the product page where
   // the terms tick box is. The screen still exists and is still counted in
   // src/screens/keys.js; it is simply not a step.
-  ok(OF === 11, `eleven steps, found ${OF}`);
+  //
+  // AND TWELVE AGAIN SINCE 18 SEPTEMBER 2026, for a different twelfth. Phase 7
+  // added 'shop' — the shop inside Fayr, as a step — for the three quick-commerce
+  // shops, whose journey no longer walks connect, buy or returncatch at all. The
+  // owner's flow: "CLAIM -> STRAIGHT to the shop's own LOGIN page, inside Fayr.
+  // No screen between." The three it replaces are still steps, because Amazon,
+  // Flipkart, Meesho and Myntra still walk them exactly as before.
+  ok(OF === 12, `twelve steps, found ${OF}`);
   ok(JSON.stringify(JOURNEY_KEYS) === JSON.stringify([
-    'connect', 'buy', 'returncatch', 'purchase-shot', 'checking',
+    'connect', 'buy', 'returncatch', 'shop', 'purchase-shot', 'checking',
     'order-details', 'delivered', 'review', 'review-shot', 'window', 'refund',
   ]), 'in exactly the order asked for');
   ok(new Set(JOURNEY_KEYS).size === OF, 'no step twice');
@@ -155,6 +162,61 @@ console.log('\n=== 3. which page, from the server’s record ===');
     'reviewed: send the picture of it');
   ok(at({ task: { state: STATES.HOLDING } }) === 'window', 'holding: the return window');
   ok(at({ task: { state: STATES.REFUNDED } }) === 'refund', 'refunded: the last page');
+}
+
+console.log('\n=== 3a. A SHOP INSIDE FAYR WALKS NONE OF THE FOUR QUESTIONS — 18 SEPTEMBER 2026 ===');
+{
+  // PHASE 7. The owner's flow for Zepto, Blinkit and Instamart: "CLAIM -> STRAIGHT
+  // to the shop's own LOGIN page, inside Fayr. No screen between ... purchase
+  // completes -> Fayr brings them back BY ITSELF, no tap -> it fetches the order
+  // ... delivery fetches itself. No screen, no tap -> the review step appears by
+  // itself." Every one of the thirteen taps he listed "exists because the person
+  // LEFT the app", and inside Fayr they never leave.
+  const at = (state) => journeyStepFor(state);
+  const inFayr = { inFayrShop: true };
+
+  // ── CLAIM -> SHOP, NOTHING BETWEEN ──────────────────────────────────────
+  ok(at({ task: { state: STATES.CLAIMED }, ...inFayr }) === 'shop',
+    'A FRESH CLAIM ON A SHOP INSIDE FAYR GOES STRAIGHT TO THE SHOP');
+  ok(at({ task: { state: STATES.CLAIMED }, connected: false, ...inFayr }) === 'shop',
+    'and never to connect — the sign in happens in the shop view');
+  ok(at({ task: { state: STATES.CLAIMED }, connected: true, wentToBuy: true, ...inFayr }) === 'shop',
+    'and never to "did you buy it", whatever the old notes say');
+  ok(at({ task: { state: STATES.CLAIMED }, connected: true, saidTheyBought: true, ...inFayr }) === 'shop',
+    'not even a note saying they bought it, because nobody is asked');
+
+  // ── ONLY A READ THAT RAN AND FOUND NOTHING OFFERS THE SCREENSHOT ────────
+  ok(at({ task: { state: STATES.CLAIMED }, lookedForTheOrder: true, ...inFayr }) === 'purchase-shot',
+    'a read that ran and left no order on the record: the screenshot fallback');
+  ok(at({ task: { state: STATES.CLAIMED }, lookedForTheOrder: false, ...inFayr }) === 'shop',
+    'and "we have not looked yet" is NOT a failure — it is the shop again');
+
+  // ── A SUCCESSFUL READ ADVANCES WITH NO QUESTION ASKED ───────────────────
+  ok(at({ task: { state: STATES.PURCHASED, order: { id: 'o1', orderConfirmed: true } }, ...inFayr })
+      === 'delivered',
+    'an order the server matched and confirmed goes on to waiting for the parcel');
+  ok(at({ task: { state: STATES.DELIVERED }, ...inFayr }) === 'review',
+    'DELIVERY ARRIVING ADVANCES TO THE REVIEW WITH NO TAP');
+  ok(at({ task: { state: STATES.DELIVERED }, saidItArrived: false, ...inFayr }) === 'review',
+    'and no answer is waited for');
+
+  // ── THE FOUR OTHER SHOPS ARE UNTOUCHED ──────────────────────────────────
+  //
+  // Every answer in section 3 above is theirs. Restated here against the flag
+  // being false, so that a change which quietly made inFayrShop the default
+  // would be caught by name.
+  const notInFayr = { inFayrShop: false };
+  ok(at({ task: { state: STATES.CLAIMED }, connected: false, ...notInFayr }) === 'connect',
+    'the four other shops still connect first');
+  ok(at({ task: { state: STATES.CLAIMED }, connected: true, ...notInFayr }) === 'buy',
+    'and still see before you go');
+  ok(at({ task: { state: STATES.CLAIMED }, connected: true, wentToBuy: true, ...notInFayr })
+      === 'returncatch',
+    'and are still asked whether they bought it');
+  ok(at({ task: { state: STATES.DELIVERED }, ...notInFayr }) === 'delivered',
+    'and are still asked whether it arrived');
+  ok(at({ task: { state: STATES.CLAIMED }, connected: true }) === 'buy',
+    'and a caller that does not say is treated as one of the four');
 }
 
 console.log('\n=== 3b. AN ORDER NOBODY HAS SAID IS THEIRS GETS ITS OWN STEP ===');
@@ -284,12 +346,13 @@ console.log('\n=== 6. the whole page, as data ===');
   });
   ok(view.key === 'review', 'it knows which step');
   ok(view.designKey === 'reviewguide', 'and which design screen draws it');
-  // Each number is one lower than it was: the confirmation page used to be step
-  // one, so every step after it moved down by one, and the total went 12 to 11.
-  ok(view.where === 'Step 8 of 11', 'and says where you are');
-  ok(view.stepNumber === 8 && view.of === 11, 'with the numbers to draw it');
-  ok(view.track.length === 11, 'one segment per step');
-  ok(view.track.filter((t) => t.state === 'done').length === 7, 'seven behind');
+  // Each number went one LOWER on 2 September 2026 when the confirmation page
+  // left, and one HIGHER on 18 September 2026 when 'shop' arrived ahead of this
+  // step: review is the ninth of twelve now, with eight behind it.
+  ok(view.where === 'Step 9 of 12', 'and says where you are');
+  ok(view.stepNumber === 9 && view.of === 12, 'with the numbers to draw it');
+  ok(view.track.length === 12, 'one segment per step');
+  ok(view.track.filter((t) => t.state === 'done').length === 8, 'eight behind');
   ok(view.track.filter((t) => t.state === 'here').length === 1, 'one here');
   ok(view.track.filter((t) => t.state === 'todo').length === 3, 'three to come');
   ok(view.product === 'Prestige cooktop', 'it carries the product');
@@ -350,8 +413,8 @@ console.log('\n=== 8. nothing missing reaches the screen ===');
     ok(!flat.includes('undefined'), `${label}: nothing "undefined" reaches the screen`);
     ok(!flat.includes('[object Object]'), `${label}: no raw object reaches the screen`);
     ok(typeof view.next === 'string' && view.next !== '', `${label}: and what comes next`);
-    // "of 11" for the same reason: one fewer step in the journey.
-    ok(/^Step \d+ of 11$/.test(view.where), `${label}: and where you are`);
+    // "of 12" since 18 September 2026: the shop inside Fayr is a step.
+    ok(/^Step \d+ of 12$/.test(view.where), `${label}: and where you are`);
     ok(typeof view.designKey === 'string' && view.designKey !== '',
       `${label}: and which screen draws it`);
   }
@@ -659,12 +722,21 @@ console.log('\nA NOTE ABOUT A PURCHASE BELONGS TO THE CLAIM, NOT THE OFFER');
 
   ok(/import \{ getTaskId \} from '\.\.\/taskStore'/.test(code),
     'shopVisits asks WHICH CLAIM a note is about');
-  ok(/const taskId = getTaskId\(campaignId\);/.test(code),
+  ok(/return noteNameFor\(campaignId, getTaskId\(campaignId\), why\);/.test(code),
     'and it asks inside noteName, so every caller is correct without remembering');
-  ok(/taskId \? `\$\{campaignId\}::\$\{taskId\}::\$\{why\}`/.test(code),
-    'A NOTE IS FILED UNDER THE CLAIM. A new task is a new claim, so its notes '
-    + 'start empty — which is the truth about a purchase that has not happened');
-  ok(/: `\$\{campaignId\}::\$\{why\}`/.test(code),
+  // ── THE RULE ITSELF MOVED ON 18 SEPTEMBER 2026, AND IS NOW WALKED ────────
+  //
+  // It used to be two template strings in this file, and this check read them as
+  // text because shopVisits.js cannot be opened under node: expo-file-system is
+  // on its first line. The rule is now src/journey/noteNames.js, which can be,
+  // and noteNames.test.mjs RUNS it against a closed claim and a fresh one rather
+  // than matching the shape of a string. What is left here is the wiring: that
+  // this file asks that file, and asks it with the claim.
+  ok(/import \{ noteNameFor \} from '\.\/noteNames\.js'/.test(code),
+    'A NOTE IS FILED UNDER THE CLAIM, by the one file that decides what a note is called');
+  ok(!/`\$\{campaignId\}::/.test(code),
+    'and there is no second copy of the naming rule left in here to drift');
+  ok(/name == null/.test(code),
     'and with no task the offer own name is kept, because signing in to the shop '
     + 'really can happen before a claim exists, and losing that costs one page');
 

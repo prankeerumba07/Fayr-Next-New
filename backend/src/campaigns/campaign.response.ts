@@ -63,6 +63,15 @@ export interface CampaignResponse {
   seatsLeft: number | null;
   asin: string | null;
   productUrl: string | null;
+  /**
+   * THE EXACT PHRASE TO TYPE INTO THE SHOP'S OWN SEARCH BOX, or null.
+   *
+   * Sent to the app, which shows it on the bar above the in-app shop and asks
+   * the person to TYPE it — there is deliberately no copy control. Null means
+   * ops has not written one, and the app says that plainly rather than falling
+   * back to productName.
+   */
+  searchKeyword: string | null;
   imageUrl: string | null;
   /**
    * Whether the app should show this offer greyed out, and what to say on it.
@@ -139,6 +148,7 @@ export function toCampaignResponse(
     seatsLeft: seatsLeft(c.totalSlots, ctx.claimedCount),
     asin: c.asin,
     productUrl: c.productUrl,
+    searchKeyword: c.searchKeyword,
     imageUrl: c.imageUrl,
     availability: offerAvailability({
       seatsLeft: seatsLeft(c.totalSlots, ctx.claimedCount),

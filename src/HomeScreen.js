@@ -10,7 +10,9 @@ import { getWallet } from './backend/meApi';
 import { hasTask } from './taskStore';
 import WaitingBox from './ui/WaitingBox';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW, rupeesFromPaise, estMaxRefundRupees } from './ui/theme';
-import { seatsLine, joinedLine, isFullCampaign } from './ui/seats';
+import {
+  LOCKED_BANNER, LOCKED_CTA, seatsLine, joinedLine, isFullCampaign, lockedLine,
+} from './ui/seats';
 import { cardState } from './livecheck.js';
 import {
   Wordmark, SectionTitle, Card, RefundBadge, MarketplaceTag, ProductImage, TicketPill,
@@ -38,11 +40,27 @@ function CampaignRow({ c, claimed, onOpen }) {
   // able to find it, with a reason, or they conclude the app lost it.
   const live = cardState(c);
   const off = live.greyedOut;
+  // ── LOCKED, WHICH IS NOT THE SAME AS "NOT RIGHT NOW" ──────────────────────
+  //
+  // THE SHOP'S OWN PAGE OUTRANKS THIS, and the order below is the whole of that
+  // rule. A dead shop page is a problem a freed slot would not fix, so when both
+  // are true the person is told the one that matters. See src/ui/seats.js for
+  // the three facts and why they must not collide.
+  const locked = full && !off;
   return (
     <Card onPress={onOpen} style={[styles.campaignCard, off && styles.campaignCardOff]}>
       {live.label ? (
         <View style={styles.offBanner}>
           <Text style={styles.offBannerText}>{live.label}</Text>
+        </View>
+      ) : null}
+      {/* AND THE CARD IS STILL DRAWN, STILL TAPPABLE, AND STILL IN THE LIST.
+          The owner's words: "I don't want the campaign to go away or vanish from
+          the app once the slot is full." Nothing filters it — see seats.js — and
+          somebody who wants to know what it was may open it and read. */}
+      {locked ? (
+        <View style={styles.lockedBanner}>
+          <Text style={styles.lockedBannerText}>{LOCKED_BANNER}</Text>
         </View>
       ) : null}
       <View style={[styles.campaignBody, off && styles.dimmed]}>
@@ -57,11 +75,20 @@ function CampaignRow({ c, claimed, onOpen }) {
       <View style={styles.campaignFooter}>
         <Text style={styles.footerHint}>
           {/* How full the offer is, when the server said — else the ticket cost.
-              Never both: the footer is one line and the scarcer fact wins. */}
-          {seats || (claimed ? 'In progress' : `Claim · ${c.ticketCost} tickets`)}
+              Never both: the footer is one line and the scarcer fact wins.
+
+              A LOCKED OFFER SAYS WHAT HAPPENS NEXT INSTEAD OF HOW FULL IT IS.
+              The banner above already carries "every slot is taken", so
+              repeating it here would spend the one line this footer has on the
+              thing the person can already see. */}
+          {lockedLine(c) || seats
+            || (claimed ? 'In progress' : `Claim · ${c.ticketCost} tickets`)}
         </Text>
         <Text style={[styles.footerCta, (full || off) && styles.footerCtaOff]}>
-          {off ? live.cta : full ? 'Full' : claimed ? 'Continue ›' : 'Claim →'}
+          {/* "Locked" AND NOT "Claim", because it is not an invitation. What is
+              ALLOWED is untouched — the server owns that refusal and answers in
+              its own words; this is only what is drawn. */}
+          {off ? live.cta : locked ? LOCKED_CTA : claimed ? 'Continue ›' : 'Claim →'}
         </Text>
       </View>
     </Card>
@@ -256,6 +283,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   offBannerText: { fontFamily: FONT.bodySemi, fontSize: 12, color: '#8A5A00' },
+  // ── LOCKED IS BLUE, AND "NOT RIGHT NOW" IS AMBER ─────────────────────────
+  //
+  // Deliberately a different colour from the banner above it. Amber is the app's
+  // warning tone and it is right for a shop page that has died; a full offer is
+  // not a warning and nothing has gone wrong with it. Blue is the tone this app
+  // already uses for "this is how things stand", and the two never appear
+  // together — see the `locked` line in CampaignRow.
+  lockedBanner: {
+    backgroundColor: COLOR.blueBg,
+    borderBottomWidth: 1,
+    borderBottomColor: '#CBE0FF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  lockedBannerText: { fontFamily: FONT.bodySemi, fontSize: 12, color: '#2F6FD0' },
   campaignBody: { flexDirection: 'row', gap: 12, padding: 14 },
   thumb: { width: 96, height: 108 },
   campaignInfo: { flex: 1, minWidth: 0, paddingTop: 2 },

@@ -141,6 +141,25 @@ export class TokenService {
     return this.issued(accessToken, refreshValue);
   }
 
+  /**
+   * Whose session this token is, or null.
+   *
+   * A LOOKUP AND NOTHING ELSE. It does not check expiry and it does not check
+   * whether the token was already revoked, because its one caller needs to
+   * attribute a logout and a person signing out of a session that had already
+   * lapsed still signed out. Nothing about permission is decided from it.
+   *
+   * The presented value is hashed before the lookup, the same way every other
+   * read of this table does it — a raw token never reaches a query.
+   */
+  async ownerOfRefreshToken(presented: string): Promise<string | null> {
+    const row = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: this.hashToken(presented) },
+      select: { userId: true },
+    });
+    return row?.userId ?? null;
+  }
+
   /** Revoke a single refresh token (logout). Idempotent — silent if unknown. */
   async revokeRefreshToken(presented: string): Promise<void> {
     await this.prisma.refreshToken.updateMany({

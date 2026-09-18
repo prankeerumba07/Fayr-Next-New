@@ -54,6 +54,7 @@ import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
 import { WENT_TO_BUY, markVisitedShop } from '../journey/shopVisits';
 import { copyProductName, openShopApp } from '../openShop';
+import { shopsInsideFayr } from '../shop/insideFayr';
 import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
 import { CardBox, Pill, TopBar } from '../ui/brand';
 import { Screen, ProductImage } from '../ui/primitives';
@@ -275,7 +276,6 @@ export default function BuyInterstitialScreen({ navigation, route }) {
       setCouldNotStart(true);
       return;
     }
-    if (campaignId) markVisitedShop(campaignId, WENT_TO_BUY);
     setNotice(built);
   }, [asking, putOnClipboard, campaignId, shop]);
 
@@ -301,13 +301,113 @@ export default function BuyInterstitialScreen({ navigation, route }) {
    * down, because leaving somebody under a pop-up they have already answered is
    * worse than either outcome.
    */
+  /**
+   * ── THE NOTE THAT SAYS "THEY WENT" IS WRITTEN HERE, AND IT USED TO BE
+   *    WRITTEN ONE STEP TOO EARLY. MEASURED 18 SEPTEMBER 2026 ──────────────
+   *
+   * THE SYMPTOM. The owner claimed the live Zepto Boldfit offer on his iPhone,
+   * walked the journey, and never once reached the shop inside Fayr. His Metro
+   * log has no [fayr-shop] line anywhere in the run. The backend log has the
+   * whole of it: 15:43:36 POST /tasks, 15:43:43 POST going-to-the-shop,
+   * 15:43:47 the order read starts. Four seconds between tapping BUY and an
+   * order read — far too little to have read a pop-up, tapped it, shopped and
+   * come back. He never saw the pop-up at all.
+   *
+   * WHY. markVisitedShop(WENT_TO_BUY) was called HERE, in the callback that
+   * records the visit, one line before the pop-up was raised. That note is one
+   * of the three things the journey's router reads, and ui/journey.js turns it
+   * straight into a different step:
+   *
+   *     wentToBuy === true  ->  'returncatch'   ("Did you buy it?")
+   *
+   * JourneyScreen subscribes to the task store; applyAuthoritative above
+   * notifies it; React flushes that re-render together with this screen's own
+   * setNotice — and by then the note had already been written. The router
+   * recomputed the step, found 'returncatch', and its stage is keyed on the
+   * design key, so THIS SCREEN WAS UNMOUNTED. The Modal holding the only
+   * control that opens the shop went with it, in the same flush that created
+   * it. What the owner saw was the buy screen turning into "Did you buy it?"
+   * under his thumb, so he answered it — which is the 15:43:47 order read.
+   *
+   * IT IS NOT THE NOTE OUTLIVING A CLAIM. That was a real bug, it was found on
+   * 16 September, and it was fixed: journey/shopVisits.js files every note
+   * under the TASK, and journey/noteNames.js is walked under node to keep it
+   * that way. A second claim of this offer starts with no notes at all.
+   *
+   * SO THE NOTE IS WRITTEN WHEN THEY ACTUALLY GO. That is what its own name has
+   * always meant — "they were sent to the shop to buy" — and recording it at
+   * the moment our side accepted the visit was recording a different fact.
+   *
+   * THE OTHER FOUR SHOPS ARE ON THE SAME LINE ON PURPOSE. Amazon, Flipkart,
+   * Meesho and Myntra sit under the same router and the same Modal, so the same
+   * flush unmounted them too. Gating this on shopsInsideFayr would have left
+   * four shops with a pop-up that cannot be reached from inside the journey.
+   */
+  const theyReallyWent = useCallback(() => {
+    if (campaignId) markVisitedShop(campaignId, WENT_TO_BUY);
+  }, [campaignId]);
+
   const leaveForTheShop = useCallback(async () => {
+    // ── THE ONE LINE THAT CHOOSES WHICH DOOR, AND IT IS THE `if` BELOW ──────
+    //
+    // A shop listed in src/shop/insideFayr.js is shopped INSIDE Fayr: the shop's
+    // own mobile site in Fayr's own web view, with the product name on a bar
+    // across the top for the whole session. Today that list is Zepto alone.
+    //
+    // EVERY OTHER SHOP KEEPS EXACTLY WHAT IT HAS NOW. Amazon, Flipkart, Meesho
+    // and Myntra go through openShop.js to the shop's own installed app, falling
+    // back to its website in the phone's browser, and not one line of that path
+    // changes. A shop that is not in the list cannot reach the new one by
+    // accident: this branch does not send it, and whereToLand() refuses it a
+    // second time inside the screen if some future call site gets this wrong.
+    if (shopsInsideFayr(key)) {
+      // THE POP-UP COMES DOWN FIRST HERE, which is the opposite order to the
+      // one below, and the difference is not an oversight. Below, a Modal
+      // dismissal in flight SWALLOWS a request to leave the app — measured on
+      // the owner's phone on 16 September 2026, and it is why the shop is asked
+      // for first and the notice taken down after. Going to one of Fayr's own
+      // screens leaves nothing in flight for a dismissal to eat, and pushing a
+      // screen while the Modal is still up would put the shop behind the pop-up.
+      setNotice(null);
+      navigation.navigate('Shop', { campaignId, marketplace: key });
+      // AFTER the navigation and not before it. The note moves the router off
+      // this step, and doing that while this screen is still the one on screen
+      // is the exact defect the long note above records.
+      theyReallyWent();
+      return;
+    }
     try {
       await openShopApp(key, opens);
     } finally {
       setNotice(null);
+      theyReallyWent();
     }
-  }, [key, opens]);
+  }, [key, opens, campaignId, navigation, theyReallyWent]);
+
+  /**
+   * BACK INTO THE SHOP, FOR A SHOP THAT IS INSIDE FAYR.
+   *
+   * ── WHY THERE HAS TO BE A SECOND WAY IN ───────────────────────────────────
+   *
+   * The pop-up is raised once, by the tap that records the visit, and our side
+   * keeps only the first tap — so the "BUY ON ZEPTO" button is correctly gone
+   * afterwards and cannot bring the pop-up back. Anything that interrupts the
+   * moment between the two — the app being reloaded, the phone being put down,
+   * a build landing from Metro — therefore left somebody with a recorded visit,
+   * no pop-up and no route to the shop at all. That is the second half of what
+   * the owner hit on 18 September 2026.
+   *
+   * IT IS ONLY DRAWN FOR A SHOP THAT SHOPS INSIDE FAYR, and that is not
+   * caution for its own sake. For those three the shop is one of Fayr's own
+   * screens, so going back to it costs nothing and promises nothing. For the
+   * other four it would mean leaving the app again, and leaving again is the
+   * thing the pop-up exists to say out loud — so they keep exactly the single
+   * door they have today.
+   */
+  const backIntoTheShop = useCallback(() => {
+    navigation.navigate('Shop', { campaignId, marketplace: key });
+    theyReallyWent();
+  }, [navigation, campaignId, key, theyReallyWent]);
 
   return (
     <Screen bg={COLOR.cream}>
@@ -428,6 +528,16 @@ export default function BuyInterstitialScreen({ navigation, route }) {
             <Pill onPress={lookForTheOrder} color={COLOR.ink}>
               {YES_I_HAVE.toUpperCase()}
             </Pill>
+            {/* ── AND THE WAY BACK IN, FOR A SHOP THAT IS INSIDE FAYR ──────
+                Under the question and not over it, because somebody standing
+                here has already been sent shopping once and the likeliest true
+                answer is still yes. This is for the person whose trip was
+                interrupted before it started — see backIntoTheShop. */}
+            {shopsInsideFayr(key) ? (
+              <Pill onPress={backIntoTheShop} color={COLOR.greenDeep}>
+                KEEP SHOPPING ON {shop.toUpperCase()} →
+              </Pill>
+            ) : null}
             <Pill onPress={() => goBackOrHome(navigation)} color={COLOR.line}>
               {NOT_YET.toUpperCase()}
             </Pill>

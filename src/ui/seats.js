@@ -38,6 +38,87 @@ export function isFullCampaign(campaign) {
 }
 
 /**
+ * A FULL OFFER IS LOCKED, NOT GONE — THE WORDS. Added 18 September 2026.
+ *
+ * ── WHAT THE OWNER ASKED FOR, IN HIS OWN WORDS ─────────────────────────────
+ *
+ * "The total slots will be 1, so I want to see what happens if the slot gets
+ * fulfilled completely. I don't want the campaign to go away or vanish from the
+ * app once the slot is full. I need something that should show the user that the
+ * campaign has been locked. It was active, now the slots are full, so it has
+ * been locked, and it will come back soon."
+ *
+ * ── NOTHING VANISHED, AND NOTHING NEEDED BUILDING TO STOP IT ───────────────
+ *
+ * The backend's listActive filters on `status: 'ACTIVE'` and on nothing else —
+ * never on seats — so a full offer has always stayed in the feed. This is
+ * PRESENTATION, and it is written here rather than as machinery because there
+ * was no plumbing problem to solve.
+ *
+ * ── WHY "FULL" WAS THE WRONG WORD ──────────────────────────────────────────
+ *
+ * The card used to say "Full", which reads as a dead end: a thing that happened
+ * and is over. What is true is three things, and the wording below carries all
+ * three because any one of them alone misleads —
+ *
+ *   IT WAS OPEN      so somebody who saw it yesterday is not imagining it;
+ *   IT IS FULL NOW   which is why they cannot take it;
+ *   IT COMES BACK    which is the part "Full" threw away.
+ *
+ * AND IT PROMISES NO TIME. "Soon" is the owner's word for it and it is not in
+ * these sentences, because nobody knows when a slot frees: it happens when a
+ * claim closes or an operator raises the cap, and neither is on a clock. Saying
+ * "nobody can say when" is the honest version of the same reassurance and it
+ * cannot come back as a broken promise.
+ *
+ * ── AND "LOCKED" IS NOT "PAUSED" AND NOT "NOT RIGHT NOW" ──────────────────
+ *
+ * Three different facts, and the app must not let them collide:
+ *
+ *   PAUSED          an operator stopped it. It is not ACTIVE, so listActive
+ *                   never sends it and it is not in the feed AT ALL. There is no
+ *                   wording for it here because there is nothing to draw.
+ *   NOT RIGHT NOW   the SHOP'S own page is dead — expired, sold out, gone. That
+ *                   is src/livecheck.js's `cardState`, its label comes from the
+ *                   server, and it OUTRANKS this one: a locked offer whose shop
+ *                   page has also died reads as the shop's problem, because that
+ *                   is the one a slot opening up would not fix.
+ *   LOCKED          this. The offer is alive and its seats are spoken for.
+ */
+
+/** The tile's banner, across the top of the card. It carries "full now". */
+export const LOCKED_BANNER = 'Locked — every slot is taken';
+
+/** The tile's call to action, in place of "Claim →". It is not an invitation. */
+export const LOCKED_CTA = 'Locked';
+
+/**
+ * The tile's footer line, in place of "All seats taken". It carries "comes back".
+ *
+ * Null for an offer that is not full, so a caller cannot draw it by accident —
+ * the same shape as every other answer in this file.
+ */
+export function lockedLine(campaign) {
+  if (!isFullCampaign(campaign)) return null;
+  return 'Comes back when a slot opens';
+}
+
+/**
+ * The detail screen's two sentences, which carry all three things in the owner's
+ * own order. An array, because they are two paragraphs and not one long line.
+ *
+ * Null for an offer that is not full.
+ */
+export function lockedReason(campaign) {
+  if (!isFullCampaign(campaign)) return null;
+  return [
+    'This offer was open and every slot is now taken, so it is locked.',
+    'It has not ended. It comes back when a slot opens up, and nobody can say '
+    + 'when that will be.',
+  ];
+}
+
+/**
  * "1,240 joined", or NULL.
  *
  * Zero is deliberately NOT shown. The design shows "1,240 joined"; it never shows

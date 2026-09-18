@@ -69,6 +69,7 @@ import {
   type ReviewCheckResponse,
 } from './review-check.response';
 import { toTaskResponse, type TaskResponse } from './task.response';
+import { UserEventService } from '../events/user-event.service';
 import {
   evidenceFromDto,
   type SubmitEvidenceDto,
@@ -118,6 +119,7 @@ export class TaskService {
     private readonly tickets: TicketService,
     private readonly wallet: WalletService,
     private readonly practiceWindow: PracticeWindowService,
+    private readonly events: UserEventService,
     config: ConfigService<Env, true>,
   ) {
     this.claimTtlMinutes = config.get('CLAIM_TTL_MINUTES', { infer: true });
@@ -143,7 +145,7 @@ export class TaskService {
       );
     }
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const claimed = await this.prisma.$transaction(async (tx) => {
         // Lock the user row: serializes ticket ops for the floor check and
         // asserts the user exists before anything is created.
         const u = await tx.$queryRaw<{ id: string }[]>`
@@ -252,6 +254,21 @@ export class TaskService {
 
         return toTaskResponse(row, campaign);
       });
+
+      // ── THE FIRST ONE, AND ONLY THE FIRST ────────────────────────────────
+      //
+      // OUTSIDE the transaction, deliberately. Everything inside that block is
+      // tickets and a task — money-adjacent things that must commit or not
+      // together. A measurement row has no business being able to roll any of
+      // that back, and recordOnce reads before it writes, which is a read this
+      // transaction should not be holding a lock open for.
+      //
+      // recordOnce and not record: "how many people ever claimed anything" is a
+      // count of people, and somebody claiming their fourth campaign is not a
+      // fourth person.
+      await this.events.recordOnce({ type: 'FIRST_CLAIM', userId });
+
+      return claimed;
     } catch (err) {
       if (err instanceof InsufficientTicketsError) {
         throw new ConflictException(

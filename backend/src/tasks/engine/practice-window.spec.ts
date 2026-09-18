@@ -380,7 +380,14 @@ describe('the practice order window', () => {
       expect(panel).toContain('pill("PRACTICE WINDOW " + String(days) + "d", "bad")');
       // BESIDE THE STATE, not in the quiet line underneath: a grey note in a meta
       // row can be mistaken for a real match, which is the thing forbidden.
-      expect(panel).toContain('practiceMark(t),\n            refund.eligible');
+      //
+      // UPDATED 17 September 2026, when the user page was rebuilt as a dashboard
+      // and the task list became one card per offer. The mark moved with the
+      // state pill and now sits DIRECTLY after it, which is what this line pins:
+      // not the old markup, the placement the paragraph above asks for.
+      expect(panel).toContain(
+        'pill(t.state, TASK_PILL[t.state]),\n          practiceMark(t),',
+      );
       // AND IT READS THE TASK, never a setting.
       expect(panel).toContain('var days = t && t.practiceWindowDays;');
     });

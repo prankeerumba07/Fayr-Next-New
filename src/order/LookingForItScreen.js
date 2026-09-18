@@ -56,6 +56,10 @@ import {
   openOneOrderWith, openTheListWith, openTheSearchWith, readDetailStep, readListStep,
   theOrderPagesAreDrawn,
 } from './drawnList.js';
+// THE PRESS LIMIT AND THE THREE STOPS, from the pure file that owns them, so
+// the number on the log line and the number the page was built with cannot
+// drift apart. See src/shop/loadMore.js.
+import { PRESSES_AT_MOST, whyItStopped } from '../shop/loadMore.js';
 import { restoreSession } from '../session';
 import { logLook } from './lookLog.js';
 import { logPageShape } from './pageShape.js';
@@ -586,6 +590,32 @@ export default function LookingForItScreen({ navigation, route }) {
           + `rows=${drawn.linked}/${drawn.marked} `
           + `nodes=${drawn.nodesFirst}/${drawn.nodesNow} `
           + `strangers=${strangers.current}`);
+
+        // ── EVERY PRESS OF "LOAD MORE", AND WHAT EACH ONE WAS WORTH ──────────
+        //
+        // ITS OWN LINE, AND ONLY WHEN SOMETHING WAS PRESSED. A shop with no
+        // measured button presses nothing, answers presses=0, and writes no line
+        // at all — so Amazon's log is unchanged, character for character.
+        //
+        // THE PER-PRESS COUNTS ARE THE POINT, not the total. A button that is
+        // there and does nothing and a list that really has run out both end on
+        // one number; they are told apart by whether the count moved between
+        // presses. rowsBeforeEachPress is the count BEFORE each press in order,
+        // and rows= is where it ended up.
+        //
+        // AND WHY IT STOPPED, from src/shop/loadMore.js rather than worked out
+        // here, so there is one idea of the three endings and not two.
+        if (drawn.presses > 0) {
+          logLook('presses', `n=${drawn.presses} of ${PRESSES_AT_MOST} `
+            + `rowsBeforeEach=${drawn.rowsBeforeEachPress.join(',')} `
+            + `rows=${drawn.rowsAtTheEnd} `
+            + `buttonStillThere=${drawn.theButtonWasStillThere} `
+            + `why="${whyItStopped({
+              pressesSoFar: drawn.presses,
+              buttonIsThere: drawn.theButtonWasStillThere,
+              orderFound: false,
+            })}"`);
+        }
 
         // ── THE SHOP REFUSED, AND THAT IS NOT "WE COULD NOT FIND YOUR ORDER" ──
         //

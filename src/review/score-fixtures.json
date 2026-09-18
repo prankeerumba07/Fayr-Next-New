@@ -1,0 +1,223 @@
+{
+  "_whatThisIs": [
+    "ONE TABLE OF REVIEWS AND THE ANSWERS BOTH IMPLEMENTATIONS MUST GIVE.",
+    "",
+    "There are two copies of the Fayr score: src/review/theFayrScore.js, which",
+    "answers as somebody types and cannot be a network call per keystroke, and",
+    "backend/src/reviews/fayr-score.ts, because the SERVER scores what it stores",
+    "and a number the server cannot vouch for is not worth storing. The app never",
+    "sends a score; it sends the text.",
+    "",
+    "Two copies of one rule drift. This table is what makes that a failing check",
+    "rather than a surprise: src/review/theFayrScore.test.mjs and",
+    "backend/src/reviews/fayr-score.spec.ts both run their own implementation",
+    "over every row here and assert every field.",
+    "",
+    "WHAT IT DOES NOT PROVE, said plainly: it is a cross-implementation agreement",
+    "check, not a specification of what a good score is. A divergence that touches",
+    "no row here would pass. The RULES — that it is sentiment-blind, that distinct",
+    "words beat length, that stock phrases drag it down — are asserted properly in",
+    "theFayrScore.test.mjs, against reasoning rather than against recorded output.",
+    "",
+    "So: add a row here whenever a word list changes, and never treat a row as",
+    "evidence that a score is RIGHT — only that the two sides agree about it."
+  ],
+  "reviews": [
+    {
+      "text": "",
+      "score": 0,
+      "band": "THIN",
+      "words": 0,
+      "kinds": [],
+      "stock": 0
+    },
+    {
+      "text": "   ",
+      "score": 0,
+      "band": "THIN",
+      "words": 0,
+      "kinds": [],
+      "stock": 0
+    },
+    {
+      "text": "good",
+      "score": 0,
+      "band": "THIN",
+      "words": 0,
+      "kinds": [],
+      "stock": 0
+    },
+    {
+      "text": "ok",
+      "score": 8,
+      "band": "THIN",
+      "words": 1,
+      "kinds": [],
+      "stock": 0
+    },
+    {
+      "text": "Good product, very nice product, loved it",
+      "score": 0,
+      "band": "THIN",
+      "words": 0,
+      "kinds": [],
+      "stock": 3
+    },
+    {
+      "text": "Texture is thin and it separated after about a week",
+      "score": 56,
+      "band": "FAIR",
+      "words": 4,
+      "kinds": [
+        "TIME",
+        "SENSE"
+      ],
+      "stock": 0
+    },
+    {
+      "text": "Absolutely amazing, best purchase ever, highly recommend to everyone",
+      "score": 0,
+      "band": "THIN",
+      "words": 0,
+      "kinds": [],
+      "stock": 4
+    },
+    {
+      "text": "Fast delivery, well packed, thanks seller",
+      "score": 0,
+      "band": "THIN",
+      "words": 1,
+      "kinds": [],
+      "stock": 1
+    },
+    {
+      "text": "very nice very nice very nice",
+      "score": 0,
+      "band": "THIN",
+      "words": 0,
+      "kinds": [],
+      "stock": 1
+    },
+    {
+      "text": "separated after a week and left an oily film",
+      "score": 64,
+      "band": "FAIR",
+      "words": 5,
+      "kinds": [
+        "TIME",
+        "SENSE"
+      ],
+      "stock": 0
+    },
+    {
+      "text": "The texture is thin and it separated after about a week. Compared with the one I used before it foams much less and leaves an oily film on the brush.",
+      "score": 100,
+      "band": "STRONG",
+      "words": 10,
+      "kinds": [
+        "TIME",
+        "AMOUNT",
+        "COMPARISON",
+        "SENSE"
+      ],
+      "stock": 0
+    },
+    {
+      "text": "Waste of money, worst product, do not buy",
+      "score": 0,
+      "band": "THIN",
+      "words": 1,
+      "kinds": [],
+      "stock": 3
+    },
+    {
+      "text": "The strap loosened after two weeks and the foam went flat.",
+      "score": 76,
+      "band": "STRONG",
+      "words": 5,
+      "kinds": [
+        "TIME",
+        "AMOUNT",
+        "SENSE"
+      ],
+      "stock": 0
+    },
+    {
+      "text": "Smells minty and the tube holds 75 ml, lasted me a month.",
+      "score": 92,
+      "band": "STRONG",
+      "words": 7,
+      "kinds": [
+        "TIME",
+        "AMOUNT",
+        "SENSE"
+      ],
+      "stock": 0
+    },
+    {
+      "text": "Loud at first, quieter after a few days of use.",
+      "score": 68,
+      "band": "FAIR",
+      "words": 4,
+      "kinds": [
+        "TIME",
+        "AMOUNT",
+        "SENSE"
+      ],
+      "stock": 0
+    },
+    {
+      "text": "Bought it for my desk. The metal feels sturdy but the base is light so it tips.",
+      "score": 68,
+      "band": "FAIR",
+      "words": 7,
+      "kinds": [
+        "SENSE"
+      ],
+      "stock": 0
+    },
+    {
+      "text": "I loved it",
+      "score": 0,
+      "band": "THIN",
+      "words": 0,
+      "kinds": [],
+      "stock": 1
+    },
+    {
+      "text": "I hated it",
+      "score": 0,
+      "band": "THIN",
+      "words": 0,
+      "kinds": [],
+      "stock": 1
+    },
+    {
+      "text": "Nothing to complain, value for money",
+      "score": 2,
+      "band": "THIN",
+      "words": 4,
+      "kinds": [],
+      "stock": 2
+    },
+    {
+      "text": "It arrived quickly and the box was well packed",
+      "score": 8,
+      "band": "THIN",
+      "words": 1,
+      "kinds": [],
+      "stock": 0
+    },
+    {
+      "text": "Colour is brighter than the photo and the fabric feels rough against the skin",
+      "score": 88,
+      "band": "STRONG",
+      "words": 8,
+      "kinds": [
+        "COMPARISON",
+        "SENSE"
+      ],
+      "stock": 0
+    }
+  ]
+}

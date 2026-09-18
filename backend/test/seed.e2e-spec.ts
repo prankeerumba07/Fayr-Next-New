@@ -13,6 +13,8 @@ import { WithdrawalService } from '../src/withdrawals/withdrawal.service';
 import { SupportQuestionService } from '../src/support/support-question.service';
 import { StaffVerificationService } from '../src/ocr/staff-verification.service';
 import { ReportService } from '../src/reports/report.service';
+import { InsightsService } from '../src/events/insights.service';
+import { OTP_RESEND_COOLDOWN_SECONDS } from '../src/auth/auth.constants';
 import {
   seedDemo,
   DEMO_MOBILE_DEFAULT,
@@ -55,6 +57,7 @@ describe('Demo seed (e2e)', () => {
   let questions: SupportQuestionService;
   let verifications: StaffVerificationService;
   let reports: ReportService;
+  let insights: InsightsService;
   let config: ConfigService;
 
   /**
@@ -84,6 +87,7 @@ describe('Demo seed (e2e)', () => {
     questions = app.get(SupportQuestionService);
     verifications = app.get(StaffVerificationService);
     reports = app.get(ReportService);
+    insights = app.get(InsightsService);
     config = app.get(ConfigService);
 
     const rows = await prisma.$queryRawUnsafe<{ current_database: string }[]>(
@@ -205,6 +209,161 @@ describe('Demo seed (e2e)', () => {
 
     it('Insight → Find a user: there are users to find', async () => {
       expect(await prisma.user.count()).toBeGreaterThanOrEqual(2);
+    });
+
+    it('Insight → Find a user: and every one of them has a name to read back', async () => {
+      // WHY THE PRACTICE ACCOUNTS HAVE NAMES. `name` is optional on a real
+      // account and null on most of them, which is why the panel draws "No name
+      // given". But every practice account being nameless meant the demo only
+      // ever showed the missing case, and the top of a user page read as though
+      // the seed had half-failed.
+      const users = await prisma.user.findMany({ select: { name: true, mobile: true } });
+      expect(users.length).toBeGreaterThanOrEqual(3);
+      for (const user of users) {
+        expect(typeof user.name).toBe('string');
+        expect(user.name?.trim()).not.toBe('');
+        // NOT A PLACEHOLDER. A support agent reads this back to somebody, and a
+        // label in this column would be read out as if it were their name —
+        // which is the whole thing nameOrNull exists to prevent, defeated from
+        // the other side.
+        expect(user.name).not.toMatch(/test|demo|user|sample|example|placeholder|\d/i);
+      }
+      // Each account is a different person, so a staff member moving between
+      // them can tell which one they are on.
+      const names = users.map((u) => u.name);
+      expect(new Set(names).size).toBe(names.length);
+    });
+
+    it('puts the name back on a database that was seeded before names existed', async () => {
+      // ── THE HALF OF THIS FIX THAT A FRESH DATABASE CANNOT SHOW ──────────
+      //
+      // upsertUser used to say `update: {}`, so a re-run matched the existing
+      // row and then wrote nothing to it. Every database seeded before the names
+      // existed would have kept showing "No name given" for ever, and no test on
+      // a fresh database would ever have noticed — which is the state the owner
+      // was actually looking at.
+      //
+      // So this makes a database that has already been seeded look like the old
+      // one, and seeds it again.
+      await prisma.user.updateMany({ data: { name: null } });
+      expect(await prisma.user.count({ where: { name: null } })).toBeGreaterThan(0);
+
+      await seedDemo(app, { quiet: true });
+
+      expect(await prisma.user.count({ where: { name: null } })).toBe(0);
+      const demo = await prisma.user.findUniqueOrThrow({
+        where: { mobile: DEMO_MOBILE_DEFAULT },
+        select: { name: true },
+      });
+      expect(demo.name?.trim()).toBeTruthy();
+    });
+  });
+
+  // ── the funnel's practice data ────────────────────────────────────────────
+  describe('every practice account asked for a code before it existed', () => {
+    // ── WHAT THIS REPAIRS ───────────────────────────────────────────────────
+    //
+    // "Signing up" counts people who asked for a code out of otp_challenges and
+    // people whose account was made out of users. The seed created accounts
+    // directly and never wrote a challenge, so every practice account was
+    // somebody who had an account without ever asking for a code, and the funnel
+    // read 400% at "account created".
+    //
+    // THE ARITHMETIC WAS NEVER WRONG. Nothing in funnel.ts or
+    // insights.service.ts changed; the practice data did.
+    beforeEach(async () => {
+      await seedDemo(app, { quiet: true });
+    });
+
+    it('writes one code per account, and it is ALREADY USED', async () => {
+      const codes = await prisma.otpChallenge.findMany();
+      expect(codes.length).toBeGreaterThanOrEqual(3);
+      for (const code of codes) {
+        // AN UNCONSUMED CHALLENGE IS A WORKING SIGN-IN CODE. One sitting in a
+        // practice database is a way into an account that nobody meant to leave
+        // open. This is the assertion that stops that being reintroduced.
+        expect(code.consumedAt).not.toBeNull();
+        // And it is expired as well, so both guards would have to be undone.
+        expect(code.expiresAt.getTime()).toBeLessThan(Date.now());
+        expect(code.purpose).toBe('LOGIN');
+        expect(code.userId).not.toBeNull();
+      }
+    });
+
+    it('holds a hash of a sentence, never anything a six-digit code could open', async () => {
+      const codes = await prisma.otpChallenge.findMany({ select: { codeHash: true } });
+      for (const code of codes) {
+        expect(code.codeHash).toMatch(/^\$argon2/);
+        expect(code.codeHash).not.toMatch(/\b\d{6}\b/);
+      }
+    });
+
+    it('sits where the account sits in time, so both fall in the same window', async () => {
+      const users = await prisma.user.findMany({ select: { id: true, mobile: true, createdAt: true } });
+      for (const user of users) {
+        const code = await prisma.otpChallenge.findFirstOrThrow({ where: { mobile: user.mobile } });
+        // Asked for before the account existed, which is the real order of
+        // events, and consumed at the moment it was made.
+        expect(code.createdAt.getTime()).toBeLessThanOrEqual(user.createdAt.getTime());
+        expect(code.consumedAt?.getTime()).toBe(user.createdAt.getTime());
+      }
+    });
+
+    it('leaves the number free to ask for a REAL code the moment the seed finishes', async () => {
+      // ── THE TRAP THIS PINS, FOUND BY READING A SEEDED DATABASE ──────────
+      //
+      // requestOtp refuses a second code within the resend cooldown of the last
+      // one. The seeded challenge sits just before the account, and on a fresh
+      // database the account is made now — so a challenge written twenty seconds
+      // "before" it is twenty seconds ago, and the practice number was refused
+      // for the first ten seconds after the seed finished. That is precisely
+      // when a presenter tries to sign in on the handset.
+      //
+      // THE COOLDOWN'S OWN CONSTANT, not a number copied into this file, so the
+      // check follows the rule if somebody lengthens it.
+      //
+      // Asserted on the data rather than by calling requestOtp: the test
+      // environment has no SMS sender, so that path refuses for a reason that
+      // has nothing to do with this.
+      const newest = await prisma.otpChallenge.findFirst({
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      const ageSeconds = (Date.now() - (newest?.createdAt.getTime() ?? 0)) / 1000;
+      expect(ageSeconds).toBeGreaterThan(OTP_RESEND_COOLDOWN_SECONDS);
+    });
+
+    it('adds no second code on a re-run — there is no unique key to lean on', async () => {
+      const before = await prisma.otpChallenge.count();
+      await seedDemo(app, { quiet: true });
+      expect(await prisma.otpChallenge.count()).toBe(before);
+    });
+
+    it('so the funnel no longer goes UP at "account created"', async () => {
+      // The number the owner saw on the screen: 400%, because four accounts
+      // existed and one code had been asked for. Read through the real service,
+      // so this is the figure the panel would draw.
+      const read = await insights.read(30);
+      const step = (key: string) =>
+        read.funnel.find((f) => f.key === key) ?? { count: -1, ofPrevious: null };
+      expect(step('asked').count).toBeGreaterThanOrEqual(3);
+      expect(step('verified').count).toBe(step('asked').count);
+      expect(step('account').count).toBeLessThanOrEqual(step('verified').count);
+      expect(step('account').ofPrevious).not.toBeNull();
+      expect(step('account').ofPrevious).toBeLessThanOrEqual(100);
+      // AND NOTHING WAS CLAMPED TO GET THERE. A rate above 100 is still
+      // reportable — a funnel over a fixed window can genuinely widen — so this
+      // must be true because of the data and not because of a ceiling.
+      //
+      // COMMENTS OUT FIRST. Written against the whole file this failed on
+      // funnel.ts's own paragraph explaining that clamping would hide a real
+      // thing: it was reading the prose that PROMISES the rule and calling that
+      // the rule being kept.
+      const src = readFileSync(join(__dirname, '..', 'src', 'events', 'funnel.ts'), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/^\s*\/\/.*$/gm, ' ');
+      expect(src).toContain('export function rate(');
+      expect(src).not.toMatch(/Math\.min\(\s*100|>\s*100\s*\?/);
     });
   });
 
@@ -905,6 +1064,7 @@ describe('Demo seed (e2e)', () => {
     async function counts(): Promise<Record<string, number>> {
       return {
         users: await prisma.user.count(),
+        otpChallenges: await prisma.otpChallenge.count(),
         staff: await prisma.staffUser.count(),
         campaigns: await prisma.campaign.count(),
         tasks: await prisma.task.count(),

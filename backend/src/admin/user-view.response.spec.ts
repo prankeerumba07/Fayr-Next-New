@@ -3,7 +3,11 @@ import type {
   UserWalletEntry,
   UserWalletStatement,
 } from '../wallet/wallet.service';
-import { toUserSummary, toUserView } from './user-view.response';
+import {
+  toUserProfile,
+  toUserSummary,
+  toUserView,
+} from './user-view.response';
 
 /**
  * Pure unit tests for the user-view shapers. They pin the wire contract: money
@@ -104,5 +108,52 @@ describe('toUserView', () => {
     expect(v.withdrawals).toHaveLength(1);
     expect(v.withdrawals[0].amountPaise).toBe('-50000');
     expect(v.withdrawals[0].kind).toBe('WITHDRAWAL');
+  });
+});
+
+describe('the name, which most people do not have', () => {
+  // ── WHY THIS IS ITS OWN DESCRIBE ────────────────────────────────────────
+  //
+  // A support agent reads the top of this response aloud to confirm who they
+  // are speaking to. The failure worth preventing is not a crash: it is the
+  // panel being handed something that LOOKS like a name and reading it back.
+  // So the only two answers this shaper may give are the name they gave, and
+  // nothing.
+  const named = { ...user, name: 'Asha Kumari' } as unknown as User;
+
+  it('returns the name when there is one', () => {
+    expect(toUserProfile(named).name).toBe('Asha Kumari');
+    expect(toUserView({
+      user: named, ticketBalance: 0, ticketEntries: [],
+      statement: { balancePaise: 0n, entries: [] } as unknown as UserWalletStatement,
+      tasks: [], questions: [],
+    }).profile.name).toBe('Asha Kumari');
+  });
+
+  it('is NULL and never an empty string when they gave none', () => {
+    // The ordinary case. `name` is optional on the model, setup can be finished
+    // without giving one, and the practice data creates none at all.
+    expect(toUserProfile(user).name).toBeNull();
+    expect(toUserSummary(user, 0, 0n, 0).name).toBeNull();
+  });
+
+  it('collapses blank and whitespace to null rather than passing it on', () => {
+    // A screen cannot tell "no name" from "a name that is one space", and
+    // guessing is how a blank line ends up where a name should be.
+    for (const blank of ['', '   ', '\t\n']) {
+      const u = { ...user, name: blank } as unknown as User;
+      expect(toUserProfile(u).name).toBeNull();
+    }
+  });
+
+  it('trims a real name rather than letting spacing decide how it is drawn', () => {
+    const u = { ...user, name: '  Asha Kumari  ' } as unknown as User;
+    expect(toUserProfile(u).name).toBe('Asha Kumari');
+  });
+
+  it('invents no placeholder — no Unknown, no dash, nothing readable back', () => {
+    const drawn = JSON.stringify(toUserProfile(user));
+    expect(drawn).toContain('"name":null');
+    expect(drawn).not.toMatch(/Unknown|N\/A|Anonymous|"name":"-"/i);
   });
 });

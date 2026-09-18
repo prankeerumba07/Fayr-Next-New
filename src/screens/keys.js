@@ -98,6 +98,14 @@ export const SCREENS = [
   // ── Buying, proving, waiting, being paid ─────────────────────────────────
   { key: 'buyinterstitial', at: 'own' },
   { key: 'returncatch', at: 'own' },
+  // ── ADDED 18 SEPTEMBER 2026, FROM THE NEW DESIGN, NOT THE OLD ────────────
+  //
+  // Not one of the sixty one. The Figma file of 18 September (wpjq9rnRxplkR4zRM36CFH)
+  // draws the shop inside Fayr as the step after claiming — 74:60107, "L1 ·
+  // Reserved — order window open" — and has no connect, "have you bought it" or
+  // "is it delivered" screen anywhere in its thirty one frames. This row is the
+  // first the app has that the old design never drew.
+  { key: 'shop', at: 'own', addedOn: '2026-09-18', fromTheNewDesign: '74:60107' },
   { key: 'proofprimer', at: 'own' },
   { key: 'emailconnect', at: 'own' },
   { key: 'emailcode', at: 'own' },
@@ -133,6 +141,22 @@ export const SCREENS = [
 /** Every design key, in the design's order. */
 export const KEYS = SCREENS.map((s) => s.key);
 
+/**
+ * THE SCREENS THAT CAME FROM THE NEW DESIGN, NOT THE OLD ONE — 18 September 2026.
+ *
+ * Until Phase 7 every row here was one of the sixty one screens in
+ * fayr-design.browser.jsx, and the check read that file to prove the list was
+ * the design's own. The Figma file of 18 September 2026 (wpjq9rnRxplkR4zRM36CFH)
+ * draws screens the old file never did, and the first of them to be built is the
+ * shop inside Fayr. Each such row names its frame, so a screen from the new
+ * design cannot be added without saying which drawing it came from, and the
+ * check subtracts these before comparing the rest to the old file — the old
+ * list is still held to the old design exactly, one key for one key.
+ */
+export const FROM_THE_NEW_DESIGN = SCREENS
+  .filter((s) => typeof s.fromTheNewDesign === 'string' && s.fromTheNewDesign !== '')
+  .map((s) => s.key);
+
 /** How many screens the design has. Printed rather than guessed, everywhere. */
 export const HOW_MANY = KEYS.length;
 
@@ -165,8 +189,9 @@ export const IN_THE_NAVIGATOR = SCREENS
 export const REMOVED = SCREENS.filter((s) => s.at === 'removed').map((s) => s.key);
 
 /**
- * HOW MANY SCREENS THE APP ACCOUNTS FOR. Sixty one in the design, less the ones
- * removed by order. Sixty today.
+ * HOW MANY SCREENS THE APP ACCOUNTS FOR. Sixty one in the old design plus the
+ * ones the new design added, less the ones removed by order. Sixty one today:
+ * sixty two drawn, one removed.
  */
 export const IN_THE_APP = HOW_MANY - REMOVED.length;
 

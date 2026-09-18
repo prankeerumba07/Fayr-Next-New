@@ -94,6 +94,31 @@ export const JOURNEY = [
     short: 'Did you buy it?',
     next: 'You will show us the order, so we can check it against the offer.',
   },
+  // ── THE SHOP INSIDE FAYR — ADDED 18 SEPTEMBER 2026, PHASE 7 ──────────────
+  //
+  // FOR THE THREE QUICK-COMMERCE SHOPS THIS STEP REPLACES THE THREE ABOVE IT.
+  // The owner's flow, in his own words: "card -> the product detail page ->
+  // accept terms -> CLAIM -> STRAIGHT to the shop's own LOGIN page, inside Fayr.
+  // No screen between." Connecting, "before you go" and "did you buy it" all
+  // existed because the person LEFT the app to buy. Inside Fayr they do not, so
+  // asking them to confirm what Fayr watched them do is not caution — his word
+  // for it was "an insult and a place to drop out".
+  //
+  // ITS SCREEN IS A DOOR, NOT A PAGE. src/screens/shop.js draws almost nothing:
+  // it records the consent our side needs and hands over to the Shop route, the
+  // web view of the shop's own site with Fayr's bar across the top. The design's
+  // frame for this is the one the owner read the flow off — 74:60107.
+  //
+  // THE FOUR OTHER SHOPS NEVER REACH IT. journeyStepFor only answers 'shop' for
+  // a shop in SHOPS_INSIDE_FAYR, and Amazon, Flipkart, Meesho and Myntra still
+  // walk connect -> buy -> returncatch exactly as they did.
+  {
+    key: 'shop',
+    designKey: 'shop',
+    from: 'ShopScreen (the shop inside Fayr, Figma 74:60107)',
+    short: 'Buy inside Fayr',
+    next: 'When you have bought it, Fayr reads the order off your own account by itself.',
+  },
   {
     key: 'purchase-shot',
     designKey: 'proofprimer',
@@ -161,7 +186,7 @@ export const JOURNEY = [
   },
 ];
 
-/** How many pages there are. The design's tracker counts seven; this counts ten. */
+/** How many pages there are. The design's tracker counts seven; this counts twelve. */
 export const OF = JOURNEY.length;
 
 /** Every page's name, for anything that needs the order and nothing else. */
@@ -246,6 +271,14 @@ export function needsAPicture(task) {
  * what is true every single time the screen is looked at.
  *
  * A campaign with no task at all is somebody who has not joined yet.
+ *
+ * TWO FACTS ARRIVED WITH PHASE 7, both about a shop that is shopped inside Fayr:
+ *   inFayrShop          the campaign's shop is in SHOPS_INSIDE_FAYR. The router
+ *                       answers it from the campaign; this function never reads
+ *                       a shop list itself, so it stays a function of its
+ *                       arguments.
+ *   lookedForTheOrder   a read of the shop's orders has run for this claim, in
+ *                       Fayr's own doing. A note on the phone, like the others.
  */
 export function journeyStepFor(state) {
   const s = state && typeof state === 'object' ? state : {};
@@ -279,6 +312,14 @@ export function journeyStepFor(state) {
   // either way: "not yet" does not un-deliver a parcel the shop has said arrived,
   // it just leaves them here. See SAID_IT_ARRIVED in journey/shopVisits.js.
   if (st === STATES.DELIVERED) {
+    // ── INSIDE FAYR THERE IS NO QUESTION TO WAIT FOR — 18 SEPTEMBER 2026 ──
+    //
+    // The delivery was read off the shop's own page by a read Fayr ran itself,
+    // for a purchase Fayr watched happen. The owner: "delivery fetches itself.
+    // No screen, no tap ... the review step appears by itself." So a listed shop
+    // goes straight to the review, and the question below is for the four shops
+    // whose person left the app to buy.
+    if (s.inFayrShop === true) return 'review';
     return s.saidItArrived === true ? 'review' : 'delivered';
   }
 
@@ -323,6 +364,19 @@ export function journeyStepFor(state) {
   // so the notes in journey/shopVisits.js can only ever move somebody between these
   // four, and never past the point where money is decided.
   //
+  // ── A SHOP INSIDE FAYR SKIPS ALL FOUR OF THESE — 18 SEPTEMBER 2026 ─────
+  //
+  // No connect step: the sign in happens in the shop view itself (6A). No
+  // "before you go": the consent is recorded by the claim. No "did you buy
+  // it": the read runs by itself. What is left to decide is one thing — has a
+  // read RUN for this claim yet? If not, the next thing is the shop. If one
+  // has, and the record still shows no order, the read failed or found nothing,
+  // and the only honest offer left is the screenshot fallback the owner named
+  // himself. "We have not looked yet" is not a failure, and lookedForTheOrder
+  // is what tells the two apart — see LOOKED_FOR_THE_ORDER in shopVisits.js.
+  if (s.inFayrShop === true) {
+    return s.lookedForTheOrder === true ? 'purchase-shot' : 'shop';
+  }
   // Connecting comes first, and only once.
   if (s.connected !== true) return 'connect';
   // They came back from the shop and told us they bought it. We cannot see the

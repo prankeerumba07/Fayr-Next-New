@@ -91,6 +91,17 @@ export class CreateCampaignDto {
   @MaxLength(2000)
   productUrl?: string;
 
+  /**
+   * THE EXACT PHRASE TO TYPE INTO THE SHOP'S SEARCH BOX. Not the product name —
+   * see the note on the column. 200 characters because it is a search phrase a
+   * person types, not a catalogue entry; anything longer is a product name that
+   * has been pasted in by mistake.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  searchKeyword?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(500)

@@ -8,6 +8,7 @@ import {
   claimedSeatsByCampaign,
   isFull,
   seatsLeft,
+  seatIsTakenBy,
 } from './seats';
 
 /**
@@ -25,11 +26,89 @@ import {
  */
 describe('seats', () => {
   describe('the shared definition', () => {
-    it('counts EVERY task on the campaign, whatever state it reached', () => {
-      // The gate has always counted every task, and it must: a seat consumed by
-      // someone who bought, reviewed and was refunded is gone for good. An
-      // expired unpurchased claim also stays counted — the row is still there.
-      expect(CLAIMED_SEATS_WHERE('c-1')).toEqual({ campaignId: 'c-1' });
+    it('counts every task on the campaign EXCEPT a claim released without buying', () => {
+      // UNTIL 18 SEPTEMBER 2026 this read "counts EVERY task on the campaign,
+      // whatever state it reached", and the predicate was empty on purpose. The
+      // owner measured what that did on his own account: a one-slot campaign,
+      // claimed and released, stayed shut for ever — "the tickets came back; the
+      // seat did not". His rule: "a claim that has been RELEASED — closed with
+      // its tickets returned, and never purchased — holds no seat. A claim that
+      // was PURCHASED still holds one, for ever."
+      //
+      // THE SHAPE IS ASSERTED EXACTLY, not merely "has a NOT": the two
+      // mutations this file exists to catch each drop one of the three facts,
+      // and each is a different wrong rule.
+      expect(CLAIMED_SEATS_WHERE('c-1')).toEqual({
+        campaignId: 'c-1',
+        NOT: { closedAt: { not: null }, state: 'CLAIMED', orderId: null },
+      });
+    });
+
+    // ── THE RULE, WALKED ROW BY ROW, THROUGH THE IN-MEMORY TWIN ─────────────
+    //
+    // A Prisma where-clause cannot be run here. seatIsTakenBy is the same rule
+    // written so a test can ask it, and the last case below checks the twin
+    // agrees with the clause's own three facts so the two cannot drift.
+    const open = { closedAt: null, state: 'CLAIMED', orderId: null };
+    const released = { closedAt: new Date(), state: 'CLAIMED', orderId: null };
+
+    it('A RELEASED, NEVER-PURCHASED CLAIM FREES ITS SEAT', () => {
+      expect(seatIsTakenBy(released)).toBe(false);
+    });
+
+    it('A CLAIM IN PROGRESS STILL HOLDS ITS SEAT', () => {
+      // "A claim still running holds a seat." Open means closedAt is null,
+      // whatever else is true of the row.
+      expect(seatIsTakenBy(open)).toBe(true);
+      expect(seatIsTakenBy({ ...open, orderId: 'ORD-1' })).toBe(true);
+    });
+
+    it('A PURCHASED CLAIM STILL HOLDS ITS SEAT FOR EVER', () => {
+      // "because that seat really was used" — open or closed, and in every
+      // state past CLAIMED.
+      for (const state of ['PURCHASED', 'DELIVERED', 'REVIEWED', 'HOLDING', 'REFUNDED']) {
+        expect(seatIsTakenBy({ closedAt: null, state, orderId: 'ORD-1' })).toBe(true);
+        expect(seatIsTakenBy({ closedAt: new Date(), state, orderId: 'ORD-1' })).toBe(true);
+        // And the state alone is enough: a row that reached PURCHASED with no
+        // orderId written is still a used seat.
+        expect(seatIsTakenBy({ closedAt: new Date(), state, orderId: null })).toBe(true);
+      }
+    });
+
+    it('and does NOT widen: a closed CLAIMED row with an order on it keeps its seat', () => {
+      // The ambiguous case — matched, never confirmed, then lapsed. The owner
+      // said not to widen the rule, so it stays taken.
+      expect(seatIsTakenBy({ ...released, orderId: 'ORD-1' })).toBe(true);
+    });
+
+    it('the in-memory twin and the where-clause say the same three things', () => {
+      // WALKED, NOT RESTATED — corrected 18 September 2026. The first writing
+      // re-asserted the clause's literal shape, which the test above already
+      // pins, and never called the twin at all, so a twin that drifted would
+      // have passed here. This evaluates the clause's own NOT against every
+      // shape of row a task can be in and asks the twin the same question.
+      const not = SEAT_TAKEN_BY.NOT as {
+        closedAt: { not: null }; state: string; orderId: null;
+      };
+      expect(Object.keys(not).sort()).toEqual(['closedAt', 'orderId', 'state']);
+      const clauseSays = (row: { closedAt: Date | null; state: string; orderId: string | null }) => {
+        const closedAtMatches = row.closedAt !== null; // { not: null }
+        const stateMatches = row.state === not.state;
+        const orderIdMatches = row.orderId === not.orderId;
+        return !(closedAtMatches && stateMatches && orderIdMatches); // NOT (all three)
+      };
+      const rows: { closedAt: Date | null; state: string; orderId: string | null }[] = [];
+      for (const closedAt of [null, new Date()]) {
+        for (const state of ['CLAIMED', 'PURCHASED', 'DELIVERED', 'REVIEWED', 'HOLDING', 'REFUNDED']) {
+          for (const orderId of [null, 'ORD-1']) rows.push({ closedAt, state, orderId });
+        }
+      }
+      expect(rows).toHaveLength(24);
+      for (const row of rows) {
+        expect(seatIsTakenBy(row)).toBe(clauseSays(row));
+      }
+      // And exactly one of the twenty-four frees its seat.
+      expect(rows.filter((r) => !seatIsTakenBy(r))).toHaveLength(1);
     });
 
     it('is the ONLY place the claim gate counts seats', () => {

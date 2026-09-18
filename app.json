@@ -8,7 +8,7 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.fayr",
+      "bundleIdentifier": "com.prakashtamang.fayr",
       "infoPlist": {
         "LSApplicationQueriesSchemes": [
           "com.amazon.mobile.shopping",
@@ -28,7 +28,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.anonymous.fayr"
+      "package": "com.prakashtamang.fayr"
     },
     "web": {
       "favicon": "./assets/favicon.png"

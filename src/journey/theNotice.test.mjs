@@ -203,18 +203,33 @@ console.log('\n=== 8. AND NO SCREEN WRITES THOSE SENTENCES ITSELF ===');
 
 console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
 {
-  // FORTY-SIX SINCE 17 SEPTEMBER 2026, AND THE COUNT IS THE POINT OF IT.
+  // FORTY-FOUR SINCE 18 SEPTEMBER 2026, AND THE COUNT IS THE POINT OF IT.
   //
   // Twenty until the review half of the journey was written down at length in
   // REVIEW-FLOW-PROMPT.md, which put twenty six more sentences in front of a
-  // person: the delivery question, the celebration, the day the review step is
+  // person: the delivery question, the celebration, the day the review step was
   // shut for, the shop's own waiting period, the two answers under it, and the
   // three that say the money has moved.
   //
-  // A NUMBER AND NOT A "MORE THAN", so that adding a sentence is something
-  // somebody has to come here and think about. That is the same reason the look
-  // log's call sites are counted rather than bounded.
-  ok(EVERY_SENTENCE.length === 46, `the list of them is complete (${EVERY_SENTENCE.length})`);
+  // TWO CAME BACK OUT ON 18 SEPTEMBER 2026, and this is the first count in this
+  // file that has ever gone DOWN. The owner removed the twenty-four hour lock on
+  // the review step, so the two sentences that promised the wait —
+  // "This opens one day after your product arrives." and "Use the product first.
+  // We open this by itself when the day is up." — describe a rule the app no
+  // longer has. They are deleted rather than reworded: there is nothing left for
+  // them to say.
+  //
+  // A NUMBER AND NOT A "MORE THAN", so that adding a sentence — or removing one
+  // — is something somebody has to come here and think about. That is the same
+  // reason the look log's call sites are counted rather than bounded.
+  ok(EVERY_SENTENCE.length === 44, `the list of them is complete (${EVERY_SENTENCE.length})`);
+  // AND NEITHER OF THE TWO IS ANYWHERE IN THE APP'S WORDS ANY MORE.
+  for (const gone of [
+    'This opens one day after your product arrives.',
+    'Use the product first. We open this by itself when the day is up.',
+  ]) {
+    ok(!EVERY_SENTENCE.includes(gone), `the app no longer says "${gone}"`);
+  }
   for (const sentence of EVERY_SENTENCE) {
     ok(typeof sentence === 'string' && sentence.trim() !== '',
       `"${sentence}" is a real sentence`);
@@ -257,10 +272,70 @@ console.log('\n=== 10. THE SHOP DOES NOT OPEN UNLESS OUR SIDE RECORDED IT ===');
   // tick that asks iOS to leave swallows the open. So the order is reversed, and
   // the dismissal is in a finally — because leaving somebody under a pop-up they
   // have already answered is worse than the shop not opening.
-  ok(/const leaveForTheShop = useCallback\(async \(\) => \{\s*try \{\s*await openShopApp\(key, opens\);\s*\} finally \{\s*setNotice\(null\);\s*\}/
+  //
+  // UPDATED 18 SEPTEMBER 2026, AND NOT LOOSENED. A shop listed in
+  // src/shop/insideFayr.js now opens INSIDE Fayr instead, which is a branch
+  // ABOVE this one, so the try/finally is no longer the first thing in the
+  // callback. What the measured rule actually pins is the try/finally itself —
+  // the shop asked for first, the dismissal in a finally — and that is pinned
+  // exactly as before. The callback is still checked for by name, so this cannot
+  // pass by it having been renamed or removed.
+  ok(/const leaveForTheShop = useCallback\(async \(\) => \{/.test(code),
+    'the notice own button is still the one callback');
+  ok(/try \{\s*await openShopApp\(key, opens\);\s*\} finally \{\s*setNotice\(null\);\s*theyReallyWent\(\);\s*\}/
     .test(code),
     'and that place is the notice own button, which opens the shop BEFORE it '
     + 'dismisses itself');
+  // ── AND THE OTHER PATH IS THE OPPOSITE WAY ROUND, ON PURPOSE ────────────
+  //
+  // The measured bug above is a Modal dismissal in flight swallowing a request
+  // to LEAVE THE APP. Going to one of Fayr's own screens asks the phone for
+  // nothing, so there is nothing for a dismissal to swallow — and pushing a
+  // screen while the Modal is still up would put the shop behind the pop-up. So
+  // that branch takes the notice down FIRST, and the two orders are opposite for
+  // a reason rather than by accident.
+  ok(/if \(shopsInsideFayr\(key\)\) \{\s*setNotice\(null\);\s*navigation\.navigate\('Shop', \{ campaignId, marketplace: key \}\);\s*theyReallyWent\(\);\s*return;\s*\}/
+    .test(code),
+    'a listed shop takes the pop-up down first, then goes to Fayr own shop screen');
+
+  // ── AND THE NOTE THAT SAYS "THEY WENT" IS WRITTEN WHEN THEY GO ───────────
+  //
+  // MEASURED 18 SEPTEMBER 2026, and it is the whole reason the owner never once
+  // reached the shop inside Fayr. markVisitedShop(WENT_TO_BUY) used to be called
+  // in openTheirApp, one line before the pop-up was raised. The journey's router
+  // reads that note and turns it straight into a different step, JourneyScreen
+  // re-renders on the store notify that the same callback had just caused, and
+  // its stage is keyed on the design key — so THIS SCREEN WAS UNMOUNTED, taking
+  // the Modal that holds the only way into the shop with it, in the same flush
+  // that created it.
+  //
+  // His backend log: 15:43:36 claim, 15:43:43 going-to-the-shop, 15:43:47 the
+  // order read. Four seconds, and no [fayr-shop] line anywhere in the run.
+  //
+  // SO IT IS WRITTEN IN ONE PLACE AND THAT PLACE IS THE DEPARTURE.
+  ok((code.match(/markVisitedShop\(campaignId, WENT_TO_BUY\)/g) || []).length === 1,
+    'the note is written in exactly one place');
+  ok(/const theyReallyWent = useCallback\(\(\) => \{\s*if \(campaignId\) markVisitedShop\(campaignId, WENT_TO_BUY\);/
+    .test(code),
+    'and that place is its own callback, named for what it records');
+  const recordsTheVisit = code.slice(code.indexOf('const openTheirApp = useCallback'),
+    code.indexOf('const theyReallyWent = useCallback'));
+  ok(!recordsTheVisit.includes('markVisitedShop'),
+    'the callback that RECORDS the visit no longer writes it, which is the fix');
+  ok(!recordsTheVisit.includes('theyReallyWent'),
+    'and does not call the one that does');
+
+  // ── AND THERE IS A WAY BACK IN, FOR A SHOP THAT IS INSIDE FAYR ───────────
+  //
+  // The second half of the same run. The pop-up is raised once, by the tap our
+  // side keeps; anything interrupting the moment between the two — a reload, the
+  // phone being put down — left somebody with a recorded visit and no route to
+  // the shop at all.
+  ok(/const backIntoTheShop = useCallback\(\(\) => \{\s*navigation\.navigate\('Shop', \{ campaignId, marketplace: key \}\);\s*theyReallyWent\(\);/
+    .test(code),
+    'a second door goes back into the shop and records the same note');
+  ok(/\{shopsInsideFayr\(key\) \? \(\s*<Pill onPress=\{backIntoTheShop\}/.test(code),
+    'and it is only drawn for a shop that shops inside Fayr');
   ok(/onRequestClose=\{\(\) => \{\}\}/.test(code),
     'THERE IS NO WAY PAST THE NOTICE: the phone own back control does nothing');
   ok(!/onDismiss|onBackdropPress|closeOnOverlay/.test(code),
@@ -356,9 +431,12 @@ console.log('\n=== 11. AND THE BUY SCREEN CHANGES AFTER THEY HAVE GONE ===');
 
   // THE RAN-OUT CASE OFFERS NOTHING ONWARD. Every button on the screen is inside
   // a block that refuses to draw when the hold is over.
+  // FIVE SINCE 18 SEPTEMBER 2026: the way back into the shop for a shop that is
+  // inside Fayr. It is inside step seven's own block, behind the same !over
+  // guard as the two beside it, so the ran-out case still offers nothing onward.
   const buttons = code.match(/<Pill /g) || [];
-  ok(buttons.length === 4,
-    'there are exactly four buttons on this screen, and every one is accounted for');
+  ok(buttons.length === 5,
+    'there are exactly five buttons on this screen, and every one is accounted for');
   // Sliced to step seven's OWN block: from its guard to the shop door's guard
   // below it. Taking the rest of the file would have counted the two doors too,
   // which is how this check first read four and proved nothing.
@@ -366,8 +444,10 @@ console.log('\n=== 11. AND THE BUY SCREEN CHANGES AFTER THEY HAVE GONE ===');
   const to = code.indexOf('{!hasGone && couldNotStart &&');
   ok(from !== -1 && to !== -1 && from < to, 'step seven is drawn above the shop door');
   const step7 = code.slice(from, to);
-  ok((step7.match(/<Pill /g) || []).length === 2,
-    'two of the four are step seven own, behind the !over guard');
+  ok((step7.match(/<Pill /g) || []).length === 3,
+    'three of the five are step seven own, behind the !over guard');
+  ok((step7.match(/shopsInsideFayr\(key\)/g) || []).length === 1,
+    'and one of those three is the in-Fayr shop door, drawn for nobody else');
   // AND THE OTHER TWO ARE BOTH BEHIND !hasGone, so once the visit is recorded
   // there is no button on this screen that is not step seven's.
   const doors = code.slice(to);

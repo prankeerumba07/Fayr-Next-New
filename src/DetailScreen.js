@@ -26,10 +26,12 @@ import { getWallet } from './backend/meApi';
 import { refundLines, ticketPlan } from './ui/confirmJoin';
 import { formatPaise } from './money';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW, estMaxRefundRupees } from './ui/theme';
-import { seatsLine, joinedLine, isFullCampaign } from './ui/seats';
+import { seatsLine, joinedLine, isFullCampaign, lockedReason } from './ui/seats';
 import { Card, RefundBadge, MarketplaceTag, ProductImage } from './ui/primitives';
 import { copyToClipboard } from './ui/clipboard';
 import { TERMS_SENTENCE, acceptedTerms, claimBlockedLine } from './ui/terms';
+import { shopsInsideFayr } from './shop/insideFayr';
+import { enterTheShop } from './shop/enterTheShop';
 import { reachedBottom } from './ui/detailReveal';
 import { goBackOrHome } from './ui/nav';
 
@@ -208,8 +210,30 @@ export default function DetailScreen({ navigation, route }) {
       navigation.navigate('JoinFailed', { campaignId, error: msg });
       return;
     }
+    // ── A SHOP INSIDE FAYR: STRAIGHT INTO THE SHOP, NOTHING BETWEEN ─────────
+    //
+    // 18 SEPTEMBER 2026, THE OWNER'S FLOW IN HIS OWN WORDS: "accept terms ->
+    // CLAIM -> STRAIGHT to the shop's own LOGIN page, inside Fayr. No screen
+    // between." The slot-reserved moment, the connect step, "before you go" and
+    // its pop-up all existed because the person was about to LEAVE the app.
+    // For Zepto, Blinkit and Instamart they do not leave, so none of it is
+    // shown.
+    //
+    // THE CONSENT IS STILL RECORDED, by enterTheShop, with the same server call
+    // the pop-up used to make, and the shop does not open if it fails: a
+    // purchase our side has no consent for cannot be paid. When it fails the
+    // claim has still happened, so they land on the slot-reserved moment as
+    // before and the journey offers the door again.
+    //
+    // THE FOUR OTHER SHOPS TAKE THE LINE AFTER THIS ONE, exactly as they did.
+    if (shopsInsideFayr(campaign ? campaign.marketplace : null)) {
+      const went = await enterTheShop({
+        campaignId, marketplace: campaign.marketplace, navigation,
+      });
+      if (went.ok) return;
+    }
     navigation.navigate('Claimed', { campaignId });
-  }, [navigation, campaignId, accepted, claiming]);
+  }, [navigation, campaignId, accepted, claiming, campaign]);
 
   if (!campaign) {
     return (
@@ -359,6 +383,25 @@ export default function DetailScreen({ navigation, route }) {
                 <Text style={[styles.seats, full && styles.seatsFull]}>👥 {seats}</Text>
               ) : null}
               {joined ? <Text style={styles.joined}>{joined}</Text> : null}
+            </View>
+          ) : null}
+
+          {/* ── A FULL OFFER IS LOCKED, NOT GONE ──────────────────────────────
+              The owner's words, 18 September 2026: "I don't want the campaign to
+              go away or vanish from the app once the slot is full ... it was
+              active, now the slots are full, so it has been locked, and it will
+              come back soon."
+
+              THE WHOLE PAGE STILL READS. Somebody who wants to know what the
+              offer was may look, which is why this is a note on the page rather
+              than a wall in front of it. The words are src/ui/seats.js's and the
+              reasoning for each of the three things they say is there. */}
+          {lockedReason(campaign) ? (
+            <View style={styles.lockedBox}>
+              <Text style={styles.lockedTitle}>🔒 Locked for now</Text>
+              {lockedReason(campaign).map((line) => (
+                <Text key={line} style={styles.lockedText}>{line}</Text>
+              ))}
             </View>
           ) : null}
 
@@ -605,9 +648,18 @@ export default function DetailScreen({ navigation, route }) {
           ]}
         >
           <Text style={styles.ctaText}>
+            {/* ── AND IT MUST NOT LOOK CLAIMABLE ────────────────────────────
+                "Locked" is not "Claim". WHAT IS ALLOWED IS UNTOUCHED: the press
+                still goes to the same place and the server still owns the
+                refusal, answering in its own words — which is the existing
+                decision recorded beside the seats row above, and a dead button
+                explains nothing. Nothing here spends a ticket; the claim gate
+                does, and it refuses. This is the drawing and only the drawing. */}
             {claimed
               ? 'Carry on →'
-              : `Claim this campaign · ${campaign.ticketCost} tickets →`}
+              : full
+                ? 'Locked · every slot is taken'
+                : `Claim this campaign · ${campaign.ticketCost} tickets →`}
           </Text>
         </TouchableOpacity>
 
@@ -755,6 +807,15 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', ...SHADOW.card,
   },
   ctaClaimed: { backgroundColor: '#2E9E00' },
+  // BLUE, the same tone the Home tile's locked banner uses, and deliberately not
+  // the amber this app keeps for a warning: a full offer is not a fault.
+  lockedBox: {
+    marginTop: SPACE.md, backgroundColor: COLOR.blueBg, borderWidth: 1,
+    borderColor: '#CBE0FF', borderRadius: RADIUS.md,
+    paddingHorizontal: 14, paddingVertical: 12, gap: 6,
+  },
+  lockedTitle: { fontFamily: FONT.bodySemi, fontSize: 14, color: '#2F6FD0' },
+  lockedText: { fontFamily: FONT.body, fontSize: 13, lineHeight: 19, color: COLOR.ink },
   ctaText: { fontFamily: FONT.displaySemi, fontSize: 15.5, color: '#fff' },
   ctaHint: { fontFamily: FONT.bodySemi, fontSize: 11, color: '#a8a08e', textAlign: 'center', marginTop: 9 },
   ctaOff: { backgroundColor: '#cfcfcf', shadowOpacity: 0 },

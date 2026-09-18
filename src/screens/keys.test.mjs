@@ -9,7 +9,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
-  BEFORE_SIGN_IN, HOW_MANY, IN_THE_APP, IN_THE_NAVIGATOR, KEYS, OWN, REMOVED,
+  BEFORE_SIGN_IN, FROM_THE_NEW_DESIGN, HOW_MANY, IN_THE_APP, IN_THE_NAVIGATOR, KEYS, OWN, REMOVED,
   SCREENS, STILL_TO_SPLIT_CEILING, screenFor, stillToSplit,
 } from './keys.js';
 
@@ -55,15 +55,33 @@ function designKeys() {
 // ── the list is the design's ─────────────────────────────────────────────────
 
 test("it is the design's list, in the design's order", () => {
+  // THE OLD DESIGN'S LIST, EXACTLY, once the rows the NEW design added are set
+  // aside. Since 18 September 2026 keys.js has two sources and says which is
+  // which: every row is either one of fayr-design.browser.jsx's sixty one, in
+  // its order, or names the Figma frame it came from. Neither is allowed to
+  // stand in for the other.
   assert.deepEqual(
-    KEYS, designKeys(),
+    KEYS.filter((k) => !FROM_THE_NEW_DESIGN.includes(k)), designKeys(),
     'keys.js has drifted from the design. Add, remove or reorder to match '
     + 'fayr-design.browser.jsx, never the other way round.',
   );
 });
 
+test('a screen from the new design names the frame it came from, and is not one of the old sixty one', () => {
+  assert.deepEqual(FROM_THE_NEW_DESIGN, ['shop'],
+    'exactly one screen has come from the new design so far: the shop inside Fayr');
+  for (const key of FROM_THE_NEW_DESIGN) {
+    const row = screenFor(key);
+    assert.ok(row && /^\d+:\d+$/.test(row.fromTheNewDesign),
+      `${key} must name its Figma frame as node:id`);
+    assert.ok(!designKeys().includes(key),
+      `${key} is in the OLD design too, so it does not belong under the new one`);
+    assert.equal(row.addedOn, '2026-09-18', `${key} says when it arrived`);
+  }
+});
+
 test('the count is the design count, and every key appears once', () => {
-  assert.equal(HOW_MANY, designKeys().length);
+  assert.equal(HOW_MANY, designKeys().length + FROM_THE_NEW_DESIGN.length);
   assert.equal(new Set(KEYS).size, HOW_MANY, 'a key is listed twice');
 });
 
@@ -78,8 +96,10 @@ test('sixty one in the design, sixty in the app, and the one gone is named', () 
   // has sixty one, the app has sixty, and the ONE screen the app is missing is
   // this one BY NAME. A second screen going missing fails here, and so does this
   // one coming back without the register being changed to say so.
-  assert.equal(HOW_MANY, 61, 'the design has sixty one screens');
-  assert.equal(IN_THE_APP, 60, 'and the app accounts for sixty of them');
+  // SIXTY TWO SINCE 18 SEPTEMBER 2026: the old design's sixty one plus the shop
+  // inside Fayr from the new one. Still one removed, by name, below.
+  assert.equal(HOW_MANY, 62, 'the two designs have sixty two screens between them');
+  assert.equal(IN_THE_APP, 61, 'and the app accounts for sixty one of them');
   assert.deepEqual(REMOVED, ['confirm'],
     'exactly one screen has been removed by order, and it is the confirmation '
     + 'page. Any other screen appearing here is a screen that went missing without '

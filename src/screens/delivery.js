@@ -77,6 +77,8 @@ import {
   alreadyLookedForDelivery, rememberWeLookedForDelivery,
 } from '../order/deliveryLook';
 import { SAID_IT_ARRIVED, hasVisitedShop, markVisitedShop } from '../journey/shopVisits';
+import { shopsInsideFayr } from '../shop/insideFayr';
+import { mayLookForDeliveryNow, rememberTheDeliveryLook } from '../journey/deliveryCadence';
 import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
 import { Ghost, Pill, TextBtn, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
@@ -126,6 +128,15 @@ export default function DeliveryScreen({ navigation, route }) {
   // in this sitting and found nothing must not put the question back up, or the
   // person answers Yes and watches the same nothing happen again.
   const looked = alreadyLookedForDelivery(taskId);
+  // ── A SHOP INSIDE FAYR ASKS NOTHING — 18 SEPTEMBER 2026, PHASE 7 ────────
+  //
+  // The owner: "delivery fetches itself. No screen, no tap." For Zepto, Blinkit
+  // and Instamart the question and its two buttons are not drawn at all; the
+  // read is started by this screen opening, on the cadence
+  // src/journey/deliveryCadence.js decides, and what is drawn is only "checking"
+  // or "not yet". The four other shops keep the question and everything under
+  // it, for the reason the long note at the top of this file gives.
+  const asksNothing = shopsInsideFayr(key);
   const [where, setWhere] = useState(looked ? 'nothing' : 'asking');
   const started = useRef(false);
 
@@ -219,6 +230,39 @@ export default function DeliveryScreen({ navigation, route }) {
     }
   }, [navigation, campaignId, taskId, known, params]);
 
+  // ── STARTED BY THE SCREEN, FOR A SHOP INSIDE FAYR, AND NOT TOO OFTEN ────
+  //
+  // The same read the Yes button starts, started without the button. The
+  // cadence is the whole of what is decided here: once when the step is reached
+  // in a sitting, and again only after LOOK_AGAIN_AFTER_MS — ten minutes, the
+  // shop's own delivery time — so a phone left on this step does not ask the
+  // shop for pages every time it redraws. The reasoning is beside the number.
+  //
+  // THE NOTE IS WRITTEN BEFORE THE MOVE, for the same reason the tap's path
+  // writes its own first: a screen that comes straight back has no note and
+  // starts again.
+  //
+  // AND IT DOES NOT GO THROUGH theySaidYes — CORRECTED 18 SEPTEMBER 2026. That
+  // path refuses a second look in a sitting through deliveryLook.js's own note,
+  // which is right for a tap and wrong here: it made the ten minute re-look a
+  // promise the screen could not keep, because the very first look in a sitting
+  // wrote the note and every later arrival was refused by it. Found by an
+  // adversarial review of the phase. So the automatic look opens the read
+  // directly, names the order exactly as the tap's path does, and lets the
+  // cadence alone decide when it may run again.
+  useEffect(() => {
+    if (!asksNothing || known || taskId == null) return;
+    if (!mayLookForDeliveryNow(taskId, Date.now())) return;
+    rememberTheDeliveryLook(taskId, Date.now());
+    setWhere('reading');
+    if (navigation && typeof navigation.navigate === 'function') {
+      const record = campaignId ? getAuthoritative(campaignId) : null;
+      const itsOrder = record && record.order && typeof record.order.id === 'string'
+        && record.order.id !== '' ? record.order.id : null;
+      navigation.navigate('LookingForIt', { campaignId, onlyThisOrder: itsOrder });
+    }
+  }, [asksNothing, known, taskId, campaignId, navigation]);
+
   // ── AND NOBODY IS LEFT WATCHING A WORD THAT NEVER CHANGES ───────────────
   //
   // Leaving for the read normally takes this screen away within a frame. When it
@@ -253,8 +297,16 @@ export default function DeliveryScreen({ navigation, route }) {
   // had already closed. The question wins until it is answered.
   const mustAsk = known && !saidSo;
   const delivered = known && saidSo;
+  // ── A SHOP INSIDE FAYR IS NEVER ASKED, so `asking` is false for one whatever
+  //    `where` says — 18 September 2026 ────────────────────────────────────
+  //
+  // The two lines above are kept exactly as they were, on purpose: the record's
+  // word and the person's answer, narrowed and never widened. For a shop inside
+  // Fayr the journey sends a DELIVERED claim straight to the review, so this
+  // screen is not drawn with `known` at all for one; what it draws is the wait
+  // between looks, and the look is started by the screen on its own cadence.
   const reading = where === 'reading' && !delivered && !mustAsk;
-  const asking = (where === 'asking' || mustAsk) && !delivered;
+  const asking = (where === 'asking' || mustAsk) && !delivered && !asksNothing;
 
   return (
     <Screen bg={COLOR.cream}>

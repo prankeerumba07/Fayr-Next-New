@@ -121,24 +121,24 @@ export const PRODUCT_DELIVERED = 'Product delivered.';
  * WHAT THE REVIEW STEP ASKS FOR. Step eleven, quoted in full.
  *
  * "after using the product" is doing real work in that sentence: it is the only
- * place the app says the review is meant to come after using the thing, and it
- * is the reason the step below it is shut for a day.
+ * place the app says the review is meant to come after using the thing.
+ *
+ * ── IT IS AN ASK NOW, AND IT USED TO BE A RULE ────────────────────────────
+ *
+ * Until 18 September 2026 this sentence had a lock behind it: the step was shut
+ * for twenty-four hours after the parcel arrived, and this line was the reason
+ * given. The owner removed the lock — see src/journey/reviewStep.js for his
+ * words — and the sentence stays, because asking somebody to use a thing before
+ * writing about it is still the right thing to ask. It is simply no longer
+ * enforced with a clock.
+ *
+ * TWO SENTENCES WENT WITH THE LOCK, and they are not replaced by anything:
+ * "This opens one day after your product arrives." and "Use the product first.
+ * We open this by itself when the day is up." Both promised a wait that no
+ * longer happens, so keeping either would be the app describing a rule it does
+ * not have.
  */
 export const WRITE_A_FAIR_REVIEW = 'Write a fair review after using the product.';
-
-/**
- * THE DAY THE REVIEW STEP IS SHUT FOR. Step twelve.
- *
- * ── IT IS A LOCK, AND IT SAYS SO RATHER THAN LOOKING BROKEN ───────────────
- *
- * A step that simply does nothing when tapped reads as a fault. These two
- * sentences say what is happening and that nothing is required: it opens on its
- * own, with nothing to tap and nothing to refresh.
- */
-export const REVIEW_OPENS_A_DAY_AFTER_IT_ARRIVES =
-  'This opens one day after your product arrives.';
-export const USE_IT_FIRST_WE_WILL_OPEN_THIS =
-  'Use the product first. We open this by itself when the day is up.';
 
 /**
  * THE REVIEW QUESTION, ASKED WHEN THEY COME BACK FROM WRITING ONE. Steps
@@ -353,8 +353,6 @@ export const EVERY_SENTENCE = [
   IS_THE_PRODUCT_DELIVERED,
   PRODUCT_DELIVERED,
   WRITE_A_FAIR_REVIEW,
-  REVIEW_OPENS_A_DAY_AFTER_IT_ARRIVES,
-  USE_IT_FIRST_WE_WILL_OPEN_THIS,
   HAVE_YOU_POSTED_THE_REVIEW,
   reviewsGoLiveIn('Amazon'),
   waitThenComeBack('Amazon'),

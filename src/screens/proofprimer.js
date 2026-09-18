@@ -35,7 +35,9 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from '../ui/theme';
-import { Pill, TopBar, hSub, hTitle } from '../ui/brand';
+import { Ghost, Pill, TopBar, hSub, hTitle } from '../ui/brand';
+import { shopsInsideFayr } from '../shop/insideFayr';
+import { enterTheShop } from '../shop/enterTheShop';
 import { Screen, ProductImage } from '../ui/primitives';
 import { goBackOrHome } from '../ui/nav';
 
@@ -119,6 +121,21 @@ export default function ProofPrimerScreen({ navigation, route }) {
         >
           SEND A SCREENSHOT
         </Pill>
+        {/* ── AND THE WAY BACK INTO THE SHOP, FOR A SHOP INSIDE FAYR ────────
+            Added 18 September 2026, Phase 7. For Zepto, Blinkit and Instamart
+            this screen is reached by itself: the read ran when they left the
+            shop and found no order. That is the right fallback for a purchase
+            the read missed — and a dead end for somebody who only looked
+            around, because nothing on the journey offered the shop again. An
+            adversarial review of the phase found it. So the door is here,
+            through the same enterTheShop the claim uses, and only for a shop
+            whose shopping happens inside Fayr; the four other shops' fallback
+            is exactly as it was. */}
+        {shopsInsideFayr(key) ? (
+          <Ghost onPress={() => enterTheShop({ campaignId, marketplace: key, navigation })}>
+            Go back to {shop} instead
+          </Ghost>
+        ) : null}
       </View>
     </Screen>
   );

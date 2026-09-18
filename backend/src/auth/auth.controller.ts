@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService, type AuthResult } from './auth.service';
+import { UserEventService } from '../events/user-event.service';
 import type {
   AuthenticatedUser,
   IssuedTokens,
@@ -28,6 +29,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly tokens: TokenService,
+    private readonly events: UserEventService,
   ) {}
 
   /** Request an OTP. Tighter per-IP throttle: codes are cheap to spam + cost SMS. */
@@ -74,7 +76,19 @@ export class AuthController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   async logout(@Body() dto: RefreshDto): Promise<{ ok: true }> {
+    // WHOSE SESSION IT WAS, READ BEFORE IT IS REVOKED. Afterwards the token is
+    // revoked and the row no longer answers the question cleanly, and a logout
+    // with nobody attached to it is a row that cannot be counted.
+    //
+    // A token that does not resolve to anybody is still a logout, recorded with
+    // no user on it. Silently dropping it would make the signed-out count quietly
+    // lower than the truth, and a number that is wrong in one direction only is
+    // worse than one that is obviously missing.
+    const whose = await this.tokens
+      .ownerOfRefreshToken(dto.refreshToken)
+      .catch(() => null);
     await this.tokens.revokeRefreshToken(dto.refreshToken);
+    await this.events.record({ type: 'LOGGED_OUT', userId: whose });
     return { ok: true };
   }
 

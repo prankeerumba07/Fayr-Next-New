@@ -52,18 +52,34 @@ function makeTickets() {
   return { grantSignup: jest.fn().mockResolvedValue({}) };
 }
 
+/**
+ * The measurement double.
+ *
+ * Here so the funnel steps auth records can be ASSERTED, not merely tolerated.
+ * The rule that a blocked account never appears in the funnel is a rule about
+ * this service, and a stub nobody looks at would let it rot silently.
+ */
+function makeEvents() {
+  return {
+    record: jest.fn().mockResolvedValue(true),
+    recordOnce: jest.fn().mockResolvedValue(true),
+  };
+}
+
 function build() {
   const prisma = makePrisma();
   const tokens = makeTokens();
   const tickets = makeTickets();
   const sms = makeSms();
+  const events = makeEvents();
   const service = new AuthService(
     prisma as never,
     tokens as never,
     tickets as never,
+    events as never,
     sms as never,
   );
-  return { service, prisma, tokens, tickets, sms };
+  return { service, prisma, tokens, tickets, sms, events };
 }
 
 const future = () => new Date(Date.now() + 60_000);
@@ -246,6 +262,139 @@ describe('AuthService', () => {
         data: { consumedAt: expect.any(Date), userId: 'u1' },
       });
       expect(tokens.issueTokens).not.toHaveBeenCalled();
+    });
+  });
+
+
+  // ── WHAT GOES INTO THE FUNNEL, AND WHAT MUST NOT ──────────────────────────
+  //
+  // These are rules about the SHAPE of a number a director will read off a
+  // dashboard, so they are asserted rather than left to a stub nobody checks.
+  describe('what it records for the funnel', () => {
+    it('counts a code request only once a code has actually gone out', async () => {
+      const { service, prisma, events } = build();
+      prisma.otpChallenge.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await service.requestOtp(MOBILE);
+
+      expect(events.record).toHaveBeenCalledWith({
+        type: 'OTP_REQUESTED',
+        userId: null,
+      });
+    });
+
+    it('does NOT count a blocked account as having asked for a code', async () => {
+      // A blocked account is returned to before any SMS is sent. Counting it
+      // would put somebody in the funnel who was never going to receive a code,
+      // which shows up later as delivery getting quietly worse.
+      const { service, prisma, events } = build();
+      prisma.otpChallenge.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        mobile: MOBILE,
+        status: 'BLOCKED',
+      });
+
+      await service.requestOtp(MOBILE);
+
+      expect(events.record).not.toHaveBeenCalled();
+    });
+
+    it('separates somebody signing up from somebody coming back', async () => {
+      const { service, prisma, events } = build();
+      prisma.otpChallenge.findFirst.mockResolvedValue({
+        id: 'c1',
+        codeHash: await argon2.hash('123456'),
+        expiresAt: future(),
+        attempts: 0,
+        consumedAt: null,
+      });
+      // Nobody with this number yet, so the verification creates the account.
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.upsert.mockResolvedValue({
+        id: 'u1',
+        mobile: MOBILE,
+        status: 'ACTIVE',
+      });
+
+      await service.verifyOtp(MOBILE, '123456');
+
+      expect(events.record).toHaveBeenCalledWith({
+        type: 'OTP_VERIFIED',
+        userId: 'u1',
+        payload: { created: true },
+      });
+      expect(events.record).toHaveBeenCalledWith({
+        type: 'ACCOUNT_CREATED',
+        userId: 'u1',
+      });
+    });
+
+    it('does not count a returning person as a new account', async () => {
+      const { service, prisma, events } = build();
+      prisma.otpChallenge.findFirst.mockResolvedValue({
+        id: 'c1',
+        codeHash: await argon2.hash('123456'),
+        expiresAt: future(),
+        attempts: 0,
+        consumedAt: null,
+      });
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+      prisma.user.upsert.mockResolvedValue({
+        id: 'u1',
+        mobile: MOBILE,
+        status: 'ACTIVE',
+      });
+
+      await service.verifyOtp(MOBILE, '123456');
+
+      expect(events.record).toHaveBeenCalledWith({
+        type: 'OTP_VERIFIED',
+        userId: 'u1',
+        payload: { created: false },
+      });
+      const kinds = events.record.mock.calls.map((c) => c[0].type);
+      expect(kinds).not.toContain('ACCOUNT_CREATED');
+    });
+
+    it('does NOT count a blocked account as having got in', async () => {
+      const { service, prisma, events } = build();
+      prisma.otpChallenge.findFirst.mockResolvedValue({
+        id: 'c1',
+        codeHash: await argon2.hash('123456'),
+        expiresAt: future(),
+        attempts: 0,
+        consumedAt: null,
+      });
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+      prisma.user.upsert.mockResolvedValue({
+        id: 'u1',
+        mobile: MOBILE,
+        status: 'BLOCKED',
+      });
+
+      await expect(service.verifyOtp(MOBILE, '123456')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+
+      const kinds = events.record.mock.calls.map((c) => c[0].type);
+      expect(kinds).not.toContain('OTP_VERIFIED');
+      expect(kinds).not.toContain('ACCOUNT_CREATED');
+    });
+
+    it('never puts a mobile number into a recorded step', async () => {
+      // This table is read by dashboards and exported into spreadsheets, which
+      // is exactly the journey that turns a column into a leak.
+      const { service, prisma, events } = build();
+      prisma.otpChallenge.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await service.requestOtp(MOBILE);
+
+      const written = JSON.stringify(events.record.mock.calls);
+      expect(written).not.toContain(MOBILE);
+      expect(written).not.toContain('9876543210');
     });
   });
 

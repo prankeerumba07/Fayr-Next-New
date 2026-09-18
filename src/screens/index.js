@@ -39,6 +39,9 @@ import reward from './reward';
 // emailconnect and emailcode — are drawn as the design draws them and say plainly
 // on the screen that Fayr has nowhere to connect an inbox to yet.
 import returncatch from './returncatch';
+// THE SHOP INSIDE FAYR, as a step. Phase 7, 18 September 2026 — a door that
+// records the consent and hands over to the Shop route. See src/screens/shop.js.
+import shop from './shop';
 import emailconnect from './emailconnect';
 import emailcode from './emailcode';
 import orderverified from './orderverified';
@@ -68,6 +71,7 @@ export const SCREENS = {
   returnwindow,
   reward,
   returncatch,
+  shop,
   emailconnect,
   emailcode,
   orderverified,

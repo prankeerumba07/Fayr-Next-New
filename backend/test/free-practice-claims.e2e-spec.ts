@@ -4,6 +4,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { Campaign, Prisma } from '@prisma/client';
 import { freePracticeClaims } from '../scripts/free-practice-claims';
+import { claimedFor, claimedSeatsByCampaign, isFull } from '../src/campaigns/seats';
 import { PrismaService } from '../src/prisma/prisma.service';
 import type { SubmitEvidenceDto } from '../src/tasks/dto/submit-evidence.dto';
 import { TaskService } from '../src/tasks/task.service';
@@ -372,26 +373,96 @@ describe('Freeing the practice account claims (e2e)', () => {
     expect(await tickets.getBalance(userId)).toBe(10);
   });
 
-  it('does not promise a second claim on an offer whose seats are all taken', async () => {
-    // A claim that has been let go still holds its seat, on purpose: a seat used
-    // by somebody who bought, reviewed and was paid is gone for good, and the
-    // rule does not read the state. So on a one seat offer the claim is freed
-    // and the offer stays shut, and saying otherwise would send him straight
-    // into "this offer is full".
+  // ── A RELEASED CLAIM GIVES ITS SEAT BACK — 18 SEPTEMBER 2026 ─────────────
+  //
+  // This test used to be the OPPOSITE: "does not promise a second claim on an
+  // offer whose seats are all taken", asserting canBeClaimedAgain === false and
+  // a second claim rejected as full. That was the deliberate rule, and the owner
+  // measured what it did to him: a one-slot campaign, claimed and released, and
+  // "Every seat on this one is taken, so it is free and still shut." The
+  // tickets came back and the seat did not, so the offer was dead for good.
+  //
+  // His rule replaces it: a claim RELEASED without ever buying holds no seat; a
+  // claim that reached a purchase holds one for ever; a claim still running
+  // holds one. seats.ts is the one place that says so, and these four tests
+  // walk it against a real database.
+
+  it('A RELEASED, NEVER-PURCHASED CLAIM FREES ITS SEAT, AND THE OFFER REOPENS', async () => {
     const { mobile, userId } = await newPracticeAccount();
-    const campaign = await makeCampaign({
-      title: 'One seat only',
-      totalSlots: 1,
-    });
+    const campaign = await makeCampaign({ title: 'One seat only', totalSlots: 1 });
     await tasks.claim(userId, campaign.id, { terms: true });
 
     const report = await freePracticeClaims(app, { quiet: true, mobile });
     expect(report.freed).toHaveLength(1);
-    expect(report.freed[0].canBeClaimedAgain).toBe(false);
+    expect(report.freed[0].canBeClaimedAgain).toBe(true);
 
+    const counts = await claimedSeatsByCampaign(prisma, [campaign.id]);
+    expect(claimedFor(counts, campaign.id)).toBe(0);
+    expect(isFull(1, claimedFor(counts, campaign.id))).toBe(false);
+  });
+
+  it('A ONE-SLOT CAMPAIGN SURVIVES A CLAIM-AND-RELEASE AND CAN BE CLAIMED AGAIN', async () => {
+    // The exact thing the owner did on his own account, followed by the thing
+    // he could not then do.
+    const { mobile, userId } = await newPracticeAccount();
+    const campaign = await makeCampaign({ title: 'One seat only', totalSlots: 1 });
+    const first = await tasks.claim(userId, campaign.id, { terms: true });
+    await freePracticeClaims(app, { quiet: true, mobile });
+
+    const second = await tasks.claim(userId, campaign.id, { terms: true });
+    expect(second.id).not.toBe(first.id);
+    expect(second.state).toBe('CLAIMED');
+    expect(second.closedAt).toBeNull();
+
+    // AND THE FIRST ROW IS STILL THERE, closed. Nothing was deleted to make room.
+    const old = await prisma.task.findUniqueOrThrow({ where: { id: first.id } });
+    expect(old.closedAt).not.toBeNull();
+    expect(old.closeReason).toBe('expired');
+  });
+
+  it('A CLAIM IN PROGRESS STILL HOLDS ITS SEAT', async () => {
+    // Nothing released. The seat is spoken for and a second person is refused.
+    const a = await newPracticeAccount();
+    const b = await newPracticeAccount();
+    const campaign = await makeCampaign({ title: 'One seat only', totalSlots: 1 });
+    await tasks.claim(a.userId, campaign.id, { terms: true });
+
+    const counts = await claimedSeatsByCampaign(prisma, [campaign.id]);
+    expect(claimedFor(counts, campaign.id)).toBe(1);
     await expect(
-      tasks.claim(userId, campaign.id, { terms: true }),
+      tasks.claim(b.userId, campaign.id, { terms: true }),
     ).rejects.toThrow(/full/i);
+  });
+
+  it('A PURCHASED CLAIM STILL HOLDS ITS SEAT FOR EVER', async () => {
+    // "because that seat really was used". The row is put into the shape a
+    // purchase leaves — PURCHASED, an order on it — and then CLOSED, which is
+    // the strongest form of the claim: even a finished, closed purchase keeps
+    // the seat, and a second person is still refused.
+    const a = await newPracticeAccount();
+    const b = await newPracticeAccount();
+    const campaign = await makeCampaign({ title: 'One seat only', totalSlots: 1 });
+    const claimed = await tasks.claim(a.userId, campaign.id, { terms: true });
+    await prisma.task.update({
+      where: { id: claimed.id },
+      data: {
+        state: 'PURCHASED',
+        orderId: 'ORD-USED-THE-SEAT',
+        closedAt: new Date(),
+        closeReason: 'refunded',
+      },
+    });
+
+    const counts = await claimedSeatsByCampaign(prisma, [campaign.id]);
+    expect(claimedFor(counts, campaign.id)).toBe(1);
+    await expect(
+      tasks.claim(b.userId, campaign.id, { terms: true }),
+    ).rejects.toThrow(/full/i);
+
+    // AND ./free-claims LEAVES IT ALONE, exactly as before — a purchase cannot
+    // be handed back.
+    const report = await freePracticeClaims(app, { quiet: true, mobile: a.mobile });
+    expect(report.freed).toEqual([]);
   });
 
   // ── 6. running it twice ────────────────────────────────────────────────────

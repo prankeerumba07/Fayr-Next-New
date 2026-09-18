@@ -9,9 +9,12 @@ import { AssistantModule } from './assistant/assistant.module';
 import { ChatModule } from './chat/chat.module';
 import { AuthModule } from './auth/auth.module';
 import { CampaignModule } from './campaigns/campaign.module';
+import { ReviewModule } from './reviews/review.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { InsightsModule } from './events/insights.module';
+import { UserEventModule } from './events/user-event.module';
 import { LiveCheckModule } from './live-check/live-check.module';
 import { buildLoggerOptions } from './logging/pino-logger.config';
 import { MeModule } from './me/me.module';
@@ -63,11 +66,15 @@ import { WithdrawalModule } from './withdrawals/withdrawal.module';
       skipIf: () => process.env.NODE_ENV === 'test',
     }),
     PrismaModule,
+    UserEventModule,
     HealthModule,
     AuthModule,
     WalletModule,
     TicketModule,
     CampaignModule,
+    // The review a person writes INSIDE Fayr — its own module because nothing
+    // in it is part of the task loop: no transition, no evidence, no money.
+    ReviewModule,
     TaskModule,
     SchedulerModule,
     CampaignHealthModule,
@@ -82,6 +89,7 @@ import { WithdrawalModule } from './withdrawals/withdrawal.module';
     RunningModule,
     ShopModule,
     OcrModule,
+    InsightsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

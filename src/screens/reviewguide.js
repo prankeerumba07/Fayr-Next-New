@@ -64,8 +64,9 @@ import {
   SIGNED_IN, TOLD_ABOUT_THE_REVIEW_WAIT, WENT_TO_REVIEW,
   hasVisitedShop, markVisitedShop,
 } from '../journey/shopVisits';
-import { reviewLock, reviewStepFace } from '../journey/reviewStep';
+import { reviewStepFace } from '../journey/reviewStep';
 import { copyProductName, openShopApp } from '../openShop';
+import { shopsInsideFayr } from '../shop/insideFayr';
 import { COLOR, FONT, RADIUS, SHADOW, SPACE } from '../ui/theme';
 import { Ghost, Pill, TopBar, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
@@ -74,10 +75,8 @@ import { goBackOrHome } from '../ui/nav';
 import {
   HAVE_YOU_POSTED_THE_REVIEW, I_WILL_DO_IT_LATER, NO,
   PLEASE_WAIT_FOR_THAT_TIME, REVIEW_CONFIRMATION_RECEIVED,
-  REVIEW_OPENS_A_DAY_AFTER_IT_ARRIVES, STILL_WANT_TO_CONTINUE,
-  USE_IT_FIRST_WE_WILL_OPEN_THIS, WRITE_A_FAIR_REVIEW, YES,
-  howLongAgoInWords, reviewsGoLiveIn, timeLeftInWords, waitThenComeBack,
-  youPostedItAgo,
+  STILL_WANT_TO_CONTINUE, WRITE_A_FAIR_REVIEW, YES,
+  howLongAgoInWords, reviewsGoLiveIn, waitThenComeBack, youPostedItAgo,
 } from '../ui/journeyWords';
 
 /**
@@ -96,31 +95,6 @@ const TOPICS = [
   ['🛡', 'Durability', 'How it is holding up over time'],
   ['💬', 'Overall experience', 'Anything else you genuinely felt'],
 ];
-
-/**
- * HOW OFTEN THE SHUT STEP ASKS ITSELF WHETHER IT IS OPEN YET.
- *
- * ── WHY THIS IS A CEILING AND NOT THE INTERVAL ───────────────────────────
- *
- * The wait is a whole day, and a single timer set for a whole day is a timer no
- * phone can be trusted to keep: the app is backgrounded, suspended, killed. So
- * the screen re-arms, and each arming is for whatever is SMALLER — a minute, or
- * exactly what is left.
- *
- * WHICH MAKES IT EXACT AT THE ONE MOMENT THAT MATTERS. Inside the last minute
- * the timer is set to the real remainder, so the step opens on the second rather
- * than up to a minute late. Away from the boundary a minute of drift costs
- * nothing at all, because there is a day of it to go.
- */
-export const ASK_AGAIN_AT_MOST_EVERY_MS = 60 * 1000;
-
-/** When the parcel arrived, off the record, in milliseconds, or null. */
-function deliveredInstant(task) {
-  const at = task && task.delivery ? task.delivery.at : null;
-  if (typeof at !== 'string' || at === '') return null;
-  const ms = Date.parse(at);
-  return Number.isNaN(ms) ? null : ms;
-}
 
 /** When our own side recorded them leaving to write it, or null. */
 function wentToReviewInstant(task) {
@@ -141,10 +115,24 @@ export default function ReviewGuideScreen({ navigation, route }) {
   const opens = PLATFORMS[key] ? PLATFORMS[key].startUrl : null;
   const [copied, setCopied] = useState(null);
 
+  // ── THE SHOPS WITH NO REVIEW FORM AT ALL ────────────────────────────────
+  //
+  // Zepto, Blinkit and Instamart take a private star rating on the order and
+  // publish nothing a stranger can read — src/reviewCopy.test.mjs names all
+  // three and holds the app to it. So for those three the WORDS are written
+  // inside Fayr and stay with Fayr, and the descriptive feedback is the thing a
+  // brand is actually paying for.
+  //
+  // AND ONLY ONCE THE SERVER HAS MATCHED AN ORDER. A review about a purchase
+  // nobody has confirmed is a review about nothing, and the server refuses one
+  // anyway — this is the same rule said on screen instead of as a 409.
+  //
+  // THE SHOP'S OWN DOOR BELOW IS UNTOUCHED. The star rating still happens there;
+  // that step is not this one's business.
+
   // ── THE CLOCK, TICKING, SO A SHUT STEP OPENS WITHOUT BEING TOUCHED ──────
   const [, setTick] = useState(0);
   const task = campaignId ? getAuthoritative(campaignId) : null;
-  const deliveredAt = deliveredInstant(task);
   const went = wentToReviewInstant(task);
 
   useEffect(() => {
@@ -152,18 +140,19 @@ export default function ReviewGuideScreen({ navigation, route }) {
     return subscribe(() => setTick((n) => n + 1));
   }, [campaignId]);
 
-  const shut = reviewLock({ deliveredAt, now: Date.now() });
-  useEffect(() => {
-    if (!shut.locked) return undefined;
-    const soon = Math.min(shut.msLeft, ASK_AGAIN_AT_MOST_EVERY_MS);
-    const again = setTimeout(() => setTick((n) => n + 1), soon);
-    return () => clearTimeout(again);
-    // RE-ARMED ON EVERY TICK, which is what `shut.msLeft` in here is for: each
-    // render reads the clock again and the next timer is set from what is really
-    // left rather than from what was left when the screen opened.
-  }, [shut.locked, shut.msLeft]);
+  const orderMatched = !!(task && task.order && task.order.id != null);
+  const writesItInFayr = shopsInsideFayr(key) && orderMatched;
+  const writeItHere = useCallback(() => {
+    navigation.navigate('WriteReview', { campaignId });
+  }, [navigation, campaignId]);
 
-  // ── WHICH OF THE SIX, DECIDED NEXT DOOR ─────────────────────────────────
+  // ── WHICH OF THE FIVE, DECIDED NEXT DOOR ────────────────────────────────
+  //
+  // THERE IS NO CLOCK ON THIS SCREEN ANY MORE. It used to hold a timer that
+  // re-armed every minute so a step shut for a day would open itself without
+  // being touched. The waiting period was removed on 18 September 2026 — see
+  // src/journey/reviewStep.js for the owner's words — so there is nothing left
+  // for a clock to be waiting for.
   //
   // OUR OWN RECORD FIRST, THEN THE NOTE ON THE PHONE. The note is written before
   // the request leaves, so somebody who has plainly just come back from the shop
@@ -174,8 +163,8 @@ export default function ReviewGuideScreen({ navigation, route }) {
   const wentToReview = went != null || hasVisitedShop(campaignId, WENT_TO_REVIEW);
   const told = hasVisitedShop(campaignId, TOLD_ABOUT_THE_REVIEW_WAIT);
   const face = reviewStepFace({
-    deliveredAt,
-    now: Date.now(),
+    // A shop inside Fayr is always the guide — see reviewStep.js.
+    inFayrShop: shopsInsideFayr(key),
     wentToReview,
     told,
     justAskedYes,
@@ -226,33 +215,13 @@ export default function ReviewGuideScreen({ navigation, route }) {
     navigation.navigate('LookingForReview', { campaignId });
   }, [navigation, campaignId]);
 
-  // ── SHUT FOR THE DAY ────────────────────────────────────────────────────
-  if (face === 'locked') {
-    return (
-      <Screen bg={COLOR.homeBg}>
-        <TopBar title="Write your review" onBack={() => goBackOrHome(navigation)} />
-        <View style={styles.middle}>
-          <Text style={styles.lockFace}>🔒</Text>
-          <Text style={[hTitle, styles.midTitle]}>{WRITE_A_FAIR_REVIEW}</Text>
-          <Text style={[hSub, styles.midSub]}>
-            {REVIEW_OPENS_A_DAY_AFTER_IT_ARRIVES}
-          </Text>
-          <Text style={[hSub, styles.midSub]}>{USE_IT_FIRST_WE_WILL_OPEN_THIS}</Text>
-          <View style={styles.countdown}>
-            <Text style={styles.countdownText}>{timeLeftInWords(shut.msLeft)}</Text>
-          </View>
-        </View>
-      </Screen>
-    );
-  }
-
   // ── THE QUESTION, AND THE SAME QUESTION WITH A LINE ABOVE IT ────────────
   if (face === 'asking' || face === 'asking-again') {
     return (
       <Screen bg={COLOR.homeBg}>
         <TopBar title="Write your review" onBack={() => goBackOrHome(navigation)} />
         <View style={styles.middle}>
-          <Text style={styles.lockFace}>📝</Text>
+          <Text style={styles.bigEmoji}>📝</Text>
           {face === 'asking-again' ? (
             <Text style={[hSub, styles.midSub]}>{REVIEW_CONFIRMATION_RECEIVED}</Text>
           ) : null}
@@ -373,6 +342,29 @@ export default function ReviewGuideScreen({ navigation, route }) {
       </ScrollView>
 
       <View style={styles.foot}>
+        {/* ── AND FOR A SHOP WITH NO REVIEW FORM, THE WORDS ARE WRITTEN HERE ──
+            Drawn ABOVE the shop's own door rather than instead of it: the star
+            rating still happens at the shop. Nothing about this control blocks
+            or hides the one below it. */}
+        {writesItInFayr ? (
+          <>
+            {/* LAYOUT ONLY. The two controls did the same two things before this
+                and do the same two things after it — the only change is that
+                each now sits with the words that belong to it, and a hairline
+                separates the pair so they stop reading as two competing primary
+                buttons stacked on top of one another. */}
+            <View style={styles.inFayrGroup}>
+              <Pill onPress={writeItHere} color={COLOR.greenDeep}>
+                WRITE YOUR REVIEW IN FAYR
+              </Pill>
+              <Text style={styles.inFayr}>
+                {shop} only takes a star rating on your order, and nobody but you
+                can see it. Your words stay with us.
+              </Text>
+            </View>
+            <View style={styles.footRule} />
+          </>
+        ) : null}
         {/* ONE DOOR, AND IT IS THE SHOP'S OWN APP. The owner asked on 2 September
             2026 for no marketplace ever to open inside Fayr.
 
@@ -382,35 +374,44 @@ export default function ReviewGuideScreen({ navigation, route }) {
             AND OUR SIDE IS TOLD, which is step fourteen: "the backend must know
             they left for the review". See goingToWriteIt for why this one does
             not refuse to open when that request fails. */}
-        <Pill onPress={goingToWriteIt} color={COLOR.ink}>
-          OPEN {shop.toUpperCase()} →
-        </Pill>
-        {/* ── AND THE WAY BACK, WHICH IS THE WHOLE POINT OF THE SCREEN ──────
-            It starts the read and nothing else. It does not say the review IS
-            live and it cannot: whether a review is publicly visible is the
-            payout signal, it is settled on the server from the shop's own page,
-            and there is no field on the way in for a phone to claim it. */}
-        <Ghost onPress={lookNow}>I have posted it — check now</Ghost>
+        {/* ── NEITHER OF THESE FOR A SHOP INSIDE FAYR — 18 SEPTEMBER 2026 ──
+            Both open the shop's own APP and both exist because the person left
+            Fayr to write the review. Inside Fayr the review is written above,
+            one tap copies it and opens the order's own page in Fayr's view, and
+            coming back from that page runs the check by itself — see
+            src/review/WriteReviewScreen.js and ShopScreen's order landing. */}
+        {!shopsInsideFayr(key) ? (
+          <>
+            <Pill onPress={goingToWriteIt} color={COLOR.ink}>
+              OPEN {shop.toUpperCase()} →
+            </Pill>
+            {/* ── AND THE WAY BACK, WHICH IS THE WHOLE POINT OF THE SCREEN ──
+                It starts the read and nothing else. It does not say the review
+                IS live and it cannot: whether a review is publicly visible is
+                the payout signal, it is settled on the server from the shop's
+                own page, and there is no field on the way in for a phone to
+                claim it. */}
+            <Ghost onPress={lookNow}>I have posted it — check now</Ghost>
+          </>
+        ) : null}
       </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  inFayrGroup: { gap: 6 },
+  inFayr: { fontFamily: FONT.body, fontSize: 12, color: COLOR.sub, textAlign: 'center' },
+  footRule: {
+    height: 1, backgroundColor: COLOR.line, marginVertical: 2, alignSelf: 'stretch',
+  },
   middle: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: SPACE.xl,
   },
-  lockFace: { fontSize: 52 },
+  bigEmoji: { fontSize: 52 },
   midTitle: { marginTop: 16, textAlign: 'center', fontSize: 22, lineHeight: 28 },
   midSub: { textAlign: 'center', maxWidth: 300, marginTop: 6 },
-  countdown: {
-    marginTop: SPACE.lg, backgroundColor: COLOR.blueBg, borderWidth: 1,
-    borderColor: '#CBE0FF', borderRadius: RADIUS.md,
-    paddingHorizontal: 14, paddingVertical: 8,
-  },
-  countdownText: { fontFamily: FONT.bodySemi, fontSize: 13, color: '#2F6FD0' },
-
   wait: {
     marginTop: SPACE.lg, backgroundColor: COLOR.amberBg, borderWidth: 1,
     borderColor: COLOR.amberLine, borderRadius: RADIUS.md,

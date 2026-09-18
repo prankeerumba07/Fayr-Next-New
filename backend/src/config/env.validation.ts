@@ -58,7 +58,21 @@ export const envSchema = z.object({
   JWT_ACCESS_TTL: z.string().min(1).default('15m'),
   // Refresh-token lifetime in days. Long-lived but revocable and rotated on every
   // use, so a stolen refresh token is caught by reuse detection.
-  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  /**
+   * How long somebody stays signed in without opening the app.
+   *
+   * NINETY DAYS, raised from thirty on 17 September 2026. The number is a
+   * judgement about THIS product, not a copied default: a Fayr task takes days
+   * to buy, days to deliver and a return window to close, so six weeks away
+   * mid-task is ordinary rather than suspicious. A stolen session is also worth
+   * very little here — money can only leave to a payout instrument anchored to a
+   * PAN, one account per person — while a forced re-login costs an SMS, a delay,
+   * and some share of people who never come back.
+   *
+   * Every open renews it, so this is ninety days of SILENCE, not ninety days
+   * from signing in.
+   */
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(90),
 
   // --- The assistant ---------------------------------------------------------
   // Which answer source is asked FIRST. 'answer-book' searches the stored answers

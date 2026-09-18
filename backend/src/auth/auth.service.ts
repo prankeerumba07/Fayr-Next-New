@@ -18,6 +18,7 @@ import {
   OTP_TTL_SECONDS,
 } from './auth.constants';
 import type { AuthenticatedUser, IssuedTokens, TokenMeta } from './auth.types';
+import { UserEventService } from '../events/user-event.service';
 import { SMS_SENDER, type SmsSender } from './sms/sms-sender';
 import { TokenService } from './token.service';
 
@@ -42,6 +43,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
     private readonly tickets: TicketService,
+    private readonly events: UserEventService,
     @Inject(SMS_SENDER) private readonly sms: SmsSender,
   ) {}
 
@@ -113,6 +115,16 @@ export class AuthService {
     // than a code that silently never arrives.
     await this.sms.sendOtp(mobile, code);
 
+    // RECORDED HERE AND NOT A LINE EARLIER. A blocked account returns above with
+    // no code sent, and counting that as "asked for a code" would put a person
+    // into the funnel who was never going to receive one — which shows up later
+    // as delivery getting worse.
+    //
+    // No number goes into the row. Whether a code was ASKED for is already
+    // countable from otp_challenges; what this row adds is a step on the same
+    // timeline as the screens in front of it.
+    await this.events.record({ type: 'OTP_REQUESTED', userId: user?.id ?? null });
+
     return {
       expiresInSeconds: OTP_TTL_SECONDS,
       resendInSeconds: OTP_RESEND_COOLDOWN_SECONDS,
@@ -150,6 +162,15 @@ export class AuthService {
     }
 
     // Correct code. First successful login for a number creates the user.
+    //
+    // Asked for FIRST so that "was this a new account" is answerable. An upsert
+    // cannot tell you afterwards which of the two things it did, and the funnel
+    // needs to separate somebody signing up from somebody coming back.
+    const existing = await this.prisma.user.findUnique({
+      where: { mobile },
+      select: { id: true },
+    });
+    const isNew = existing === null;
     const user = await this.prisma.user.upsert({
       where: { mobile },
       create: { mobile },
@@ -176,6 +197,18 @@ export class AuthService {
       this.logger.error(
         `signup ticket grant failed for ${user.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
+    }
+
+    // Both steps, in the order a person takes them. Recorded AFTER the block
+    // check above, so a blocked account never appears in the funnel as somebody
+    // who got in.
+    await this.events.record({
+      type: 'OTP_VERIFIED',
+      userId: user.id,
+      payload: { created: isNew },
+    });
+    if (isNew) {
+      await this.events.record({ type: 'ACCOUNT_CREATED', userId: user.id });
     }
 
     const issued = await this.tokens.issueTokens(user, meta);

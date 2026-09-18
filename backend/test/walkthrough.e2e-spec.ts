@@ -29,6 +29,50 @@ import { resetDatabase, tablesCovered } from './reset-db';
  * The tables are not written down either — they come from the database's own
  * catalogue, so a table added by tomorrow's migration is counted the day it lands.
  */
+/**
+ * THE ONE TABLE THE WALK THROUGH IS ALLOWED TO ADD TO.
+ *
+ * WHAT THIS FILE ACTUALLY GUARANTEES, stated plainly because the exemption below
+ * only makes sense against it: walking the design cannot change A PERSON'S STATE.
+ * It must never spend a claim, move money, grant a ticket, create a task, start a
+ * withdrawal or alter a profile. That guarantee is untouched and is asserted, one
+ * table at a time, by the narrowness check further down this file.
+ *
+ * A MEASUREMENT ROW IS NOT A STATE CHANGE. GET /campaigns records FEED_OPENED, so
+ * a walk now leaves two user_events rows behind. Nobody's money, tickets, claims
+ * or profile differ by anything afterwards. Counting that as a failure would mean
+ * this test was guarding "no row anywhere" rather than the thing it was written
+ * for, and the only ways to make it pass again would both be worse than the bias:
+ * giving the app a mode where measurement is switched off, or teaching the walk
+ * through to lie about which requests it makes.
+ *
+ * THE COST, WRITTEN DOWN RATHER THAN DISCOVERED LATER. A staff member walking
+ * every screen produces FEED_OPENED rows that nothing distinguishes from a real
+ * shopper opening the feed, so the signing-up funnel is very slightly inflated by
+ * our own use of the app — a handful of rows a week at this size, not worth
+ * engineering around, but worth knowing about before somebody reads a number off
+ * that chart and believes it to the row.
+ *
+ * ONE TABLE, AND THE LIST IS CHECKED. This is a named exemption and not a table
+ * quietly dropped from a list, so the next reader can see that it is deliberate
+ * and exactly how narrow it is. Adding a second name here fails the check below.
+ */
+const MEASUREMENT_NOT_STATE: readonly string[] = ['user_events'];
+
+/**
+ * The counts this file judges: everything except the measurement tables.
+ *
+ * Applied to BOTH sides of every comparison rather than to the difference, so a
+ * table that appears or disappears between two counts cannot slip through.
+ */
+function stateOnly(counts: Record<string, number>): Record<string, number> {
+  const kept: Record<string, number> = {};
+  for (const [table, n] of Object.entries(counts)) {
+    if (!MEASUREMENT_NOT_STATE.includes(table)) kept[table] = n;
+  }
+  return kept;
+}
+
 describe('The walk through writes nothing (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -173,9 +217,44 @@ describe('The walk through writes nothing (e2e)', () => {
 
     // Named table by table rather than as one object comparison, so a failure
     // says which table gained a row instead of printing twenty seven numbers.
-    const changed = Object.keys(before).filter((t) => before[t] !== after[t]);
+    const changed = Object.keys(stateOnly(before)).filter(
+      (t) => before[t] !== after[t],
+    );
     expect(changed).toEqual([]);
-    expect(after).toEqual(before);
+    expect(stateOnly(after)).toEqual(stateOnly(before));
+  });
+
+  it('the exemption is one table wide, and covers nothing that holds state', async () => {
+    // The exemption at the top of this file is the only hole in its guarantee, so
+    // the size of that hole is asserted rather than trusted. Widening it fails
+    // here first, which is the point: the next person to add a table to that list
+    // has to come past this check to do it.
+    expect(MEASUREMENT_NOT_STATE).toEqual(['user_events']);
+
+    // And every table carrying something the walk through must never touch is
+    // still judged by the counting above. Named one at a time rather than as
+    // "everything else", because "everything else" is exactly what a future
+    // exemption would quietly shrink without a single check going red.
+    const mustStayCovered = [
+      'wallet_entries', // money, leg by leg
+      'ledger_transactions', // money, the balanced pairs
+      'wallet_accounts', // money, the accounts themselves
+      'ticket_entries', // tickets spent and returned
+      'tasks', // a claim
+      'task_events', // what happened to a claim
+      'withdrawals', // money on its way out
+      'payout_methods', // where that money would go
+      'users', // the profile
+    ];
+    const everyTable = Object.keys(await countEverything());
+    const judged = Object.keys(stateOnly(await countEverything()));
+    for (const table of mustStayCovered) {
+      // Both, and in this order. A table renamed by a migration would otherwise
+      // pass the second check by being absent from every list rather than by
+      // being watched.
+      expect(everyTable).toContain(table);
+      expect(judged).toContain(table);
+    }
   });
 
   it('changes nothing when it is walked twice, either', async () => {
@@ -190,7 +269,7 @@ describe('The walk through writes nothing (e2e)', () => {
         await request(server()).get(path).set('Authorization', `Bearer ${token}`);
       }
     }
-    expect(await countEverything()).toEqual(before);
+    expect(stateOnly(await countEverything())).toEqual(stateOnly(before));
   });
 
   it('the three things that must not happen are all writes, and none was made', async () => {

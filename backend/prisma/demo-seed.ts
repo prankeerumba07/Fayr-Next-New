@@ -12,6 +12,7 @@ import { ScreenshotVerificationService } from '../src/ocr/screenshot.service';
 import { AssistantSeedService } from '../src/assistant/assistant-seed.service';
 import type { Env } from '../src/config/env.validation';
 import { TICKETS } from '../src/tickets/ticket.constants';
+import { OTP_RESEND_COOLDOWN_SECONDS } from '../src/auth/auth.constants';
 import { DEMO_CAMPAIGNS, type SeededCampaign } from './demo-catalogue';
 import { maskMobile } from '../src/auth/sms/mask';
 
@@ -69,6 +70,44 @@ export const RESERVED_FOR_LIVE_CLAIM = 'Spin Your Storage';
 export const DEMO_MOBILE_DEFAULT = '+919000000001';
 const REVIEW_CHECK_MOBILE = '+919000000002';
 const UNIT_COUNT_MOBILE = '+919000000003';
+
+/**
+ * WHO THE PRACTICE ACCOUNTS ARE, AND WHY THEY HAVE NAMES AT ALL.
+ *
+ * `name` is optional on a real account and null on most of them, which is why
+ * the staff panel draws "No name given" and why that sentence had to be built
+ * properly. But EVERY practice account being nameless meant the panel only ever
+ * showed the missing case: nobody looking at the demo could see what the page
+ * does when somebody has told us their name, and the top of a user page read as
+ * though the seed had half-failed.
+ *
+ * ORDINARY NAMES, NOT LABELS. Not "Test", not "Demo User", not "User 1". A
+ * placeholder in this column would be read aloud by a support agent as if it
+ * were somebody's name, which is the exact thing nameOrNull exists to prevent —
+ * and putting one here would defeat it from the other side.
+ */
+const DEMO_NAME = 'Meera Nair';
+const REVIEW_CHECK_NAME = 'Rohan Deshmukh';
+const UNIT_COUNT_NAME = 'Kavya Reddy';
+
+/**
+ * How long a sign-in code lives, for the shape of the seeded one below. It is
+ * not read from config on purpose: nothing here depends on the live TTL, and the
+ * seeded challenge is forced into the past regardless.
+ */
+const PRACTICE_OTP_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * HOW FAR BEFORE THE ACCOUNT THE SEEDED CODE WAS ASKED FOR.
+ *
+ * Long enough to be outside the resend cooldown, and read from the cooldown
+ * itself rather than guessed at. A first attempt put it twenty seconds before
+ * the account, which is the honest gap — and on a FRESH database that is twenty
+ * seconds before now, so requestOtp refused the practice number with "please
+ * wait before requesting a new code" for the first ten seconds after the seed
+ * finished. That is exactly the moment somebody tries to sign in on the handset.
+ */
+const PRACTICE_OTP_ASKED_BEFORE_MS = (OTP_RESEND_COOLDOWN_SECONDS + 30) * 1000;
 
 /** ₹100 — the minimum a withdrawal may be (withdrawal.constants.ts). */
 const WITHDRAWAL_AMOUNT_PAISE = 10_000n;
@@ -248,6 +287,12 @@ export interface DemoSeedReport {
   campaigns: number;
   staff: number;
   users: number;
+  /**
+   * Sign-in codes written behind the practice accounts — one each, already used.
+   * Counted so the run says out loud that it touched otp_challenges: a seed that
+   * writes a credentials table silently is a seed nobody audits.
+   */
+  codesAsked: number;
   /** Drafted assistant answers made readable in "Chat with us". */
   answersPublished: number;
   journeys: string[];
@@ -327,6 +372,7 @@ export async function seedDemo(
     campaigns: 0,
     staff: 0,
     users: 0,
+    codesAsked: 0,
     answersPublished: 0,
     journeys: [],
     skipped: [],
@@ -386,24 +432,106 @@ export async function seedDemo(
 
   // ── 3. users ──────────────────────────────────────────────────────────────
   const demoMobile = opts.demoMobile ?? envDemoMobile(config) ?? DEMO_MOBILE_DEFAULT;
-  const demo = await upsertUser(demoMobile);
-  const reviewCheckUser = await upsertUser(REVIEW_CHECK_MOBILE);
-  const unitCountUser = await upsertUser(UNIT_COUNT_MOBILE);
+  const demo = await upsertUser(demoMobile, DEMO_NAME);
+  const reviewCheckUser = await upsertUser(REVIEW_CHECK_MOBILE, REVIEW_CHECK_NAME);
+  const unitCountUser = await upsertUser(UNIT_COUNT_MOBILE, UNIT_COUNT_NAME);
   report.users = 3;
   // MASKED. DEMO_MOBILE now points at a real personal handset, and this line
   // gets pasted into chats and tickets when somebody reports that the seed did
   // something odd. The last two digits are enough to tell which account it is.
   say(`  users      3 (demo account: ${maskMobile(demoMobile)})`);
+  say(
+    `  codes      ${report.codesAsked} written, already used`
+      + (report.codesAsked < 3 ? ' (the rest already had one)' : ''),
+  );
 
-  async function upsertUser(mobile: string): Promise<{ id: string }> {
+  async function upsertUser(mobile: string, name: string): Promise<{ id: string }> {
     const user = await prisma.user.upsert({
       where: { mobile },
-      update: {},
-      create: { mobile },
+      // THE NAME IS IN BOTH HALVES, AND THE UPDATE HALF IS THE POINT.
+      //
+      // This used to be `update: {}`, which meant a database seeded before the
+      // names existed would keep showing "No name given" for ever: a re-run
+      // matches the row and then writes nothing to it. A fix that only works on
+      // a database nobody has yet is not a fix, because the database being
+      // looked at is always one that already exists.
+      update: { name },
+      create: { mobile, name },
     });
     // Idempotent by its own key, so re-running never re-grants.
     await tickets.grantSignup(user.id);
+    await ensureSignInChallenge(user.id, mobile);
     return { id: user.id };
+  }
+
+  /**
+   * ONE ALREADY-USED SIGN-IN CODE PER PRACTICE ACCOUNT.
+   *
+   * ── THE THING THIS REPAIRS, AND THE THING IT MUST NOT ─────────────────
+   *
+   * "Signing up" counts people who asked for a code out of otp_challenges, and
+   * people whose account was made out of users. The seed creates accounts
+   * directly and never wrote a challenge, so every practice account was somebody
+   * who had an account without ever asking for a code — and the funnel read 400%
+   * at "account created". The arithmetic was right and the data was wrong.
+   *
+   * SO THE DATA IS FIXED HERE AND THE FUNNEL IS NOT TOUCHED. A funnel counted
+   * over a fixed window can genuinely widen — somebody finishes setup this week
+   * having started it last week — and the screen says so in words. Clamping a
+   * number above 100% would hide a true thing to make a chart look tidy.
+   *
+   * ── IT IS ALREADY CONSUMED, AND THAT IS NOT A DETAIL ──────────────────
+   *
+   * An unconsumed challenge is a WORKING SIGN-IN CODE. One sitting in a practice
+   * database would be a way into an account that nobody meant to leave open, so
+   * `consumedAt` is always set and `expiresAt` is always in the past, whatever
+   * the clock says when the seed runs. test/seed.e2e-spec.ts pins both.
+   *
+   * `codeHash` is the hash of a sentence, never of a six-digit number: there is
+   * no code anywhere that could verify against it, so the row cannot be used
+   * even if both guards above were undone.
+   *
+   * ── AND IT SITS WHERE THE ACCOUNT SITS IN TIME ────────────────────────
+   *
+   * The instant is read back off the user's own row rather than taken from the
+   * clock, so a practice account backdated by the journeys carries a code asked
+   * for just before it — which is what keeps both inside whichever window the
+   * screen happens to be showing.
+   */
+  async function ensureSignInChallenge(userId: string, mobile: string): Promise<void> {
+    // No unique key on mobile, so a re-run has to ask before it writes. A real
+    // challenge from a real sign-in counts: this account has asked for a code,
+    // which is the only thing the funnel wants to know.
+    const already = await prisma.otpChallenge.findFirst({ where: { mobile } });
+    if (already) return;
+
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { createdAt: true },
+    });
+    const askedAt = new Date(user.createdAt.getTime() - PRACTICE_OTP_ASKED_BEFORE_MS);
+    // The earlier of "it ran its normal life" and "a second ago". On a freshly
+    // created account the first is in the future, and a code with a future
+    // expiry is a live one.
+    const expiresAt = new Date(
+      Math.min(askedAt.getTime() + PRACTICE_OTP_TTL_MS, Date.now() - 1_000),
+    );
+
+    await prisma.otpChallenge.create({
+      data: {
+        mobile,
+        userId,
+        purpose: 'LOGIN',
+        codeHash: await argon2.hash(
+          `practice sign-in for ${mobile} — this is a sentence, never a code`,
+        ),
+        createdAt: askedAt,
+        expiresAt,
+        consumedAt: user.createdAt,
+        attempts: 0,
+      },
+    });
+    report.codesAsked += 1;
   }
 
   // ── 4. the demo account's four journeys ───────────────────────────────────

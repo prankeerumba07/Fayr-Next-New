@@ -32,6 +32,12 @@ export const AUDIT_ACTIONS = {
   // reach a real person, and "who let this out" is the question asked afterwards.
   ASSISTANT_ANSWER_APPROVE: 'ASSISTANT_ANSWER_APPROVE',
   ASSISTANT_ANSWER_RETIRE: 'ASSISTANT_ANSWER_RETIRE', // staff withdrew an answer
+  // Kept apart from USER_VIEW deliberately. USER_VIEW is who somebody is; this is
+  // everything they have ever done, minute by minute. Reading a person's whole
+  // behaviour is its own act, and "who pulled this person's trail, and when" is a
+  // question that has to be answerable on its own rather than buried in the
+  // count of ordinary profile reads.
+  USER_ACTIVITY_VIEW: 'USER_ACTIVITY_VIEW',
   CHAT_VIEW: 'CHAT_VIEW', // staff opened one conversation, with the shopper's own words in it
   CHAT_TAKE: 'CHAT_TAKE', // staff put their name on a conversation
   CHAT_REPLY: 'CHAT_REPLY', // staff wrote to a shopper by hand

@@ -1,0 +1,16 @@
+-- A screen in the app was drawn, with the screen's name in the payload.
+--
+-- Every other value in this enum is a funnel step: something that happens once or
+-- twice in a person's life with Fayr, and that a chart counts people through.
+-- This one happens every time a screen appears, and it answers the question the
+-- funnel cannot — which screens do people actually reach, and which are built and
+-- never seen.
+--
+-- Appended rather than placed, because the values above read in funnel order and
+-- this is not one of them. IF NOT EXISTS so re-running against a database that
+-- already has it is not an error, matching the AnswerOrigin migration.
+--
+-- NO COLUMN CHANGES. The screen's name goes in the payload column that already
+-- exists, checked against a fixed list of route names before it gets there, so
+-- nothing personal can reach this table through the new value.
+ALTER TYPE "UserEventType" ADD VALUE IF NOT EXISTS 'SCREEN_VIEWED';

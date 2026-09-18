@@ -73,6 +73,7 @@ model User {
   assistantQuestions AssistantQuestion[]
   chats              Chat[]
   shopSignIns        ShopSignIn[]
+  userEvents         UserEvent[]
 
   @@map("users")
 }
@@ -241,6 +242,20 @@ model Campaign {
   productUrl String?
   imageUrl   String?
 
+  /// THE EXACT PHRASE TO TYPE INTO THE SHOP'S OWN SEARCH BOX, or null.
+  ///
+  /// Hand-written by ops, and deliberately NOT derivable from `productName`.
+  /// The product name is the catalogue's name and is what the refund is matched
+  /// against; this is what a real person types to find the thing on that shop.
+  /// On the owner's own design the campaign is "Perfora Purple Whitening
+  /// Toothpaste, 75ml" and the bar reads "purple corrector toothpaste perfora,
+  /// 75 ml".
+  ///
+  /// NULL IS AN HONEST ANSWER AND THE APP SAYS SO. It never falls back to the
+  /// product name: a keyword that finds the wrong product is worse than none,
+  /// and a quiet fallback would hide from ops that this needs writing.
+  searchKeyword String?
+
   /// WHAT THE SHOP'S OWN PAGE LOOKED LIKE the last time a person opened it, and
   /// when. One of LIVE_STATES in live-check/live-page.rules.ts.
   ///
@@ -408,7 +423,7 @@ model Task {
   /// NOT A CLAIM THAT A REVIEW EXISTS. Whether a review is publicly visible is
   /// settled from the shop's own page and from nowhere else. This says only that
   /// somebody left to write one.
-  wentToReviewAt      DateTime?
+  wentToReviewAt DateTime?
 
   /// HOW MANY DAYS THE ORDER WINDOW WAS WIDENED BY, FOR TESTING, WHEN IT WAS.
   ///
@@ -470,6 +485,13 @@ model Task {
   visibilityChecks  VisibilityCheck[]
   screenshotUploads ScreenshotUpload[]
   orderCandidates   OrderCandidate[]
+  /// THE REVIEW THEY WROTE INSIDE FAYR, or none.
+  ///
+  /// Its own table rather than columns here, because it is new primary data —
+  /// somebody's own words — and not a projection of `evidence` the way the
+  /// promoted columns above it are. It is also read far less often than a task
+  /// row is, and there is no reason for every feed query to carry a paragraph.
+  review            TaskReview?
 
   @@index([userId, state])
   @@index([campaignId])
@@ -1321,4 +1343,137 @@ model ChatMessage {
   @@index([chatId, sentAt])
   @@index([assistantQuestionId])
   @@map("chat_messages")
+}
+
+// ===========================================================================
+// GROWTH — PRODUCT MEASUREMENT
+// ===========================================================================
+
+/// What kind of thing happened. A String would have been less typing and the
+/// wrong choice: the whole point of this table is that a funnel step means the
+/// same thing in every query, and a typo in a string is a step that silently
+/// vanishes from a count.
+///
+/// Adding a step is adding a value here. Removing one is not allowed: a retired
+/// step still has to be countable in last quarter's numbers.
+enum UserEventType {
+  APP_OPENED /// the app was brought to the foreground
+  ONBOARDING_DONE /// finished the onboarding carousel
+  PHONE_ENTRY_SEEN /// reached the screen that asks for a number
+  OTP_REQUESTED /// asked us to send a code
+  OTP_VERIFIED /// entered a correct code
+  ACCOUNT_CREATED /// that verification created a new account
+  SETUP_STEP_DONE /// finished one step of the three-step setup
+  SETUP_DONE /// finished setup altogether
+  FEED_OPENED /// looked at the campaign list
+  FIRST_CLAIM /// claimed a campaign for the very first time
+  LOGGED_OUT /// signed out on purpose
+  SESSION_RENEWED /// the app renewed a session without asking anybody
+  SCREEN_VIEWED /// a screen in the app was drawn; the name is in the payload
+}
+
+/// One thing a person did, once, with a time on it.
+///
+/// APPEND-ONLY BY CONSTRUCTION, not by trigger. There is no @updatedAt and the
+/// service only ever inserts. It is deliberately NOT guarded the way the money
+/// ledgers are: those triggers exist because an edited ledger row is a lie about
+/// money, and the cost of the guard (every reset script has to know about it) is
+/// worth paying. This table is measurement. A wrong row here is a wrong chart,
+/// and the demo reset has enough to remember already.
+///
+/// WHY userId IS NULLABLE. Half the funnel happens before anybody has an account
+/// — opening the app, reading onboarding, reaching the phone screen. Those rows
+/// carry an anonymousId instead, minted by the app on first run, and the row that
+/// records a verified code carries both, which is the join that turns a stranger
+/// into a person after the fact.
+///
+/// NO MOBILE NUMBER, EVER. A number is personal data and this table is read by
+/// dashboards. The link from a pre-account event to a person is anonymousId, and
+/// nothing else.
+model UserEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  type UserEventType
+
+  /// Set once there is an account. Null for everything before that.
+  userId String? @db.Uuid
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The app's own first-run identifier. Survives sign-out, dies with the
+  /// install — which is exactly the thing an install-to-signup funnel counts.
+  anonymousId String?
+
+  /// Anything the step needs to be countable: which setup step, which platform
+  /// the feed was filtered to. Never anything that identifies a person.
+  payload Json?
+
+  at DateTime @default(now())
+
+  /// Counting one step over a period, which is every read this table gets.
+  @@index([type, at])
+  @@index([userId, at])
+  @@index([anonymousId, at])
+  @@map("user_events")
+}
+
+/// THE REVIEW A PERSON WROTE INSIDE FAYR, AND THE SCORE THE SERVER GAVE IT.
+///
+/// ── WHY FAYR KEEPS THE WORDS AT ALL ─────────────────────────────────────────
+///
+/// Zepto, Blinkit and Swiggy Instamart have no review form. All they take is a
+/// private star rating on the order, which nobody but the buyer can see. So for
+/// those shops the written review is written in Fayr and STAYS in Fayr — the
+/// shop gets the stars, and the descriptive feedback is the thing a brand is
+/// actually paying for.
+///
+/// ── AND IT MOVES NO MONEY ───────────────────────────────────────────────────
+///
+/// Writing one releases no refund, advances no task state and touches no wallet.
+/// That comes later and from somewhere else entirely: the shop's own page still
+/// saying the rating is there after the return window. Nothing reads this table
+/// to decide anything about a payout.
+model TaskReview {
+  id     String @id @default(uuid()) @db.Uuid
+  taskId String @unique @db.Uuid
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  /// EXACTLY WHAT THEY TYPED. Never trimmed, normalised, corrected or reflowed,
+  /// on the way in or the way out. The whole company rests on these being real
+  /// opinions in real people's own words, and a system that tidies them is a
+  /// system that has started writing them.
+  text String
+
+  /// How DESCRIPTIVE it is, 0-100, and never how positive — see
+  /// src/reviews/fayr-score.ts. Worked out by the SERVER from the text above,
+  /// because a number the server cannot vouch for is not worth storing. The app
+  /// scores as somebody types, for the person to see, and never sends it.
+  score Int
+  /// The same answer in a word: THIN, FAIR or STRONG. Stored beside the number
+  /// because the band is what a person was actually shown, and a later change to
+  /// where the band edges sit must not silently rewrite what somebody saw.
+  band  String
+
+  /// THE NUMBER OF STARS THEY GAVE THE PRODUCT AT THE SHOP, 1 to 5, or null.
+  ///
+  /// ── WHY FAYR KEEPS IT AT ALL ────────────────────────────────────────────
+  ///
+  /// The shop will never show us the review text back. On Zepto, Blinkit and
+  /// Instamart all an order page ever says is that the product HAS been rated —
+  /// never what the rating was. So this column is the only record anywhere of
+  /// what they actually gave, and the owner asked for it to be kept.
+  ///
+  /// ── IT IS A RECORD AND NEVER A REASON TO PAY OR NOT PAY ─────────────────
+  ///
+  /// Nothing in the refund gate, the task engine, the wallet or the task service
+  /// reads this. A one-star rating is paid exactly as a five-star one is, and a
+  /// check walks the whole of backend/src to keep that true.
+  ///
+  /// NULLABLE ON PURPOSE. Somebody may write the review before deciding the
+  /// number, and nothing in Fayr may ever force one out of them.
+  stars Int?
+
+  writtenAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("task_reviews")
 }

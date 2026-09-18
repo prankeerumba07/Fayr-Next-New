@@ -24,9 +24,9 @@ import {
   shouldCelebrateDelivery,
 } from './arrived.js';
 import {
-  REVIEW_FACES, REVIEW_OPENS_AFTER_MS, facePutsTheQuestion, faceSaysTheWait,
-  reviewLock, reviewStepFace,
+  REVIEW_FACES, facePutsTheQuestion, faceSaysTheWait, reviewStepFace,
 } from './reviewStep.js';
+import * as reviewStep from './reviewStep.js';
 import {
   EVERY_SENTENCE, HAVE_YOU_POSTED_THE_REVIEW, IS_THE_PRODUCT_DELIVERED,
   PRODUCT_DELIVERED, REFUND_CONFIRMED, REVIEW_CONFIRMATION_RECEIVED,
@@ -201,58 +201,110 @@ it('the router draws it over the step, and marks it seen when it ENDS', () => {
   equal(SAW_IT_ARRIVED, 'sawarrived');
 });
 
-console.log('\nstep 12: the review step is shut for a day after the parcel arrives');
+console.log('\nstep 12 WAS a 24 hour lock, and the owner took it out on 18 September 2026');
 
-it('TWENTY FOUR HOURS, AND FROM THE DELIVERY INSTANT ON THE RECORD', () => {
-  // "The 24 hours are measured from the DELIVERY instant on the record, which is
-  // the server's word and not the phone's."
-  equal(REVIEW_OPENS_AFTER_MS, A_DAY);
-  const shut = reviewLock({ deliveredAt: AN_ARRIVAL, now: AN_ARRIVAL + 1000 });
-  equal(shut.locked, true);
-  equal(shut.opensAt, AN_ARRIVAL + A_DAY);
+// ── THE RULE THAT REPLACED IT ───────────────────────────────────────────────
+//
+// His words: "I don't want the review step to get locked for 24 hours after
+// delivery. A user can provide a review whenever they want to, and for
+// marketplaces like quick marketplaces like ZEPTO, Blinkit and Instamart, they
+// can actually use it and give the review anytime they want. This 24-hour lock,
+// I don't want in my app."
+//
+// EVERY SHOP, not only the three. Zepto is what made it obviously wrong — a ten
+// minute delivery behind a day-long wait — but the rule he stated is general.
+//
+// THE CHECKS BELOW REPLACE FOUR THAT WENT WITH IT: that the wait was twenty four
+// hours, that it was still shut a millisecond before, that it opened on the
+// instant, and that the screen re-armed a timer to open itself. None of those
+// describe anything that exists.
+
+it('A TASK DELIVERED ONE SECOND AGO REACHES THE REVIEW STEP', () => {
+  // THE CHECK THE PHASE ASKED FOR. A ten minute Zepto delivery is the case this
+  // is really about: the parcel is in somebody's hand and the step they came for
+  // is in front of them.
+  equal(reviewStepFace({ wentToReview: false }), 'guide');
+  equal(reviewStepFace({ wentToReview: true }), 'asking');
+  // AND NO COMBINATION OF FACTS PRODUCES A LOCK, because there is nothing left
+  // that could. Walked rather than asserted.
+  for (const wentToReview of [true, false]) {
+    for (const told of [true, false]) {
+      for (const justAskedYes of [true, false]) {
+        for (const lookJustRan of [true, false]) {
+          const face = reviewStepFace({ wentToReview, told, justAskedYes, lookJustRan });
+          ok(REVIEW_FACES.includes(face), `${face} is one of the five`);
+          ok(face !== 'locked', 'and never a lock, whatever has happened');
+        }
+      }
+    }
+  }
 });
 
-it('it is still shut one millisecond before the day is up', () => {
-  const shut = reviewLock({ deliveredAt: AN_ARRIVAL, now: AN_ARRIVAL + A_DAY - 1 });
-  equal(shut.locked, true);
-  equal(shut.msLeft, 1);
+it('A TASK WITH NO DELIVERY INSTANT IS NOT REFUSED THE STEP', () => {
+  // "We don't know when it arrived" can never be a reason to refuse somebody the
+  // step they came for. It cannot be one now because there is nothing here for a
+  // delivery instant to be missing FROM — the face is decided without one.
+  equal(reviewStepFace({ deliveredAt: null, wentToReview: false }), 'guide');
+  equal(reviewStepFace({ deliveredAt: undefined, wentToReview: true }), 'asking');
+  equal(reviewStepFace({}), 'guide');
+  equal(reviewStepFace(), 'guide');
+  // AND A DELIVERY INSTANT HANDED IN ANYWAY CHANGES NOTHING, which is the
+  // stronger statement: the argument is not merely tolerated, it is inert.
+  for (const at of [null, undefined, 0, AN_ARRIVAL, AN_ARRIVAL + A_DAY, NaN, 'yesterday']) {
+    equal(reviewStepFace({ deliveredAt: at, now: AN_ARRIVAL, wentToReview: true }), 'asking',
+      `a deliveredAt of ${String(at)} decides nothing`);
+  }
 });
 
-it('AND OPEN ON THE INSTANT IT IS UP, not a poll later', () => {
-  const open = reviewLock({ deliveredAt: AN_ARRIVAL, now: AN_ARRIVAL + A_DAY });
-  equal(open.locked, false);
-  equal(open.msLeft, 0);
+it('NOTHING STILL IMPORTS reviewLock OR REVIEW_OPENS_AFTER_MS', () => {
+  // GONE, NOT SET TO ZERO. A waiting period of nought is still a waiting period:
+  // it keeps a clock, a face nobody can reach, and a number somebody will one
+  // day put back.
+  equal(reviewStep.reviewLock, undefined, 'reviewLock is not exported');
+  equal(reviewStep.REVIEW_OPENS_AFTER_MS, undefined, 'and neither is the wait');
+  ok(!Object.keys(reviewStep).includes('reviewLock'), 'it is not exported under any shape');
+
+  // AND NO FILE IN THE APP REACHES FOR EITHER, read off the code and not the prose.
+  for (const file of ['src/journey/reviewStep.js', 'src/screens/reviewguide.js',
+    'src/ui/journeyWords.js', 'src/ui/journey.js', 'src/journey/JourneyScreen.js']) {
+    const code = withoutComments(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8'));
+    for (const gone of ['reviewLock', 'REVIEW_OPENS_AFTER_MS', 'ASK_AGAIN_AT_MOST_EVERY_MS']) {
+      ok(!code.includes(gone), `${file} still names ${gone}`);
+    }
+  }
+  // AND THE WAITING PERIOD IS NOT HIDING AS A ZERO ANYWHERE.
+  const step = withoutComments(readFileSync(new URL('./reviewStep.js', import.meta.url), 'utf8'));
+  ok(!/24 \* 60 \* 60 \* 1000/.test(step), 'there is no day-long span left in the file');
+  ok(!/deliveredAt|Date\.now\(\)/.test(step), 'and no clock and no delivery instant at all');
 });
 
-it('NO DELIVERY INSTANT MEANS NOT SHUT, which is the safe direction', () => {
-  // A step shut on a clock nobody can read is a step that never opens, and the
-  // person has no way to tell anybody.
-  equal(reviewLock({ deliveredAt: null, now: AN_ARRIVAL }).locked, false);
-  equal(reviewLock({}).locked, false);
-});
-
-it('it opens by itself, with nothing tapped and nothing refreshed', () => {
+it('THE SCREEN KEEPS NO CLOCK, because there is nothing to wait for', () => {
   const code = withoutComments(GUIDE);
-  ok(/ASK_AGAIN_AT_MOST_EVERY_MS/.test(code), 'there is no timer at all');
-  // RE-ARMED FROM WHAT IS REALLY LEFT. A single timer set for a whole day is a
-  // timer no phone can be trusted to keep, and a fixed poll is late at the one
-  // moment that matters.
-  ok(/Math\.min\(shut\.msLeft, ASK_AGAIN_AT_MOST_EVERY_MS\)/.test(code),
-    'the timer must be the smaller of a minute and what is really left');
+  ok(!/setTimeout|setInterval/.test(code), 'there is no timer at all');
+  ok(!/deliveredInstant/.test(code), 'nor the delivery instant it used to measure from');
+  // THE ONE CLOCK READ LEFT IS NOT A WAIT. It is "you posted it two hours ago",
+  // which is a span since something that already happened rather than a span
+  // until something is allowed — and it is measured from wentToReviewAt, never
+  // from a delivery.
+  const clocks = [...code.matchAll(/Date\.now\(\)/g)];
+  equal(clocks.length, 1, 'the screen reads the clock once and no more');
+  ok(/howLongAgoInWords\(Date\.now\(\) - went\)/.test(code),
+    'and that once is how long ago they posted it, not how long until anything');
 });
 
-console.log('\nsteps 15 to 21: the six faces of the review step');
-
-const facesFor = (over) => reviewStepFace({
-  deliveredAt: AN_ARRIVAL, now: AN_ARRIVAL + A_DAY + 1000, ...over,
+it('AND THE SHOP\u2019S OWN 48 TO 72 HOURS IS UNTOUCHED, because it is not ours', () => {
+  // It is a fact about the SHOP publishing a review, not a rule of Fayr's, and
+  // the phase says so in as many words.
+  equal(reviewsGoLiveIn('Zepto'),
+    'Zepto reviews go live 48 to 72 hours after they are submitted.');
+  ok(EVERY_SENTENCE.includes(waitThenComeBack('Amazon')),
+    'and the sentence that carries it is still in the app\u2019s own words');
+  ok(faceSaysTheWait('notice') && faceSaysTheWait('notice-again'));
 });
 
-it('SHUT BEATS EVERYTHING, whatever else has happened', () => {
-  equal(reviewStepFace({
-    deliveredAt: AN_ARRIVAL, now: AN_ARRIVAL + 5,
-    wentToReview: true, told: true, justAskedYes: true, lookJustRan: true,
-  }), 'locked');
-});
+console.log('\nsteps 15 to 21: the five faces of the review step');
+
+const facesFor = (over) => reviewStepFace({ ...over });
 
 it('step 13: before they go, it is the guide', () => {
   equal(facesFor({ wentToReview: false }), 'guide');
@@ -287,13 +339,16 @@ it('and "just said yes" beats "a look just ran", because it is more recent', () 
   }), 'notice');
 });
 
-it('there are six faces; five are named on the screen and the sixth is the rest', () => {
+it('there are five faces; four are named on the screen and the fifth is the rest', () => {
   // THE GUIDE IS THE FALL-THROUGH, and saying so is more honest than making the
-  // screen name it. Five faces are special cases of the review step and each one
+  // screen name it. Four faces are special cases of the review step and each one
   // returns early; what is left is the guide the screen has always been. A
   // `return null` for an unrecognised face would draw a blank screen, which is
   // worse than drawing the guide.
-  equal(REVIEW_FACES.length, 6);
+  //
+  // SIX UNTIL 18 SEPTEMBER 2026. 'locked' went with the waiting period.
+  equal(REVIEW_FACES.length, 5);
+  ok(!REVIEW_FACES.includes('locked'), 'and the lock is not one of them');
   const code = withoutComments(GUIDE);
   // READ OFF THE BRANCHES THEMSELVES, not off the file containing the word.
   // Caught by breaking it: one face was dropped from the branch that draws it,
@@ -303,14 +358,17 @@ it('there are six faces; five are named on the screen and the sixth is the rest'
     .flatMap((m) => [m[1], m[2]])
     .filter(Boolean);
   deepEqual(branches.sort(),
-    ['asking', 'asking-again', 'locked', 'notice', 'notice-again']);
+    ['asking', 'asking-again', 'notice', 'notice-again']);
   ok(!branches.includes('guide'), 'the guide must be what is left, not a sixth branch');
 });
 
 it('THE SCREEN ASKS THE HELPER AND DOES NOT DECIDE FOR ITSELF', () => {
   const code = withoutComments(GUIDE);
   ok(/reviewStepFace\(\{/.test(code), 'the screen must ask which face this is');
-  ok(/reviewLock\(\{/.test(code), 'and it must ask whether the step is shut');
+  // AND IT ASKS NOTHING ELSE. The second helper it used to ask — reviewLock —
+  // no longer exists; this is what stops the screen growing its own answer in
+  // the space where a call used to be.
+  ok(!/const face = [^;]*\?/.test(code), 'and the face is not decided on this screen');
 });
 
 console.log('\nsteps 14 and 17: our own side knows they went, and when');

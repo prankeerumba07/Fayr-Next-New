@@ -237,9 +237,12 @@ export async function freePracticeClaims(
       where: { taskId: task.id, reason: 'EXPIRY_RETURN' },
     });
 
-    // A claim that has been let go still holds its seat, so an offer with every
-    // seat taken is free and still shut. Saying "you can claim it again" without
-    // checking would send him straight into "this offer is full".
+    // WHETHER IT CAN BE CLAIMED AGAIN IS READ OFF THE SAME COUNT THE GATE USES,
+    // and not worked out here. Until 18 September 2026 a released claim kept its
+    // seat, so on a one-seat offer this line said "free and still shut" — which
+    // is what the owner saw, and why the rule changed in seats.ts. Nothing about
+    // this call changed with it: it asks the one predicate, so it answers
+    // whatever the gate would answer.
     const taken = await prisma.task.count({
       where: CLAIMED_SEATS_WHERE(task.campaignId),
     });

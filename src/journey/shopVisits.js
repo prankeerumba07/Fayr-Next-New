@@ -36,6 +36,11 @@ import { File, Paths } from 'expo-file-system';
 // does not know this file exists.
 import { getTaskId } from '../taskStore';
 
+// THE NAMING RULE ITSELF, in a file that can be opened under node. This one
+// cannot: expo-file-system and the task store are both above. See
+// src/journey/noteNames.js for the run that made a note belong to a claim.
+import { noteNameFor } from './noteNames.js';
+
 const FILE = 'fayr-shop-visits.json';
 
 /** The three things a note can say. Anything else is not written. */
@@ -82,9 +87,32 @@ export const SAW_IT_ARRIVED = 'sawarrived';
  * are held to.
  */
 export const SAID_IT_ARRIVED = 'saidarrived';
+/**
+ * ── AND ONE FOR THE SHOP INSIDE FAYR: THE ORDER READ HAS RUN ──────────────
+ *
+ * Added 18 September 2026 with Phase 7, which takes "Did you buy it?" off the
+ * journey for a shop that is shopped inside Fayr. For those shops nobody says
+ * they bought anything: the read runs by itself, when the shop's page looks like
+ * an order was placed and when they leave the shop. This note is written the
+ * moment the read is handed to, and it answers one question for the router —
+ * has a read run for this claim at all?
+ *
+ * WHY IT IS ITS OWN NOTE AND NOT SAID_THEY_BOUGHT. That one is a person's word.
+ * This one is a thing Fayr did. The router treats them alike — both mean "the
+ * next honest offer is the screenshot fallback" once the record still shows no
+ * order — but writing Fayr's action under a name that says "they said" would
+ * put words in somebody's mouth on the record.
+ *
+ * AND "WE HAVE NOT LOOKED YET" IS NOT A FAILURE, which is exactly why the note
+ * exists: without it the router could not tell a claim whose read found nothing
+ * from a claim whose read has never run, and would offer a screenshot to somebody
+ * who has not even been shopping.
+ */
+export const LOOKED_FOR_THE_ORDER = 'looked';
 const REASONS = [
   SIGNED_IN, WENT_TO_BUY, SAID_THEY_BOUGHT,
   WENT_TO_REVIEW, TOLD_ABOUT_THE_REVIEW_WAIT, SAW_IT_ARRIVED, SAID_IT_ARRIVED,
+  LOOKED_FOR_THE_ORDER,
 ];
 
 let visited = null; // null = not read yet
@@ -132,8 +160,7 @@ function file() {
  * exists, and losing it costs one page: this file's own note above says so.
  */
 function noteName(campaignId, why) {
-  const taskId = getTaskId(campaignId);
-  return taskId ? `${campaignId}::${taskId}::${why}` : `${campaignId}::${why}`;
+  return noteNameFor(campaignId, getTaskId(campaignId), why);
 }
 
 function read() {
@@ -180,7 +207,11 @@ export function hasVisitedShop(campaignId, why) {
       || REASONS.some((r) => set.has(noteName(campaignId, r)));
   }
   if (!REASONS.includes(why)) return false;
-  return set.has(noteName(campaignId, why));
+  const name = noteName(campaignId, why);
+  // NO NAME MEANS NO NOTE. noteNameFor refuses to invent one rather than
+  // returning a name with a hole in it, and a hole would be one note shared by
+  // every offer on the phone.
+  return name != null && set.has(name);
 }
 
 /** Note that this has been done for this offer. An unknown reason writes nothing. */
@@ -190,6 +221,7 @@ export function markVisitedShop(campaignId, why) {
   if (!REASONS.includes(reason)) return;
   const set = read();
   const name = noteName(campaignId, reason);
+  if (name == null) return;
   if (set.has(name)) return;
   set.add(name);
   save(set);

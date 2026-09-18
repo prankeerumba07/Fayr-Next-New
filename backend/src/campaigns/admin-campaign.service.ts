@@ -18,6 +18,53 @@ import type { UpdateCampaignDto } from './dto/update-campaign.dto';
 /** A campaign may only be edited while it's a draft or paused (never live/ended). */
 const EDITABLE_STATUSES: readonly CampaignStatus[] = ['DRAFT', 'PAUSED'];
 
+/**
+ * THE ONE FIELD THAT MAY BE CHANGED WHILE A CAMPAIGN IS LIVE, AND WHY IT IS ONE.
+ *
+ * ── WHAT THE LOCK ABOVE IS FOR ─────────────────────────────────────────────
+ *
+ * It exists so a LIVE campaign's terms cannot shift under a task somebody has
+ * already claimed. Price, payout percent, cap, ticket cost, return window,
+ * minimum rating, slots, the T&C text — every one of those changes what a person
+ * is owed or what they must do to be owed it, and changing one mid-claim would
+ * move the goalposts on somebody who is already running at them.
+ *
+ * ── AND WHY A SEARCH PHRASE IS NOT THAT ────────────────────────────────────
+ *
+ * `searchKeyword` changes what somebody types into a shop's search box. It is
+ * not shown on the offer, it is not in the terms, no task reads it, and no
+ * refund is computed from it. It cannot change what anybody is owed, and the
+ * worst a bad one can do is send somebody to a search that finds nothing —
+ * which is exactly what an EMPTY one already does.
+ *
+ * The owner has fifteen live campaigns with no keyword. The alternative to this
+ * exemption is fifteen pause-and-publish cycles, each of which takes a live
+ * offer off the feed and puts it back, to change a phrase that cannot affect a
+ * single payout.
+ *
+ * ── THE EXEMPTION IS NARROW ON PURPOSE, IN THREE WAYS ──────────────────────
+ *
+ * ONE FIELD. Not "text fields", not "display fields" — this list, of one, by
+ * name. A second entry is a decision somebody has to make deliberately.
+ *
+ * ALONE. A body carrying `searchKeyword` AND anything else is refused exactly as
+ * before, so the exemption cannot be used to smuggle a price change past the
+ * lock in the same request.
+ *
+ * ACTIVE ONLY. An ENDED campaign stays completely shut. Nobody is going to type
+ * a search phrase for an offer that is over, so there is nothing to buy by
+ * relaxing it and a rule that stays simple is worth more.
+ */
+const EDITABLE_WHILE_LIVE: readonly string[] = ['searchKeyword'];
+
+/** Is this body ONLY the field a live campaign is allowed to change? */
+function onlyTheOneAllowedWhileLive(dto: UpdateCampaignDto): boolean {
+  const given = Object.keys(dto).filter(
+    (k) => (dto as Record<string, unknown>)[k] !== undefined,
+  );
+  return given.length > 0 && given.every((k) => EDITABLE_WHILE_LIVE.includes(k));
+}
+
 /** Trim a string; treat empty (or whitespace-only) as an explicit clear → null. */
 function emptyToNull(v: string): string | null {
   const t = v.trim();
@@ -111,6 +158,7 @@ export class AdminCampaignService {
         totalSlots: dto.totalSlots,
         asin: dto.asin?.trim() || null,
         productUrl: dto.productUrl?.trim() || null,
+        searchKeyword: dto.searchKeyword?.trim() || null,
         imageUrl: dto.imageUrl?.trim() || null,
         terms: dto.terms?.trim() || null,
       },
@@ -135,7 +183,13 @@ export class AdminCampaignService {
   ): Promise<CampaignResponse> {
     const campaign = await this.prisma.campaign.findUnique({ where: { id } });
     if (!campaign) throw new NotFoundException('Campaign not found');
-    if (!EDITABLE_STATUSES.includes(campaign.status)) {
+    // A LIVE CAMPAIGN IS SHUT, WITH ONE NAMED EXCEPTION — see
+    // EDITABLE_WHILE_LIVE above for which field, and the whole argument for why
+    // that one and nothing else.
+    if (
+      !EDITABLE_STATUSES.includes(campaign.status)
+      && !(campaign.status === 'ACTIVE' && onlyTheOneAllowedWhileLive(dto))
+    ) {
       throw new ConflictException(
         campaign.status === 'ACTIVE'
           ? 'Pause the campaign before editing it'
@@ -166,6 +220,8 @@ export class AdminCampaignService {
     if (dto.asin !== undefined) data.asin = emptyToNull(dto.asin);
     if (dto.productUrl !== undefined)
       data.productUrl = emptyToNull(dto.productUrl);
+    if (dto.searchKeyword !== undefined)
+      data.searchKeyword = emptyToNull(dto.searchKeyword);
     if (dto.imageUrl !== undefined) data.imageUrl = emptyToNull(dto.imageUrl);
     if (dto.terms !== undefined) data.terms = emptyToNull(dto.terms);
 

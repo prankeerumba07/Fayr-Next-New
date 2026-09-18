@@ -236,12 +236,35 @@ it('AND THE SEARCH HARVEST LINE IS COUNTS, never a number it found', () => {
 
 it('and NO call site anywhere passes a page or an order text', () => {
   const calls = screen.match(/logLook\([\s\S]*?\);/g) || [];
-  // SIX NOW, AND IT IS A DECISION AND NOT A DRIFT. The fifth and sixth are the
+  // SEVEN NOW, AND IT IS A DECISION AND NOT A DRIFT. The fifth and sixth are the
   // shop's own order search and what was harvested off it, added on 16 September
   // 2026 when the read learned to ask for one order by name instead of reading a
   // page of ten. This count exists so that adding a call site is something
   // somebody has to come here and think about, and that is what it just did.
-  ok(calls.length === 6, `expected six calls, found ${calls.length}`);
+  //
+  // THE SEVENTH IS "LOAD MORE", added 18 September 2026. The owner's read found
+  // nothing on an account that had the order on it: Zepto's list loads eight at
+  // a time and the order was sixty rows back. The phase asked for every press
+  // and the row count after it to be written down, and this is that line.
+  //
+  // IT IS COUNTS AND ONE FIXED SENTENCE. How many presses, how many rows the
+  // list held before each one, how many at the end, whether a button was still
+  // there, and which of the three stops ended it — that last one from
+  // src/shop/loadMore.js rather than written at the call site. Not one order
+  // number, not one word off the page.
+  //
+  // AND IT IS ONLY WRITTEN WHEN SOMETHING WAS PRESSED, so a shop with no
+  // measured button — which is every shop but Zepto — logs exactly what it did
+  // before.
+  ok(calls.length === 7, `expected seven calls, found ${calls.length}`);
+  const pressing = calls.find((c) => c.includes("logLook('presses'"));
+  ok(pressing != null, 'and the seventh is the pressing line');
+  ok(/n=\$\{drawn\.presses\}/.test(pressing) && /rows=\$\{drawn\.rowsAtTheEnd\}/.test(pressing),
+    'which carries how many presses and how many rows, both counts');
+  ok(/rowsBeforeEach=\$\{drawn\.rowsBeforeEachPress\.join\(','\)\}/.test(pressing),
+    'and the count before each press, which is how a dead button is told from a slow shop');
+  ok(!/\.html|orderNumbers|numbers\[|detail\.landed/.test(pressing),
+    'and nothing off the page at all');
   for (const call of calls) {
     ok(!/detail\.text|\.blocks|outcome\.blocks/.test(call),
       `a call site carries page text: ${call.slice(0, 80)}`);

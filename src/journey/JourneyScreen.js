@@ -44,9 +44,10 @@ import { journeyView } from '../ui/journey';
 import { goBackOrHome } from '../ui/nav';
 import { screenFor } from '../screens';
 import {
-  SAID_IT_ARRIVED, SAID_THEY_BOUGHT, SAW_IT_ARRIVED, SIGNED_IN, WENT_TO_BUY,
-  hasVisitedShop, markVisitedShop,
+  LOOKED_FOR_THE_ORDER, SAID_IT_ARRIVED, SAID_THEY_BOUGHT, SAW_IT_ARRIVED,
+  SIGNED_IN, WENT_TO_BUY, hasVisitedShop, markVisitedShop,
 } from './shopVisits';
+import { shopsInsideFayr } from '../shop/insideFayr';
 import ArrivedMoment from './ArrivedMoment';
 import { shouldCelebrateDelivery } from './arrived';
 import { isConnected as isShopConnected } from '../backend/connectedShops';
@@ -148,6 +149,14 @@ export default function JourneyScreen({ navigation, route }) {
     // completely — see journey.js, where the server's record is read first.
     wentToBuy: hasVisitedShop(campaignId, WENT_TO_BUY),
     saidTheyBought: hasVisitedShop(campaignId, SAID_THEY_BOUGHT),
+    // ── THE TWO FACTS PHASE 7 ADDED, FOR A SHOP INSIDE FAYR ─────────────────
+    //
+    // Whether this shop is shopped inside Fayr is a fact about the CAMPAIGN,
+    // answered here from the one list that knows, so journey.js stays a
+    // function of its arguments. Whether a read has run is a note on the phone,
+    // written by ShopScreen the moment it hands over to the read.
+    inFayrShop: shopsInsideFayr(marketplace),
+    lookedForTheOrder: hasVisitedShop(campaignId, LOOKED_FOR_THE_ORDER),
     // Whether they have answered "yes, it arrived". The record's delivery and
     // this are different facts — see the DELIVERED branch in ui/journey.js.
     saidItArrived: hasVisitedShop(campaignId, SAID_IT_ARRIVED),

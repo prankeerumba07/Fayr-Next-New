@@ -68,8 +68,15 @@ console.log('\n=== 2b. the four teams, and nothing lost on the way to them ===')
 
   // Who owns what, as decided. Not a guess — the ownership was named, and if it
   // moves, it moves here first.
+  //
+  // "Signing up" (growth) joined the everyone team on 17 September 2026, for the
+  // same reason "How Fayr is running" did: it answers a question no single team
+  // owns. Finance, support and operations all have a reason to know how many
+  // people reach each step of signing up, so it is readable by all four roles and
+  // sits in the group that belongs to nobody. The section itself is correct and
+  // staying; this list simply had not been told about it.
   const OWNERSHIP = {
-    everyone: ['running'],
+    everyone: ['running', 'growth'],
     finance: ['withdrawals', 'reports'],
     support: ['queue', 'chats', 'chat', 'answers', 'verifications', 'reviews'],
     operations: ['amounts', 'staff', 'search'],
@@ -1425,6 +1432,1032 @@ console.log('\n=== the cash-out queue says where the money came from ===');
   const card = (script.match(/function wcard[\s\S]*?\n    }/) || [])[0] || script;
   ok(!/basis\.\w+\s*[-+*/]/.test(card),
     'the panel computes nothing from the basis it is handed');
+}
+
+console.log('\n=== one person\'s trail, actually run ===');
+{
+  // ── WHY THIS IS RUN AND NOT READ ────────────────────────────────────────
+  //
+  // The same lesson the practice-window mark taught. A string match would pass
+  // on a grouping function that returned one day for everything, on a trim line
+  // that printed the count without the total, and on an empty state that drew a
+  // blank box — every one of those leaves the strings in the file. These call the
+  // functions.
+  const from = script.indexOf("// ── one person's trail: begin");
+  const to = script.indexOf("// ── one person's trail: end");
+  ok(from > 0 && to > from, 'the trail section is marked off in the panel');
+
+  const src = script.slice(from, to);
+  const run = new Function(`
+    var seen = [];
+    function h(tag, attrs) {
+      var kids = Array.prototype.slice.call(arguments, 2);
+      var node = { tag: tag, attrs: attrs || {}, kids: kids };
+      seen.push(node);
+      return node;
+    }
+    // The panel's own fmtDay, copied because it lives outside the block. If these
+    // two ever differ the grouping check below is measuring the wrong function,
+    // which is why the next check asserts they agree.
+    function fmtDay(iso) {
+      if (!iso) return "—";
+      return new Date(iso).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" });
+    }
+    function api() {} function render() {}
+    var state = { user: { id: "u1", activity: { loading: false, error: null, data: null, days: 30 } } };
+    ${src}
+    return {
+      byDay: activityByDay, trim: activityTrimLine, empty: activityEmptyLine,
+      setup: activitySetupLine, quiet: activityQuietLine, row: ActivityRow,
+      timeline: ActivityTimeline, fmtDay: fmtDay,
+      plural: plural, count: fmtCount, summary: ActivitySummary,
+      kinds: ACTIVITY_KIND, windows: ACTIVITY_WINDOWS, steps: ACTIVITY_SETUP_STEPS,
+      state: state, seen: seen,
+    };
+  `)();
+
+  // Every text node anywhere in a rendered tree, so a sentence can be looked for
+  // without knowing which element it landed in.
+  const words = (node) => {
+    if (node == null || node === false) return '';
+    if (Array.isArray(node)) return node.map(words).join(' ');
+    if (typeof node !== 'object') return String(node);
+    return words(node.kids);
+  };
+
+  // ── 1. GROUPED BY DAY ───────────────────────────────────────────────────
+  //
+  // Three days, and two entries in the SAME MINUTE, which is the case that
+  // separates "group by day" from "one heading per row".
+  const SPAN = [
+    { at: '2026-09-17T10:15:00.000Z', kind: 'task', what: 'Claimed an offer', detail: null },
+    { at: '2026-09-17T09:30:10.000Z', kind: 'chat', what: 'Wrote in', detail: 'in English' },
+    { at: '2026-09-17T09:30:40.000Z', kind: 'screen', what: 'Opened Wallet', detail: null },
+    { at: '2026-09-16T18:00:00.000Z', kind: 'withdrawal', what: 'Asked to withdraw ₹250', detail: null },
+    { at: '2026-09-14T08:00:00.000Z', kind: 'signup', what: 'Finished setting up', detail: null },
+  ];
+  const grouped = run.byDay(SPAN);
+  ok(grouped.length === 3, `three days become three headings, got ${grouped.length}`);
+  ok(grouped[0].entries.length === 3,
+    `the three on the first day are under ONE heading, got ${grouped[0].entries.length}`);
+  ok(grouped[1].entries.length === 1 && grouped[2].entries.length === 1,
+    'the other two days carry one each');
+  // Two in the same minute stay separate rows under one heading — a day is the
+  // grouping, not a minute.
+  ok(grouped[0].entries[1].what === 'Wrote in' && grouped[0].entries[2].what === 'Opened Wallet',
+    'two entries in the same minute are both kept, in the order the server sent');
+  // The heading IS the key, so a heading can never appear twice.
+  const headings = grouped.map((g) => g.day);
+  ok(new Set(headings).size === headings.length,
+    `no date is printed twice, got [${headings.join(' | ')}]`);
+  ok(grouped.every((g) => g.day === run.fmtDay(g.entries[0].at)),
+    'each heading is the day its own entries fall on');
+  // And it does not re-sort: the server's order is total, a second opinion here
+  // would disagree with it the first time either changed.
+  ok(run.byDay([SPAN[4], SPAN[0]])[0].entries[0].what === 'Finished setting up',
+    'the panel preserves the order it was given rather than sorting again');
+  ok(run.byDay([]).length === 0, 'no entries makes no headings');
+
+  // ── 2. THE TRIM MESSAGE ─────────────────────────────────────────────────
+  ok(run.trim({ shown: 500, total: 500, trimmed: 0 }) === null,
+    'NOTHING is said when nothing was trimmed');
+  ok(run.trim({ shown: 0, total: 0, trimmed: 0 }) === null, 'and not on an empty trail');
+  const trimmed = run.trim({ shown: 500, total: 1342, trimmed: 842 });
+  ok(typeof trimmed === 'string' && trimmed.includes('500') && trimmed.includes('1,342'),
+    `it names BOTH numbers, got ${JSON.stringify(trimmed)}`);
+  ok(/narrow the window/i.test(trimmed), 'and says what to do about it');
+  // The defect this sentence exists to prevent: "Showing 500" reads as "there
+  // were 500". There must be no branch that produces one number without the other.
+  ok(!/^Showing \d[\d,]*\.?$/.test(trimmed.trim()),
+    'THE COUNT IS NEVER SHOWN WITHOUT THE TOTAL');
+
+  // ── 3. NINE KINDS, EACH WITH A WORD AND A COLOUR ────────────────────────
+  //
+  // Read out of the SERVER'S list, not copied. A kind added to
+  // backend/src/events/activity.ts without a word and a colour here would render
+  // unstyled and nobody would notice, so it fails here instead.
+  const activityTs = fs.readFileSync(
+    path.join(import.meta.dirname, '..', 'backend', 'src', 'events', 'activity.ts'), 'utf8');
+  const kindsBlock = (activityTs.match(/export const ACTIVITY_KINDS = \[([\s\S]*?)\] as const;/) || [])[1] || '';
+  const serverKinds = [...kindsBlock.matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
+  ok(serverKinds.length === 9, `the server declares nine kinds, found ${serverKinds.length}`);
+  const panelKinds = Object.keys(run.kinds);
+  ok(JSON.stringify([...panelKinds].sort()) === JSON.stringify([...serverKinds].sort()),
+    `the panel knows exactly the server's kinds — server [${serverKinds.join(', ')}], panel [${panelKinds.join(', ')}]`);
+  for (const kind of serverKinds) {
+    const k = run.kinds[kind];
+    ok(k && typeof k.word === 'string' && k.word.length > 0, `${kind} has a word`);
+    ok(k && typeof k.tone === 'string' && /^var\(--[a-z]+\)$/.test(k.tone),
+      `${kind} has a colour, and it is a token rather than a hex value`);
+  }
+  // COLOUR IS NEVER THE ONLY SIGNAL. Every row prints its kind as a word, so the
+  // screen works for somebody who cannot tell two of these colours apart.
+  for (const kind of serverKinds) {
+    const drawn = words(run.row({ at: '2026-09-17T10:00:00.000Z', kind, what: 'A thing happened', detail: null }));
+    ok(drawn.includes(run.kinds[kind].word),
+      `a ${kind} row prints its kind as a WORD, not only as a colour`);
+    ok(drawn.includes('A thing happened'), `a ${kind} row prints the server's sentence`);
+  }
+  // The named groupings the design asks for, asserted rather than described.
+  ok(run.kinds.withdrawal.tone === 'var(--ok)', 'money has its own colour');
+  ok(run.kinds.task.tone === 'var(--info)', 'offers have another');
+  ok(run.kinds.chat.tone === run.kinds.question.tone,
+    'the two ways somebody reaches out share one colour');
+  ok(run.kinds.chat.tone !== run.kinds.task.tone && run.kinds.chat.tone !== run.kinds.withdrawal.tone,
+    'and support is not money and not offers');
+  ok(run.kinds.screen.tone === 'var(--muted)', 'screens are the faintest');
+  // A kind the server grows tomorrow still draws, under its own name, rather than
+  // vanishing — a gap in a trail is invisible.
+  const unknown = words(run.row({ at: '2026-09-17T10:00:00.000Z', kind: 'somethingnew', what: 'A new thing', detail: null }));
+  ok(unknown.includes('somethingnew') && unknown.includes('A new thing'),
+    'an unknown kind still draws rather than disappearing');
+  // The detail goes underneath when there is one, and nothing is drawn when not.
+  ok(words(run.row({ at: '2026-09-17T10:00:00.000Z', kind: 'chat', what: 'Wrote in', detail: 'in Hindi' })).includes('in Hindi'),
+    'the detail is drawn under the sentence');
+
+  // ── 4. THE EMPTY STATE IS A SENTENCE ────────────────────────────────────
+  const emptyDrawn = words(run.timeline({
+    window: { days: 30 }, timeline: { entries: [], total: 0, shown: 0, trimmed: 0 },
+  }));
+  ok(/nothing recorded for this person/i.test(emptyDrawn),
+    `an empty trail says so in a sentence, got ${JSON.stringify(emptyDrawn)}`);
+  ok(/last 30 days/.test(emptyDrawn), 'and names the window it looked in');
+  ok(/try a longer window/i.test(emptyDrawn),
+    'and says the window may be the reason, because it can be');
+  // At a year there is nothing longer to suggest, so it must not suggest one.
+  const emptyYear = words(run.timeline({
+    window: { days: 365 }, timeline: { entries: [], total: 0, shown: 0, trimmed: 0 },
+  }));
+  ok(/last year/i.test(emptyYear) && !/try a longer window/i.test(emptyYear),
+    'at a year it does not send somebody looking for a longer window that does not exist');
+
+  // ── 5. THE WINDOW PICKER, AND THE LABEL ON THE LAST ONE ─────────────────
+  ok(JSON.stringify(run.windows.map((w) => w[0])) === '[7,30,90,365]',
+    'the four windows are 7, 30, 90 and 365 days');
+  const yearLabel = (run.windows.find((w) => w[0] === 365) || [])[1];
+  ok(yearLabel === 'a year', `365 days is labelled "a year", got ${JSON.stringify(yearLabel)}`);
+  // THE LABEL THAT WOULD BE A LIE. The server caps at 365, so somebody on Fayr
+  // longer than that would be shown less than everything under a label saying
+  // "all".
+  ok(!run.windows.some((w) => /^all$/i.test(w[1])),
+    'NO WINDOW IS CALLED "all" — the server caps at a year and the label must not promise more');
+
+  // ── 6. SETUP, IN WORDS ──────────────────────────────────────────────────
+  ok(run.setup({ setupFinished: true, setupStoppedAt: null }) === 'Finished setting up.',
+    'a finished setup says so');
+  const stopped = run.setup({ setupFinished: false, setupStoppedAt: 2 });
+  ok(/^Stopped at setup step 2 of 3\.?$/.test(stopped),
+    `"Stopped at setup step 2 of 3", not a field name, got ${JSON.stringify(stopped)}`);
+  ok(!/setupStoppedAt/.test(stopped), 'and never prints the field name');
+  ok(/every step was done/i.test(run.setup({ setupFinished: false, setupStoppedAt: null })),
+    'every step done but never marked finished is said in words, not left blank');
+  // "of 3" is written in the panel and owned by the backend. If SETUP_STEPS moves,
+  // this fails here rather than the screen quietly saying "of 3" forever.
+  const serverSteps = (activityTs.match(/export const SETUP_STEPS = (\d+);/) || [])[1];
+  ok(String(run.steps) === serverSteps,
+    `the panel's "of ${run.steps}" matches SETUP_STEPS = ${serverSteps} on the server`);
+
+  // ── 7. HOW LONG QUIET, IN WORDS ─────────────────────────────────────────
+  ok(run.quiet({ daysQuiet: 0 }) === 'Seen today.', 'nought days is "seen today", never "0 days"');
+  ok(run.quiet({ daysQuiet: 1 }) === 'Quiet for a day.', 'one day reads as a day');
+  ok(/1,342/.test(run.quiet({ daysQuiet: 1342 })), 'a big number is grouped, 1,342 not 1342');
+
+  // ── 7b. ONE OF A THING IS NOT "1 THINGS" ────────────────────────────────
+  //
+  // "1 offers joined" was on the screen. The number was right, which is exactly
+  // why it mattered: a sentence that does not agree with itself makes a person
+  // wonder what else on the page was written without being read.
+  //
+  // THE FUNCTION IS CALLED, not looked for. A helper can be defined, described
+  // in a comment and never used, and every string in this file would still be
+  // where a search expects it.
+  ok(run.plural(1, 'screen', 'screens') === '1 screen',
+    `one is singular, got ${JSON.stringify(run.plural(1, 'screen', 'screens'))}`);
+  ok(run.plural(2, 'screen', 'screens') === '2 screens',
+    `two is plural, got ${JSON.stringify(run.plural(2, 'screen', 'screens'))}`);
+  // NOUGHT TAKES THE PLURAL, because that is what English does.
+  ok(run.plural(0, 'screen', 'screens') === '0 screens',
+    `nought is plural, got ${JSON.stringify(run.plural(0, 'screen', 'screens'))}`);
+  ok(run.plural(1, 'entry', 'entries') === '1 entry'
+    && run.plural(3, 'entry', 'entries') === '3 entries',
+    'an irregular plural works too, which is why both forms are passed in');
+  // Big numbers keep their grouping: this wraps fmtCount rather than replacing it.
+  ok(run.plural(1342, 'screen', 'screens') === '1,342 screens',
+    `a big count is still grouped, got ${JSON.stringify(run.plural(1342, 'screen', 'screens'))}`);
+
+  // AND IT IS ACTUALLY USED, in both sentences, which a helper test alone cannot
+  // show. These draw the summary and read what came out.
+  // The harness's words() puts a space between every child, so the sentence is
+  // reassembled before it is read: this is checking the wording, not the spacing
+  // of a test double.
+  const summaryWords = (screens, tasks) => words(run.summary({
+    firstSeen: '2026-09-01T00:00:00.000Z', lastSeen: '2026-09-14T00:00:00.000Z',
+    daysQuiet: 3, totalScreens: screens, totalTasks: tasks,
+    setupFinished: true, setupStoppedAt: null,
+  })).replace(/\s+/g, ' ');
+  ok(/1 screen opened, 1 offer joined\./.test(summaryWords(1, 1)),
+    `one of each reads "1 screen opened, 1 offer joined", got ${JSON.stringify(summaryWords(1, 1))}`);
+  ok(/2 screens opened, 2 offers joined\./.test(summaryWords(2, 2)),
+    'two of each keeps the plural');
+  ok(/0 screens opened, 0 offers joined\./.test(summaryWords(0, 0)),
+    'and nought of each does too');
+  // The two are independent: one screen and two offers must not agree with
+  // each other instead of with their own numbers.
+  ok(/1 screen opened, 2 offers joined\./.test(summaryWords(1, 2)),
+    'each count agrees with its OWN noun, not with the other one');
+
+  // ── 8. IT ASKS THE RIGHT ROUTE, AND READS NOBODY'S WORDS ────────────────
+  ok(/\/admin\/users\/" \+ state\.user\.id\s*\+ "\/activity\?days=/.test(src),
+    'it reads GET /admin/users/:id/activity with the window on the query string');
+  // THE ONE THING THIS SCREEN MUST NOT DO. Message bodies and screenshots are
+  // audited through their own routes on purpose; reaching for them here would
+  // widen who can read a conversation without anybody deciding to.
+  //
+  // COMMENTS STRIPPED FIRST, and that is not tidiness. Written against the whole
+  // block, this check passed only because the block's own comment says the screen
+  // never asks for a screenshot — it was reading the prose that PROMISES the rule
+  // and calling that the rule being kept. Found by it failing on a comment.
+  const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  ok(codeOnly.length > 500, 'there is code left after the comments come out');
+  ok(!/\/admin\/chats/.test(codeOnly), 'it never calls a chat route');
+  ok(!/screenshot|\/uploads|imgSrc/i.test(codeOnly), 'and never asks for a screenshot');
+  ok(!/<img|"img"/.test(codeOnly), 'and draws no image');
+}
+
+console.log('\n=== one light theme, in one place ===');
+{
+  const style = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+  ok(style.length > 1000, 'the stylesheet was found');
+
+  // ── COMMENTS COME OUT FIRST, FOR EVERY CHECK BELOW ──────────────────────
+  //
+  // Not tidiness, and it caught two of these checks before it caught anything
+  // else. The token block EXPLAINS that the dark-mode block was deleted and NAMES
+  // the design hex values each token was darkened from — so read as source, this
+  // file's own explanation of the rule fails the rule. The same lesson the trail's
+  // screenshot check taught: read the code, never the words beside it.
+  const noComments = (t) => t
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ');
+  const hexIn = (t) => [...t.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((m) => m[0]);
+  const htmlCode = noComments(html);
+  const styleCode = noComments(style);
+
+  // ── ONE THEME ───────────────────────────────────────────────────────────
+  //
+  // The dark block was a second, half-converted palette: Fayr's design system
+  // has no dark counterpart, so whoever had their laptop set to dark was getting
+  // a different product from the person beside them. Deleted, and kept deleted.
+  ok(!/prefers-color-scheme/.test(htmlCode),
+    'THE DARK-MODE BLOCK IS GONE and has not crept back');
+  ok(!/@media[^{]*\bdark\b/.test(htmlCode),
+    'and no other rule switches on a dark preference');
+
+  // ── EVERY COLOUR IS A TOKEN ─────────────────────────────────────────────
+  const root = (styleCode.match(/:root\s*\{[\s\S]*?\n {4}\}/) || [])[0] || '';
+  ok(root.length > 200, 'the :root token block was found');
+  ok(hexIn(root).length >= 12,
+    `the palette lives in the tokens, found ${hexIn(root).length} values there`);
+
+  const loose = hexIn(styleCode.replace(root, ' '));
+  ok(loose.length === 0,
+    `NO RULE NAMES A COLOUR ITSELF — every one is a var(--token). Found [${loose.join(', ')}]`);
+  const inScript = hexIn(noComments(script));
+  ok(inScript.length === 0,
+    `and no render function invents one, so a future screen cannot add a sixth grey. Found [${inScript.join(', ')}]`);
+  // Subtracting the STRIPPED style and script, not the raw ones. Removing the
+  // raw text from stripped html matches nothing, which left the whole token block
+  // in and failed this on the palette it was meant to protect.
+  const elsewhere = hexIn(htmlCode.replace(styleCode, ' ').replace(noComments(script), ' '));
+  ok(elsewhere.length === 0,
+    `and none anywhere else in the document. Found [${elsewhere.join(', ')}]`);
+
+  // ── THE FONTS, WITH A FLOOR UNDER THEM ──────────────────────────────────
+  for (const face of ['Alexandria', 'Poppins', 'Inter']) {
+    ok(new RegExp(`family=${face}`).test(html), `${face} is loaded`);
+  }
+  ok(/display=swap/.test(html),
+    'the fonts swap rather than blocking, so the panel paints readable straight away');
+  for (const [token, fallback] of [['--sans', 'system-ui'], ['--display', 'system-ui'], ['--logo', 'system-ui']]) {
+    const line = (root.match(new RegExp(`${token}:[^;]+;`)) || [])[0] || '';
+    ok(line.includes(fallback),
+      `${token} names a system fallback, so a blocked CDN costs the look and not the reading`);
+  }
+  // The wordmark, as fayr-design.browser.jsx draws it.
+  ok(/\.brand\s*\{[^}]*var\(--logo\)/.test(styleCode), 'the wordmark is set in Alexandria');
+  ok(/\.sidebar \.brand \.dot\s*\{[^}]*var\(--yellow-deep\)/.test(styleCode),
+    'and its full stop is the Fayr yellow');
+}
+
+console.log('\n=== every pill is readable on the cream (4.5:1) ===');
+{
+  // ── WHY THIS IS COMPUTED AND NOT REMEMBERED ─────────────────────────────
+  //
+  // MEASURED 17 September 2026. Fayr's published state colours are built for
+  // large bold type on a phone, and as 11.5px pill text on these grounds not one
+  // of them reached 4.5:1 — greenDeep 2.34:1, amber 1.64:1, red 3.04:1. Each was
+  // darkened, keeping its hue and saturation, until it cleared.
+  //
+  // A note in a comment saying "these were checked" rots the first time somebody
+  // nudges a token. This reads the tokens out of the file and does the arithmetic,
+  // so the rule holds rather than having held once.
+  const style = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+  const root = (style.replace(/\/\*[\s\S]*?\*\//g, ' ').match(/:root\s*\{[\s\S]*?\n {4}\}/) || [])[0] || '';
+  const tok = (name) => (root.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})`)) || [])[1];
+
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  const lum = (h) => { const [r, g, b] = hex(h); return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b); };
+  const ratio = (a, b) => {
+    const l1 = lum(a), l2 = lum(b);
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+  };
+  // color-mix(in srgb, X 15%, transparent) is X at 15% composited over whatever
+  // is behind the pill. The pill's own tint is what its text has to beat, and it
+  // is always harder than the plain ground — which is why checking against the
+  // background alone would pass colours that are unreadable in place.
+  const over = (x, b, pct) => {
+    const [xr, xg, xb] = hex(x), [br, bg, bb] = hex(b), a = pct / 100;
+    const f = (c, d) => Math.round(c * a + d * (1 - a));
+    return '#' + [f(xr, br), f(xg, bg), f(xb, bb)].map((v) => v.toString(16).padStart(2, '0')).join('');
+  };
+
+  const GROUNDS = [['white', tok('--surface')], ['creamDeep', tok('--surface-2')], ['cream', tok('--bg')]];
+  for (const [, g] of GROUNDS) ok(/^#[0-9a-f]{6}$/i.test(g || ''), `a ground token was read: ${g}`);
+
+  // Every pill the panel can draw. The list is the five pill- classes in the
+  // stylesheet, read from it rather than typed here, so a sixth state cannot be
+  // added without being measured.
+  const pillClasses = [...style.matchAll(/\.pill-([a-z]+)\s*\{[^}]*var\(--([a-z]+)\)/g)].map((m) => m[2]);
+  ok(pillClasses.length === 5, `five pills in the stylesheet, found ${pillClasses.length}`);
+  for (const name of pillClasses) {
+    const fg = tok(`--${name}`);
+    ok(/^#[0-9a-f]{6}$/i.test(fg || ''), `--${name} is a colour`);
+    for (const [gname, g] of GROUNDS) {
+      const r = ratio(fg, over(fg, g, 15));
+      ok(r >= 4.5, `.pill-${name} on ${gname}: ${r.toFixed(2)}:1`);
+    }
+  }
+
+  // The rest of the text, on every ground it can land on.
+  for (const name of ['text', 'muted', 'accent', 'ok', 'warn', 'bad', 'info', 'neutral']) {
+    const fg = tok(`--${name}`);
+    for (const [gname, g] of GROUNDS) {
+      const r = ratio(fg, g);
+      ok(r >= 4.5, `--${name} as text on ${gname}: ${r.toFixed(2)}:1`);
+    }
+  }
+  // The accent also carries text ON ITS OWN TINT — the active section and the
+  // open team's glyph — which is a harder pair than the plain ground and the one
+  // that a first attempt at this palette failed on at 4.21:1.
+  const acc = tok('--accent');
+  for (const pct of [12, 15]) {
+    const r = ratio(acc, over(acc, tok('--surface'), pct));
+    ok(r >= 4.5, `--accent on its own ${pct}% tint: ${r.toFixed(2)}:1`);
+  }
+  // And white on the accent, which is the primary button and the count badge.
+  const btn = ratio(tok('--accent-fg'), acc);
+  ok(btn >= 4.5, `--accent-fg on --accent (the primary button): ${btn.toFixed(2)}:1`);
+
+  // BRAND GREEN IS NOT A TEXT COLOUR, and the tokens must not quietly become it.
+  // #30A90F as published reaches 2.34:1 as pill text. It is kept out of the panel
+  // until the layout step gives it a large fill with no words on it.
+  ok(!/#30A90F/i.test(root.replace(/\/\*[\s\S]*?\*\//g, ' ')),
+    'the published brand green is not used raw as a token — it cannot carry text at these sizes');
+}
+
+console.log('\n=== the user page, actually run ===');
+{
+  // ── WHY THIS IS RUN AND NOT READ ────────────────────────────────────────
+  //
+  // The same lesson the practice-window mark and the trail both taught. A string
+  // match would pass on a page that drew an empty box where a name should be, on
+  // a journey strip that marked every step done, and on a split that quietly
+  // dropped every entry belonging to no offer. Every check below CALLS the
+  // functions and reads what came out.
+  const trailFrom = script.indexOf("// ── one person's trail: begin");
+  const trailTo = script.indexOf("// ── one person's trail: end");
+  const pageFrom = script.indexOf('// ── the user page: begin');
+  const pageTo = script.indexOf('// ── the user page: end');
+  ok(pageFrom > 0 && pageTo > pageFrom, 'the user page is marked off in the panel');
+  const src = script.slice(pageFrom, pageTo);
+  const trailSrc = script.slice(trailFrom, trailTo);
+  // The REAL practice-window mark, not a stub. It is the loudest thing on an
+  // offer card and it has to still be there after the page was rebuilt around it.
+  const markSrc = (script.match(/function practiceMark\(t\)[\s\S]*?\n {4}\}/) || [])[0] || '';
+  ok(markSrc.length > 0, 'the practice-window mark is still in the file for the card to draw');
+
+  const harness = `
+    var seen = [];
+    function h(tag, attrs) {
+      var kids = Array.prototype.slice.call(arguments, 2);
+      var node = { tag: tag, attrs: attrs || {}, kids: kids };
+      seen.push(node);
+      return node;
+    }
+    function fmtDay(iso) { return iso ? "17 Sep 2026" : "—"; }
+    function fmtDate(iso) { return iso ? "17 Sep 2026, 10:15 am" : "—"; }
+    function rupees(p) { return p == null ? "—" : "₹" + (Number(p) / 100).toFixed(2); }
+    function pill(txt, kind) { return h("span", { class: "pill pill-" + (kind || "neutral"), text: txt }); }
+    function WalletTable(e) { return h("div", { class: "table-wrap" }, "wallet rows " + ((e || []).length)); }
+    function TicketTable(e) { return h("div", { class: "table-wrap" }, "ticket rows " + ((e || []).length)); }
+    function ThreadCard(q) { return h("div", { class: "thread" }, "a question thread"); }
+    var USER_PILL = { ACTIVE: "ok", BLOCKED: "bad" };
+    var TASK_PILL = { CLAIMED: "info", PURCHASED: "info", DELIVERED: "info",
+                      REVIEWED: "info", HOLDING: "warn", REFUNDED: "ok" };
+    function api() { throw new Error("the page must not call the server while drawing"); }
+    function render() {}
+    var state = STATE;
+    ${markSrc}
+    ${trailSrc}
+    ${src}
+    return {
+      page: UserScreen(), seen: seen, journey: JOURNEY,
+      steps: journeySteps, split: splitActivityByOffer, offers: offersByCampaign,
+    };
+  `;
+
+  const words = (node) => {
+    if (node == null || node === false) return '';
+    if (Array.isArray(node)) return node.map(words).join(' ');
+    if (typeof node !== 'object') return String(node);
+    return words(node.kids);
+  };
+  const cls = (n, name) => new RegExp(`\\b${name}\\b`).test((n && n.attrs && n.attrs.class) || '');
+  // One tile, found by the LABEL a person reads, so the big number is checked
+  // where it is drawn and not by looking for the digit anywhere on the page.
+  const tile = (out, label) => {
+    const box = out.seen.find((n) =>
+      cls(n, 'kv') && (n.kids || []).some((k) => k && k.attrs && cls(k, 'k') && words(k).trim() === label));
+    if (!box) return { big: null, under: null };
+    const kids = box.kids.filter((k) => k && typeof k === 'object');
+    return { big: words(kids[0]).trim(), under: words(kids[2]).trim() };
+  };
+
+  // ── THE FIXTURE ─────────────────────────────────────────────────────────
+  const entry = (kind, what, campaignId, campaignTitle) => ({
+    at: '2026-09-17T10:15:00.000Z', kind, what, detail: null,
+    campaignId, campaignTitle,
+  });
+  const ENTRIES = [
+    entry('task', 'Claimed “Keep the Oil Flowing”', 'c1', 'Keep the Oil Flowing'),
+    entry('evidence', 'Sent a picture of the review', 'c1', 'Keep the Oil Flowing'),
+    entry('task', 'Claimed “A kettle”', 'c2', 'A kettle'),
+    entry('screen', 'Opened Wallet', null, null),
+    entry('chat', 'Wrote in', null, null),
+    entry('withdrawal', 'Asked to withdraw ₹250', null, null),
+    // An offer this person has no task for. It must not vanish.
+    entry('task', 'Claimed “An offer with no card”', 'c-gone', 'An offer with no card'),
+  ];
+  const task = (over) => ({
+    id: 't-' + (over.state || 'x'),
+    state: 'CLAIMED',
+    campaign: { id: 'c1', title: 'Keep the Oil Flowing', productName: 'A product', platform: 'AMAZON' },
+    refund: { eligible: false, reasons: ['the review is not public yet'], amountPaise: '29500' },
+    windowEndsAt: '2026-10-01T00:00:00.000Z',
+    practiceWindowDays: null,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    ...over,
+  });
+  const TASKS = [
+    task({ state: 'REVIEWED' }),
+    task({
+      state: 'CLAIMED',
+      campaign: { id: 'c2', title: 'A kettle', productName: 'A kettle', platform: 'FLIPKART' },
+      refund: { eligible: false, reasons: [], amountPaise: null },
+      windowEndsAt: null,
+    }),
+  ];
+  const ACTIVITY = {
+    window: { from: '2026-08-18T00:00:00.000Z', to: '2026-09-17T00:00:00.000Z', days: 30 },
+    summary: {
+      firstSeen: '2026-08-01T00:00:00.000Z', lastSeen: '2026-09-14T00:00:00.000Z',
+      daysQuiet: 3, totalScreens: 12, totalTasks: 2,
+      setupFinished: true, setupStoppedAt: null,
+    },
+    timeline: { entries: ENTRIES, total: ENTRIES.length, shown: ENTRIES.length, trimmed: 0 },
+  };
+  const VIEW = (over) => ({
+    profile: {
+      id: 'u1', displayId: 'FAYR-100001', name: null, mobile: '+919876543210',
+      status: 'ACTIVE', createdAt: '2026-01-02T00:00:00.000Z',
+    },
+    tickets: { balance: 10, entries: [{ id: 'te1' }, { id: 'te2' }] },
+    wallet: { balancePaise: '79900', entries: [{ id: 'w1' }, { id: 'w2' }] },
+    withdrawals: [{ id: 'w2' }],
+    tasks: TASKS,
+    questions: [],
+    ...over,
+  });
+  const ST = (view, activity) => ({
+    screen: 'user',
+    user: {
+      loading: false, error: null, from: 'search', id: 'u1',
+      data: view,
+      activity: { loading: false, error: null, days: 30, data: activity, ...(activity === undefined ? {} : {}) },
+    },
+  });
+  const draw = (view, activity) => new Function('STATE', harness)(ST(view, activity));
+
+  // ── 1. IT DRAWS AT ALL, IN EVERY STATE IT CAN BE IN ─────────────────────
+  const cases = [
+    ['the page', VIEW(), ACTIVITY],
+    ['the page before the trail has come back', VIEW(), null],
+    ['the page for somebody with no offers', VIEW({ tasks: [] }), ACTIVITY],
+    ['the page for somebody with nothing at all', VIEW({
+      tasks: [], questions: [], withdrawals: [],
+      tickets: { balance: 0, entries: [] }, wallet: { balancePaise: '0', entries: [] },
+    }), { ...ACTIVITY, timeline: { entries: [], total: 0, shown: 0, trimmed: 0 } }],
+    ['the page with a name', VIEW({
+      profile: { ...VIEW().profile, name: 'Asha Kumari' },
+    }), ACTIVITY],
+  ];
+  let drawn = null;
+  for (const [label, view, activity] of cases) {
+    let threw = null, out = null;
+    try { out = draw(view, activity); } catch (e) { threw = e.message; }
+    ok(!threw, `renders ${label}` + (threw ? ` — threw: ${threw}` : ''));
+    if (threw) continue;
+    if (label === 'the page') drawn = out;
+    const flat = JSON.stringify(out.seen, (k, v) => (typeof v === 'function' ? undefined : v));
+    ok(!flat.includes('undefined'), `${label}: nothing "undefined" reaches the screen`);
+    ok(!flat.includes('NaN'), `${label}: no "NaN" reaches the screen`);
+    ok(!flat.includes('[object Object]'), `${label}: no raw object reaches the screen`);
+  }
+
+  // ── 2. WHO THEY ARE, WITH NO NAME — THE ORDINARY CASE ───────────────────
+  //
+  // Most people have none: setup can be finished without giving one and the
+  // practice data creates none at all. So this is the case the header is built
+  // for, not the exception.
+  const nameless = draw(VIEW(), ACTIVITY);
+  const namelessWords = words(nameless.page);
+  ok(namelessWords.includes('+919876543210'),
+    'with no name, the MOBILE is what the page leads with');
+  ok(namelessWords.includes('No name given'),
+    'and it says so in words, under the mobile');
+  const big = nameless.seen.filter((n) => /\bwho-name\b/.test(n.attrs.class || ''));
+  ok(big.length === 1, `exactly one large identity line, found ${big.length}`);
+  ok(words(big[0]).trim() === '+919876543210',
+    `and it is the mobile, got ${JSON.stringify(words(big[0]).trim())}`);
+  // THE DEFECT THIS EXISTS FOR. A blank where a name should be reads as a page
+  // that failed to load, and is its own kind of invention.
+  const identity = nameless.seen.filter((n) =>
+    /\b(who-name|who-mobile|no-name)\b/.test(n.attrs.class || ''));
+  ok(identity.length > 0 && identity.every((n) => words(n).trim().length > 0),
+    'NO EMPTY ELEMENT IS DRAWN WHERE THE NAME WOULD BE');
+  // And no invented stand-in, which is the other way to fill that space.
+  ok(!/Unknown|Anonymous|No name\b(?! given)|N\/A/.test(namelessWords),
+    'and no placeholder that could be read back to somebody as their name');
+
+  // ── 3. WITH A NAME, BOTH FACTS ARE ON THE PAGE ──────────────────────────
+  const named = draw(VIEW({ profile: { ...VIEW().profile, name: 'Asha Kumari' } }), ACTIVITY);
+  const namedWords = words(named.page);
+  ok(namedWords.includes('Asha Kumari'), 'a name is drawn when there is one');
+  ok(namedWords.includes('+919876543210'),
+    'AND THE MOBILE IS STILL DRAWN — an agent confirms both, not one');
+  ok(!namedWords.includes('No name given'),
+    'and the no-name line is gone, rather than sitting under a real name');
+  const namedBig = named.seen.filter((n) => /\bwho-name\b/.test(n.attrs.class || ''));
+  ok(namedBig.length === 1 && words(namedBig[0]).trim() === 'Asha Kumari',
+    'the name is the large line, and the mobile moves under it');
+
+  // ── 4. THE SPLIT: EVERY ENTRY LANDS SOMEWHERE ───────────────────────────
+  const offers = drawn.offers(TASKS);
+  const split = drawn.split(ENTRIES, offers);
+  const bucketed = Object.keys(split.byOffer).reduce((n, k) => n + split.byOffer[k].length, 0);
+  ok(bucketed + split.rest.length === ENTRIES.length,
+    `every entry lands somewhere: ${bucketed} on offers + ${split.rest.length} elsewhere = ${ENTRIES.length}`);
+  ok(split.byOffer.c1.length === 2 && split.byOffer.c2.length === 1,
+    `entries group under the offer they name (c1 ${split.byOffer.c1.length}, c2 ${split.byOffer.c2.length})`);
+  // THE MUTATION THIS CATCHES: an entry with no offer pushed into an offer card.
+  for (const id of Object.keys(split.byOffer)) {
+    ok(split.byOffer[id].every((e) => e.campaignId === id),
+      `NO OFFER CARD HOLDS AN ENTRY THAT IS NOT ITS OWN (${id})`);
+  }
+  const restWhat = split.rest.map((e) => e.what);
+  ok(restWhat.includes('Opened Wallet') && restWhat.includes('Wrote in')
+    && restWhat.includes('Asked to withdraw ₹250'),
+    'an entry belonging to NO offer lands in "everything else" rather than being dropped');
+  ok(restWhat.includes('Claimed “An offer with no card”'),
+    'and so does one naming an offer this person has no card for — a gap in a trail is invisible');
+  ok(split.rest.length === 4, `four entries belong to the person, got ${split.rest.length}`);
+
+  // ── ONE CARD PER CAMPAIGN, EVEN WHEN IT WAS CLAIMED TWICE ───────────────
+  //
+  // A trail entry names the OFFER and not the claim. Two cards for one campaign
+  // would therefore show the same entries twice, and neither card would be wrong
+  // about it — which is exactly the kind of duplicate a reader believes.
+  const twice = [task({ state: 'HOLDING', id: 't-new' }), ...TASKS];
+  const deduped = drawn.offers(twice);
+  ok(deduped.length === 2,
+    `three claims on two offers make TWO cards, got ${deduped.length}`);
+  ok(deduped[0].claims === 2 && deduped[1].claims === 1,
+    `and the card counts the claims behind it, got [${deduped.map((o) => o.claims).join(', ')}]`);
+  ok(deduped[0].task.state === 'HOLDING',
+    'the newest claim is the one drawn — the server sends tasks newest first');
+  const twiceOut = draw(VIEW({ tasks: twice }), ACTIVITY);
+  const cards = twiceOut.seen.filter((n) => cls(n, 'offer') && cls(n, 'card'));
+  ok(cards.length === 2, `and the page draws two offer cards, not three (got ${cards.length})`);
+  ok(/claimed 2 times/.test(words(twiceOut.page)),
+    'and says in words that there was more than one claim rather than hiding it');
+
+  // ── 5. THE JOURNEY STRIP IS REAL STATE, IN ALL SIX STATES ───────────────
+  //
+  // Read against the SERVER'S own ordering. A strip that stopped knowing about a
+  // state would draw every task in it as though it had never started.
+  const statesTs = fs.readFileSync(
+    path.join(import.meta.dirname, '..', 'backend', 'src', 'tasks', 'engine', 'states.ts'), 'utf8');
+  const orderBlock = (statesTs.match(/export const ORDER: TaskStateName\[\] = \[([\s\S]*?)\];/) || [])[1] || '';
+  const serverOrder = [...orderBlock.matchAll(/STATES\.([A-Z_]+)/g)].map((m) => m[1]);
+  ok(serverOrder.length === 6, `the server orders six states, found ${serverOrder.length}`);
+  ok(JSON.stringify(drawn.journey.map((j) => j[0])) === JSON.stringify(serverOrder),
+    `the strip's six steps ARE the server's six states in order — server [${serverOrder.join(', ')}]`);
+  const EXPECTED = {
+    CLAIMED: ['current', 'later', 'later', 'later', 'later', 'later'],
+    PURCHASED: ['done', 'current', 'later', 'later', 'later', 'later'],
+    DELIVERED: ['done', 'done', 'current', 'later', 'later', 'later'],
+    REVIEWED: ['done', 'done', 'done', 'current', 'later', 'later'],
+    HOLDING: ['done', 'done', 'done', 'done', 'current', 'later'],
+    // The money is out and nothing is in progress, so the last step is FINISHED
+    // rather than current.
+    REFUNDED: ['done', 'done', 'done', 'done', 'done', 'done'],
+  };
+  for (const [state, want] of Object.entries(EXPECTED)) {
+    const got = drawn.steps({ state }).map((s) => s.status);
+    ok(JSON.stringify(got) === JSON.stringify(want),
+      `${state} marks exactly [${want.join(', ')}], got [${got.join(', ')}]`);
+  }
+  // A state nothing here has heard of reaches nothing, rather than guessing a
+  // position. The state pill beside the strip still tells the truth.
+  ok(drawn.steps({ state: 'SOMETHING_NEW' }).every((s) => s.status === 'later'),
+    'a state this list has never heard of reaches no step rather than being placed');
+  // COLOUR IS NEVER THE ONLY SIGNAL: every step says what it is in words.
+  const anyStep = drawn.steps({ state: 'HOLDING' });
+  ok(anyStep.every((s) => typeof s.mark === 'string' && s.mark.length > 0),
+    'every step carries a word for its own status, not only a colour');
+  ok(anyStep.every((s) => s.word && s.word === s.word.toLowerCase() && s.word !== s.key),
+    'and the steps read as words — "bought", never "PURCHASED"');
+  const stripWords = words(drawn.page);
+  for (const word of ['claimed', 'bought', 'arrived', 'reviewed', 'holding', 'refunded']) {
+    ok(stripWords.includes(word), `the strip draws "${word}" on the page`);
+  }
+
+  // ── 6. NOTHING IS A BLANK BOX ───────────────────────────────────────────
+  const noOffers = words(draw(VIEW({ tasks: [] }), ACTIVITY).page);
+  ok(/have not joined an offer yet/i.test(noOffers),
+    'a person with no offers gets a SENTENCE where the cards would be');
+  ok(/Everything else/.test(noOffers),
+    'and the rest of the page still draws');
+  // Everything belonging to an offer is a different emptiness from nothing at all.
+  const allOnOffers = words(draw(VIEW(), {
+    ...ACTIVITY,
+    timeline: {
+      entries: ENTRIES.filter((e) => e.campaignId === 'c1' || e.campaignId === 'c2'),
+      total: 3, shown: 3, trimmed: 0,
+    },
+  }).page);
+  ok(/belongs to an offer above/i.test(allOnOffers),
+    'when every entry belongs to an offer, "everything else" says THAT rather than "nothing recorded"');
+  ok(!/Nothing recorded for this person/i.test(allOnOffers),
+    'and never sends somebody looking for a longer window that would not help');
+  const nothing = words(draw(VIEW({ tasks: [] }), {
+    ...ACTIVITY, timeline: { entries: [], total: 0, shown: 0, trimmed: 0 },
+  }).page);
+  ok(/Nothing recorded for this person/i.test(nothing),
+    'and a person with nothing recorded is still told so in a sentence');
+
+  // ── 7. THE FOUR TILES, AND THE ONE THAT MUST NOT GUESS ──────────────────
+  const tiles = words(drawn.page);
+  for (const label of ['Wallet balance', 'Tickets', 'Offers joined', 'Days quiet']) {
+    ok(tiles.includes(label), `the ${label} tile is on the page`);
+  }
+  // Read off the tiles themselves. Looking for "1 of 3" anywhere on the page
+  // would pass on a number drawn in the wrong tile.
+  const refundedFixture = draw(VIEW({
+    tasks: [...TASKS, task({ state: 'REFUNDED', id: 't-paid' })],
+  }), ACTIVITY);
+  const joined = tile(refundedFixture, 'Offers joined');
+  ok(joined.big === '3', `the offers tile counts the offers, got ${JSON.stringify(joined.big)}`);
+  ok(joined.under === '1 of 3 refunded',
+    `and counts refunded AGAINST joined — two real counts, never a proportion. Got ${JSON.stringify(joined.under)}`);
+  ok(tile(drawn, 'Wallet balance').big === '₹799.00',
+    'the wallet tile draws the balance the server sent');
+  ok(tile(drawn, 'Tickets').big === '10', 'the tickets tile draws the balance');
+  // The tiles say "1 entry in the ledger", never "1 entries in the ledger".
+  const single = draw(VIEW({
+    wallet: { balancePaise: '25000', entries: [{ id: 'w1' }] },
+    tickets: { balance: 1, entries: [{ id: 'te1' }] },
+  }), ACTIVITY);
+  ok(tile(single, 'Wallet balance').under === '1 entry in the ledger',
+    `one ledger entry reads as one, got ${JSON.stringify(tile(single, 'Wallet balance').under)}`);
+  ok(tile(single, 'Tickets').under === '1 change recorded',
+    `and one ticket change too, got ${JSON.stringify(tile(single, 'Tickets').under)}`);
+  ok(tile(drawn, 'Wallet balance').under === '2 entries in the ledger',
+    'and two of them stay plural');
+  const quiet = tile(drawn, 'Days quiet');
+  ok(quiet.big === '3', `days quiet draws the number the trail gave, got ${JSON.stringify(quiet.big)}`);
+  ok(/Quiet for 3 days\./.test(quiet.under), 'and says it again in words underneath');
+
+  // ── THE TILE THAT MUST NOT GUESS ────────────────────────────────────────
+  //
+  // The trail loads AFTER the profile, so for a moment there is no number of
+  // quiet days. A nought there says "seen today" about somebody nobody has
+  // looked up yet — which is a false statement about a person, drawn in the
+  // largest type on the page.
+  const early = draw(VIEW(), null);
+  const earlyQuiet = tile(early, 'Days quiet');
+  ok(earlyQuiet.big === '—',
+    `A NOUGHT IS NEVER DRAWN BEFORE THE TRAIL IS READ — got ${JSON.stringify(earlyQuiet.big)}`);
+  ok(/Reading the trail/.test(earlyQuiet.under),
+    'and it says it is still reading rather than leaving the space to be guessed at');
+  ok(!/Seen today/.test(words(early.page)),
+    'and nothing anywhere on the page claims they were seen today');
+  const failed = draw(VIEW(), null);
+  ok(tile(failed, 'Days quiet').big === '—',
+    'and the same when the trail is not there at all');
+
+  // ── 8. WHAT THE PAGE STILL REFUSES TO DO ────────────────────────────────
+  //
+  // Comments stripped first: read the code, never the words beside it.
+  const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  ok(codeOnly.length > 1000, 'there is code left after the comments come out');
+  ok(!/\/admin\/chats|\/chats\//.test(codeOnly), 'it never calls a chat route');
+  ok(!/screenshot|\/uploads|imgSrc|<img|"img"/i.test(codeOnly),
+    'it never asks for a picture and draws none');
+  // NO CHART. One person does not produce a distribution, and a chart of one
+  // person's fortnight is a picture pretending to be analysis.
+  ok(!/\bs\(\s*"(svg|rect|path|circle|line|polyline)"/.test(codeOnly),
+    'THE PAGE DRAWS NO CHART — no svg, no bars, no sparkline');
+  // NO PERCENTAGE THAT IS NOT A RATIO OF TWO REAL COUNTS. The page does no
+  // arithmetic at all beyond counting rows.
+  ok(!/%/.test(codeOnly), 'and no percentage anywhere — the strip is state, not progress');
+  ok(!/Math\./.test(codeOnly), 'and it works nothing out for itself');
+}
+
+console.log('\n=== the signing-up funnel, actually drawn ===');
+{
+  // ── WHY THIS IS RUN AND NOT READ ────────────────────────────────────────
+  //
+  // A chart is the easiest thing in this file to get silently wrong. A bar
+  // drawn against the wrong denominator, a zero drawn as a bar, a colour typed
+  // in as a hex — every one of those leaves the right strings in the file and
+  // looks like a chart on the screen. So these compute the lengths from the two
+  // counts the fixture sets and compare them with what was actually drawn.
+  const from = script.indexOf('// ── signing up: begin');
+  const to = script.indexOf('// ── signing up: end');
+  ok(from > 0 && to > from, 'the signing-up screen is marked off in the panel');
+  const src = script.slice(from, to);
+
+  const harness = `
+    var seen = [];
+    function node(kind, tag, attrs, rest) {
+      var kids = Array.prototype.slice.call(rest, 2);
+      var n = { kind: kind, tag: tag, attrs: attrs || {}, kids: kids };
+      seen.push(n);
+      return n;
+    }
+    function h(tag, attrs) { return node("html", tag, attrs, arguments); }
+    function s(tag, attrs) { return node("svg", tag, attrs, arguments); }
+    function api() { throw new Error("the screen must not call the server while drawing"); }
+    function render() {}
+    var state = STATE;
+    ${src}
+    return {
+      screen: GrowthScreen(), seen: seen,
+      base: funnelBase, share: funnelShare, geom: FUNNEL_CHART,
+    };
+  `;
+
+  const words = (n) => {
+    if (n == null || n === false) return '';
+    if (Array.isArray(n)) return n.map(words).join(' ');
+    if (typeof n !== 'object') return String(n);
+    return (n.attrs && n.attrs.text ? n.attrs.text + ' ' : '') + words(n.kids);
+  };
+  const cls = (n, name) => new RegExp(`(^| )${name}( |$)`).test((n.attrs && n.attrs.class) || '');
+
+  // ── THE FIXTURE. Every count is set here, so every length below is checked
+  // against arithmetic this file does itself rather than against the panel's.
+  const step = (key, label, count, dropped, thin) => ({
+    key, label, count, dropped, thin,
+    ofPrevious: null, ofStart: null, // the table's job; the chart never draws them
+  });
+  const FULL = [
+    step('opened', 'Opened the app', 200, 0, false),
+    step('onboarded', 'Finished onboarding', 150, 50, false),
+    step('phone', 'Reached the phone screen', 120, 30, false),
+    step('asked', 'Asked for a code', 40, 80, false),
+    step('verified', 'Entered a correct code', 30, 10, false),
+    step('account', 'Account created', 30, 0, false),
+    step('setup', 'Finished setup', 10, 20, false),
+    step('claimed', 'Claimed a campaign', 5, 5, true),
+  ];
+  // Today's real shape: the first three are reported by the app and nothing
+  // sends them yet, so they read nought while the rest are real.
+  const UNREPORTED = [
+    step('opened', 'Opened the app', 0, 0, true),
+    step('onboarded', 'Finished onboarding', 0, 0, true),
+    step('phone', 'Reached the phone screen', 0, 0, true),
+    step('asked', 'Asked for a code', 53, 0, true),
+    step('verified', 'Entered a correct code', 40, 13, false),
+    step('account', 'Account created', 38, 2, false),
+    step('setup', 'Finished setup', 20, 18, false),
+    step('claimed', 'Claimed a campaign', 6, 14, false),
+  ];
+  const DATA = (funnel, worst) => ({
+    window: { from: 'x', to: 'y', days: 30 },
+    funnel,
+    worst,
+    codesRequested: 53, codesVerified: 40, codeDeliveryRate: 75.5,
+    sessions: { expiredUnused: 4, cameBack: 1, cameBackRate: 25, signedOut: 2, sessionDays: 30 },
+  });
+  const draw = (data, over) => new Function('STATE', harness)({
+    growth: { loading: false, error: null, days: 30, data, ...over },
+  });
+
+  const full = draw(DATA(FULL, { key: 'asked', label: 'Asked for a code', dropped: 80 }));
+  const g = full.geom;
+  const innerW = g.w - g.padL - g.padR;
+  const svgOf = (out) => out.seen.filter((n) => n.kind === 'svg');
+  const rectsOf = (out, name) => svgOf(out).filter((n) => n.tag === 'rect' && cls(n, name));
+  const textOf = (out, name) => svgOf(out).filter((n) => n.tag === 'text' && cls(n, name));
+
+  // ── 1. IT DRAWS, IN EVERY STATE THE SCREEN CAN BE IN ────────────────────
+  for (const [label, data, over] of [
+    ['the screen', DATA(FULL, { key: 'asked', label: 'Asked for a code', dropped: 80 }), {}],
+    ['the screen with nothing reported yet', DATA(UNREPORTED, { key: 'setup', label: 'Finished setup', dropped: 18 }), {}],
+    ['the screen with no drop anywhere', DATA(FULL.map((x) => ({ ...x, dropped: 0 })), null), {}],
+    ['the screen while it is reading', null, { loading: true }],
+    ['the screen that could not be read', null, { error: 'Could not reach the Fayr server.' }],
+  ]) {
+    let threw = null, out = null;
+    try { out = draw(data, over); } catch (e) { threw = e.message; }
+    ok(!threw, `renders ${label}` + (threw ? ` — threw: ${threw}` : ''));
+    if (threw) continue;
+    const flat = JSON.stringify(out.seen, (k, v) => (typeof v === 'function' ? undefined : v));
+    ok(!flat.includes('undefined'), `${label}: nothing "undefined" reaches the screen`);
+    ok(!flat.includes('NaN'), `${label}: no "NaN" reaches the screen`);
+    ok(!flat.includes('[object Object]'), `${label}: no raw object reaches the screen`);
+  }
+
+  // ── 2. EVERY BAR IS THE REAL RATIO OF TWO REAL COUNTS ───────────────────
+  const bars = rectsOf(full, 'fbar');
+  ok(bars.length === FULL.length,
+    `one bar per step, got ${bars.length} for ${FULL.length} steps`);
+  FULL.forEach((st, i) => {
+    // Worked out here, from the fixture's own two numbers, against the FIRST
+    // step's count — not read back out of the panel.
+    const want = Math.max(1, (st.count / FULL[0].count) * innerW);
+    ok(Math.abs(bars[i].attrs.width - want) < 0.001,
+      `${st.label}: ${st.count} of ${FULL[0].count} is ${want.toFixed(1)} wide, drew ${Number(bars[i].attrs.width).toFixed(1)}`);
+  });
+  // IN FUNNEL ORDER, NEVER SORTED BY SIZE. The order is the journey.
+  ok(JSON.stringify(textOf(full, 'flabel').map((t) => words(t).trim()))
+    === JSON.stringify(FULL.map((st) => st.label)),
+    'the steps are drawn in funnel order, not biggest first');
+  // LABELLED DIRECTLY WITH ITS COUNT, and no legend anywhere.
+  ok(JSON.stringify(textOf(full, 'fcount').map((t) => words(t).trim()))
+    === JSON.stringify(FULL.map((st) => String(st.count))),
+    'every bar carries its own count beside it');
+  const chartCode = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  ok(chartCode.length > 1000, 'there is code left after the comments come out');
+  ok(!/legend/i.test(chartCode), 'and there is no legend');
+
+  // ── 3. THE DROP IS THE GAP, AND THE WIDEST GAP IS THE WORST DROP ────────
+  const drops = rectsOf(full, 'fdrop');
+  ok(drops.length === FULL.filter((st, i) => i > 0 && st.dropped > 0).length,
+    `one gap per real drop, got ${drops.length}`);
+  const askedAt = FULL.findIndex((st) => st.key === 'asked');
+  const wantGap = ((FULL[askedAt - 1].count - FULL[askedAt].count) / FULL[0].count) * innerW;
+  const worstRect = drops.find((n) => cls(n, 'worst'));
+  ok(worstRect != null, 'the server’s worst drop is marked on the chart');
+  ok(Math.abs(worstRect.attrs.width - wantGap) < 0.001,
+    `the worst gap is ${FULL[askedAt - 1].count} − ${FULL[askedAt].count} wide (${wantGap.toFixed(1)}), drew ${Number(worstRect.attrs.width).toFixed(1)}`);
+  // THE POINT OF THE WHOLE CHART: the eye lands on the biggest drop without
+  // reading anything, so the widest gap must BE the worst one. Both come from
+  // the same two counts over the same base, so they cannot disagree — except on
+  // a step drawn longer than the track, where the drawing is clamped and the
+  // table's own column is the one to read. This fixture has no such step.
+  const widest = drops.reduce((a, b) => (Number(b.attrs.width) > Number(a.attrs.width) ? b : a));
+  ok(widest === worstRect,
+    'THE WIDEST GAP IS THE ONE THE SERVER CALLS THE WORST DROP');
+  ok(drops.filter((n) => cls(n, 'worst')).length === 1, 'and only one is marked');
+  // A gap starts where its own bar ends: it is the space between two steps.
+  const askedBar = bars[askedAt];
+  ok(Math.abs(worstRect.attrs.x - (Number(askedBar.attrs.x) + Number(askedBar.attrs.width))) < 0.001,
+    'the gap begins exactly where the bar under it ends');
+
+  // ── 4. A THIN BASE IS NOT DRAWN AS THOUGH IT WERE SOLID ─────────────────
+  const thinAt = FULL.findIndex((st) => st.thin);
+  const thinBar = bars[thinAt];
+  ok(cls(thinBar, 'thin'), 'a step whose base is too small is marked as thin');
+  ok(/var\(--muted\)/.test(thinBar.attrs.style || ''),
+    'and drawn muted rather than in the ink of a solid number');
+  ok(/dash|opacity/.test(thinBar.attrs.style || ''),
+    'and NOT SOLID, so it does not depend on telling two greys apart');
+  ok(!/var\(--text\)/.test(thinBar.attrs.style || ''),
+    'and never in the same ink as a bar that stands up');
+  ok(words(textOf(full, 'fcount')[thinAt]).trim() === String(FULL[thinAt].count),
+    'and it still shows its count — muted is not hidden');
+  ok(bars.filter((b) => cls(b, 'thin')).length === 1,
+    'and no bar with a solid base is muted');
+
+  // ── 5. A STEP WITH NOTHING COUNTED DRAWS NO BAR, AND SAYS SO ────────────
+  const early = draw(DATA(UNREPORTED, { key: 'setup', label: 'Finished setup', dropped: 18 }));
+  const earlyBars = rectsOf(early, 'fbar');
+  const counted = UNREPORTED.filter((st) => st.count > 0);
+  ok(earlyBars.length === counted.length,
+    `only the ${counted.length} steps with a count get a bar, got ${earlyBars.length}`);
+  const nones = textOf(early, 'fnone');
+  ok(nones.length === UNREPORTED.length - counted.length,
+    `and each of the ${UNREPORTED.length - counted.length} with nothing counted says so, got ${nones.length}`);
+  ok(nones.every((t) => /nothing counted/i.test(words(t))),
+    'IN WORDS — a nought and a thing nobody has measured are different facts');
+  // The counts are still drawn for those rows: the table beside it says 0 too,
+  // and the chart must not disagree with it.
+  ok(words(textOf(early, 'fcount')[0]).trim() === '0',
+    'the count is still drawn for a step with no bar');
+  // The base fell through to the first step that counted anybody, and the chart
+  // NAMES it rather than leaving the denominator to be guessed at.
+  ok(early.base(UNREPORTED).key === 'asked',
+    'the base is the first step that has counted anybody');
+  ok(early.base(FULL).key === 'opened',
+    'and it is the first step of the journey whenever that step has a count');
+  const said = words(early.screen);
+  ok(/Measured against “Asked for a code”/.test(said),
+    'the chart says which step it measured against when it is not the first');
+  ok(/Every bar is that step’s count against “Opened the app”/.test(words(full.screen)),
+    'and says so plainly when it is the first');
+  // 53 of 53 is the whole track.
+  ok(Math.abs(earlyBars[0].attrs.width - innerW) < 0.001,
+    'the base step fills the track, because it is the number the others are drawn against');
+  // NO GAP IS DRAWN BACK TO A STEP THAT COUNTED NOTHING — that would draw an
+  // absence as a collapse, which is the misreading this rule exists for.
+  const gapForAsked = rectsOf(early, 'fdrop').length;
+  ok(gapForAsked === UNREPORTED.filter((st, i) => i > 0 && st.dropped > 0 && UNREPORTED[i - 1].count > 0).length,
+    `no gap is drawn back to a step with nothing counted, got ${gapForAsked} gaps`);
+
+  // ── 6. NOTHING AT ALL IS A SENTENCE, NOT AN EMPTY CHART ─────────────────
+  const nothing = draw(DATA(FULL.map((x) => ({ ...x, count: 0, dropped: 0, thin: true })), null));
+  ok(svgOf(nothing).length === 0, 'with nothing counted anywhere, no chart is drawn at all');
+  ok(/Nothing has been counted at any step/.test(words(nothing.screen)),
+    'and it says so, rather than drawing eight empty rows');
+  ok(nothing.base([]) === null && nothing.share(5, null) === null,
+    'and the two helpers answer null rather than guessing a base');
+  ok(nothing.share(5, { count: 0 }) === null,
+    'a share of nobody is null here too, the same as it is in funnel.ts');
+
+  // ── 7. A STEP BIGGER THAN THE BASE IS REPORTED, NOT CLAMPED AWAY ────────
+  //
+  // funnel.ts says so itself: a window shows people finishing setup who started
+  // it last week. The DRAWN length stops at the end of the track because there
+  // is nowhere else for it to go; the count beside it stays the real one.
+  const over = draw(DATA([
+    step('opened', 'Opened the app', 100, 0, false),
+    step('onboarded', 'Finished onboarding', 140, 0, false),
+  ], null));
+  const overBars = rectsOf(over, 'fbar');
+  const OVERSHOOT = [
+    step('opened', 'Opened the app', 100, 0, false),
+    step('onboarded', 'Finished onboarding', 140, 0, false),
+  ];
+  // THE BASE IS THE FIRST STEP THAT COUNTED ANYBODY, NOT THE BIGGEST ONE. Those
+  // are the same number most days, which is exactly why this needs its own
+  // fixture: a base quietly taken from the largest step would draw a chart that
+  // looked right on ordinary data and was measured against something nobody
+  // named.
+  ok(over.base(OVERSHOOT).key === 'opened',
+    'the base is the first counted step even when a later one is bigger');
+  ok(Math.abs(overBars[0].attrs.width - innerW) < 0.001,
+    'so the FIRST step fills the track, and the bigger one below it is what overflows');
+  ok(Math.abs(overBars[1].attrs.width - innerW) < 0.001,
+    'a step bigger than the base draws to the end of the track and no further');
+  ok(words(textOf(over, 'fcount')[1]).trim() === '140',
+    'AND ITS COUNT IS STILL THE REAL ONE — the drawing is clamped, the number is not');
+
+  // ── 8. WHAT THE CHART IS NOT ────────────────────────────────────────────
+  const svgTags = [...new Set(svgOf(full).map((n) => n.tag))].sort();
+  ok(JSON.stringify(svgTags) === JSON.stringify(['rect', 'svg', 'text', 'title']),
+    `the chart is bars and words only — no pie, no donut, no area, no line. Drew [${svgTags.join(', ')}]`);
+  ok(full.seen.filter((n) => n.kind === 'svg' && n.tag === 'svg').length === 1,
+    'ONE chart on the screen: the table already carries the numbers, so nothing is measured twice');
+  ok(!svgOf(full).some((n) => /%/.test(words(n))),
+    'and no percentage is drawn on it — those live in the table, written once');
+  const styles = svgOf(full).map((n) => (n.attrs.style || '') + ' ' + (n.attrs.fill || '') + ' ' + (n.attrs.stroke || ''));
+  ok(!styles.some((v) => /#[0-9a-f]{3}|rgb|hsl/i.test(v)),
+    'NO SVG ELEMENT CARRIES A COLOUR OF ITS OWN — every one is a var(--token)');
+  ok(styles.filter((v) => /fill:/.test(v)).every((v) => /fill:\s*var\(--[a-z0-9-]+\)/.test(v)),
+    'every fill names a token');
+  ok(styles.some((v) => /fill:\s*var\(--/.test(v)), 'and there are fills to check');
+  ok(!/animate|transition|@keyframes/i.test(chartCode), 'nothing on this screen moves');
+  // The numbers it draws are the ones it was handed, and no others.
+  const drawnNumbers = svgOf(full)
+    .filter((n) => n.tag === 'text' && cls(n, 'fcount'))
+    .map((n) => Number(words(n).trim()));
+  ok(drawnNumbers.every((v) => FULL.some((st) => st.count === v)),
+    'every number on the chart is one the server sent');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -1,0 +1,21 @@
+-- THE NUMBER OF STARS THEY GAVE THE PRODUCT AT THE SHOP.
+--
+-- The owner's own words: "Fayr should have the reviews that the user has
+-- provided for each product and the ratings as well."
+--
+-- WHY IT HAS TO BE KEPT HERE. The shop never shows us the review text back. On
+-- Zepto, Blinkit and Instamart all an order page ever says is that the product
+-- HAS been rated -- never what the rating was. So this column is the only record
+-- anywhere of what they actually gave.
+--
+-- AND IT IS A RECORD, NEVER A REASON TO PAY OR NOT PAY. Nothing in the refund
+-- gate, the task engine, the wallet or the task service reads it. A one-star
+-- rating is paid exactly as a five-star one is, and that is checked by walking
+-- the whole of backend/src rather than by promising it here.
+--
+-- ADDITIVE AND NULLABLE, WITH NO DEFAULT, and all three on purpose. Every review
+-- written before today was written without a number, and a default would put a
+-- rating nobody chose against somebody's name. NULL means "they have not said",
+-- which is also what it means for somebody who writes the review before deciding
+-- the number -- and nothing in Fayr may ever force one.
+ALTER TABLE "task_reviews" ADD COLUMN "stars" INTEGER;

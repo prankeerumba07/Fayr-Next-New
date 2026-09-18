@@ -26,6 +26,7 @@ import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
   DRAW_DEADLINE_MS, LEAST_A_DRAW_CAN_TAKE_MS, LOOK_AGAIN_MS, MOST_LOOKS,
+  PRESS_BUYS_MS, PRESS_DEADLINE_MS,
   SHOPS_WHOSE_LIST_THE_PAGE_DRAWS, SHOPS_WHOSE_ORDER_PAGES_ARE_DRAWN,
   STEADY_LOOKS_BEFORE_WE_READ, WHAT_EACH_SHOP_DRAWS, anAnswerTag,
   answerWithStatus, buildDrawnListScript, buildDrawnOrderScript, drawFacts, isOurAnswer,
@@ -36,6 +37,7 @@ import { ORDER_LIST_PAGES } from '../orderhistory.js';
 import { A_DEAD_END, A_PUZZLE, TOO_MANY_ASKS } from '../connect/shopRefusing.js';
 import { GAP_BETWEEN_FETCHES_MS, MOST_DETAIL_PAGES } from './detailLook.js';
 import { HOW_OFTEN_IT_LOOKS_MS, LOOKS_IN_A_ROW_BEFORE_WE_ASK } from '../connect/gate.js';
+import { PRESSES_AT_MOST } from '../shop/loadMore.js';
 
 const { ok, equal, deepEqual } = assert;
 let passed = 0;
@@ -243,8 +245,27 @@ it('FAYR TYPES NOTHING INTO THE SHOP’S PAGE, and this walks the script for it'
   // the plain-language check on the backend holds a FIXED list of five files and
   // none of them is here. A page script in this folder carrying a click passed
   // every check in the project.
+  //
+  // ── ONE TAP IS NOW ALLOWED, AND ONLY IN ONE SCRIPT ───────────────────────
+  //
+  // 18 September 2026. The owner's read found nothing on a live Zepto account
+  // that had the order on it: the list loads eight at a time behind a "Load
+  // More" button and the order was sixty rows back. Reaching it means pressing
+  // that button, and pressing is a tap.
+  //
+  // THE RULE IS NARROWED AND NOT DROPPED. `.click(` leaves the forbidden list
+  // for the ORDER LIST script of a shop whose button has been measured, and
+  // stays forbidden everywhere else. Every other shape on the list — typing into
+  // a field, submitting a form, synthesising an event, moving somebody's page —
+  // is still refused for every script this file builds, and the checks
+  // immediately below pin the tap to exactly one control.
+  //
+  // SCRIPT here is AMAZON'S, and it is unchanged: the whole press mechanism is
+  // ABSENT from the script of a shop with no measured button, not switched off
+  // inside it, and the check after next proves the two scripts are identical
+  // character for character.
   for (const typing of [
-    '.click(', '.focus(', '.blur(', '.submit(', '.value', 'dispatchEvent',
+    '.focus(', '.blur(', '.submit(', '.value', 'dispatchEvent',
     'document.forms', 'execCommand', 'KeyboardEvent', 'MouseEvent', 'PointerEvent',
     'scrollTo', 'scrollIntoView', 'requestSubmit',
   ]) {
@@ -257,6 +278,109 @@ it('FAYR TYPES NOTHING INTO THE SHOP’S PAGE, and this walks the script for it'
   ]) {
     ok(!SCRIPT.includes(secret), `the script contains "${secret}"`);
   }
+});
+
+console.log('\n"load more", and the one tap in the whole folder');
+
+const PRESSING = buildDrawnListScript({
+  beganAt: 1700000000000, tag: 'look-abc', wantedPath: '/account/orders',
+  counts: whatThisShopDraws('zepto'), platformKey: 'zepto',
+});
+
+it('A SHOP WITH NO MEASURED BUTTON GETS A SCRIPT WITH NO TAP IN IT AT ALL', () => {
+  // The strongest form of "Amazon behaves exactly as it does today": not a
+  // promise about what its script does, but the same script.
+  const asItWas = buildDrawnListScript({
+    beganAt: 1700000000000, tag: 'look-abc', wantedPath: '/your-orders/orders',
+    counts: whatThisShopDraws('amazon'),
+  });
+  equal(
+    buildDrawnListScript({
+      beganAt: 1700000000000, tag: 'look-abc', wantedPath: '/your-orders/orders',
+      counts: whatThisShopDraws('amazon'), platformKey: 'amazon',
+    }),
+    asItWas,
+    'Amazon\'s script with the key is the same script it was without one',
+  );
+  for (const gone of ['.click(', 'textContent', 'loadMoreWords', 'presses', 'pressTime']) {
+    ok(!asItWas.includes(gone), `a shop that cannot press has no "${gone}" in its script`);
+  }
+  for (const shop of ['meesho', 'flipkart', 'blinkit', 'instamart', '', null, undefined]) {
+    const other = buildDrawnListScript({
+      beganAt: 1, tag: 't', wantedPath: '/p', counts: whatThisShopDraws('amazon'), platformKey: shop,
+    });
+    ok(!other.includes('.click('), `and neither does ${String(shop)}`);
+  }
+});
+
+it('THE ONE TAP IS THE MEASURED BUTTON, AND THERE IS EXACTLY ONE OF IT', () => {
+  equal((PRESSING.match(/\.click\(/g) || []).length, 1, 'one tap in the whole script');
+  ok(PRESSING.includes('try { more.click(); } catch(e){}'),
+    'and it is the element theLoadMoreButton handed back, wrapped so it cannot throw');
+  ok(PRESSING.includes('var more = theLoadMoreButton();'),
+    'which is the only thing that is ever tapped');
+  // EVERY OTHER SHAPE ON THE ORIGINAL LIST IS STILL REFUSED HERE.
+  for (const typing of [
+    '.focus(', '.blur(', '.submit(', '.value', 'dispatchEvent',
+    'document.forms', 'execCommand', 'KeyboardEvent', 'MouseEvent', 'PointerEvent',
+    'scrollTo', 'scrollIntoView', 'requestSubmit',
+  ]) {
+    ok(!PRESSING.includes(typing), `the pressing script contains "${typing}"`);
+  }
+  for (const secret of [
+    'document.cookie', 'localStorage', 'sessionStorage', 'indexedDB',
+    'token', 'Bearer', 'password', 'authorization',
+  ]) {
+    ok(!PRESSING.includes(secret), `the pressing script contains "${secret}"`);
+  }
+});
+
+it('THE WORDS IT READS ARE A BUTTON\'S LABEL AND THEY NEVER LEAVE THE PAGE', () => {
+  // The rule above says this script serialises the page and does not read it.
+  // Finding a button by its words is reading, so it is allowed exactly once and
+  // pinned to the place that does it.
+  equal((PRESSING.match(/textContent/g) || []).length, 1, 'read in one place only');
+  ok(PRESSING.includes('function theLoadMoreButton(){'), 'and that place is the button finder');
+  ok(!PRESSING.includes('innerText'), 'still never innerText');
+  // AND NOTHING IT READ IS SENT. The only things added to the answer are counts
+  // and one yes-or-no, every one of which is about the pressing itself.
+  const sent = (PRESSING.match(/send\(\{[\s\S]*?\}\);/) || [''])[0];
+  ok(sent.includes('presses: presses'), 'how many times it pressed');
+  ok(sent.includes('rowsBeforeEachPress: rowsBefore'), 'and what the list held before each');
+  ok(sent.includes('rowsAtTheEnd: rows'), 'and where it ended up');
+  ok(!sent.includes('textContent') && !sent.includes('loadMoreWords'),
+    'and not one word read off the page');
+});
+
+it('IT ONLY EVER TAPS SOMETHING THAT IS ALREADY A CONTROL', () => {
+  ok(PRESSING.includes('document.querySelectorAll(\'button, a, [role="button"]\')'),
+    'buttons, links and things the page itself calls buttons');
+  ok(PRESSING.includes("if (el.querySelector && el.querySelector('*')) continue;"),
+    'and never a card that merely CONTAINS the words');
+  ok(PRESSING.includes('if (t === loadMoreWords[j]) return el;'),
+    'the whole label has to be the words, not contain them');
+  ok(PRESSING.includes('"load more"'), 'and the words are the measured ones');
+});
+
+it('THE PRESSING STOPS, AND ALL THREE WAYS ARE REALLY IN THE SCRIPT', () => {
+  ok(PRESSING.includes(`presses < ${PRESSES_AT_MOST}`), 'the limit, as the named constant');
+  ok(PRESSING.includes('if (more !== null)'), 'the button being gone');
+  ok(PRESSING.includes('&& !out &&'), 'and the deadline, which no press can outlive');
+  // AND A PRESS PUTS THE STEADY COUNTERS BACK, or the next look would still see
+  // the old rows holding still and press again at once, seven times over.
+  ok(PRESSING.includes('steady = -1; same = 0;'), 'a press means waiting for the page again');
+  ok(PRESSING.includes('rowsBefore.push(rows);'), 'and the count before it is kept');
+});
+
+it('AND PRESSING BUYS ITS OWN TIME, NEVER THE DRAWING\'S', () => {
+  equal(PRESS_BUYS_MS, LEAST_A_DRAW_CAN_TAKE_MS + GAP_BETWEEN_FETCHES_MS,
+    'one settle and one politeness gap a press, both already argued for');
+  equal(PRESS_DEADLINE_MS, PRESSES_AT_MOST * PRESS_BUYS_MS);
+  ok(PRESSING.includes(`${DRAW_DEADLINE_MS} + pressTime`),
+    'the deadline grows by what has been pressed and not by what might be');
+  ok(PRESSING.includes(`${MOST_LOOKS} + pressLooks`), 'and so does the second axe');
+  ok(!SCRIPT.includes('pressTime'),
+    'while a shop that cannot press has the arithmetic it always had');
 });
 
 console.log('\nand a page cannot answer for us');

@@ -67,6 +67,13 @@ import {
   buildOrderListScript, landedPath, orderListPageFor, readDetailOutcome, readListOutcome,
   readPageRefusal,
 } from '../orderhistory.js';
+// THE PRESS RULE, AND IT IS NOT IN THIS FILE ON PURPOSE. src/shop/loadMore.js
+// holds the limit, the words measured on the button and the three conditions
+// that stop the loop, and it is walked under node. This file only carries them
+// into the page.
+import {
+  PRESSES_AT_MOST, loadMoreWordsFor, shopPressesForMore,
+} from '../shop/loadMore.js';
 
 /**
  * WHICH SHOPS DRAW THEIR OWN LIST, so the screen never has to know a shop's name.
@@ -307,6 +314,19 @@ export function drawFacts(payload) {
     marked: count(p.marked),
     nodesFirst: count(p.nodesFirst),
     nodesNow: count(p.nodesNow),
+    // ── WHAT THE PRESSING DID, MADE SAFE THE SAME WAY EVERYTHING ELSE IS ────
+    //
+    // The row counts arrive as a LIST, so it is rebuilt element by element
+    // rather than passed through: a page handing back a hundred thousand of
+    // them would otherwise write a hundred thousand numbers into somebody's
+    // console. The cap is the press limit, because there cannot honestly be
+    // more entries in it than there were presses.
+    presses: count(p.presses),
+    rowsBeforeEachPress: (Array.isArray(p.rowsBeforeEachPress) ? p.rowsBeforeEachPress : [])
+      .slice(0, PRESSES_AT_MOST)
+      .map(count),
+    rowsAtTheEnd: count(p.rowsAtTheEnd),
+    theButtonWasStillThere: p.theButtonWasStillThere === true,
   };
 }
 
@@ -400,8 +420,42 @@ export function answerWithStatus(payload, seen) {
  * THE SLASH IS NOT COSMETIC: the prefix is the wanted path with one on the end,
  * so /your-orders/orders can never be satisfied by /your-orders/orders-archive.
  */
+/**
+ * HOW MUCH LONGER THE SCRIPT MAY RUN, PER PRESS.
+ *
+ * ── ITS OWN BUDGET, BECAUSE IT IS ITS OWN KIND OF WAITING ──────────────────
+ *
+ * DRAW_DEADLINE_MS is how long to wait for a page to finish drawing ITSELF.
+ * Pressing is the opposite: the page has already drawn, and this is time spent
+ * asking it for more. Spending the draw budget on presses would mean a slow
+ * phone that used it up waiting could never press at all, and a fast one would
+ * press seven times and have nothing left if the last press was slow.
+ *
+ * THE ARITHMETIC, from numbers already argued for above: a press is answered
+ * when the new rows appear and hold still, which is LEAST_A_DRAW_CAN_TAKE_MS,
+ * plus whatever the shop takes to answer — and GAP_BETWEEN_FETCHES_MS is the
+ * allowance this project already uses for "a shop being asked for something".
+ * So each press buys itself one of each, and no more.
+ *
+ * IT ONLY BITES ON A SHOP THAT IS SLOW OR STUCK. A press answered in 400ms is
+ * over in 400ms. What this stops is a button that does nothing being pressed
+ * seven times against a list that is never going to grow.
+ */
+export const PRESS_BUYS_MS = LEAST_A_DRAW_CAN_TAKE_MS + GAP_BETWEEN_FETCHES_MS;
+
+/** The whole of what pressing can add to one look's deadline. */
+export const PRESS_DEADLINE_MS = PRESSES_AT_MOST * PRESS_BUYS_MS;
+
+/**
+ * `platformKey` decides whether this script presses "Load More" at all, and it
+ * is an OPTIONAL argument with an inert default. A shop with no measured button
+ * — which today is every shop but Zepto — gets back exactly the script this
+ * function returned before pressing existed: not a script that declines to
+ * press, but one with no tap and no text read anywhere in it. That difference is
+ * what makes the standing rule next door checkable by reading the script.
+ */
 export function buildDrawnListScript({
-  beganAt, tag, wantedPath, counts,
+  beganAt, tag, wantedPath, counts, platformKey,
 } = {}) {
   const startedAt = Number.isFinite(Number(beganAt)) ? Math.trunc(Number(beganAt)) : 0;
   const name = JSON.stringify(String(tag == null ? '' : tag));
@@ -419,11 +473,92 @@ export function buildDrawnListScript({
   const countOf = (sel) => (typeof sel === 'string' && sel !== ''
     ? `howMany(${JSON.stringify(sel)})`
     : '0');
+  // ── THE PRESSING, BUILT AS THREE PIECES THAT ARE SIMPLY ABSENT FOR A SHOP
+  //    WITH NO MEASURED BUTTON ───────────────────────────────────────────────
+  //
+  // Absent, not switched off. "Amazon's script does not press" and "Amazon's
+  // script contains no tap at all" are different claims, and only the second can
+  // be proved by reading the script — which is how FAYR TYPES NOTHING INTO THE
+  // SHOP'S PAGE is enforced next door.
+  const pressWords = shopPressesForMore(platformKey) ? loadMoreWordsFor(platformKey) : [];
+  const presses = pressWords.length > 0;
+  const startCounters = !presses ? '' : `
+  // The press count and the room it buys. See PRESS_BUYS_MS.
+  var presses = 0, pressTime = 0, pressLooks = 0, rowsBefore = [];`;
+  const findsTheButton = !presses ? '' : `
+  // "LOAD MORE" IS FOUND BY ITS WORDS, and the words are the measured part:
+  // ZEPTO-BRIEF.md, 15 September 2026, off the owner's own signed-in account —
+  // "The order list loads eight at a time behind a 'Load More' button." No
+  // selector was ever measured, so none is written here.
+  //
+  // IT ONLY LOOKS AT THINGS THAT ARE ALREADY CONTROLS, and refuses any with a
+  // child element inside, so the words have to be the whole of what the control
+  // says. A page-wide text hunt could find them in a heading and tap a heading.
+  //
+  // AND WHAT IT READS NEVER LEAVES THE PAGE. The label is compared to the list
+  // and dropped: nothing read here reaches the answer, and the check next door
+  // asserts this is the only place in the whole script that reads any text.
+  var loadMoreWords = ${JSON.stringify(pressWords)};
+  function theLoadMoreButton(){
+    try {
+      var all = document.querySelectorAll('button, a, [role="button"]');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.querySelector && el.querySelector('*')) continue;
+        var t = (el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (t === '') continue;
+        for (var j = 0; j < loadMoreWords.length; j++) {
+          if (t === loadMoreWords[j]) return el;
+        }
+      }
+    } catch(e){}
+    return null;
+  }`;
+  const pressAgain = !presses ? '' : `
+    // THE LIST HAS DRAWN. IS THERE MORE OF IT BEHIND A BUTTON?
+    //
+    // Two of loadMore.js's three stops are answerable here: the button being
+    // gone, and the limit. The third — the order having been found — is the
+    // SERVER's answer, and the server has not been asked anything yet, because
+    // the list is what is being gathered to ask it about. The screen carries
+    // that one: its detail loop stops opening order pages the moment a post
+    // comes back matched, which is the same stop one phase later.
+    //
+    // THE COUNTERS ARE PUT BACK, because a press is not another look at the
+    // same page. The new rows have to appear and hold still exactly as the
+    // first ones did. Without this the very next look would still see the old
+    // rows holding steady and press again at once, seven times, in a second.
+    if (drew && !out && presses < ${PRESSES_AT_MOST}) {
+      var more = theLoadMoreButton();
+      if (more !== null) {
+        presses = presses + 1;
+        rowsBefore.push(rows);
+        pressTime = presses * ${PRESS_BUYS_MS};
+        pressLooks = Math.ceil(pressTime / ${LOOK_AGAIN_MS});
+        steady = -1; same = 0;
+        try { more.click(); } catch(e){}
+        return;
+      }
+    }`;
+  const pressFacts = !presses ? '' : `,
+             // WHAT THE PRESSING DID. rowsBeforeEachPress is the count BEFORE
+             // each press, in order, with the final count beside it — which
+             // together say whether a press added anything. A button that is
+             // there and does nothing looks exactly like a slow shop in a
+             // total, and nothing like one in this list.
+             presses: presses,
+             rowsBeforeEachPress: rowsBefore,
+             rowsAtTheEnd: rows,
+             theButtonWasStillThere: theLoadMoreButton() !== null`;
+  // THE EXTRA ROOM, WRITTEN AS NOTHING AT ALL FOR A SHOP THAT CANNOT PRESS, so
+  // its deadline arithmetic is the character-for-character one it always was.
+  const moreTime = !presses ? '' : ' + pressTime';
+  const moreLooks = !presses ? '' : ' + pressLooks';
   return `
 (function(){
   if (window.__fayrLooking) return;
   window.__fayrLooking = true;
-  var sent = false, ticker = null, looks = 0, steady = -1, same = 0, first = -1;
+  var sent = false, ticker = null, looks = 0, steady = -1, same = 0, first = -1;${startCounters}
   // The page we asked for, with one slash on the end. See the note above this
   // function for why a redirect INTO it is not somewhere else.
   var inside = ${wanted} === "" ? "" :
@@ -440,7 +575,7 @@ export function buildDrawnListScript({
     try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch(e){}
   }
   function howMany(sel){ try { return document.querySelectorAll(sel).length; } catch(e){ return 0; } }
-  function howBig(){ try { return document.getElementsByTagName("*").length; } catch(e){ return 0; } }
+  function howBig(){ try { return document.getElementsByTagName("*").length; } catch(e){ return 0; } }${findsTheButton}
   function look(){
     looks = looks + 1;
     var linked = ${countOf(pair.link)};
@@ -455,10 +590,10 @@ export function buildDrawnListScript({
       && location.pathname.indexOf(inside) !== 0; } catch(e){}
     if (rows > 0 && rows === steady) { same = same + 1; } else { steady = rows; same = 1; }
     var drew = rows > 0 && same >= ${STEADY_LOOKS_BEFORE_WE_READ};
-    var out = waited >= ${DRAW_DEADLINE_MS} || looks >= ${MOST_LOOKS};
+    var out = waited >= ${DRAW_DEADLINE_MS}${moreTime} || looks >= ${MOST_LOOKS}${moreLooks};${pressAgain}
     if (drew || out || (elsewhere && settled)) {
       send({ drew: drew, settled: settled, waited: waited, looks: looks,
-             linked: linked, marked: marked, nodesFirst: first, nodesNow: now });
+             linked: linked, marked: marked, nodesFirst: first, nodesNow: now${pressFacts} });
     }
   }
   look();
@@ -699,7 +834,18 @@ export function openTheListWith(platformKey, startUrl, beganAt, tag) {
   return {
     uri: list,
     script: buildDrawnListScript({
-      beganAt, tag, wantedPath: landedPath(list), counts: whatThisShopDraws(platformKey),
+      beganAt,
+      tag,
+      wantedPath: landedPath(list),
+      counts: whatThisShopDraws(platformKey),
+      // ── AND ONLY THIS ONE PRESSES FOR MORE ──────────────────────────────
+      //
+      // The ORDER list, and neither of the other two lists this file builds
+      // with the same function. A search results page and a reviews page each
+      // have their own idea of what a second page is and neither has ever been
+      // measured; handing the key to all three would be one measurement being
+      // spent three times.
+      platformKey,
     }),
     drawn: true,
     tag,

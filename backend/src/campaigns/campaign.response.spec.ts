@@ -34,6 +34,7 @@ const baseCampaign: Campaign = {
   totalSlots: 50,
   asin: 'B08TV2P5QL',
   productUrl: 'https://www.amazon.in/dp/B08TV2P5QL',
+  searchKeyword: 'boat rockerz 255 pro bluetooth neckband',
   imageUrl: null,
   createdAt: new Date('2026-07-01T10:00:00.000Z'),
   updatedAt: new Date('2026-07-02T11:30:00.000Z'),
@@ -77,7 +78,32 @@ describe('toCampaignResponse', () => {
       minRating: 4,
       totalSlots: 50,
       asin: 'B08TV2P5QL',
+      searchKeyword: 'boat rockerz 255 pro bluetooth neckband',
     });
+  });
+
+  it('carries the search keyword, and keeps a missing one null', () => {
+    // THE PHRASE A PERSON TYPES INTO THE SHOP'S OWN SEARCH BOX, which is NOT the
+    // product name and is not derived from it. The app draws this on the bar
+    // above the in-app shop and asks them to type it; there is deliberately no
+    // copy control.
+    //
+    // NULL IS THE ORDINARY CASE TODAY — every campaign that existed before this
+    // column was added has none — and it has to arrive as an absence, because
+    // the app says "no search phrase has been written for this offer yet" rather
+    // than falling back to the product name. A keyword that finds the wrong
+    // product is worse than no keyword at all.
+    expect(toCampaignResponse(baseCampaign, CTX).searchKeyword).toBe(
+      'boat rockerz 255 pro bluetooth neckband',
+    );
+    expect(
+      toCampaignResponse({ ...baseCampaign, searchKeyword: null }, CTX)
+        .searchKeyword,
+    ).toBeNull();
+    // AND IT IS NEVER THE PRODUCT NAME. If these two ever come back equal from a
+    // campaign that has no keyword, something has started falling back.
+    const none = toCampaignResponse({ ...baseCampaign, searchKeyword: null }, CTX);
+    expect(none.searchKeyword).not.toBe(none.productName);
   });
 
   it('passes campaign terms through, and keeps a missing one null', () => {

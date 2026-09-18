@@ -11,7 +11,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { seatsLine, joinedLine, isFullCampaign } from './seats.js';
+import {
+  LOCKED_BANNER, LOCKED_CTA, seatsLine, joinedLine, isFullCampaign, lockedLine,
+  lockedReason,
+} from './seats.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 let pass = 0, fail = 0;
@@ -85,6 +88,156 @@ console.log('\n=== the screens read the helper, not the raw fields ===');
     ok(!/seatsLeft\s*[-+<>]|claimedCount\s*[-+<>]/.test(src),
       `${screen} does no arithmetic or comparison on the raw counts`);
   }
+}
+
+console.log('\n=== A FULL OFFER IS LOCKED, NOT GONE — 18 September 2026 ===');
+{
+  const FULL = { seatsLeft: 0, ticketCost: 5, id: 'c1' };
+  const OPEN = { seatsLeft: 3, ticketCost: 5, id: 'c2' };
+
+  // ── IT SAYS ALL THREE THINGS, IN THE OWNER'S OWN ORDER ──────────────────
+  //
+  // "It was active, now the slots are full, so it has been locked, and it will
+  // come back soon." Any one of the three alone misleads: "was open" without
+  // "full now" does not explain why they cannot take it, and "full now" without
+  // "comes back" is the dead end "Full" used to be.
+  const why = lockedReason(FULL);
+  ok(Array.isArray(why) && why.length === 2, 'a locked offer has something to say');
+  const all = why.join(' ');
+  ok(/was open/.test(all), 'IT WAS OPEN — so somebody who saw it yesterday is not imagining it');
+  ok(/every slot is now taken/.test(all), 'IT IS FULL NOW — which is why they cannot take it');
+  ok(/comes back/.test(all), 'AND IT COMES BACK — the part "Full" threw away');
+  ok(/has not ended/.test(all), 'and it says plainly that it has not ended');
+
+  // ── AND IT PROMISES NO TIME NOBODY KNOWS ────────────────────────────────
+  //
+  // A slot frees when a claim closes or an operator raises the cap, and neither
+  // is on a clock. "Soon" is the owner's word for it and it is deliberately not
+  // in these sentences, because it would come back as a broken promise.
+  ok(/nobody can say when/.test(all), 'it says outright that nobody knows when');
+  for (const promise of [
+    'soon', 'shortly', 'tomorrow', 'in a few', 'within', 'hours', 'days',
+    'minutes', '24', '48', 'later today',
+  ]) {
+    ok(!all.toLowerCase().includes(promise), `it does not promise "${promise}"`);
+  }
+
+  // ── AND "Full" IS GONE FROM ALL OF IT ───────────────────────────────────
+  ok(LOCKED_CTA === 'Locked', 'the tile says Locked');
+  ok(LOCKED_CTA !== 'Full', 'and never Full, which reads as a dead end');
+  ok(/Locked/.test(LOCKED_BANNER) && /every slot is taken/.test(LOCKED_BANNER),
+    'and the banner carries both the state and the reason');
+  ok(lockedLine(FULL) === 'Comes back when a slot opens',
+    'and the footer line carries what happens next');
+
+  // ── SILENCE FOR AN OFFER THAT IS NOT FULL, the same shape as the rest ───
+  for (const notFull of [OPEN, { seatsLeft: null }, {}, null, undefined,
+    { seatsLeft: 'nought' }, { seatsLeft: 1 }]) {
+    ok(lockedLine(notFull) === null, 'an offer that is not full has no locked line');
+    ok(lockedReason(notFull) === null, 'and no locked reason');
+  }
+  ok(lockedLine({ seatsLeft: -4 }) !== null, 'a negative remainder is still full');
+}
+
+console.log('\n=== the locked offer is DRAWN, still in the list, and not claimable ===');
+{
+  const strip = (p) => readFileSync(join(HERE, '..', p), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+  const home = strip('HomeScreen.js');
+  const detail = strip('DetailScreen.js');
+
+  // THE WORDING IS DRAWN AND "Full" IS NOT.
+  ok(/LOCKED_BANNER/.test(home) && /LOCKED_CTA/.test(home),
+    'the tile draws the locked banner and the locked call to action');
+  ok(/lockedLine\(c\)/.test(home), 'and the footer line');
+  ok(!/'Full'/.test(home), 'and the word "Full" is gone from the tile');
+  ok(/lockedReason\(campaign\)/.test(detail), 'the detail screen draws the reason');
+
+  // ── IT IS STILL IN THE LIST. PRESENT, NOT FILTERED OUT ──────────────────
+  //
+  // The owner's words: "I don't want the campaign to go away or vanish from the
+  // app once the slot is full." Nothing filtered it before this change either —
+  // the backend's listActive filters on status and never on seats — and this is
+  // what stops somebody adding a filter later.
+  // ── WRITTEN TWICE, BECAUSE THE FIRST WRITING WAS DEAD ──────────────────
+  //
+  // It was `/\.filter\([^)]*isFullCampaign/`, and it can never match: the text
+  // between `.filter(` and the first `)` in `.filter((c) => !isFullCampaign(c))`
+  // is just `(c`, so the class stops before the word it was hunting. The
+  // mutation that filters full offers out of the feed passed the whole suite.
+  // Caught by breaking it, which is the only reason it is not still there.
+  //
+  // SO THE LIST IS READ, NOT PATTERN-MATCHED. Every `.filter(` in the screen is
+  // taken with what follows it and held to the rule.
+  ok(/\bcampaigns\.map\(/.test(home),
+    'the feed draws the store\u2019s own list, with nothing between it and the map');
+  for (const at of [...home.matchAll(/\.filter\(/g)].map((m) => m.index)) {
+    const clause = home.slice(at, at + 160);
+    for (const dropped of ['isFullCampaign', 'seatsLeft', 'full', 'locked']) {
+      ok(!clause.includes(dropped),
+        `a filter in HomeScreen drops offers by ${dropped}: ${clause.slice(0, 60)}`);
+    }
+  }
+  for (const src of [home, strip('backend/campaignStore.js')]) {
+    ok(!/seatsLeft\s*<=\s*0/.test(src),
+      'and nothing drops a full offer on the way to the screen');
+  }
+  // AND THE TILE IS STILL A TILE: same Card, same onPress, no early return.
+  ok(/<Card onPress=\{onOpen\}/.test(home), 'a locked offer is still tappable');
+  ok(!/if \(locked\) return null/.test(home), 'and its card is never skipped');
+
+  // ── IT MUST NOT LOOK CLAIMABLE, AND THE GUARD IS UNTOUCHED ──────────────
+  //
+  // "Locked" is not "Claim". What is ALLOWED is not this phase's business: the
+  // server owns the refusal and answers in its own words, which is the decision
+  // already recorded beside the seats row, and a dead button explains nothing.
+  ok(/locked \? LOCKED_CTA/.test(home), 'a locked tile says Locked and not Claim');
+  ok(/full[\s\S]{0,40}'Locked \u00b7 every slot is taken'/.test(detail),
+    'and the detail screen\u2019s button says so too');
+  ok(/disabled=\{!claimed && !acceptedTerms\(accepted\)\}/.test(detail),
+    'THE EXISTING GUARD IS EXACTLY AS IT WAS — this changed what is drawn, not what is allowed');
+  ok(!/disabled=\{[^}]*full/.test(detail),
+    'and nothing new disables the claim button on fullness');
+
+  // ── LOCKED IS NOT "NOT RIGHT NOW", AND THE SHOP'S PAGE OUTRANKS IT ──────
+  //
+  // A dead shop page is a problem a freed slot would not fix, so when both are
+  // true the person is told the one that matters.
+  ok(/const locked = full && !off;/.test(home),
+    'a locked banner is not drawn over a shop whose page has died');
+  ok(/off \? live\.cta : locked \?/.test(home),
+    'and the shop\u2019s own state is asked first');
+  ok(/lockedBanner/.test(home) && /offBanner/.test(home),
+    'the two states have two different banners and cannot be mistaken for each other');
+}
+
+console.log('\n=== and a PAUSED campaign is a different fact entirely ===');
+{
+  // IT IS NOT IN THE FEED AT ALL, which is why there is no wording for it. The
+  // backend's listActive filters on status and sends only ACTIVE campaigns, so a
+  // paused offer and a locked one can never be confused: one is absent and the
+  // other is present and says so.
+  const service = readFileSync(
+    join(HERE, '..', '..', 'backend', 'src', 'campaigns', 'campaign.service.ts'), 'utf8',
+  ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  ok(/where: \{ status: 'ACTIVE'/.test(service),
+    'listActive sends only ACTIVE campaigns, so a PAUSED one never reaches a screen');
+  ok(!/seatsLeft|claimedCount/.test(service.slice(service.indexOf('listActive'),
+    service.indexOf('claimedSeats'))),
+    'AND IT NEVER FILTERS ON SEATS — a full offer was never dropped from the feed');
+  // AND THE APP HAS NO WORDING FOR PAUSED, because there is nothing to draw.
+  // STRIPPED FIRST. seats.js EXPLAINS the difference between paused, locked and
+  // "not right now" at length, so reading the file whole would be matching the
+  // very prose that says the word is not in the code.
+  const words = readFileSync(join(HERE, 'seats.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  ok(!/PAUSED|Paused|paused/.test(words),
+    'seats.js says nothing about paused, which is the honest amount to say');
+  ok(!/status/.test(words),
+    'and it never looks at a campaign status at all — that is the server\u2019s filter');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

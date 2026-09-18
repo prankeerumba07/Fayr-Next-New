@@ -290,6 +290,61 @@ describe('Admin campaigns (e2e)', () => {
       await move('pause', 409);
     });
 
+    it('the search phrase — and ONLY it — may be changed while live', async () => {
+      // THE ONE EXEMPTION FROM THE LOCK BELOW, and the reason is written where
+      // the lock is: a search phrase changes what somebody types into a shop's
+      // search box. It is not in the terms, no task reads it, and no refund is
+      // computed from it, so it cannot move the goalposts on a claimed task the
+      // way a price or a payout percent would.
+      const { token } = await tokenFor('OPERATIONS');
+      const c = await createDraft(token);
+      const patch = (body: Body, expected: number) =>
+        request(server())
+          .patch(`/admin/campaigns/${c.id}`)
+          .set('authorization', `Bearer ${token}`)
+          .send(body)
+          .expect(expected);
+
+      await request(server())
+        .post(`/admin/campaigns/${c.id}/publish`)
+        .set('authorization', `Bearer ${token}`)
+        .expect(200);
+
+      // ALONE, ON A LIVE CAMPAIGN: allowed, and it really lands.
+      await patch({ searchKeyword: 'boldfit sports headband' }, 200).expect((r) =>
+        expect(r.body.searchKeyword).toBe('boldfit sports headband'),
+      );
+      // And clearing it is the same kind of change, so it is allowed too.
+      await patch({ searchKeyword: '' }, 200).expect((r) =>
+        expect(r.body.searchKeyword).toBeNull(),
+      );
+
+      // EVERY OTHER FIELD IS STILL SHUT while live.
+      await patch({ title: 'nope' }, 409);
+      await patch({ productPricePaise: '999900' }, 409);
+      await patch({ terms: 'new terms' }, 409);
+      await patch({ payoutPercent: 50 }, 409);
+
+      // AND THE EXEMPTION CANNOT CARRY A PASSENGER. A body with the keyword AND
+      // anything else is refused exactly as before — otherwise the one allowed
+      // field becomes a way to smuggle a price change past the lock.
+      await patch({ searchKeyword: 'x', payoutPercent: 50 }, 409);
+      await patch({ searchKeyword: 'x', terms: 'new terms' }, 409);
+      await patch({ searchKeyword: 'x', productPricePaise: '1' }, 409);
+
+      // AN ENDED CAMPAIGN STAYS COMPLETELY SHUT. Nobody types a search phrase
+      // for an offer that is over.
+      await request(server())
+        .post(`/admin/campaigns/${c.id}/pause`)
+        .set('authorization', `Bearer ${token}`)
+        .expect(200);
+      await request(server())
+        .post(`/admin/campaigns/${c.id}/end`)
+        .set('authorization', `Bearer ${token}`)
+        .expect(200);
+      await patch({ searchKeyword: 'too late' }, 409);
+    });
+
     it('edits are allowed only while DRAFT or PAUSED', async () => {
       const { token } = await tokenFor('OPERATIONS');
       const c = await createDraft(token);
