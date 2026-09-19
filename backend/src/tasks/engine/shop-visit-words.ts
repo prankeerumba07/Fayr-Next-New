@@ -25,8 +25,13 @@
 // says, so the offset is applied here rather than left to whatever Date happens
 // to do where this runs.
 
-/** India is five and a half hours ahead of universal time, and has no summer time. */
-const INDIA_OFFSET_MS = 330 * 60 * 1000;
+// AND THE OFFSET ITSELF LIVES IN ONE PLACE — Phase 8B-c, 20 September 2026. It
+// was written here first and then wanted a second time, by the reader that turns
+// "25 Aug 2026, 9:02 PM" off a shop's own page into an instant. Two copies of the
+// number that decides what hour somebody is told about their money is one copy
+// too many, so it moved to common/india-clock.ts and this reads it from there.
+import { INDIA_OFFSET_MS } from '../../common/india-clock';
+
 const A_DAY_MS = 24 * 60 * 60 * 1000;
 
 /**

@@ -604,6 +604,17 @@ model OrderCandidate {
   /// up. NULL when the page did not say, and null also when it said it without a
   /// year — "Delivered 5 June" is not a date, and filling the year in from today
   /// would be an invention. Additive and nullable: no existing row is rewritten.
+  ///
+  /// AND IT HOLDS AN INSTANT WHEN THE PAGE STATED ONE — Phase 8B-c, 20 September
+  /// 2026. The name now says less than the column carries, and it is NOT renamed:
+  /// a rename is a migration on a table whose rows somebody's refund has already
+  /// been computed from, bought for a better word. A quick commerce page prints
+  /// "Order Arrived at / 25 Aug 2026, 9:02 PM", and the minute is the difference
+  /// between a three hour hold that runs from the delivery and one that runs from
+  /// half past five in the evening whatever the page said. A page that prints
+  /// only a day still stores that day at noon universal, exactly as before.
+  /// See order-candidates.ts, theDeliveryInstant, which is the one rule that
+  /// decides which of the two is written here.
   deliveryDate       DateTime?
   /// THE DAY THE SHOP'S OWN RETURN WINDOW CLOSES, as its last instant.
   ///

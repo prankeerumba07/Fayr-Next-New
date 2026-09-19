@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { dayInIndiaOf } from '../common/india-clock';
 import { PrismaService } from '../prisma/prisma.service';
 import { matchOrderToCampaign, type HowToMatch } from '../ocr/order-comparison';
 import { theRefundBase, type BillAsPrinted } from './engine/watched-price';
@@ -22,10 +23,12 @@ import {
   itemsFromJson,
   itemsToJson,
   judgeFoundOrders,
+  theDeliveryInstant,
   whatTheOrderAlreadySays,
   type JudgedOrder,
 } from './order-candidates';
 import { resolveChargedPaise } from './engine/charged-amount';
+import { returnedOnThisShop } from './engine/returned-on-quick-commerce';
 import type { EvidenceOrder } from './engine/evidence.types';
 import { toEngineTask } from './task.mapper';
 import {
@@ -108,7 +111,13 @@ export function theDeliveryFragment(
   },
 ): { delivery?: { at: number; raw?: string; returnWindowEndsAt?: number; source: string } } {
   if (row.deliveryDate != null) {
-    const raw = dayAsWritten(row.deliveryDate);
+    // THE DAY THE PAGE PRINTED, AND SO IN INDIA'S OWN TERMS — Phase 8B-c. The
+    // column now holds an INSTANT when the shop stated one, and a parcel that
+    // arrived at half past midnight on the 25th fell on the 24th in universal
+    // time. `raw` is the day AS WRITTEN on the page, so writing the 24th on it
+    // would make the record contradict the page it was read from. A day-only
+    // reading is untouched: noon universal is the same day in India.
+    const raw = dayInIndiaOf(row.deliveryDate);
     return {
       delivery: {
         at: row.deliveryDate.getTime(),
@@ -350,7 +359,10 @@ export class OrderCandidatesService {
           itemTotalPaise: j.itemTotalPaise,
           feesPaise: j.feesPaise,
           billDiscountPaise: j.billDiscountPaise,
-          deliveryDate: j.deliveryDate,
+          // THE MINUTE WHEN THE PAGE PRINTED ONE, the day at noon when it did
+          // not. One rule for every writer — see theDeliveryInstant, and the
+          // column's own comment in schema.prisma for why it keeps its name.
+          deliveryDate: theDeliveryInstant(j),
           returnWindowEndsAt: j.returnWindowEndsAt,
           returned: j.returned,
           items: itemsToJson(j.items),
@@ -570,6 +582,18 @@ export class OrderCandidatesService {
     });
     const date = dateToSubmit(row.orderDate, window);
 
+    // READ ONCE, HERE, because the return rule asks whether the page stated a
+    // delivery and there is exactly one definition of that — the funnel's own,
+    // in theDeliveryFragment. Asking it a second time in different words is how
+    // the two halves of one decision end up disagreeing.
+    const theDelivery = theDeliveryFragment(row);
+    const theReturn = returnedOnThisShop({
+      platform: task.campaign.platform,
+      watched: task.watchedOrderKey != null,
+      delivered: theDelivery.delivery != null,
+      saidOnThePage: row.returned,
+    });
+
     const dto: SubmitEvidenceDto = {
       key: `order-list:${row.id}`,
       order: {
@@ -629,7 +653,7 @@ export class OrderCandidatesService {
       // or printed it with no year and no order date to borrow one from — sends
       // no delivery fragment at all, and the task waits exactly as it does
       // today until a later look finds one. See deliveryFromALaterLook.
-      ...theDeliveryFragment(row),
+      ...theDelivery,
       // ── AND WHETHER IT WENT BACK ────────────────────────────────────────
       //
       // Without this the refund gate can never pass on this path at all:
@@ -637,7 +661,13 @@ export class OrderCandidatesService {
       // unknown (no readable order data)" for ever. The page said it — a page
       // that discusses a return window has told us there was no return — and the
       // tri-state is preserved, so a page that said nothing still sends nothing.
-      ...(row.returned == null ? {} : { returned: row.returned }),
+      //
+      // AND ON A SHOP THAT CANNOT BE SENT BACK TO, A DELIVERY IS THE ANSWER —
+      // Phase 8B-c. A Zepto page never uses the words return, refund or cancel,
+      // so it can never say "not returned" and this gate never opened on the one
+      // real run. See returnedOnThisShop for the owner's words and for the four
+      // conditions, every one of which is required.
+      ...(theReturn == null ? {} : { returned: theReturn }),
     };
 
     const after = await this.tasks.submitEvidence(userId, taskId, dto);
@@ -691,7 +721,17 @@ export class OrderCandidatesService {
     userId: string,
     task: {
       id: string;
-      campaign: { productName: string; productPricePaise: bigint };
+      // AND THE SHOP AND THE WATCHED KEY — Phase 8B-c. Both are asked for by
+      // returnedOnThisShop, which is applied here for the same reason it is
+      // applied at the tap: a Zepto page states a delivery and never states a
+      // return, so without it a later look confirms the arrival and leaves the
+      // refund held on a question the shop cannot answer.
+      watchedOrderKey: string | null;
+      campaign: {
+        platform: string;
+        productName: string;
+        productPricePaise: bigint;
+      };
     },
     /**
      * WHAT THE TASK'S ORDER ALREADY SAYS, read once by the caller that has the
@@ -738,7 +778,11 @@ export class OrderCandidatesService {
     await this.priceFromALaterLook(userId, task, existing, fresh);
 
     // ONLY THE NULLS. What is already on the row is what the row keeps.
-    const deliveryDate = chosen.deliveryDate ?? fresh.deliveryDate;
+    //
+    // AND THE FRESH READING IS THE INSTANT WHEN THE PAGE PRINTED ONE — Phase
+    // 8B-c, through the same one rule the first write uses. The stored value is
+    // already whichever of the two that read settled on.
+    const deliveryDate = chosen.deliveryDate ?? theDeliveryInstant(fresh);
     const returnWindowEndsAt = chosen.returnWindowEndsAt ?? fresh.returnWindowEndsAt;
     const returned = chosen.returned ?? fresh.returned;
 
@@ -755,6 +799,21 @@ export class OrderCandidatesService {
     const fragment = theDeliveryFragment({ deliveryDate, returnWindowEndsAt, returned });
     if (fragment.delivery == null) return;
 
+    // AND ON A SHOP THAT CANNOT BE SENT BACK TO, THE DELIVERY IS THE ANSWER.
+    // The same one rule the tap applies, asked here with the same four facts.
+    // WORKED OUT AFTER THE FRAGMENT, never before it: the fragment is where
+    // "the page said it arrived" is decided, and it is also the thing that
+    // refuses a window-derived delivery on an order that really did go back.
+    // ITS ANSWER IS NOT WRITTEN TO THE ROW, deliberately. The row is what the
+    // PAGE said, and a derived value in a column named `returned` would make the
+    // record claim the shop printed something it never printed.
+    const theReturn = returnedOnThisShop({
+      platform: task.campaign.platform,
+      watched: task.watchedOrderKey != null,
+      delivered: true,
+      saidOnThePage: returned,
+    });
+
     if (
       chosen.deliveryDate == null
       || chosen.returnWindowEndsAt == null
@@ -769,7 +828,8 @@ export class OrderCandidatesService {
     this.log.log(
       `orders-found task=${task.id} later-look delivery=yes `
       + `window=${returnWindowEndsAt == null ? 'none' : 'stated'} `
-      + `returned=${returned == null ? 'unknown' : String(returned)}`,
+      + `returned=${theReturn == null ? 'unknown' : String(theReturn)}`
+      + `${returned == null && theReturn != null ? ' (the shop cannot be sent back to)' : ''}`,
     );
 
     const dto: SubmitEvidenceDto = {
@@ -781,7 +841,7 @@ export class OrderCandidatesService {
       // date, which may be null now that a stated return window also counts.
       key: `delivery:${chosen.id}:${dayAsWritten(new Date(fragment.delivery.at)) ?? 'na'}`,
       ...fragment,
-      ...(returned == null ? {} : { returned }),
+      ...(theReturn == null ? {} : { returned: theReturn }),
     };
 
     try {

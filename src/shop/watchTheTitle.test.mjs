@@ -120,7 +120,11 @@ console.log('\n=== 4. OUR SIDE READS THE REPORT, AND NOTHING ELSE AS ONE ===');
 console.log('\n=== 5. THE SCREEN FEEDS BOTH SOURCES INTO THE SAME TWO SETTERS ===');
 {
   const screen = withoutComments(read('src/shop/ShopScreen.js'));
-  ok(/injectedJavaScript=\{watchSignInScript\(\) \+ watchTheTitleScript\(\)\}/.test(screen),
+  // A THIRD SCRIPT MAY FOLLOW THESE TWO SINCE 20 SEPTEMBER 2026, and only for a
+  // shop nobody has ever measured, on a development build. The two here are
+  // unconditional and still first; measureLog.test.mjs is where the third one's
+  // condition is proved. See measureLog.js.
+  ok(/injectedJavaScript=\{\s*watchSignInScript\(\) \+ watchTheTitleScript\(\)/.test(screen),
     'the title watcher goes into the page beside the sign-in watcher');
   const handler = screen.slice(screen.indexOf('const onShopMessage = useCallback'),
     screen.indexOf('const onNav = useCallback'));

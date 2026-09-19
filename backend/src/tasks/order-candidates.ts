@@ -70,6 +70,27 @@ export interface JudgedOrder {
    */
   deliveryDate: Date | null;
   /**
+   * THE MINUTE IT ARRIVED, when the page printed one — Phase 8B-c, 20 September
+   * 2026.
+   *
+   * ── WHY THE DAY ABOVE IS NOT ENOUGH ───────────────────────────────────────
+   *
+   * dayToDate puts a day at NOON UTC so no time zone can move it, which is right
+   * for a date being compared and wrong for the moment a hold is counted from.
+   * Noon universal is half past five in the EVENING in India. A quick commerce
+   * parcel that arrived at nine at night therefore had its three hour hold
+   * expire before it turned up, and one read at ten in the morning carried a
+   * delivery seven hours in the FUTURE, which the plausibility gate refused.
+   *
+   * BOTH ARE CARRIED, and the day above is unchanged. The order window rule and
+   * dateToSubmit still compare days and have not been touched. This is only the
+   * extra precision, present only when the shop printed it.
+   *
+   * See theDeliveryInstant for which of the two is written down, and
+   * common/india-clock.ts for the arithmetic.
+   */
+  deliveryAt: Date | null;
+  /**
    * THE LAST INSTANT OF THE DAY THE SHOP SAID ITS OWN RETURN WINDOW CLOSES, or
    * null when the page did not say, or said it without a year.
    *
@@ -128,6 +149,31 @@ function dayToDate(day: string | null): Date | null {
   if (!parts) return null;
   const ms = Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), 12);
   return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+/** An ISO instant the parser read, as a real date. Anything unreadable is null. */
+function theInstant(iso: string | null): Date | null {
+  if (typeof iso !== 'string' || iso === '') return null;
+  const at = new Date(iso);
+  return Number.isFinite(at.getTime()) ? at : null;
+}
+
+/**
+ * WHICH OF THE TWO DELIVERY READINGS IS WRITTEN DOWN — Phase 8B-c.
+ *
+ * THE MINUTE WHEN THE PAGE PRINTED ONE, AND THE DAY AT NOON WHEN IT DID NOT.
+ * One rule, asked by every writer, because the column holds one value and two
+ * writers choosing it separately is how the first read and the later look end up
+ * disagreeing about when somebody's parcel turned up.
+ *
+ * THE COLUMN IS STILL CALLED deliveryDate and is not renamed. See its own
+ * comment in schema.prisma: a rename is a migration on a table that already
+ * carries rows somebody's refund was computed from, to buy a better word.
+ */
+export function theDeliveryInstant(
+  read: { deliveryAt: Date | null; deliveryDate: Date | null },
+): Date | null {
+  return read.deliveryAt ?? read.deliveryDate;
 }
 
 /**
@@ -388,6 +434,9 @@ export function judgeFoundOrders(
       // Through the SAME day-to-date converter as the order date, so the two
       // cannot end up on different sides of a time zone.
       deliveryDate: dayToDate(parsed.deliveryDate),
+      // AND THE MINUTE BESIDE THE DAY, when the page printed one. Read by the
+      // parser, in India's own clock; null on every page that states only a day.
+      deliveryAt: theInstant(parsed.deliveryAt),
       // AND THROUGH A DIFFERENT ONE, on purpose. See dayToEndOfDay: this is a
       // deadline, not a date being compared.
       returnWindowEndsAt: dayToEndOfDay(parsed.returnWindowEndsDate),

@@ -3,7 +3,21 @@
 // The thing worth proving hardest: no number and no date is ever invented. The
 // design writes "5 DAYS" and "11 Jul" into the screen; this file exists so the app
 // can never do that.
-import { daysUntil, shortDate, toMillis, windowLine } from './returnWindow.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import {
+  clockInIndia, daysUntil, shortDate, theWait, timeLeftOnTheWindow, toMillis,
+  waitHeading, whenTheWindowEnds, windowLine,
+} from './returnWindow.js';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const read = (p) => readFileSync(join(ROOT, p), 'utf8');
+const withoutComments = (src) => src
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^[ \t]*\/\/.*$/gm, '')
+  .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
 let pass = 0;
 let fail = 0;
@@ -82,10 +96,132 @@ console.log('\n=== 4. the sentence ===');
   ok(noShop.includes('6 Sep') && !/undefined|null/.test(noShop),
     'with no shop it still reads as a sentence');
 
+  // A WINDOW CLOSING LATER THE SAME DAY NO LONGER SAYS "TODAY" — 20 Sep 2026.
+  // It is under a day away, so it is said on the clock instead. See theWait and
+  // section 6: "closes today, on 20 Sep" was true and told nobody anything, and
+  // on the three shops that hold for three hours it was the only thing shown.
   const today = windowLine({
     endsAt: iso(2026, 9, 1, 18, 0), shopName: 'Amazon', now: NOW,
   });
-  ok(/closes today/.test(today), 'a window closing today says today');
+  ok(/due at \d{1,2}:\d{2} (am|pm)/.test(today), 'a window closing in hours says the time');
+  ok(!/closes today/.test(today), 'and not the day-shaped sentence any more');
+
+  // AND A WAIT OF A DAY OR MORE IS WORD FOR WORD WHAT IT ALWAYS WAS.
+  const tomorrow = windowLine({
+    endsAt: iso(2026, 9, 3, 10, 0), shopName: 'Amazon', now: NOW,
+  });
+  ok(/After Amazon.s return window closes on 3 Sep\./.test(tomorrow),
+    'two days out is still the shop’s own return window, in the old words');
+}
+
+console.log('\n=== 6. a wait that is not measured in days at all — Phase 8B-b ===');
+{
+  // THE OWNER, 19 September 2026: "[Zepto, Blinkit, Instamart] ... once the
+  // product is delivered to the user, it cannot be sent back ... give them 2 or
+  // 3 hours of time, and then we refund the money to the user."
+  const three = theWait({ endsAt: iso(2026, 9, 1, 13, 0), now: NOW });
+  ok(three.kind === 'hours', 'three hours out is an hours wait');
+  ok(three.count === 3 && three.unit === 'HOURS', 'and it counts three of them');
+  ok(/^\d{1,2}:\d{2} (am|pm)$/.test(three.at), `and it names the time: ${three.at}`);
+  ok(three.day === 'today', 'and says which day');
+  ok(waitHeading(three) === 'Your refund unlocks in 3 hours', 'the heading says hours');
+
+  // ROUNDED UP AND NEVER DOWN: two hours and one minute is three, because being
+  // early with somebody else's money is the direction that costs trust.
+  const bit = theWait({ endsAt: iso(2026, 9, 1, 12, 1), now: NOW });
+  ok(bit.kind === 'hours' && bit.count === 3, 'two hours and one minute rounds up to three');
+
+  const soon = theWait({ endsAt: iso(2026, 9, 1, 10, 25), now: NOW });
+  ok(soon.kind === 'minutes' && soon.count === 25, 'under an hour is counted in minutes');
+  ok(soon.unit === 'MINUTES', 'and named in the plural');
+  const one = theWait({ endsAt: new Date(NOW + 60000).toISOString(), now: NOW });
+  ok(one.count === 1 && one.unit === 'MINUTE', 'one minute is singular');
+  ok(waitHeading(one) === 'Your refund unlocks in a minute', 'and reads as a sentence');
+
+  const over = theWait({ endsAt: iso(2026, 9, 1, 9, 0), now: NOW });
+  ok(over.kind === 'due', 'a wait that has passed is due');
+  ok(waitHeading(over) === 'Your refund is due now', 'and says so');
+
+  // A DAY OR MORE IS COUNTED IN CALENDAR DAYS, exactly as it always was.
+  const days = theWait({ endsAt: iso(2026, 9, 6, 10, 0), now: NOW });
+  ok(days.kind === 'days' && days.count === daysUntil(iso(2026, 9, 6, 10, 0), NOW),
+    'five days out is still counted the old way');
+  ok(waitHeading(days) === 'Refund unlocks in 5 days', 'and reads the old way');
+
+  // NOTHING IS INVENTED WHEN WE WERE NOT TOLD.
+  for (const nothing of [{}, { endsAt: null, now: NOW }, { endsAt: iso(2026, 9, 6) }]) {
+    const w = theWait(nothing);
+    ok(w.kind === 'unknown' && w.count === null && w.at === null,
+      `${JSON.stringify(nothing)} draws no number`);
+  }
+  ok(waitHeading(theWait({})) === 'Waiting for the return window', 'and says so plainly');
+
+  // THE CLOCK IS INDIA'S, AND IT IS THE SAME CLOCK OUR SIDE ALREADY USES.
+  //
+  // THE OFFSET MOVED HOUSE ON 20 SEPTEMBER 2026, with Phase 8B-c, and this check
+  // is what noticed. It was declared inside shop-visit-words.ts, and then a
+  // second reader wanted it — the one that turns "25 Aug 2026, 9:02 PM" off a
+  // shop's own order page into an instant. Two copies of the number that decides
+  // what hour somebody is told about their money is one copy too many, so it now
+  // lives in backend/src/common/india-clock.ts and the words file reads it from
+  // there. The FACT this check is about has not changed by a minute.
+  const clockFile = read('backend/src/common/india-clock.ts');
+  const server = read('backend/src/tasks/engine/shop-visit-words.ts');
+  ok(/const INDIA_OFFSET_MS = 330 \* 60 \* 1000;/.test(clockFile),
+    'our side shifts by five and a half hours');
+  // AND THERE IS STILL ONLY ONE OF IT ON OUR SIDE. The words file must read the
+  // shared one and declare none of its own, or the move bought nothing.
+  ok(/import \{ INDIA_OFFSET_MS \} from '\.\.\/\.\.\/common\/india-clock';/
+    .test(withoutComments(server)),
+  'and the pop-up\u2019s own words read that one rather than keeping a copy');
+  ok(!/const INDIA_OFFSET_MS\s*=/.test(withoutComments(server)),
+    'and nothing on our side declares a second copy of it');
+  ok(/const INDIA_OFFSET_MS = 330 \* 60 \* 1000;/.test(read('src/ui/returnWindow.js')),
+    'and so does the phone, by the same arithmetic');
+  ok(/hour24 % 12 === 0 \? 12 : hour24 % 12/.test(server)
+    && /hour24 % 12 === 0 \? 12 : hour24 % 12/.test(read('src/ui/returnWindow.js')),
+  'and both read noon and midnight as twelve, which is where a naive clock prints nought');
+  // Midnight and noon, proved rather than asserted from the source.
+  const midnightUtc = Date.UTC(2026, 8, 20, 18, 30); // 12:00 am in India
+  ok(clockInIndia(midnightUtc) === '12:00 am', `midnight reads 12:00 am, got ${clockInIndia(midnightUtc)}`);
+  ok(clockInIndia(Date.UTC(2026, 8, 20, 6, 30)) === '12:00 pm', 'and noon reads 12:00 pm');
+
+  // THE CLAIM'S OWN STATUS ROWS, MOVED HERE ON 20 SEPTEMBER 2026.
+  ok(timeLeftOnTheWindow(NOW + 3 * 3600000, NOW) === '3 hours remaining',
+    'three hours left reads in hours');
+  ok(timeLeftOnTheWindow(NOW + 25 * 60000, NOW) === '25 minutes remaining',
+    'AND THE LAST HOUR READS IN MINUTES — it used to read "0h remaining"');
+  ok(timeLeftOnTheWindow(NOW + 60000, NOW) === '1 minute remaining', 'and one is singular');
+  ok(timeLeftOnTheWindow(NOW + 5 * 86400000, NOW) === '5d 0h remaining',
+    'while days and hours are word for word what they were');
+  ok(timeLeftOnTheWindow(NOW - 1, NOW) === 'Return window has closed', 'and a closed window says so');
+  for (const nothing of [[null, NOW], [NOW, null], [undefined, undefined], ['x', NOW]]) {
+    ok(timeLeftOnTheWindow(...nothing) === null, `${JSON.stringify(nothing)} counts nothing`);
+  }
+
+  ok(whenTheWindowEnds(NOW + 3 * 3600000, NOW) === `${clockInIndia(NOW + 3 * 3600000)} today`,
+    'a window ending this afternoon is a TIME, not a bare date');
+  ok(/^\w{3} \w{3} \d{1,2} \d{4}$/.test(whenTheWindowEnds(NOW + 5 * 86400000, NOW)),
+    'and one five days out is still a date');
+  ok(whenTheWindowEnds(null, NOW) === null && whenTheWindowEnds(NaN, NOW) === null,
+    'and nothing is never drawn as a date');
+
+  // AND THE SCREEN READS ALL OF IT FROM THE ONE ANSWER.
+  const screen = withoutComments(read('src/screens/returnwindow.js'));
+  ok(/const wait = theWait\(\{ endsAt, now \}\);/.test(screen), 'the screen asks theWait');
+  ok(/\{waitHeading\(wait\)\}/.test(screen), 'the heading comes from it');
+  ok(/\{wait\.count\}/.test(screen) && /\{wait\.unit\}/.test(screen),
+    'and so do the number and the word in the ring');
+  ok(!/daysUntil/.test(screen), 'and the screen counts nothing itself');
+
+  // AND THE CLAIM'S OWN SCREEN COUNTS NOTHING EITHER.
+  const task = withoutComments(read('src/TaskScreen.js'));
+  ok(/timeLeftOnTheWindow\(view\.windowEndsAt, now\)/.test(task),
+    'TaskScreen asks for the count rather than working one out');
+  ok(/whenTheWindowEnds\(view\.windowEndsAt, now\)/.test(task),
+    'and for the window row too');
+  ok(!/function countdown\(/.test(task), 'and keeps no countdown of its own any more');
+  ok(!/\$\{hours\}h remaining/.test(task), 'nor the arithmetic that said 0h for the last hour');
 }
 
 console.log('\n=== 5. nothing missing reaches the screen ===');

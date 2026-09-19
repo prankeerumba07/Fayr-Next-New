@@ -436,8 +436,25 @@ export function windowEnd(
   policy?: ReturnPolicy,
 ): number | null {
   if (!task.delivery || task.delivery.at == null) return null;
+  // ── A HOLD MEASURED IN HOURS, WHERE DAYS ARE THE WRONG UNIT — Phase 8B-b ──
+  //
+  // Zepto, Blinkit and Instamart cannot be sent back to, so the operator's day
+  // table holds somebody's money against a risk that does not exist on those
+  // shops. policyForWindowDays decides which campaigns get this and puts the
+  // answer on the policy; see QUICK_COMMERCE_HOLD_HOURS for the owner's words
+  // and for why an operator-set window is asked first and wins outright.
+  //
+  // ANCHORED TO THE SAME INSTANT AS THE DAY TABLE — the delivery the shop's own
+  // page stated, and not the review, not the claim, not when the hold started.
+  // A task that regressed and resumed does not restart its clock, and that is
+  // as true of three hours as it is of seven days.
+  const holdMs = typeof policy?.holdMs === 'number' && Number.isFinite(policy.holdMs)
+    ? policy.holdMs
+    : null;
   const days = windowDaysFor(policy, task.category);
-  const fromThePolicyTable = task.delivery.at + days * DAY;
+  const fromThePolicyTable = holdMs != null
+    ? task.delivery.at + holdMs
+    : task.delivery.at + days * DAY;
 
   // ── AND THE SHOP'S OWN WORD, WHEN ITS PAGE STATED ONE ────────────────────
   //

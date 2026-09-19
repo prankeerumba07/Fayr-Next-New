@@ -28,6 +28,32 @@ const ZEPTO = readFileSync(
   'utf8',
 );
 
+/** The same two orders as the SHOP DRAWS them, both carrying arrival times. */
+const DRAWN_ONE = readFileSync(
+  join(__dirname, '..', '..', 'test', 'fixtures', 'zepto-order-page-drawn.txt'),
+  'utf8',
+);
+const DRAWN_TWO = readFileSync(
+  join(__dirname, '..', '..', 'test', 'fixtures',
+    'zepto-order-page-drawn-two-shipments.txt'),
+  'utf8',
+);
+
+/** Order #LRGSKOMA18669, assembled line for line — see its own describe below. */
+const NOODLES = [
+  'Order #LRGSKOMA18669', '1 item', 'Delivered', 'Arrived in', '4 MINS',
+  '1 item in order',
+  "Korean Kab's Jackpot 2x Hot and Spicy Instant Noodles Non Veg",
+  '1 pack (100 g)', '2 units', '\u20b974', '\u20b9100',
+  'Bill Summary', 'Item Total', '\u20b9100', '\u20b974',
+  'Delivery Fee', '\u20b930', 'Handling Fee', '\u20b910', 'FREE',
+  'Total Bill', '\u20b9140', '\u20b9104',
+  'Order Details', 'Order ID', '#LRGSKOMA18669',
+  'Order Placed at', '23 Aug 2026, 6:04 AM',
+  'Order Arrived at', '23 Aug 2026, 6:09 AM',
+  'Rate Order', 'Order Again',
+].join('\n');
+
 describe('reading an order screen that holds several shipments', () => {
   describe('the real Zepto order, every figure the owner listed', () => {
     const order = parseOrderText(ZEPTO);
@@ -302,6 +328,10 @@ describe('reading an order screen that holds several shipments', () => {
         // Both null and neither false: nothing was read, so nothing is claimed.
         // "We did not look" is not "we looked and it was not returned".
         deliveryDate: null,
+        // AND THE MINUTE IT ARRIVED — added 20 September 2026 with Phase 8B-c.
+        // Null means the page printed no time beside the date, which is every
+        // Amazon page and every list row. The day is still the day.
+        deliveryAt: null,
         // Null means the page did not state one, OR stated one without a year.
         // This date is never inferred — see the field's own comment for why the
         // delivery date beside it is.
@@ -966,6 +996,152 @@ describe('reading an order screen that holds several shipments', () => {
 
     it('keeps both parcels\' products, and nothing else', () => {
       expect(order.items).toHaveLength(2);
+    });
+  });
+
+  /**
+   * ── THE MINUTE IT ARRIVED, AND NOT THE DAY AT NOON — PHASE 8B-c ─────────
+   *
+   * Every one of these pages printed the time and every one of them had it
+   * thrown away. The day became an instant at noon UTC, which is half past five
+   * in the EVENING in India — so a three hour hold on a parcel that arrived at
+   * nine at night released the refund before it turned up, and a page read at
+   * ten in the morning carried a delivery seven hours in the future, which the
+   * plausibility gate refused outright.
+   *
+   * THE ARITHMETIC IS WRITTEN OUT IN EVERY CHECK. India is five and a half hours
+   * ahead, so the universal instant is the printed time minus 5:30. A check that
+   * merely re-ran the code's own conversion would pass whichever way round the
+   * offset had been applied.
+   */
+  describe('the minute it arrived, in India\u2019s own time', () => {
+    it('THE THREE MEASURED PAGES GIVE THE THREE EXACT INSTANTS', () => {
+      // "Order Arrived at / 25 Aug 2026, 9:02 PM" -> 21:02 IST -> 15:32 UTC.
+      expect(parseOrderText(DRAWN_ONE).deliveryAt)
+        .toBe('2026-08-25T15:32:00.000Z');
+
+      // "Order Arrived at / 23 Aug 2026, 6:09 AM" -> 06:09 IST -> 00:39 UTC, the
+      // SAME day. A morning delivery is the one the six hour skew allowance was
+      // refusing when the instant was noon.
+      expect(parseOrderText(NOODLES).deliveryAt)
+        .toBe('2026-08-23T00:39:00.000Z');
+
+      // "Shipment 1 Arrived at / 21 Jul 2026, 5:32 PM" -> 17:32 IST -> 12:02 UTC,
+      // read on its own so the line itself is pinned. The page it comes off
+      // carries a SECOND shipment, and the whole page answers with that one —
+      // see the check below.
+      const oneParcel = [
+        'Order ID', '#SOSIJGGRL26770',
+        'Order Placed at', '21 Jul 2026, 5:07 PM',
+        'Shipment 1 Arrived at', '21 Jul 2026, 5:32 PM',
+      ].join('\n');
+      expect(parseOrderText(oneParcel).deliveryAt)
+        .toBe('2026-07-21T12:02:00.000Z');
+    });
+
+    it('AND THE DAY BESIDE THE INSTANT IS THE DAY IT ALWAYS WAS', () => {
+      // The day is not replaced by the instant and nothing that compares days
+      // has changed. Both are carried.
+      expect(parseOrderText(DRAWN_ONE).deliveryDate).toBe('2026-08-25');
+      expect(parseOrderText(NOODLES).deliveryDate).toBe('2026-08-23');
+    });
+
+    it('TWO SHIPMENTS: THE LATER ARRIVAL IS THE ONE THE ORDER IS DELIVERED AT', () => {
+      // 5:32 PM and 5:46 PM on the drawn page. The order is delivered when ALL
+      // of it is, so the answer is 17:46 IST -> 12:16 UTC. It used to stop at
+      // the first date it could read, which is the EARLIER parcel.
+      expect(parseOrderText(DRAWN_TWO).deliveryAt)
+        .toBe('2026-07-21T12:16:00.000Z');
+
+      // The same order in the screenshot layout: "Delivered on 21 Aug 2026,
+      // 8:04 PM" and "8:31 PM", label and value on ONE line. 20:31 IST -> 15:01
+      // UTC.
+      expect(parseOrderText(ZEPTO).deliveryAt)
+        .toBe('2026-08-21T15:01:00.000Z');
+    });
+
+    it('AND WHEN THE PARCELS ARRIVE ON DIFFERENT DAYS, THE LATER DAY WINS', () => {
+      const overnight = [
+        'Order ID', '#SOSTWODAYS00001',
+        'Order Placed at', '21 Jul 2026, 11:40 PM',
+        'Shipment 1 Arrived at', '21 Jul 2026, 11:52 PM',
+        'Shipment 2 Arrived at', '22 Jul 2026, 12:14 AM',
+      ].join('\n');
+      const order = parseOrderText(overnight);
+      // THE DAY MOVES TOO, not just the time. 00:14 IST on the 22nd is 18:44
+      // UTC on the 21st, and the day this order was delivered is the 22nd — the
+      // day its own page printed.
+      expect(order.deliveryDate).toBe('2026-07-22');
+      expect(order.deliveryAt).toBe('2026-07-21T18:44:00.000Z');
+    });
+
+    it('A PAGE THAT PRINTS ONLY A DAY STATES NO INSTANT AT ALL', () => {
+      // Amazon prints no times. The day is read exactly as it always was and
+      // nothing is invented beside it — an instant guessed at noon is what this
+      // whole change exists to stop being mistaken for a reading.
+      const amazon = [
+        'Order placed', '2 June 2026',
+        'Order # 408-5094957-4481129',
+        'boAt Rockerz 255 Pro Plus', '1 x \u20b91,299.00',
+        'Delivered 5 June 2026',
+      ].join('\n');
+      expect(parseOrderText(amazon).deliveryDate).toBe('2026-06-05');
+      expect(parseOrderText(amazon).deliveryAt).toBeNull();
+    });
+
+    it('AND A NUMBER THAT IS NOT A CLOCK IS NEVER READ AS ONE', () => {
+      // Each of these states a day and then something that is not a time. An
+      // instant invented out of a price, a quantity or a second date would move
+      // the moment somebody is paid.
+      for (const after of [
+        '25 Aug 2026',
+        '25 Aug 2026, \u20b9149',
+        '25 Aug 2026, 1 unit',
+        '25 Aug 2026, 17:32',
+        '25 Aug 2026, 13:40 pm',
+        '25 Aug 2026, 0:15 pm',
+      ]) {
+        const page = ['Order Arrived at', after].join('\n');
+        // THE DAY IS STILL READ IN EVERY ONE OF THEM. Refusing a time must not
+        // cost the date, which is the thing every window has been computed from
+        // since before this existed.
+        expect(parseOrderText(page).deliveryDate).toBe('2026-08-25');
+        expect(parseOrderText(page).deliveryAt).toBeNull();
+      }
+
+      // AND ONE MORE, WHERE THE DAY IS LOST TOO — pre-existing, unchanged, and
+      // named here rather than left to be discovered. The reader for the line
+      // BESIDE a label trims to the date at the front; the reader for the line
+      // UNDER it does not, so a second date folded onto that line gives nothing.
+      // Phase 8B-c did not touch either reader and does not widen this one.
+      const folded = ['Order Arrived at',
+        '25 Aug 2026 Return window closed on 19 June 2026'].join('\n');
+      expect(parseOrderText(folded).deliveryDate).toBeNull();
+      expect(parseOrderText(folded).deliveryAt).toBeNull();
+    });
+
+    it('MIDNIGHT IS 12 AM AND NOON IS 12 PM, which is where a naive reading breaks', () => {
+      const at = (printed: string): string | null => parseOrderText(
+        ['Order Arrived at', `25 Aug 2026, ${printed}`].join('\n'),
+      ).deliveryAt;
+      // 00:00 IST -> 18:30 UTC the day before.
+      expect(at('12:00 AM')).toBe('2026-08-24T18:30:00.000Z');
+      // 12:00 IST -> 06:30 UTC the same day.
+      expect(at('12:00 PM')).toBe('2026-08-25T06:30:00.000Z');
+    });
+
+    it('and the time comes off the SAME text the day came off', () => {
+      // A time read from the line under a day read from the line beside is two
+      // halves of two different statements stitched into one instant.
+      const split = [
+        'Order placed', '2 June 2026',
+        'Order # 408-5094957-4481129',
+        'boAt Rockerz 255 Pro Plus', '1 x \u20b91,299.00',
+        'Delivered 5 June 2026',
+        '9:02 PM',
+      ].join('\n');
+      expect(parseOrderText(split).deliveryDate).toBe('2026-06-05');
+      expect(parseOrderText(split).deliveryAt).toBeNull();
     });
   });
 

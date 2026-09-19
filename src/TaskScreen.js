@@ -39,6 +39,7 @@ import {
 import { closedInfo, explainBlocker, nextStepLine } from './ui/stages';
 import { countdownFor, messageText } from './journey/theNotice';
 import { goBackOrHome } from './ui/nav';
+import { timeLeftOnTheWindow, whenTheWindowEnds } from './ui/returnWindow';
 import { StageChip } from './ui/stagebits';
 
 const POLICY = createPolicy();
@@ -49,16 +50,14 @@ function fmtDate(ms) {
   return isNaN(d.getTime()) ? null : d.toDateString();
 }
 
-// The refund countdown. The window is anchored to the DELIVERY date, so it is a
-// fixed target rather than a clock that restarts.
-function countdown(endsAt, now) {
-  if (endsAt == null) return null;
-  const ms = endsAt - now;
-  if (ms <= 0) return 'Return window has closed';
-  const days = Math.floor(ms / 86400000);
-  const hours = Math.floor((ms % 86400000) / 3600000);
-  return days > 0 ? `${days}d ${hours}h remaining` : `${hours}h remaining`;
-}
+// THE REFUND COUNTDOWN AND THE WINDOW'S OWN ROW LIVE IN ui/returnWindow.js SINCE
+// 20 SEPTEMBER 2026. Both were written here, both said the wait in days, and the
+// three hour hold the quick-commerce shops now get made both of them wrong: the
+// countdown read "0h remaining" for the whole of its last hour, and the row read
+// a bare date for a deadline this afternoon. They moved rather than being copied
+// so that the plain language rule walks them with the rest of the wait's words.
+// The window is anchored to the DELIVERY date, so it is a fixed target rather
+// than a clock that restarts.
 
 function Row({ label, value, missing, hint }) {
   return (
@@ -615,7 +614,7 @@ export default function TaskScreen({ navigation, route }) {
       icon: '⏳',
       title: 'Return window',
       sub: view.windowEndsAt != null
-        ? countdown(view.windowEndsAt, now)
+        ? timeLeftOnTheWindow(view.windowEndsAt, now)
         : 'Starts once delivery is confirmed',
       // The window closing is the MARKETPLACE's clock, but this stage is OUR
       // hold — it is not complete until the task has actually been held through
@@ -933,9 +932,9 @@ export default function TaskScreen({ navigation, route }) {
             <Row label="Delivered" value={fmtDate(task.delivery && task.delivery.at)} missing="Not verified yet" />
             <Row label="Review live" value={task.review ? (task.review.published ? 'Yes' : 'No') : null} missing="Not checked yet" />
             <Row label="Returned" value={task.returned == null ? null : task.returned ? 'Yes' : 'No'} missing="Unknown" hint="blocks refund" />
-            <Row label="Window ends" value={fmtDate(view.windowEndsAt)} missing="Needs a delivery date" />
+            <Row label="Window ends" value={whenTheWindowEnds(view.windowEndsAt, now)} missing="Needs a delivery date" />
             {view.windowEndsAt != null ? (
-              <Text style={styles.countdown}>{countdown(view.windowEndsAt, now)}</Text>
+              <Text style={styles.countdown}>{timeLeftOnTheWindow(view.windowEndsAt, now)}</Text>
             ) : null}
             {/* `eligible` requires state HOLDING, so it goes FALSE the moment a
                 refund is released — without this branch a paid task read

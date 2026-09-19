@@ -82,6 +82,23 @@ console.log('\n=== 3. THE SCREEN ASKS FIRST, AND THE WATCHED PATH TOUCHES NO LIS
   ok(decided > -1 && searched > decided && listed > decided,
     'THE DECISION IS MADE BEFORE THE SEARCH AND BEFORE THE LIST');
 
+  // ── AND BEFORE THE GUARD THAT GIVES UP WHEN A SHOP HAS NO LIST PAGE ─────
+  //
+  // MOVED ON 20 SEPTEMBER 2026, and this is the assertion that keeps it moved.
+  // The NOWHERE answer is written for a claim that knows WHICH order was
+  // placed on a shop nobody has measured — which is Blinkit and Instamart, and
+  // those two have no order list page either. So while the decision sat below
+  // the no-list guard, the branch written for exactly those two shops could
+  // never run. Phase 8B-b's measurement mode is what makes them able to produce
+  // a watched key at all, so the ordering had to be right first.
+  const nowhere = code.indexOf("if (how.path === NOWHERE) {");
+  const noList = code.indexOf('if (!taskId || !theList || !platform) {');
+  ok(nowhere > -1 && noList > -1, 'both guards are where expected');
+  ok(nowhere > decided && nowhere < noList,
+    'THE NOWHERE EXIT IS REACHABLE: decided first, then answered, then the no-list guard');
+  ok(/if \(how\.path === NOWHERE\) \{\s*logLook\('watched', 'opened=0 why=nowhere'\);\s*await settle\(\);\s*if \(alive\) moveOn\('Journey'\);\s*return;\s*\}/.test(code),
+    'and it reads nothing, says why, and hands back to the journey');
+
   const start = code.indexOf('if (how.path !== THE_LIST) {');
   const end = code.indexOf('let fromTheSearch = [];', start);
   ok(start > -1 && end > start, 'the watched branch is where expected');
@@ -105,18 +122,21 @@ console.log('\n=== 3. THE SCREEN ASKS FIRST, AND THE WATCHED PATH TOUCHES NO LIS
   ok(/if \(!detail\.looked\) \{\s*await leaveWith\(\[\]\);\s*return;\s*\}/.test(branch),
     'AND THE ANSWER IS TO HAND BACK, so the journey looks again — never the list');
   // NO "IS THIS YOUR ORDER?" ON THE WATCHED PATH: every exit hands back to the journey.
-  ok((branch.match(/await leaveWith\(\[\]\);/g) || []).length === 3,
-    'every one of its three exits hands back with nothing to ask about');
+  // TWO, not three, since 20 September 2026: the NOWHERE exit moved above the
+  // no-list guard and hands back there instead. See the note in section 3.
+  ok((branch.match(/await leaveWith\(\[\]\);/g) || []).length === 2,
+    'every one of its two exits hands back with nothing to ask about');
   ok(!/leaveWith\(matched\)/.test(branch), 'and never with a match to confirm by hand');
   // THE REFUSALS ARE THE SAME TWO, IN THE SAME WORDS.
   ok(/if \(detail\.wantsSignIn === true\) \{[\s\S]{0,120}setNeedsSignIn\(true\);/.test(branch), 'a sign in wall stops it');
   ok(/if \(detail\.whyNot != null\) \{[\s\S]{0,120}setRefused\(detail\.whyNot\);/.test(branch), 'and so does a refusal');
-  // NOWHERE READS NOTHING.
-  ok(/if \(how\.path === NOWHERE\) \{[\s\S]{0,200}await leaveWith\(\[\]\);/.test(branch),
-    'a key with no page behind it reads nothing and hands back');
+  // AND NOWHERE IS NO LONGER IN HERE AT ALL — it is answered above, before the
+  // list is even built, which is the only place it could ever be reached from.
+  ok(!branch.includes('NOWHERE'),
+    'the one-page branch no longer carries a dead NOWHERE arm');
   // THE LOG NEVER CARRIES THE KEY OR THE PAGE.
-  const lines = branch.match(/logLook\('watched',[\s\S]*?\);/g) || [];
-  ok(lines.length === 2, 'two watched lines');
+  const lines = code.match(/logLook\('watched',[\s\S]*?\);/g) || [];
+  ok(lines.length === 2, 'two watched lines in the screen');
   // THE PAGE IS `${one.html}` OR `${detail.text}` ON A LINE; its LENGTH is a
   // count and is what the order page line already prints.
   ok(lines.every((l) => !/watchedKey|how\.url|\$\{detail\.text\}|\$\{one\.html\}|\$\{one\.text\}/.test(l)),

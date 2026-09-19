@@ -228,7 +228,9 @@ export function toTaskResponse(
   now: number = Date.now(),
 ): TaskResponse {
   const task = toEngineTask(row, []);
-  const policy = policyForWindowDays(campaign.returnWindowDays);
+  // THE SAME TWO ARGUMENTS THE PAYOUT USES, so the date a screen shows is the
+  // date the money actually waits for. See policyForWindowDays.
+  const policy = policyForWindowDays(campaign.returnWindowDays, campaign.platform);
   const elig = refundEligibility(task, now, policy);
 
   // THE SCREEN MUST NEVER PROMISE A NUMBER THE PAYOUT WOULD REFUSE.

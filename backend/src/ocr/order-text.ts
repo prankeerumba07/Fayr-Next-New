@@ -26,6 +26,9 @@
  * told their own order is not theirs.
  */
 
+import {
+  clockFromText, instantInIndia, type ClockReading,
+} from '../common/india-clock';
 import { dayFromMillis, dayFromText, paiseFromRupees } from './order-comparison';
 
 /** One product on the order, with its own price in integer paise. */
@@ -169,6 +172,37 @@ export interface ParsedOrder {
    * and no year is null. Nothing here falls back to the current year.
    */
   deliveryDate: string | null;
+  /**
+   * THE MINUTE IT ARRIVED, as an ISO instant, or null when the page printed only
+   * a day — Phase 8B-c, 20 September 2026.
+   *
+   * ── WHAT WAS BEING THROWN AWAY ────────────────────────────────────────────
+   *
+   * A quick commerce page states the time beside the date and always has. From
+   * the owner's own pages, all three measured:
+   *
+   *   Order Arrived at / 25 Aug 2026, 9:02 PM
+   *   Shipment 1 Arrived at / 21 Jul 2026, 5:32 PM
+   *   Order Arrived at / 23 Aug 2026, 6:09 AM
+   *
+   * Only the day was kept, and the day became an instant at noon UTC — half past
+   * five in the evening in India. That is the right thing to do with a date being
+   * COMPARED and the wrong thing to do with the moment a hold is counted from:
+   * with a three hour hold it released a refund before the parcel arrived, and a
+   * page read in the morning carried a delivery seven hours in the FUTURE, which
+   * the plausibility gate refused outright. See common/india-clock.ts.
+   *
+   * ── IT IS BESIDE deliveryDate AND DOES NOT REPLACE IT ─────────────────────
+   *
+   * The day is still the day, and the order window rule still compares days.
+   * This is the extra precision, present only when the page printed it, and
+   * everything that wants a day goes on asking for one.
+   *
+   * INDIA'S CLOCK, because the page was printed by an Indian shop for somebody
+   * standing in India. NULL when the page printed no time, which is every Amazon
+   * page and every list row.
+   */
+  deliveryAt: string | null;
   /**
    * THE DAY THE SHOP'S OWN RETURN WINDOW CLOSES, as "2026-06-19", or null.
    *
@@ -529,11 +563,16 @@ const ORDER_DATE_LABEL =
  * an order that states the minute each half of it turned up — and that is the
  * field the whole delivery question is answered from.
  *
- * THE FIRST ARRIVAL IS THE ONE TAKEN, because the loop stops at the first date
- * it can read. Said plainly rather than left to be discovered: for an order in
- * two parcels that is the EARLIER arrival. Both of his were the same evening,
- * so nothing here measures which is the right one for a return window. When a
- * real order arrives on two different days, this is the line to argue about.
+ * THE LATER ARRIVAL IS THE ONE TAKEN — Phase 8B-c, 20 September 2026, and this
+ * is the line that was left to be argued about. It used to be the EARLIER,
+ * because the loop stopped at the first date it could read. Both of his arrived
+ * the same evening, so nothing measured it either way.
+ *
+ * THE ORDER IS DELIVERED WHEN ALL OF IT IS. A hold counted from the first parcel
+ * starts running while the second is still out for delivery, and on an order
+ * that arrives on two different days it would release the refund before the rest
+ * of the thing turned up. The later arrival is also the safe direction if the
+ * reading is wrong at all: later holds the money longer.
  */
 const DELIVERY_LABEL =
   /^(?:order\s+|shipment\s*\d*\s*(?:of\s*\d+\s*)?)?(?:delivered|arrived)\b\s*(?:on|at)?\s*[:\-]?\s*(.*)$/i;
@@ -1200,6 +1239,64 @@ function theYearFromTheOrder(
   return day;
 }
 
+/**
+ * THE TIME OF DAY PRINTED AFTER A DATE, AS AN INSTANT — Phase 8B-c.
+ *
+ * `day` is the day already read out of this same piece of text, so nothing here
+ * decides what day it was; it only decides what o'clock, and only when the text
+ * carries a clock face immediately after the date it stated.
+ *
+ * ANCHORED TO THE DATE'S OWN TAIL. The date is found at the front, exactly as
+ * the day readers find it, and the time is looked for in what is left — so
+ * "Order Arrived at / 25 Aug 2026, 9:02 PM" reads, and a page whose next number
+ * is a price, a quantity or half an order number reads nothing. A delivery
+ * instant invented out of a figure further along a line would move the moment
+ * somebody is paid.
+ *
+ * BOTH DATE SHAPES, because both reach here. A day with a year on it is what
+ * theDayAtTheFront finds; a day with no year is what theYearFromTheOrder works
+ * from, and a page printing "Delivered 5 June, 9:02 PM" states a time as plainly
+ * as any other.
+ */
+function theTimeAfterTheDay(day: string, text: string): number | null {
+  const t = String(text ?? '').trim();
+  if (t === '') return null;
+  const withYear = theDayAtTheFront(t);
+  const lead = withYear !== t ? withYear : (theDayAndMonthAtTheFront(t) ?? '');
+  if (lead === '') return null;
+  const clock: ClockReading | null = clockFromText(t.slice(lead.length));
+  return instantInIndia(day, clock);
+}
+
+/**
+ * THE LAST OF THE ARRIVALS READ OFF ONE PAGE, or null when there were none.
+ *
+ * THE LATEST DAY FIRST, and only then the latest time on that day. Doing it the
+ * other way round — one comparison over "the instant, or noon when there is not
+ * one" — would let a parcel that arrived at nine in the evening on Monday beat
+ * one whose Tuesday line printed no time at all, because noon on Tuesday sorts
+ * after nine on Monday only if you remember to look at the day first.
+ *
+ * A DAY WITH NO TIME ON IT DOES NOT ERASE A TIME. If the last day carries two
+ * readings and only one states a clock, that clock is the best thing the page
+ * said about when the order finished arriving, and it is kept. The day is the
+ * same either way, so nothing is claimed that the page did not print.
+ */
+function theLastArrival(
+  arrivals: readonly { day: string; at: number | null }[],
+): { day: string; at: number | null } | null {
+  if (arrivals.length === 0) return null;
+  // Both are "YYYY-MM-DD", zero padded and fixed width, so comparing them as
+  // text is comparing them as dates — the same trick theYearFromTheOrder uses.
+  const day = arrivals.reduce((latest, a) => (a.day > latest ? a.day : latest), arrivals[0].day);
+  const at = arrivals
+    .filter((a) => a.day === day && a.at != null)
+    .reduce<number | null>((latest, a) => (
+      latest == null || (a.at as number) > latest ? (a.at as number) : latest
+    ), null);
+  return { day, at };
+}
+
 /** The empty answer, so "we read nothing" is one shape and not several. */
 function nothing(): ParsedOrder {
   return {
@@ -1210,6 +1307,7 @@ function nothing(): ParsedOrder {
     feesPaise: null,
     billDiscountPaise: null,
     deliveryDate: null,
+    deliveryAt: null,
     returnWindowEndsDate: null,
     returned: null,
     rated: null,
@@ -1495,12 +1593,22 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
   }
 
   // ── the day it ARRIVED, which is a different date ─────────────────────────
-  let deliveryDate: string | null = null;
-  for (let i = 0; i < lines.length && deliveryDate == null; i += 1) {
+  //
+  // EVERY ARRIVAL ON THE PAGE IS READ, AND THE LATEST WINS. See DELIVERY_LABEL
+  // for why: an order split into parcels is delivered when the last of it is.
+  // This used to stop at the first date it could read, which on a two shipment
+  // page is the EARLIER arrival.
+  const arrivals: { day: string; at: number | null }[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
     const m = DELIVERY_LABEL.exec(lines[i]);
     if (!m) continue;
     // The same comma trick as the order date: a screen writes the time after it.
     const beside = (m[1] ?? '').split(',')[0].trim();
+    // AND THE WHOLE TAIL, UNCUT, KEPT BESIDE IT. The cut above is what makes the
+    // DAY readable; the time is the thing on the other side of that comma, and
+    // it is read from this. Two variables rather than one because the day's
+    // reading is not being changed by a hair.
+    const besideWhole = (m[1] ?? '').trim();
     // AND THE SAME theDayAtTheFront, which the order branch had and this one did
     // not. The asymmetry was real, not cosmetic: Amazon's own page prints
     // "Delivered 8 June" and then "Return window closed on 19 June 2026", and a
@@ -1512,11 +1620,25 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     // is the stronger statement about the label, so a year-less day beside
     // "Delivered" beats a full date that merely happens to sit underneath — which
     // on an Amazon page is as likely to be the ORDER's date as the delivery's.
-    deliveryDate = dayFromText(theDayAtTheFront(beside))
-      ?? theYearFromTheOrder(beside, orderDate)
-      ?? dayUnder(under)
-      ?? theYearFromTheOrder(under, orderDate);
+    const fromBeside = dayFromText(theDayAtTheFront(beside))
+      ?? theYearFromTheOrder(beside, orderDate);
+    if (fromBeside != null) {
+      // THE TIME COMES OFF THE SAME TEXT THE DAY CAME OFF, never off the other
+      // one. A time read from the line under a day read from the line beside is
+      // two halves of two different statements stitched into one instant.
+      arrivals.push({ day: fromBeside, at: theTimeAfterTheDay(fromBeside, besideWhole) });
+      continue;
+    }
+    const fromUnder = dayUnder(under) ?? theYearFromTheOrder(under, orderDate);
+    if (fromUnder != null) {
+      arrivals.push({ day: fromUnder, at: theTimeAfterTheDay(fromUnder, under) });
+    }
   }
+  const theArrival = theLastArrival(arrivals);
+  const deliveryDate = theArrival?.day ?? null;
+  const deliveryAt = theArrival?.at == null
+    ? null
+    : new Date(theArrival.at).toISOString();
 
   // ── the day the SHOP'S OWN return window closes ───────────────────────────
   //
@@ -1679,6 +1801,7 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     feesPaise: feesTotal(lines, totalsFrom),
     billDiscountPaise: billDiscountTotal(lines, totalsFrom),
     deliveryDate,
+    deliveryAt,
     returnWindowEndsDate,
     returned,
     rated,

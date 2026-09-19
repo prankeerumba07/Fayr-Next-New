@@ -31,7 +31,7 @@ import { PLATFORMS } from '../platforms';
 import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
 import { Ghost, TextBtn, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
-import { daysUntil, windowLine } from '../ui/returnWindow';
+import { theWait, waitHeading, windowLine } from '../ui/returnWindow';
 import { goBackOrHome } from '../ui/nav';
 
 export default function ReturnWindowScreen({ navigation, route }) {
@@ -43,29 +43,31 @@ export default function ReturnWindowScreen({ navigation, route }) {
   const shop = key && PLATFORMS[key] ? PLATFORMS[key].name : null;
 
   const endsAt = task ? task.windowEndsAt : null;
-  const days = daysUntil(endsAt, Date.now());
-  const line = windowLine({ endsAt, shopName: shop, now: Date.now() });
+  // ONE READING OF THE CLOCK FOR THE WHOLE SCREEN — Phase 8B-b. The ring, the
+  // heading and the sentence all come from this, so they cannot say three
+  // different things about one instant. A wait of a day or more answers exactly
+  // what this screen has always shown; a wait under a day is said in hours, in
+  // minutes, and with the time on the clock. See theWait.
+  const now = Date.now();
+  const wait = theWait({ endsAt, now });
+  const line = windowLine({ endsAt, shopName: shop, now });
 
   return (
     <Screen bg={COLOR.cream}>
       <View style={styles.body}>
         <View style={styles.ring}>
-          {days == null ? (
+          {wait.kind === 'unknown' ? (
             <Text style={styles.ringNoNumber}>—</Text>
+          ) : wait.kind === 'due' ? (
+            <Text style={styles.ringNoNumber}>✓</Text>
           ) : (
             <>
-              <Text style={styles.ringNumber}>{days}</Text>
-              <Text style={styles.ringWord}>{days === 1 ? 'DAY' : 'DAYS'}</Text>
+              <Text style={styles.ringNumber}>{wait.count}</Text>
+              <Text style={styles.ringWord}>{wait.unit}</Text>
             </>
           )}
         </View>
-        <Text style={[hTitle, styles.title]}>
-          {days == null
-            ? 'Waiting for the return window'
-            : days === 0
-              ? 'Your refund unlocks today'
-              : `Refund unlocks in ${days} ${days === 1 ? 'day' : 'days'}`}
-        </Text>
+        <Text style={[hTitle, styles.title]}>{waitHeading(wait)}</Text>
         <Text style={[hSub, styles.sub]}>{line}</Text>
         <View style={styles.card}>
           <Text style={styles.cardText}>

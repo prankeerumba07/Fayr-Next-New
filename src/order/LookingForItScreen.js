@@ -357,6 +357,32 @@ export default function LookingForItScreen({ navigation, route }) {
         ? openTheListWith(platformKey, platform.startUrl, startedAt, aFreshName())
         : null;
 
+      // ── WHICH READ THIS IS, ASKED BEFORE ANYTHING IS OPENED ─────────────
+      //
+      // MOVED UP HERE ON 20 SEPTEMBER 2026, and the move is the whole of it.
+      // The NOWHERE answer — a claim that knows WHICH order was placed, on a
+      // shop whose order pages nobody has measured — was decided further down,
+      // below the guard underneath this one. Blinkit and Instamart have no
+      // order LIST page either, so that guard always fired first and the answer
+      // written for exactly those two shops could never be reached.
+      //
+      // It cost nothing while neither shop could produce a watched key at all.
+      // Phase 8B-b's measurement mode exists so that both of them can, so the
+      // ordering had to be right before the measurement rather than after it.
+      const watchedKey = theWatchedOrderKey(campaignId ? getAuthoritative(campaignId) : null);
+      const how = howToLook({
+        watchedOrderKey: watchedKey, shape: howThisShopNamesAnOrder(platformKey),
+      });
+
+      // A KEY WITH NO PAGE BEHIND IT READS NOTHING AND HANDS BACK. Never the
+      // list: "we know which order" is not a reason to go and read strangers.
+      if (how.path === NOWHERE) {
+        logLook('watched', 'opened=0 why=nowhere');
+        await settle();
+        if (alive) moveOn('Journey');
+        return;
+      }
+
       // NOTHING TO LOOK AT is not an error and is never explained. Some shops
       // keep their list of orders somewhere a page of text cannot reach, and the
       // person is simply asked instead.
@@ -474,18 +500,10 @@ export default function LookingForItScreen({ navigation, route }) {
       // phone watched THIS order be placed from THIS claim, and the server's
       // match on the watched page is the confirm. So the journey is handed back
       // to whatever the server decided, and the record says the rest.
-      const watchedKey = theWatchedOrderKey(campaignId ? getAuthoritative(campaignId) : null);
-      const how = howToLook({
-        watchedOrderKey: watchedKey, shape: howThisShopNamesAnOrder(platformKey),
-      });
+      // DECIDED ABOVE, before the list was built. NOWHERE has already handed
+      // back by the time this runs, so the only thing left to tell apart here is
+      // the one page from the list.
       if (how.path !== THE_LIST) {
-        if (how.path === NOWHERE) {
-          // A key, and no page that can honestly be built from it. Read nothing,
-          // because the list is never the answer to "we know which order".
-          logLook('watched', 'opened=0 why=nowhere');
-          await leaveWith([]);
-          return;
-        }
         const next = openOneOrderWith(
           platformKey, how.url, Date.now(), aFreshName(), watchedKey, whatIsLeft(),
         );

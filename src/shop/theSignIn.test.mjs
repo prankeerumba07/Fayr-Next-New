@@ -180,8 +180,16 @@ console.log('\n=== 4. the screen does the same three things the connect screen d
   // TWO WATCHERS SINCE 18 SEPTEMBER 2026, and the sign-in one is still the
   // connect flow's, still first. The second reports the title and the address
   // on a shop that changes page without navigating — see watchTheTitle.js.
-  ok(/injectedJavaScript=\{watchSignInScript\(\) \+ watchTheTitleScript\(\)\}/.test(screen),
-    'the watcher goes into the shopping view');
+  //
+  // AND A THIRD SINCE 20 SEPTEMBER 2026, which is not always there: for a shop
+  // nobody has ever measured, on a development build, the page's whole text is
+  // written to the console so Blinkit and Instamart can be measured at all. It
+  // is asked for by name and added by a condition, never unconditionally — see
+  // measureLog.js and measureLog.test.mjs, which is where that is proved.
+  ok(/injectedJavaScript=\{\s*watchSignInScript\(\) \+ watchTheTitleScript\(\)/.test(screen),
+    'the watcher goes into the shopping view, still first and still unconditional');
+  ok(/\+ \(shouldMeasure\(\{ key, dev: [^)]*\}\)\s*\?\s*measureTheWholePageScript\(\)\s*:\s*''\)/.test(screen),
+    'and the measurement script only when the shop has never been measured');
   ok(/onMessage=\{onShopMessage\}/.test(screen), 'and its messages are listened for');
   ok(/markConnected\(platform\.key\)/.test(screen), 'the shop is marked connected on our side');
   ok(/reportShopSignIn\(platform\.key, HOW_WE_KNEW_INSIDE_THE_SHOP\)/.test(screen),

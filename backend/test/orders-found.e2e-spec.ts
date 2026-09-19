@@ -842,8 +842,8 @@ describe('The orders the phone found (e2e)', () => {
      * that. Both the task's and the campaign's own instants are moved, because
      * the floor is the LATER of the two.
      */
-    async function readyForYesterday() {
-      const made = await ready();
+    async function readyForYesterday(over: Partial<Prisma.CampaignCreateInput> = {}) {
+      const made = await ready(over);
       const twoDaysAgo = daysFromNow(-2);
       await prisma.task.update({
         where: { id: made.taskId }, data: { createdAt: twoDaysAgo },
@@ -912,9 +912,21 @@ describe('The orders the phone found (e2e)', () => {
     });
 
     it('THE WINDOW IS THE LATER OF THE TWO, so the shop can only lengthen a hold', async () => {
-      // The campaign is electronics, whose policy window is ten days. The page
-      // says thirty, so thirty wins.
-      const long = await readyForYesterday();
+      // ── ON AMAZON, AND SINCE 20 SEPTEMBER 2026 THAT IS NOT INCIDENTAL ─────
+      //
+      // This whole test is about a shop that PRINTS its own return window on the
+      // order page, and Amazon is the only one of the seven that does — the page
+      // posted below is an Amazon one, order number and all. It used to run on
+      // the file's default platform, which is Zepto, and passed only because the
+      // operator's day table answered the same for both.
+      //
+      // It stopped being the same answer when Zepto, Blinkit and Instamart were
+      // given a three hour hold instead of the day table (see
+      // QUICK_COMMERCE_HOLD_HOURS): a two day window printed by the shop is then
+      // LONGER than the policy floor, so the second half of this test measured
+      // the opposite of what it says. On the shop the test is actually about,
+      // both halves say what they always said.
+      const long = await readyForYesterday({ platform: 'AMAZON' });
       const closes = daysFromNow(30);
       const foundLong = await post(long.token, long.taskId, [
         orderPage('408-5094957-4481129', { windowCloses: closes }),
@@ -929,7 +941,7 @@ describe('The orders the phone found (e2e)', () => {
       // the person was told when they claimed. This is the assertion that fails
       // if windowEnd ever takes the earlier of the two, which is the one way a
       // refund could go out before the window it was held for had run.
-      const short = await readyForYesterday();
+      const short = await readyForYesterday({ platform: 'AMAZON' });
       const foundShort = await post(short.token, short.taskId, [
         orderPage('408-5094957-4481129', { windowCloses: daysFromNow(2) }),
       ]);

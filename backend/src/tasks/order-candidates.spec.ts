@@ -10,6 +10,7 @@ import {
   itemsFromJson,
   itemsToJson,
   judgeFoundOrders,
+  theDeliveryInstant,
   whatTheOrderAlreadySays,
 } from './order-candidates';
 import { theDeliveryFragment } from './order-candidates.service';
@@ -496,6 +497,87 @@ describe('the delivery and the return window, out of the page and onto the row',
     ])], CAMPAIGN);
     expect(judged.deliveryDate).not.toBeNull();
     expect(judged.returnWindowEndsAt).toBeNull();
+  });
+});
+
+/**
+ * THE INSTANT THE PARCEL ARRIVED, AND WHICH OF THE TWO READINGS IS KEPT.
+ *
+ * PHASE 8B-c, 20 SEPTEMBER 2026. The day at noon universal is half past five in
+ * the EVENING in India. Anchored there, the three hour hold on a parcel that
+ * arrived at nine at night expired before it turned up, and a page read in the
+ * morning carried a delivery in the future that the plausibility gate refused.
+ */
+describe('the minute a quick commerce parcel arrived, carried onto the row', () => {
+  const CAMPAIGN = {
+    productName: 'Boldfit Strapless Sports Headband',
+    productPricePaise: 14900n,
+  };
+
+  /** One arrival, in the layout the shop draws. */
+  const arrivedAt = (printed: string) => row([
+    'Order ID', '#SOSTEST0000009',
+    'Order Placed at', '21 Jul 2026, 5:07 PM',
+    'Boldfit Strapless Sports Headband', '1 x \u20b9149',
+    'Total \u20b9149',
+    'Order Arrived at', printed,
+  ]);
+
+  it('THE JUDGED ORDER CARRIES BOTH — the day it always had, and the minute', () => {
+    const [judged] = judgeFoundOrders([arrivedAt('21 Jul 2026, 5:32 PM')], CAMPAIGN);
+    // 17:32 in India is 12:02 universal. The day is untouched at noon.
+    expect(judged.deliveryDate?.toISOString()).toBe('2026-07-21T12:00:00.000Z');
+    expect(judged.deliveryAt?.toISOString()).toBe('2026-07-21T12:02:00.000Z');
+  });
+
+  it('AND THE INSTANT IS WHAT IS WRITTEN DOWN, when the page printed one', () => {
+    const [judged] = judgeFoundOrders([arrivedAt('21 Jul 2026, 9:02 PM')], CAMPAIGN);
+    // 21:02 in India is 15:32 universal. This is the value the column takes.
+    expect(theDeliveryInstant(judged)?.toISOString())
+      .toBe('2026-07-21T15:32:00.000Z');
+  });
+
+  it('AND THE DAY AT NOON WHEN IT DID NOT — every Amazon page, unchanged', () => {
+    const [judged] = judgeFoundOrders([row([
+      'Order placed', '2 June 2026',
+      'Order # 408-5094957-4481129',
+      'Boldfit Strapless Sports Headband', '1 x \u20b9149',
+      'Order Summary', 'Order Total \u20b9149',
+      'Delivered 5 June 2026',
+    ])], CAMPAIGN);
+    expect(judged.deliveryAt).toBeNull();
+    expect(theDeliveryInstant(judged)?.toISOString()).toBe('2026-06-05T12:00:00.000Z');
+  });
+
+  it('and nothing read is still nothing written', () => {
+    const [judged] = judgeFoundOrders([HEADBAND_ROW], CAMPAIGN);
+    expect(judged.deliveryAt).toBeNull();
+    expect(judged.deliveryDate).toBeNull();
+    expect(theDeliveryInstant(judged)).toBeNull();
+  });
+
+  it('THE FRAGMENT SAYS THE DAY THE PAGE PRINTED, in India and not in universal time', () => {
+    // A parcel that arrived at half past midnight on 25 August fell on the 24th
+    // in universal time. `raw` is the day AS WRITTEN on the page, so the 24th
+    // would make the record contradict the page it was read off.
+    const f = theDeliveryFragment({
+      deliveryDate: new Date(Date.UTC(2026, 7, 24, 19, 0)),
+      returnWindowEndsAt: null,
+      returned: false,
+    });
+    expect(f.delivery?.raw).toBe('2026-08-25');
+    expect(f.delivery?.at).toBe(Date.UTC(2026, 7, 24, 19, 0));
+  });
+
+  it('and a day-only delivery reads exactly as it always did', () => {
+    // Noon universal is half past five in the evening in India, so the day is
+    // the same either way. Every row written before this phase is unmoved.
+    const f = theDeliveryFragment({
+      deliveryDate: new Date('2026-06-05T12:00:00.000Z'),
+      returnWindowEndsAt: null,
+      returned: false,
+    });
+    expect(f.delivery?.raw).toBe('2026-06-05');
   });
 });
 

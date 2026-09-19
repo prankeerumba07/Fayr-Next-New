@@ -1,3 +1,4 @@
+import { dayInIndiaOf } from '../common/india-clock';
 import type { OrderCandidate, OrderCandidateSource } from '@prisma/client';
 import { itemsFromJson } from './order-candidates';
 
@@ -96,9 +97,13 @@ export function toOrderCandidateResponse(
     source: SAID[row.source] ?? 'order-list',
     orderNumber: row.orderNumber,
     orderDate: day(row.orderDate),
-    // THE SAME DAY CONVERTER as the order date. Two dates written two ways is
-    // how one of them ends up a day out.
-    deliveryDate: day(row.deliveryDate),
+    // AND IN INDIA'S OWN DAY — Phase 8B-c, 20 September 2026. The column now
+    // holds an INSTANT when the shop's page stated the minute, and a parcel that
+    // arrived at half past midnight on the 25th falls on the 24th in universal
+    // time. What is shown has to be the day the page printed, which is the day
+    // the person saw. A day-only reading is untouched, because noon universal is
+    // half past five in the evening in India and so the same day either way.
+    deliveryDate: dayInIndiaOf(row.deliveryDate),
     // AND NOT THROUGH day(). See the field's own comment: the time of day is the
     // point of this one.
     returnWindowEndsAt:

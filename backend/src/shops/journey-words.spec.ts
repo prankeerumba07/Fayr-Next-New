@@ -168,3 +168,115 @@ describe('the journey’s own screen words', () => {
     }
   });
 });
+
+/**
+ * THE RETURN WINDOW'S OWN WORDS, WALKED FOR THE FIRST TIME — Phase 8B-b.
+ *
+ * ── WHY THIS FILE WAS NOT BEING READ ────────────────────────────────────────
+ *
+ * src/ui/returnWindow.js has spoken to people about their own money since it was
+ * written, and nothing was pointing the rule at it. That was survivable while
+ * every sentence in it was a date. Phase 8B-b gives the three quick-commerce
+ * shops a hold of three hours, so the file now says the time on the clock, and
+ * the owner asked that every new sentence go through the walk that already holds
+ * the others. This is that walk, in the same shape, over the same rule.
+ */
+describe('the return window’s own screen words', () => {
+  const source = read('ui/returnWindow.js');
+
+  const everyLiteralIn = (src: string): string[] => {
+    const code = withoutComments(src);
+    const out: string[] = [];
+    for (const m of code.matchAll(/'((?:[^'\\\n]|\\.){4,})'/g)) out.push(m[1]);
+    return out;
+  };
+
+  const everyTemplateIn = (src: string): string[] => {
+    const code = withoutComments(src);
+    const out: string[] = [];
+    for (const m of code.matchAll(/`((?:[^`\\]|\\.)*)`/g)) {
+      const filled = m[1]
+        // A shop's name is the longest hole any of these sentences has, and the
+        // one that can push a sentence past the length rule.
+        .replace(/\$\{[^}]*\}/g, 'Amazon')
+        .replace(/\\u([0-9a-fA-F]{4})/g,
+          (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (/ /.test(filled)) out.push(filled);
+    }
+    return out;
+  };
+
+  it('every sentence written in the file passes Fayr’s plain language rule', () => {
+    const said = everyLiteralIn(source).filter((x) => / /.test(x));
+    expect(said.length).toBeGreaterThanOrEqual(4);
+    for (const one of said) {
+      expect(checkPlainLanguage(one, 'en').problems.map((p) => `${one} :: ${p.detail}`))
+        .toEqual([]);
+    }
+  });
+
+  it('and every sentence it BUILDS passes it too, read off disk', () => {
+    const built = everyTemplateIn(source);
+    expect(built.length).toBeGreaterThanOrEqual(5);
+    for (const one of built) {
+      expect(checkPlainLanguage(one, 'en').problems.map((p) => `${one} :: ${p.detail}`))
+        .toEqual([]);
+    }
+  });
+
+  it('AND THE ASSEMBLED CLOCK SENTENCES, which no template shows whole', () => {
+    // The heading and the sentence are built from a count and a time at run
+    // time, so what a person actually reads appears nowhere in the source. These
+    // are the forms, in singular and plural, at both ends of the day.
+    for (const said of [
+      'Your refund unlocks in a minute',
+      'Your refund unlocks in 25 minutes',
+      'Your refund unlocks in an hour',
+      'Your refund unlocks in 3 hours',
+      'Your refund is due now',
+      'Your refund unlocks today',
+      'Refund unlocks in 1 day',
+      'Refund unlocks in 5 days',
+      'Waiting for the return window',
+      'Your refund is due at 12:00 am today. We hold it for a short while after '
+        + 'your parcel arrives, and then it is sent to your wallet.',
+      'Your refund is due at 2:30 pm tomorrow. We hold it for a short while after '
+        + 'your parcel arrives, and then it is sent to your wallet.',
+      // The claim's own status rows, moved into this file on 20 September 2026
+      // so that they are walked with everything else the wait says.
+      '1 minute remaining', '25 minutes remaining', '1 hour remaining',
+      '3 hours remaining', '5d 0h remaining', 'Return window has closed',
+      '2:30 pm today', '12:00 am tomorrow', 'Fri Sep 25 2026',
+      'Fri Sep 25 2026, 2:30 pm',
+    ]) {
+      expect(checkPlainLanguage(said, 'en').problems.map((p) => `${said} :: ${p.detail}`))
+        .toEqual([]);
+    }
+  });
+
+  it('and it still writes nothing, reads nothing and draws nothing', () => {
+    const code = withoutComments(source);
+    for (const wayOut of [
+      /\bfetch\s*\(/, /XMLHttpRequest/, /AsyncStorage/, /SecureStore/,
+      /console\./, /from 'react/, /<[A-Z]/, /\brequire\s*\(/,
+    ]) {
+      expect(code).not.toMatch(wayOut);
+    }
+  });
+
+  it('AND NO DAY-SHAPED SENTENCE IS SHOWN FOR A WAIT UNDER A DAY', () => {
+    // The point of the phase on this screen. "closes today, on 20 Sep" is true
+    // for a three hour hold and tells nobody anything; the clock branch has to
+    // come first, and the day-shaped branch has to be unreachable under a day.
+    const code = withoutComments(source);
+    const line = code.slice(code.indexOf('export function windowLine'));
+    const clockBranch = line.indexOf("wait.kind === 'minutes'");
+    const dayBranch = line.indexOf('const when = shortDate');
+    expect(clockBranch).toBeGreaterThan(-1);
+    expect(dayBranch).toBeGreaterThan(clockBranch);
+    // And the clock branch returns rather than falling through.
+    expect(line.slice(clockBranch, dayBranch)).toMatch(/return `\$\{soon\}/);
+  });
+});

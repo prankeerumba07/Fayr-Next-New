@@ -88,6 +88,12 @@ import {
 import { whatThePageIs } from './theRightProduct';
 import { theOrderPage } from './theOrderPage';
 import { watchTheTitleScript, whatTheTitleWatcherSaid } from './watchTheTitle';
+import {
+  logMeasure,
+  measureTheWholePageScript,
+  shouldMeasure,
+  whatTheMeasurerSaid,
+} from './measureLog';
 import { PLACED, whatTheOrderPageSays } from './theOrderPlaced';
 import { whatTheBarSays } from './theBar';
 
@@ -266,6 +272,21 @@ export default function ShopScreen({ navigation, route }) {
     // THAT LOG IS THE MEASUREMENT — and fed to the same two setters the
     // navigation event feeds, so the verdict and the order question are asked
     // of the page they are really on. See watchTheTitle.js.
+    // ── THE WHOLE PAGE, FOR A SHOP NOBODY HAS EVER MEASURED — Phase 8B-b ──
+    //
+    // Blinkit and Instamart have empty order tables, and an address and a title
+    // cannot teach a parser the word a page uses for a delivery or a rating.
+    // This is the page's own text, written to the console and nowhere else, on
+    // a development build only, for the two shops nobody has measured.
+    //
+    // ANSWERED BEFORE THE TITLE WATCHER because the two carry different keys and
+    // a measurement report is not a navigation: it must not set the page title
+    // or the last page, or one navigation would be judged twice.
+    const measured = whatTheMeasurerSaid(msg);
+    if (measured != null) {
+      logMeasure(measured);
+      return;
+    }
     const reported = whatTheTitleWatcherSaid(msg);
     if (reported != null) {
       logShop('THE PAGE REPORTED', navigationDetail({ url: reported.url, title: reported.title }));
@@ -683,7 +704,18 @@ export default function ShopScreen({ navigation, route }) {
           // is the only reason it is ever open. This screen is open for the
           // whole of somebody's shopping, and the moment a shop decides to ask
           // them to log in is not a moment Fayr chooses or can predict.
-          injectedJavaScript={watchSignInScript() + watchTheTitleScript()}
+          // AND, FOR A SHOP NOBODY HAS MEASURED, THE WHOLE PAGE — Phase 8B-b.
+          // The third script is added only when shouldMeasure says so, which is
+          // never for Zepto, never for a shop that has been measured, and never
+          // in a build a person has. __DEV__ is read here, once, and handed in:
+          // the decision itself is pure and lives in measureLog.js.
+          injectedJavaScript={
+            watchSignInScript() + watchTheTitleScript()
+            // eslint-disable-next-line no-undef
+            + (shouldMeasure({ key, dev: typeof __DEV__ !== 'undefined' && __DEV__ === true })
+              ? measureTheWholePageScript()
+              : '')
+          }
           onMessage={onShopMessage}
           onError={(e) => logShop('THE SHOP WOULD NOT OPEN',
             `where=onError code=${(e && e.nativeEvent && e.nativeEvent.code) || '?'}`)}
