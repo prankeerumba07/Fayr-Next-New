@@ -222,7 +222,14 @@ console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
   // A NUMBER AND NOT A "MORE THAN", so that adding a sentence — or removing one
   // — is something somebody has to come here and think about. That is the same
   // reason the look log's call sites are counted rather than bounded.
-  ok(EVERY_SENTENCE.length === 44, `the list of them is complete (${EVERY_SENTENCE.length})`);
+  //
+  // EIGHT CAME IN ON 19 SEPTEMBER 2026 WITH PHASE 8A, for the Buy step after an
+  // order has been watched: the order was seen, our side is being told, Fayr is
+  // reading it, the shop has not written it up yet, when the next look is (in
+  // one minute and in several), our side could not count it, and the one quiet
+  // door back into the shop. Each is a fact about what Fayr is doing and not
+  // one claims the purchase counted.
+  ok(EVERY_SENTENCE.length === 52, `the list of them is complete (${EVERY_SENTENCE.length})`);
   // AND NEITHER OF THE TWO IS ANYWHERE IN THE APP'S WORDS ANY MORE.
   for (const gone of [
     'This opens one day after your product arrives.',

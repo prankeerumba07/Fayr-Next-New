@@ -1056,6 +1056,234 @@ describe('The orders the phone found (e2e)', () => {
     });
   });
 
+  /**
+   * A PURCHASE FAYR WATCHED, READ OFF ITS OWN PAGE, WITH NOBODY ASKED. Phase 8A.
+   *
+   * The owner's decision, 19 September 2026: "the phone watched THIS order be
+   * placed from THIS claim; the server's match on the watched page is the
+   * confirm." And for the review: "Rated -> REVIEWED." Both are checked here
+   * over real requests, against a page shaped the way Zepto really draws one —
+   * the fixtures under test/fixtures are the owner's own two order pages.
+   */
+  describe('a purchase Fayr watched', () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const written = (at: Date): string =>
+      `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]} ${at.getUTCFullYear()}`;
+    const daysFromNow = (n: number): Date => new Date(Date.now() + n * DAY_MS);
+
+    /** The key off the owner's own confirmation address, 18 September 2026. */
+    const THE_KEY = '01a0b4d7-870c-7dca-b701-e038477c5106';
+
+    /**
+     * ONE ZEPTO ORDER PAGE, IN THE SHAPE THE SHOP DRAWS IT. Every line here is
+     * a line the owner's real pages carry, in the order they carry it:
+     * zepto-order-page-drawn.txt (unrated, "Rate Order") and
+     * zepto-order-page-drawn-two-shipments.txt (rated, "You rated:").
+     *
+     * YESTERDAY, for the reason the delivery block above gives: a day becomes an
+     * instant at noon, and a delivery dated today would be in the future before
+     * lunch.
+     */
+    const zeptoPage = (
+      orderNumber: string,
+      opts: { rated?: boolean; arrived?: boolean } = {},
+    ) => row([
+      `Order #${orderNumber}`,
+      '1 item',
+      'Delivered',
+      ...(opts.rated === true ? ['You rated:'] : ['Rate Order']),
+      '1 item in order',
+      'Boldfit Strapless Sports Headband',
+      '1 pc',
+      '1 unit',
+      '₹149',
+      '₹325',
+      'Bill Summary',
+      'Item Total',
+      '₹325',
+      '₹149',
+      'Total Bill',
+      '₹149',
+      'Order Details',
+      'Order ID',
+      `#${orderNumber}`,
+      'Order Placed at',
+      `${written(daysFromNow(-1))}, 5:07 PM`,
+      ...(opts.arrived === false
+        ? []
+        : ['Order Arrived at', `${written(daysFromNow(-1))}, 5:32 PM`]),
+    ]);
+
+    /** A claim old enough for yesterday's order to belong to it. */
+    async function readyForYesterday() {
+      const made = await ready();
+      const twoDaysAgo = daysFromNow(-2);
+      await prisma.task.update({
+        where: { id: made.taskId }, data: { createdAt: twoDaysAgo },
+      });
+      await prisma.campaign.update({
+        where: { id: made.campaign.id }, data: { createdAt: twoDaysAgo },
+      });
+      return made;
+    }
+
+    /** The phone reports the key off the confirmation address, once. */
+    const watched = (token: string, taskId: string) =>
+      request(server())
+        .post(`/tasks/${taskId}/evidence`)
+        .set('Authorization', bearer(token))
+        .send({ key: `watched-order:${THE_KEY}`, watchedOrderKey: THE_KEY })
+        .expect(200);
+
+    const post = (token: string, taskId: string, pages: string[]) =>
+      request(server())
+        .post(`/tasks/${taskId}/orders-found`)
+        .set('Authorization', bearer(token))
+        .send({ pages })
+        .expect(200);
+
+    const theTask = (taskId: string) =>
+      prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+
+    it('THE SERVER’S MATCH ON THE WATCHED PAGE IS THE CONFIRM — nobody taps "that is mine"', async () => {
+      const { token, taskId } = await readyForYesterday();
+      await watched(token, taskId);
+
+      const found = await post(token, taskId, [zeptoPage('SOSTEST0000001')]);
+      expect(found.body).toHaveLength(1);
+      expect(found.body[0].matches).toBe(true);
+      // CHOSEN BY THE SERVER, not by a tap. There is no /mine request anywhere
+      // in this test.
+      expect(found.body[0].chosenAt).not.toBeNull();
+
+      const task = await theTask(taskId);
+      // The page said it arrived, so the same one read moved it all the way.
+      expect(task.state).toBe('DELIVERED');
+      expect(task.deliveredAt).not.toBeNull();
+      const evidence = task.evidence as { orderConfirmed?: boolean };
+      expect(evidence.orderConfirmed).toBe(true);
+    });
+
+    it('TWO IDENTIFIERS, NEVER CONFUSED: the page’s number is the order, the address key is where to look', async () => {
+      const { token, taskId } = await readyForYesterday();
+      await watched(token, taskId);
+      await post(token, taskId, [zeptoPage('SOSTEST0000002')]);
+
+      const task = await theTask(taskId);
+      expect(task.orderId).toBe('SOSTEST0000002');
+      expect(task.watchedOrderKey).toBe(THE_KEY);
+      expect(task.orderId).not.toBe(task.watchedOrderKey);
+    });
+
+    it('A LIST OF MANY PAGES NEVER CONFIRMS, watched key or not', async () => {
+      // A phone reading its watched order posts ONE page. Several pages is a
+      // list read, and a list is never the watched page.
+      const { token, taskId } = await readyForYesterday();
+      await watched(token, taskId);
+      const found = await post(token, taskId, [SOMETHING_ELSE, zeptoPage('SOSTEST0000003')]);
+      expect(found.body[1].matches).toBe(true);
+      expect(found.body[1].chosenAt).toBeNull();
+      expect((await theTask(taskId)).state).toBe('CLAIMED');
+    });
+
+    it('AND WITHOUT A WATCHED KEY NOTHING IS CONFIRMED BY ITSELF', async () => {
+      // Amazon, Flipkart, Meesho and Myntra: exactly as before. The match is
+      // offered and the person is asked.
+      const { token, taskId } = await readyForYesterday();
+      const found = await post(token, taskId, [zeptoPage('SOSTEST0000004')]);
+      expect(found.body[0].matches).toBe(true);
+      expect(found.body[0].chosenAt).toBeNull();
+      expect((await theTask(taskId)).state).toBe('CLAIMED');
+    });
+
+    it('a watched page that does NOT match confirms nothing either', async () => {
+      const { token, taskId } = await readyForYesterday();
+      await watched(token, taskId);
+      const found = await post(token, taskId, [SOMETHING_ELSE]);
+      expect(found.body[0].matches).toBe(false);
+      expect(found.body[0].chosenAt).toBeNull();
+      expect((await theTask(taskId)).state).toBe('CLAIMED');
+    });
+
+    it('RATED ON THE WATCHED PAGE MOVES A DELIVERED TASK TO REVIEWED, AND INTO THE HOLD', async () => {
+      const { token, taskId } = await readyForYesterday();
+      await watched(token, taskId);
+      await post(token, taskId, [zeptoPage('SOSTEST0000005')]);
+      expect((await theTask(taskId)).state).toBe('DELIVERED');
+
+      // The review step's one tap opened this same page; they rated; coming
+      // back re-read it. The page now says "You rated:" and no "Rate Order".
+      await post(token, taskId, [zeptoPage('SOSTEST0000005', { rated: true })]);
+
+      const task = await theTask(taskId);
+      expect(task.state).toBe('HOLDING');
+      expect(task.reviewPublished).toBe(true);
+      const evidence = task.evidence as {
+        review?: { published: boolean; publishedSource: string | null; rating: number | null; text: string | null };
+      };
+      expect(evidence.review?.published).toBe(true);
+      expect(evidence.review?.publishedSource).toBe('order-history');
+    });
+
+    it('AND THE REVIEW IT WRITES CARRIES NO NUMBER OF STARS AND NO WORDS', async () => {
+      // Fayr never reads, scores or checks what was posted at the shop. A low
+      // rating passes exactly as a high one, because no rating is read at all.
+      const { token, taskId } = await readyForYesterday();
+      await watched(token, taskId);
+      await post(token, taskId, [zeptoPage('SOSTEST0000006')]);
+      await post(token, taskId, [zeptoPage('SOSTEST0000006', { rated: true })]);
+      const task = await theTask(taskId);
+      const evidence = task.evidence as {
+        review?: { rating?: number | null; text?: string | null; title?: string | null };
+      };
+      expect(evidence.review?.rating ?? null).toBeNull();
+      expect(evidence.review?.text ?? null).toBeNull();
+      expect(evidence.review?.title ?? null).toBeNull();
+    });
+
+    it('"Rate Order" on the page leaves a delivered task exactly where it was', async () => {
+      const { token, taskId } = await readyForYesterday();
+      await watched(token, taskId);
+      await post(token, taskId, [zeptoPage('SOSTEST0000007')]);
+      await post(token, taskId, [zeptoPage('SOSTEST0000007')]);
+      const task = await theTask(taskId);
+      expect(task.state).toBe('DELIVERED');
+      expect(task.reviewPublished).toBeNull();
+    });
+
+    it('a rating read before the shop says it arrived waits for the next look', async () => {
+      const { token, taskId } = await readyForYesterday();
+      await watched(token, taskId);
+      // The live page: the order exists, has not arrived, and is somehow rated.
+      await post(token, taskId, [zeptoPage('SOSTEST0000008', { rated: true, arrived: false })]);
+      expect((await theTask(taskId)).state).toBe('PURCHASED');
+      await post(token, taskId, [zeptoPage('SOSTEST0000008', { rated: true, arrived: false })]);
+      expect((await theTask(taskId)).state).toBe('PURCHASED');
+
+      // The next look sees both on one page: the delivery half moves it to
+      // DELIVERED and the rated half, reading the state as it stands after
+      // that, carries it on into the hold.
+      await post(token, taskId, [zeptoPage('SOSTEST0000008', { rated: true })]);
+      expect((await theTask(taskId)).state).toBe('HOLDING');
+    });
+
+    it('a page that cannot be read yet is not a failure: the task waits, and nothing is written', async () => {
+      // The live tracking page Zepto shows in the first minutes: the order
+      // exists and has not settled into a receipt. The owner: "'We have not
+      // looked yet' is not a failure", and neither is this.
+      const { token, taskId } = await readyForYesterday();
+      await watched(token, taskId);
+      const found = await post(token, taskId, [row(['Order #SOSTEST0000009', 'Arriving in 8 minutes'])]);
+      expect(found.body[0].matches).toBe(false);
+      expect(found.body[0].chosenAt).toBeNull();
+      const task = await theTask(taskId);
+      expect(task.state).toBe('CLAIMED');
+      expect(task.blocker).toBeNull();
+    });
+  });
+
   describe('it says out loud that a request arrived', () => {
     const AMAZON_ORDER_PAGE = [
       'Order placed', '2 June 2026',

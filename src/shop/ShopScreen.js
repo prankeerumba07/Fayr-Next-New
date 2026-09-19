@@ -59,7 +59,11 @@ import { markConnected } from '../backend/connectedShops';
 import { reportShopSignIn } from '../backend/shopApi';
 import { LOOKED_FOR_THE_ORDER, SIGNED_IN, markVisitedShop } from '../journey/shopVisits';
 import { countdownFor } from '../journey/theNotice';
-import { getAuthoritative, subscribe } from '../taskStore';
+import { getAuthoritative, getTaskId, subscribe } from '../taskStore';
+// THE ONE FACT THIS SCREEN TELLS OUR SIDE — the key of the order it watched
+// being placed — goes by the existing device-evidence route, with its outbox
+// and its retry, and by nothing new. See theWatchedOrder.js for what is sent.
+import { syncEvidence } from '../backend/evidenceSync';
 // READ-ONLY, FROM A FROZEN FILE: how each shop names an order's own page, as
 // measured. Nothing about the read is called; one shape is looked up and handed
 // to theOrderPage.js, which puts the number in it. See that file's header.
@@ -74,8 +78,9 @@ import {
 import {
   cameBackDetail, handoffDetail, logShop, navigationDetail, orderDetail,
   refusedDetail, sessionDetail, signInDetail, signInRecordedDetail,
-  untaughtShopDetail, verdictDetail,
+  untaughtShopDetail, verdictDetail, watchedDetail,
 } from './shopLog';
+import { whatToTellOurSide, whereToHandOver } from './theWatchedOrder';
 import {
   HOW_WE_KNEW_INSIDE_THE_SHOP, nowRememberTheSignInWasUp, shouldRecordTheSignIn,
   watchSignInScript, whatTheShopShowed,
@@ -133,15 +138,26 @@ export default function ShopScreen({ navigation, route }) {
   // a developer's mistake being made visible rather than a person's problem.
   // ── TWO WAYS IN: SHOPPING, OR ONE ORDER'S OWN PAGE — PHASE 7 ────────────
   //
-  // `land: 'order'` with an `orderId` is the review step's door: the review is
+  // `land: 'order'` with an `orderKey` is the review step's door: the review is
   // on the clipboard and this view opens on THAT order's page, where they rate,
   // paste and submit. Everything else is a shopping session and lands exactly
   // where 6A said — the product page or the shop's front door, never an order
   // list. The two are different journey steps with opposite needs, so the
   // second is its own landing kind rather than a loosening of the first.
-  const landingOnAnOrder = params.land === 'order';
+  //
+  // ── THE KEY, NOT THE NUMBER — CORRECTED 19 SEPTEMBER 2026, PHASE 8A ─────
+  //
+  // Phase 7 built this page from `task.order.id`, the order NUMBER the page
+  // prints (JKLIKGSNS48449). A Zepto order's page is addressed by the UUID in
+  // its link (01a0b4d7-…), which is a different string, so the door opened on
+  // a page that does not exist. The record now carries that key — the one the
+  // phone read off the confirmation address — and the caller hands it in. With
+  // no key there is no order page to land on honestly, so the session is an
+  // ordinary shopping one: the front door, never an invented address.
+  const landingOnAnOrder = params.land === 'order'
+    && typeof params.orderKey === 'string' && params.orderKey !== '';
   const orderUrl = landingOnAnOrder
-    ? theOrderPage(howThisShopNamesAnOrder(key), params.orderId)
+    ? theOrderPage(howThisShopNamesAnOrder(key), params.orderKey)
     : null;
   const landing = useMemo(
     () => whereToLand(key, {
@@ -327,6 +343,17 @@ export default function ShopScreen({ navigation, route }) {
   // navigates on after a confirmation page and the bar must not flick back to a
   // product verdict on the next title. An order that happened does not un-happen.
   const [orderSeen, setOrderSeen] = useState(false);
+  // ── AND THE KEY IN ITS ADDRESS, KEPT ONCE AND TOLD ONCE — PHASE 8A ──────
+  //
+  // MEASURED 18 SEPTEMBER 2026: the confirmation is /order/status/<uuid>, and
+  // that uuid is the phone's one handle on THAT order. The first key seen is
+  // kept for the session, and every key is told to our side exactly once, by
+  // the same untrusted device-evidence route every other fact travels. Our side
+  // keeps the first key it hears, so a repeat that slips past costs nothing.
+  // The decision of what to send, and whether, is theWatchedOrder.js.
+  const [orderKey, setOrderKey] = useState(null);
+  const toldKeys = useRef(new Set());
+  const told = useRef(Promise.resolve(null));
   const [lastPage, setLastPage] = useState({ title: null, url: null });
   const lastOrderJudged = useRef(null);
   useEffect(() => {
@@ -349,7 +376,32 @@ export default function ShopScreen({ navigation, route }) {
       }));
     }
     if (out.said === PLACED) setOrderSeen(true);
-  }, [key, lastPage]);
+    if (out.orderKey != null) {
+      setOrderKey((have) => (have == null ? out.orderKey : have));
+      const tell = whatToTellOurSide({
+        said: out.said, orderKey: out.orderKey, alreadyTold: toldKeys.current,
+      });
+      const taskId = campaignId ? getTaskId(campaignId) : null;
+      if (tell != null && taskId) {
+        toldKeys.current.add(out.orderKey);
+        // THE ONE POST, AND ITS ANSWER WRITTEN DOWN. syncEvidence applies our
+        // side's record on success and parks the body for the next foreground
+        // on any failure — so the key is never lost, and the hand-off below
+        // waits for this to settle before it moves.
+        told.current = Promise.resolve(syncEvidence(taskId, tell.body))
+          .then((sent) => {
+            logShop('THE ORDER WAS WATCHED', watchedDetail({
+              campaignId, told: sent && sent.ok ? 'yes' : 'queued',
+            }));
+            return sent;
+          })
+          .catch(() => {
+            logShop('THE ORDER WAS WATCHED', watchedDetail({ campaignId, told: 'queued' }));
+            return null;
+          });
+      }
+    }
+  }, [key, lastPage, campaignId]);
 
   const bar = whatTheBarSays({
     // THE PRODUCT NAME, ALWAYS, since 18 September 2026 — the owner stopped a
@@ -382,16 +434,29 @@ export default function ShopScreen({ navigation, route }) {
   useEffect(() => {
     if (!orderSeen || handedOver.current) return undefined;
     if (!campaignId) return undefined;
-    handedOver.current = true;
     const t = setTimeout(() => {
-      logShop('HANDING OVER', handoffDetail({ to: 'LookingForIt', campaignId }));
-      // THE NOTE THAT A READ HAS RUN, written before the move so a journey that
+      // THE FLAG IS SET WHEN THE MOVE HAPPENS, not when the timer is armed —
+      // corrected 19 September 2026. The key arrives in the same judgement as
+      // the order, but as its own piece of state, so this effect may re-run
+      // once before the pause is over; a flag set on arming would have made
+      // that re-run return early and the hand-off never happen. `leave` still
+      // reads the flag, and a tap inside the pause still hands over at once.
+      if (handedOver.current) return;
+      handedOver.current = true;
+      // WHERE TO, DECIDED NEXT DOOR — PHASE 8A. With a key: Fayr's own task
+      // page, whose step for a watched order is the read of that one page,
+      // once our side has been told. Without one: the list read, exactly as
+      // before, with the note written before the move so a journey that
       // comes straight back knows. See LOOKED_FOR_THE_ORDER in shopVisits.js.
-      markVisitedShop(campaignId, LOOKED_FOR_THE_ORDER);
-      navigation.replace('LookingForIt', { campaignId });
+      const handOff = whereToHandOver({ orderKey });
+      Promise.resolve(told.current).then(() => {
+        logShop('HANDING OVER', handoffDetail({ to: handOff.to, campaignId }));
+        if (handOff.writesTheLookedNote) markVisitedShop(campaignId, LOOKED_FOR_THE_ORDER);
+        navigation.replace(handOff.to, { campaignId });
+      });
     }, LET_THEM_SEE_IT_MS);
     return () => clearTimeout(t);
-  }, [orderSeen, campaignId, navigation]);
+  }, [orderSeen, orderKey, campaignId, navigation]);
 
   // ── GOING TO PAY, AND COMING BACK ─────────────────────────────────────────
   //
@@ -400,6 +465,14 @@ export default function ShopScreen({ navigation, route }) {
   // cannot have, and it is what keeps the notification shade and the app
   // switcher out of this: with no hand-off recorded, an "active" event is not
   // somebody coming back from a payment app.
+  //
+  // AND COMING BACK IS THE SAME EVENT AS STAYING — PHASE 8A. Nothing here
+  // starts a read or judges a page. MEASURED 18 SEPTEMBER 2026: the page's own
+  // report of /order/status/<uuid> arrived four seconds after "CAME BACK", by
+  // itself, through the title watcher, and it is that report and only that
+  // report which sees the order. Somebody who paid without leaving the app
+  // produces the same report at the same moment. There is no second notion of
+  // "came back" to keep in step with this one.
   const wentToPayAt = useRef(null);
   useEffect(() => {
     const watcher = AppState.addEventListener('change', (next) => {
@@ -481,8 +554,14 @@ export default function ShopScreen({ navigation, route }) {
     // the review read. LookingForReview is the read that already exists; it
     // hands back to the journey by itself and the server decides what it saw.
     if (landingOnAnOrder && campaignId) {
-      logShop('HANDING OVER', handoffDetail({ to: 'LookingForReview', campaignId }));
-      navigation.replace('LookingForReview', { campaignId });
+      // THE SAME ONE PAGE, READ AGAIN — PHASE 8A. The order landing exists only
+      // for an order Fayr watched, so the read on the way back is the read of
+      // that one page: LookingForIt opens it, posts its text, and the server
+      // reads the rated signal off it. Phase 7 sent this to LookingForReview,
+      // which walks a shop's public review list — a thing these shops do not
+      // have, so it looked at nothing and handed back.
+      logShop('HANDING OVER', handoffDetail({ to: 'LookingForIt', campaignId }));
+      navigation.replace('LookingForIt', { campaignId });
       return;
     }
     // A SHOPPING SESSION WITH NO ORDER ON THE RECORD YET: the read runs. The
@@ -503,13 +582,16 @@ export default function ShopScreen({ navigation, route }) {
     const claimed = task && !task.order;
     if (claimed && campaignId && (orderSeen || !handedOver.current)) {
       handedOver.current = true;
-      logShop('HANDING OVER', handoffDetail({ to: 'LookingForIt', campaignId }));
-      markVisitedShop(campaignId, LOOKED_FOR_THE_ORDER);
-      navigation.replace('LookingForIt', { campaignId });
+      // THE SAME DECISION THE TIMER MAKES — one place says where an order that
+      // was seen goes, so a tap and the pause cannot disagree. See above.
+      const handOff = whereToHandOver({ orderKey });
+      logShop('HANDING OVER', handoffDetail({ to: handOff.to, campaignId }));
+      if (handOff.writesTheLookedNote) markVisitedShop(campaignId, LOOKED_FOR_THE_ORDER);
+      navigation.replace(handOff.to, { campaignId });
       return;
     }
     goBackOrHome(navigation);
-  }, [saveSession, navigation, landingOnAnOrder, campaignId, task, orderSeen]);
+  }, [saveSession, navigation, landingOnAnOrder, campaignId, task, orderSeen, orderKey]);
 
   // A shop that does not shop inside Fayr, or a campaign with nowhere honest to
   // go. Nothing is invented to fill the hole and no shop page is shown.

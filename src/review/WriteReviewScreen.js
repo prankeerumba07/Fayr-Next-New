@@ -49,6 +49,7 @@ import { getReview, putReview } from '../backend/reviewsApi';
 import { getAuthoritative, getTaskId } from '../taskStore';
 import { WENT_TO_REVIEW, markVisitedShop } from '../journey/shopVisits';
 import { goingToTheReview } from '../backend/tasksApi';
+import { theWatchedOrderKey } from '../order/whichRead';
 import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
 import { Ghost, Pill, TopBar, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
@@ -162,11 +163,19 @@ export default function WriteReviewScreen({ navigation, route }) {
    * — the identical call the COPY MY REVIEW control makes, so there is one idea
    * of what lands on the clipboard and the checks that pin it pin both.
    *
-   * THE PAGE IS THE ORDER'S OWN, NOT THE SHOP'S FRONT DOOR. The order's number
-   * is on the record; ShopScreen turns it into the page's address through the
-   * measured shape in the frozen detailLook.js, and lands there. That is a
-   * different landing from a shopping session's, on purpose — see
-   * src/shop/theOrderPage.js.
+   * THE PAGE IS THE ORDER'S OWN, NOT THE SHOP'S FRONT DOOR. The KEY of the
+   * order Fayr watched being placed is on the record; ShopScreen turns it into
+   * the page's address through the measured shape in detailLook.js, and lands
+   * there. That is a different landing from a shopping session's, on purpose —
+   * see src/shop/theOrderPage.js.
+   *
+   * THE KEY, NOT THE NUMBER — CORRECTED 19 SEPTEMBER 2026, PHASE 8A. Phase 7
+   * handed over `task.order.id`, the order NUMBER the page prints. A Zepto
+   * order's page is addressed by the UUID in its link, a different string, so
+   * the door opened on a page that does not exist. The two identifiers are kept
+   * apart on our side (tasks.orderId, tasks.watchedOrderKey) and here.
+   *
+   * THE LABEL IS THE OWNER'S OWN: "Copy and add review for this product".
    *
    * AND OUR SIDE IS TOLD THEY LEFT FOR THE REVIEW, with the same request the
    * old "OPEN ZEPTO →" door made, so the record carries wentToReviewAt exactly
@@ -181,14 +190,12 @@ export default function WriteReviewScreen({ navigation, route }) {
     if (campaignId) markVisitedShop(campaignId, WENT_TO_REVIEW);
     if (taskId) await goingToTheReview(taskId);
     const task = campaignId ? getAuthoritative(campaignId) : null;
-    const orderId = task && task.order && typeof task.order.id === 'string' && task.order.id !== ''
-      ? task.order.id
-      : null;
+    const orderKey = theWatchedOrderKey(task);
     navigation.navigate('Shop', {
       campaignId,
       marketplace: campaign ? campaign.marketplace : null,
       land: 'order',
-      orderId,
+      orderKey,
     });
   }, [text, campaignId, taskId, campaign, navigation]);
 
@@ -316,7 +323,7 @@ export default function WriteReviewScreen({ navigation, route }) {
               The plain copy stays for somebody who wants the words and not the
               page — the two are the same copy, so nothing can drift. */}
           <Pill onPress={copyAndOpenTheOrder} color={COLOR.greenDeep}>
-            COPY MY REVIEW &amp; OPEN MY ORDER →
+            COPY AND ADD REVIEW FOR THIS PRODUCT
           </Pill>
           <Pill onPress={copy} color={COLOR.line}>COPY MY REVIEW</Pill>
           {copied ? (

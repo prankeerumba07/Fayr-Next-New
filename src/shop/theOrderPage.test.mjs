@@ -89,8 +89,14 @@ console.log('\n=== 4. ONE TAP DOES BOTH, AND THE COPIED STRING IS THE BOX’S OW
   ok(/setCopied\(copyToClipboard\(text\)\);/.test(tap), 'THE TAP COPIES `text` ITSELF');
   ok(!/text\.trim\(\)|text\.replace\(|text\.normalize\(|\.trimEnd\(|\.trimStart\(/.test(tap),
     'and never trims, replaces or normalises it');
-  ok(/navigation\.navigate\('Shop', \{[\s\S]*land: 'order',[\s\S]*orderId,/.test(tap),
-    'AND THE SAME TAP OPENS THE SHOP ON THAT ORDER');
+  // THE KEY, NOT THE NUMBER — corrected 19 September 2026, Phase 8A. This
+  // pinned `orderId`, the order NUMBER the page prints, and a Zepto order's page
+  // is addressed by the UUID in its link. The record carries that key now.
+  ok(/navigation\.navigate\('Shop', \{[\s\S]*land: 'order',[\s\S]*orderKey,/.test(tap),
+    'AND THE SAME TAP OPENS THE SHOP ON THAT ORDER, by the key in its address');
+  ok(/const orderKey = theWatchedOrderKey\(task\);/.test(tap),
+    'and the key is the record’s, read by the one helper that reads it');
+  ok(!/orderId/.test(tap), 'and the order NUMBER is not handed over as an address');
   ok(tap.indexOf('copyToClipboard(text)') < tap.indexOf("navigate('Shop'"),
     'copy first, then open, so a navigation that fails still leaves the words on the clipboard');
   // THE PLAIN COPY IS THE SAME COPY.
@@ -109,9 +115,11 @@ console.log('\n=== 4. ONE TAP DOES BOTH, AND THE COPIED STRING IS THE BOX’S OW
 console.log('\n=== 5. COMING BACK RUNS THE READ, AND NOBODY IS ASKED ===');
 {
   const shop = withoutComments(read('src/shop/ShopScreen.js'));
-  ok(/const landingOnAnOrder = params\.land === 'order';/.test(shop), 'the shop screen knows which door it came in by');
-  ok(/theOrderPage\(howThisShopNamesAnOrder\(key\), params\.orderId\)/.test(shop),
-    'and builds the order page from the measured shape and the record’s number');
+  ok(/const landingOnAnOrder = params\.land === 'order'\s*&& typeof params\.orderKey === 'string' && params\.orderKey !== '';/.test(shop),
+    'the shop screen knows which door it came in by, and an order door needs a key');
+  ok(/theOrderPage\(howThisShopNamesAnOrder\(key\), params\.orderKey\)/.test(shop),
+    'and builds the order page from the measured shape and the KEY in the record');
+  ok(!/params\.orderId/.test(shop), 'and never from the order number');
   // ENDED AT THE CALLBACK'S OWN DEPENDENCY LIST. The first writing ended it at
   // `if (!landing || !platform)`, which also appears EARLIER in the file, so
   // the slice ran backwards and was empty — and the check failed on correct
@@ -119,8 +127,13 @@ console.log('\n=== 5. COMING BACK RUNS THE READ, AND NOBODY IS ASKED ===');
   const leaveStart = shop.indexOf('const leave = useCallback');
   const leave = shop.slice(leaveStart, shop.indexOf('}, [saveSession, navigation, landingOnAnOrder', leaveStart));
   ok(leave.length > 100, 'the leave callback is where expected');
-  ok(/if \(landingOnAnOrder && campaignId\) \{[\s\S]*navigation\.replace\('LookingForReview', \{ campaignId \}\);/.test(leave),
-    'LEAVING THE ORDER PAGE RUNS THE REVIEW READ, which decides what it saw');
+  // THE SAME ONE PAGE, READ AGAIN — corrected 19 September 2026, Phase 8A. This
+  // pinned LookingForReview, which walks a shop's public review list; these
+  // shops have none, so it looked at nothing. The read on the way back is the
+  // watched order's own page, and the server reads the rated signal off it.
+  ok(/if \(landingOnAnOrder && campaignId\) \{[\s\S]*navigation\.replace\('LookingForIt', \{ campaignId \}\);/.test(leave),
+    'LEAVING THE ORDER PAGE RE-READS THAT PAGE, and the server decides what it saw');
+  ok(!/LookingForReview/.test(shop), 'and the shop screen no longer names the review-list read at all');
   ok(!/HAVE_YOU_POSTED|Have you posted|Alert\.alert/.test(shop), 'and asks nothing on the way');
   // The review step's asking faces are gone for a shop inside Fayr.
   const guide = withoutComments(read('src/screens/reviewguide.js'));

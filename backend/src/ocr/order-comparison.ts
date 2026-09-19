@@ -494,15 +494,70 @@ export interface OrderMatchAnswer {
 }
 
 /**
+ * WHEN THE PRODUCT IS THE WHOLE VERDICT — PHASE 8B, 19 SEPTEMBER 2026.
+ *
+ * ── THE OWNER'S WORDS ────────────────────────────────────────────────────────
+ *
+ *   "It doesn't matter [if the price differs]. You just have to go and check if
+ *    the user has purchased the product inside the Fayr app or not, the same
+ *    product he has purchased, and whatever amount the user has paid ... We will
+ *    just give a refund on that particular amount, the paid amount, not on the
+ *    amount that we were showing on our app."
+ *
+ * ── WHY THE PRICE CAN STOP BEING A VERDICT, AND ONLY HERE ────────────────────
+ *
+ * The price was never really a question about money. It was a question about
+ * IDENTITY: on a list of somebody's recent orders, several may carry a product
+ * whose name matches, and the price is what tells the campaign's purchase from a
+ * stranger's. That is still true for the four shops read by walking the list, and
+ * price_differs stays exactly as it is for them.
+ *
+ * On a purchase Fayr WATCHED, identity is already settled and settled better:
+ * the phone saw that one order's confirmation page appear inside Fayr's own view
+ * from this claim, and the read that follows opens THAT ONE PAGE by its own key
+ * and no other. There is no list, no stranger, and nothing for the price to
+ * disambiguate. Asking it to anyway refused honest purchases — a coupon, a
+ * shop's own discount or a price that moved between the offer being written and
+ * the thing being bought — and every one of those is a purchase the owner wants
+ * to pay.
+ *
+ * WHAT THE PRICE IS STILL FOR: what to pay. It is read and recorded exactly as
+ * before, and engine/watched-price.ts turns it into a refund base capped at the
+ * offer's own price. Nothing about that is loosened by this flag; it moves the
+ * price out of the VERDICT and into the AMOUNT, which is where the owner's words
+ * put it.
+ *
+ * NOTHING ELSE MOVES. A product whose name is not on the order is still not a
+ * match, an order with no products read is still nothing, and a campaign that
+ * states no price is still refused — see no_expected_price below, which does not
+ * bend here either, because a base with no ceiling is exactly what the ceiling
+ * exists to stop.
+ */
+export interface HowToMatch {
+  /**
+   * TRUE only for an order Fayr watched being placed. Set from
+   * `tasks.watchedOrderKey != null` by the service, never by a phone: this file
+   * is pure and is handed the answer rather than asking anybody for it.
+   */
+  priceMayDiffer?: boolean;
+}
+
+/**
  * One campaign product against an order that may hold several.
  *
  * THE RULE: the order matches if ANY product on it is the campaign's product by
  * name AND that product's price is the campaign's expected price. Not the order
  * total, not the sum of the products — that one product's own price.
+ *
+ * WITH ONE EXCEPTION, AND IT IS NAMED IN THE CALL: for a purchase Fayr watched
+ * being placed, the name alone is the verdict. See HowToMatch above for the whole
+ * argument, and note that the exception has to be asked for — every caller that
+ * does not pass it behaves exactly as it always has.
  */
 export function matchOrderToCampaign(
   order: OwnOrderForComparison | null | undefined,
   campaign: CampaignForOrderMatch | null | undefined,
+  how?: HowToMatch | null,
 ): OrderMatchAnswer {
   const o = order && typeof order === 'object' ? order : {};
   const c = campaign && typeof campaign === 'object' ? campaign : {};
@@ -534,5 +589,13 @@ export function matchOrderToCampaign(
 
   const exact = named.find((it) => it.pricePaise === expected);
   if (exact) return { matches: true, reason: 'matched', item: exact };
+  // THE PRICE IS NOT A VERDICT ON A WATCHED ORDER. Asked for by the caller and
+  // never assumed; the exact-price product above is still preferred when the
+  // order happens to hold one, so a basket with two lines of the same name
+  // answers on the one that IS the offer's price rather than on whichever came
+  // first. See HowToMatch.
+  if (how?.priceMayDiffer === true) {
+    return { matches: true, reason: 'matched', item: named[0] };
+  }
   return { matches: false, reason: 'price_differs', item: named[0] };
 }

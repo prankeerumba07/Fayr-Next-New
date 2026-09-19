@@ -74,6 +74,11 @@ import {
   evidenceFromDto,
   type SubmitEvidenceDto,
 } from './dto/submit-evidence.dto';
+import {
+  carriesOnlyTheWatchedKey,
+  isAWatchedOrderKey,
+  theWatchedKeyToKeep,
+} from './engine/watched-order';
 
 type Tx = Prisma.TransactionClient;
 
@@ -800,17 +805,79 @@ export class TaskService {
    * the staff OCR approval flow, where a human has already reviewed the evidence
    * and where an OCR delivery date is legitimately the upload time.
    */
-  submitEvidence(
+  async submitEvidence(
     userId: string,
     taskId: string,
     dto: SubmitEvidenceDto,
   ): Promise<TaskResponse> {
+    // ── THE ORDER FAYR WATCHED BEING PLACED, RECORDED FIRST — PHASE 8A ─────
+    //
+    // The phone reports the key in the confirmation page's address through
+    // this same untrusted route, and it is written down before anything else
+    // in the body is judged: it is a place to look, not a fact about money,
+    // and no gate reads it. A body that carries the key and nothing else is
+    // handed back WITHOUT an engine event — see carriesOnlyTheWatchedKey for
+    // what running an empty fragment through transition() would have wiped.
+    if (isAWatchedOrderKey(dto.watchedOrderKey)) {
+      await this.recordWatchedOrderKey(userId, taskId, dto.watchedOrderKey);
+      if (carriesOnlyTheWatchedKey(dto as unknown as Record<string, unknown>)) {
+        return this.getForUser(userId, taskId);
+      }
+    }
     return this.runEvent(
       userId,
       taskId,
       { type: 'EVIDENCE', evidence: evidenceFromDto(dto), key: dto.key },
       { plausibility: true },
     );
+  }
+
+  /**
+   * WRITE THE WATCHED ORDER KEY ONCE, AND KEEP THE FIRST ONE.
+   *
+   * ── WHY IT IS ITS OWN WRITE AND NOT AN ENGINE EVENT ───────────────────────
+   *
+   * The engine's evidence is about an order's contents, a delivery and a review,
+   * and every fragment it applies patches the blocker, the reason and the probe.
+   * This is none of those: it is where the phone will look next time. So it is
+   * a column, written directly, and the engine never hears of it.
+   *
+   * CONDITIONAL ON THE COLUMN STILL BEING NULL, exactly as wentToShopAt and
+   * wentToReviewAt are written, so two reports arriving together cannot both
+   * land and the first one stays. A second, different key is logged and NOT
+   * refused: the phone's outbox parks any refusal and retries it on every
+   * foreground, so a 409 here would be a request replayed for ever for a fact
+   * that changes nothing. See theWatchedKeyToKeep.
+   *
+   * A task that is not theirs reads as missing, never as forbidden. Same as
+   * every route here.
+   */
+  private async recordWatchedOrderKey(
+    userId: string,
+    taskId: string,
+    key: string,
+  ): Promise<void> {
+    const written = await this.prisma.task.updateMany({
+      where: { id: taskId, userId, watchedOrderKey: null },
+      data: { watchedOrderKey: key },
+    });
+    if (written.count > 0) {
+      // COUNTS AND LENGTHS, NEVER THE KEY. It is an address fragment tied to the
+      // owner's own account and it is already in the row where it belongs.
+      this.logger.log(`watched-order task=${taskId} recorded keyLength=${key.length}`);
+      return;
+    }
+    const row = await this.prisma.task.findFirst({
+      where: { id: taskId, userId },
+      select: { watchedOrderKey: true },
+    });
+    if (!row) throw new NotFoundException('Task not found');
+    const kept = theWatchedKeyToKeep(row.watchedOrderKey, key);
+    if (kept !== key) {
+      this.logger.log(
+        `watched-order task=${taskId} kept the first key; a different one arrived`,
+      );
+    }
   }
 
   /**

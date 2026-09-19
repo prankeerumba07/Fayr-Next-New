@@ -4802,6 +4802,40 @@
     }
 
     /**
+     * WHY THIS REFUND IS NOT THE NUMBER ON THE OFFER.
+     *
+     * The server works the refund out from what the person paid for that one
+     * product, capped at the offer's own price, and records WHICH printed line
+     * explains the difference. Until this, the panel could show a refund that was
+     * not the offer's percentage of the offer's price with nothing anywhere to
+     * say why, and the only way to find out was to open the shop.
+     *
+     * A NOTE, AND THE PANEL TREATS IT AS ONE. Nothing here decides anything; it
+     * is turned into a sentence here rather than on the server because the server
+     * keeps the machine name and the person needs the words. An unknown name is
+     * printed as itself rather than swallowed, so a name added later is visible
+     * the day it first appears instead of silently rendering as nothing.
+     */
+    var PRICE_GAP_WORDS = {
+      "none": null,
+      "shop-discount": "The shop had its own discount on it, so they paid less than the offer lists.",
+      "coupon": "A discount came off the whole bill. This product's share of it has been taken off too.",
+      "fees-on-top": "They paid more than this, but the extra was delivery or handling, which is not refunded.",
+      "price-rose": "It cost more than the offer lists, so the refund is worked out on the offer's price.",
+      "unknown": "The page did not say why this differs from the offer's price."
+    };
+
+    function priceGapLine(t) {
+      var why = t.order ? t.order.priceGapReason : null;
+      if (!why) return null;
+      var words = Object.prototype.hasOwnProperty.call(PRICE_GAP_WORDS, why)
+        ? PRICE_GAP_WORDS[why]
+        : ("Price gap recorded as \u201c" + why + "\u201d.");
+      if (!words) return null;
+      return h("div", { class: "muted", style: "font-size:12.5px;margin-top:4px" }, words);
+    }
+
+    /**
      * ONE OFFER, WHOLE.
      *
      * The state pill, the practice-window mark and the not-eligible reasons are
@@ -4830,6 +4864,7 @@
                 "claimed " + fmtCount(offer.claims) + " times — the newest is shown")
             : null),
         JourneyStrip(t),
+        priceGapLine(t),
         t.windowEndsAt
           ? h("div", { class: "muted", style: "font-size:12.5px" },
               "Return window ends " + fmtDay(t.windowEndsAt) + ".")

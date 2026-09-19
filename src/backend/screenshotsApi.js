@@ -1,5 +1,29 @@
 // Screenshot proof — the tier-3 fallback when the scraper cannot read an order.
 //
+// ── BROKEN ON THE RUNTIME THIS APP SHIPS, AND NOT FIXED HERE — 19 SEPTEMBER 2026
+//
+// MEASURED ON THE OWNER'S OWN PHONE, 18 SEPTEMBER 2026: every picture chosen on
+// the screenshot screens failed to send. uploadScreenshot below does
+//
+//   form.append('file', { uri, name, type });
+//
+// which is the React Native FormData idiom — a file part given as a plain object
+// with a uri, never read into memory. On the React Native that Expo 57 ships
+// that call throws "Unsupported format data part implementation" for EVERY
+// picture, so nothing built on this function has ever uploaded anything from
+// this app on that runtime. The screens that call it (src/screens/proofprimer.js
+// through ProofUpload, delivery.js, reviewproof.js) are therefore offering a
+// fallback that cannot complete.
+//
+// IT IS WRITTEN DOWN AND LEFT, on the owner's instruction for Phase 8A:
+// "screenshotsApi.js is NOT fixed here. Write at the top of that file what is
+// wrong and on which runtime." The reason it can wait is that Phase 8A takes the
+// photograph steps off the journey for a shop inside Fayr altogether — the
+// watched order is read off its own page instead — so the runtime failure is
+// reached only from the four other shops' fallback. What a fix would need is a
+// file part the shipped FormData accepts (a Blob or a File built from the uri,
+// or the runtime's own uploadAsync), and it is its own change.
+//
 // Two endpoints, both already live on the backend:
 //   POST /tasks/:id/screenshot   multipart: file + kind
 //   GET  /tasks/:id/screenshots  the caller's OWN uploads for that task

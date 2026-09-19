@@ -49,26 +49,49 @@ function ok(cond, label) {
 const at = (title, url) => whatTheOrderPageSays('zepto', { title, url });
 const said = (title, url) => at(title, url).said;
 
-console.log('=== 1. the seven pages the owner named ===');
+console.log('=== 1. the pages the owner’s own purchase really showed — MEASURED 18 SEPTEMBER 2026 ===');
 {
-  ok(said('Order Placed | Zepto', 'https://www.zeptonow.com/order-confirmation/abc') === PLACED,
-    'a confirmation page is PLACED');
-  ok(said('My Cart | Zepto', 'https://www.zeptonow.com/cart') !== PLACED,
-    'a cart is not a placed order');
-  ok(said('Checkout - Zepto', 'https://www.zeptonow.com/checkout') !== PLACED,
-    'a checkout is not a placed order');
-  ok(said('Boldfit Strapless Sports Headband | Zepto', 'https://www.zeptonow.com/pn/x/pvid/y') !== PLACED,
-    'a product page is not a placed order');
+  // Every address below is off .local-logs/run.log, in the order the web view
+  // reported them while the owner bought a Lakme cream inside this screen.
+  const UUID = '01a0b4d7-870c-7dca-b701-e038477c5106';
+  const CONFIRMATION = `https://www.zepto.com/order/status/${UUID}?referrer=home&from=ProcessOrder`;
 
-  // THE ORDER HISTORY IS NOT A FRESH ORDER, and it is called that in words
-  // rather than merely being "not placed by accident".
-  const history = at('My Orders | Zepto', 'https://www.zeptonow.com/account/orders');
+  const live = at('Everything delivered in minutes* | Zepto', CONFIRMATION);
+  ok(live.said === PLACED, 'THE LIVE ORDER PAGE IS THE CONFIRMATION: /order/status/<key> is PLACED');
+  ok(live.because === BECAUSE_ORDER.THE_ADDRESS_SAYS_SO, 'by the address, which is the only signal this shop gives');
+  ok(live.orderKey === UUID, 'AND THE KEY IN THE ADDRESS COMES OUT WITH IT');
+  ok(at('none', CONFIRMATION).said === PLACED && at('', CONFIRMATION).said === PLACED,
+    'whatever the title says, because Zepto’s titles say nothing');
+
+  ok(said('Everything delivered in minutes* | Zepto', `https://www.zepto.com/ProcessOrder?order_id=${UUID}`) === CANNOT_TELL,
+    'the payment-processing page four seconds earlier is NOT a placed order — a page that processes is not yet an order');
+
+  const own = at('none', `https://www.zepto.com/order/${UUID}?child=true`);
+  ok(own.said === NOT_PLACED, 'the order’s OWN page is not a new order');
+  ok(own.because === BECAUSE_ORDER.AN_ORDER_ALREADY_KNOWN, 'and it says so by name');
+  ok(own.orderKey === null, 'and gives out no key, because it placed nothing');
+
+  const history = at('My Orders | Zepto', 'https://www.zepto.com/account/orders');
   ok(history.said === NOT_PLACED, 'an order-history page is NOT_PLACED');
   ok(history.because === BECAUSE_ORDER.AN_ORDER_ALREADY_KNOWN,
     'and it says so by name: an order already known, not a new one');
 
-  ok(said('', 'https://www.zeptonow.com/') === CANNOT_TELL, 'an empty title is CANNOT TELL');
-  ok(said('Order fresh groceries in 10 minutes | Zepto', 'https://www.zeptonow.com/') === CANNOT_TELL,
+  ok(said('none', `https://www.zepto.com/FaqList?orderId=${UUID}&orderCode=OGGHJGSNO04081`) === CANNOT_TELL,
+    'the help page that carries both identifiers is not a purchase');
+  ok(said('Zepto | Everything delivered in minutes*', 'https://www.zepto.com/search?query=Lakme') !== PLACED,
+    'a search is not a placed order');
+  ok(said('Lakme 9 To 5 Cc Cream - Buy at ₹366 Online | Zepto', 'https://www.zepto.com/pn/lakme/pvid/8dedc522?cart=open&payment=open') !== PLACED,
+    'a product page with the cart and the payment sheet open is not a placed order');
+  ok(said('My Cart | Zepto', 'https://www.zepto.com/cart') !== PLACED, 'a cart is not a placed order');
+  ok(said('Zepto: Online Grocery Delivery App', 'https://www.zepto.com/') === CANNOT_TELL,
+    'the shop’s front page is CANNOT TELL');
+  ok(said('', 'https://www.zepto.com/') === CANNOT_TELL, 'an empty title is CANNOT TELL');
+
+  // THE TITLE IS NOT A SIGNAL ON THIS SHOP, and a title that SAYS "order placed"
+  // proves nothing: Zepto's never do, so the phrase on a page here is marketing.
+  ok(said('Order Placed | Zepto', 'https://www.zepto.com/somewhere') === CANNOT_TELL,
+    'a title saying "Order Placed" is not a placed order on a shop whose titles were measured never to say it');
+  ok(said('Order fresh groceries in 10 minutes | Zepto', 'https://www.zepto.com/') === CANNOT_TELL,
     'the word "order" in marketing is not an order');
 }
 
@@ -79,16 +102,31 @@ console.log('\n=== 2. the rule order, which is load-bearing ===');
   // the words genuinely appear on a page that is NOT a purchase, and without the
   // already-known rule running first, browsing old orders would fire a read
   // every single time.
-  const old = at('Order Placed at | Zepto', 'https://www.zeptonow.com/order/abc-123?isArchived=false');
+  const old = at('Order Placed at | Zepto', 'https://www.zepto.com/order/abc-123?isArchived=false');
   ok(old.said === NOT_PLACED, 'an OLD order’s own page is not a new order');
   ok(old.because === BECAUSE_ORDER.AN_ORDER_ALREADY_KNOWN,
-    'and the already-known rule is what caught it, not the title rule');
+    'and the already-known rule is what caught it, not any title rule');
   ok(/order placed/.test(tidyText('Order Placed at | Zepto')),
-    'even though its title carries the very phrase the title rule looks for');
+    'even though its title carries the very phrase a title rule would look for');
 
-  // PROOF THE PHRASE WOULD OTHERWISE HAVE FIRED.
-  ok(said('Order Placed at | Zepto', 'https://www.zeptonow.com/somewhere-else') === PLACED,
-    'the same title anywhere else IS read as a placed order');
+  // ── AND THE ALREADY-KNOWN RULE NO LONGER SWALLOWS THE CONFIRMATION ──────
+  //
+  // THE BUG OF 18 SEPTEMBER 2026, in the log's own words: "ORDER? said=
+  // NOT_PLACED rule='an order's own page or the order list, not a new order'
+  // url=.../order/status/01a0b4d7-…". The old mark was the bare '/order/',
+  // which is also the start of '/order/status/'. The rule ORDER is unchanged
+  // — already-known is still asked first — and the mark is now a shape that
+  // cannot match the live order page.
+  const sameKey = 'abc-123';
+  ok(said('none', `https://www.zepto.com/order/${sameKey}?isArchived=false`) === NOT_PLACED,
+    'the bare order page for a key is already known');
+  ok(said('none', `https://www.zepto.com/order/status/${sameKey}`) === PLACED,
+    'AND THE LIVE ORDER PAGE FOR THE SAME KEY IS PLACED — the first rule no longer eats the second');
+  const code = withoutComments(read('src/shop/theOrderPlaced.js'));
+  const body = code.slice(code.indexOf('export function whatTheOrderPageSays'));
+  ok(body.indexOf('notAFreshOrder') > -1 && body.indexOf('pathSays') > -1
+    && body.indexOf('notAFreshOrder') < body.indexOf('pathSays'),
+  'and already-known is still asked BEFORE the address rule, in the code');
 
   // AND THE MEASURED FACT IS REALLY THERE, so this check cannot rot quietly if
   // somebody edits the server's reader.
@@ -133,13 +171,21 @@ console.log('\n=== 3. it leans shy: nothing is guessed upward ===');
   ok(whatTheOrderPageSays('zepto', { title: null, url: null }).because
     === BECAUSE_ORDER.NOTHING_TO_READ, 'and says there was nothing to read');
 
-  // THE MARKS ARE LABELLED A GUESS IN THE FILE THEY LIVE IN.
-  const table = read('src/shop/insideFayr.js');
-  ok(/NOBODY HAS MEASURED IT/.test(table),
-    'insideFayr.js says plainly that the order marks are unmeasured');
+  // THE MARKS ARE MEASURED NOW — 18 SEPTEMBER 2026 — AND PINNED AS DATA.
+  //
+  // This used to read the word "NOBODY HAS MEASURED IT" out of insideFayr.js,
+  // which was a check on prose. The table itself is what matters, so the table
+  // is what is read: the owner named three shapes, and these are they.
   const marks = orderMarksFor('zepto');
-  ok(marks != null && marks.titleSays.length > 0 && marks.pathSays.length > 0
-    && marks.notAFreshOrder.length > 0, 'and zepto has all three lists');
+  ok(marks != null && JSON.stringify(marks.pathSays) === JSON.stringify(['/order/status/']),
+    'zepto’s ONE confirmation mark is the live order address, and nothing else');
+  ok(Array.isArray(marks.titleSays) && marks.titleSays.length === 0,
+    'and NO title phrase at all: Zepto’s titles were measured never to say it');
+  ok(Array.isArray(marks.notAFreshOrder) && marks.notAFreshOrder.length === 2
+    && marks.notAFreshOrder[0] === '/account/orders' && marks.notAFreshOrder[1] instanceof RegExp,
+  'and two already-known marks: the list as a fragment, and the bare order page as a shape');
+  ok(marks.orderKeyFollows === '/order/status/', 'and where the key sits in the address');
+  ok(anybodyHasMeasured('zepto') === true, 'so zepto counts as measured, on the address alone');
   // ── AND THE TWO THAT JOINED ON 18 SEPTEMBER HAVE AN EMPTY TABLE, WHICH IS
   //    NOT THE SAME ANSWER AS NO TABLE ──────────────────────────────────────
   //
@@ -153,7 +199,7 @@ console.log('\n=== 3. it leans shy: nothing is guessed upward ===');
     ok(Object.keys(empty).length === 0, `and ${key}'s table is empty`);
     ok(anybodyHasMeasured(key) === false, `and nobody has measured ${key}`);
   }
-  ok(anybodyHasMeasured('zepto') === true, 'while zepto has marks, guessed though they are');
+  ok(anybodyHasMeasured('zepto') === true, 'while zepto has marks, and they are measured');
   for (const key of ['amazon', 'flipkart', 'meesho', 'myntra']) {
     ok(orderMarksFor(key) === null, `${key} has no table, because it is not inside Fayr`);
     ok(anybodyHasMeasured(key) === false, `and ${key} is not "measured" either`);
@@ -328,13 +374,14 @@ console.log('\n=== 7. "Did you buy it?" is NOT deleted ===');
 
 console.log('\n=== 8. the log carries what corrects the guess ===');
 {
-  const out = at('Order Placed | Zepto', 'https://www.zeptonow.com/order-confirmation/abc');
-  const line = orderDetail({ ...out, title: 'Order Placed | Zepto', url: 'https://www.zeptonow.com/order-confirmation/abc' });
+  const REAL = 'https://www.zepto.com/order/status/01a0b4d7-870c-7dca-b701-e038477c5106?referrer=home&from=ProcessOrder';
+  const out = at('Everything delivered in minutes* | Zepto', REAL);
+  const line = orderDetail({ ...out, title: 'Everything delivered in minutes* | Zepto', url: REAL });
   ok(/said=PLACED/.test(line), 'the line carries the answer');
   ok(/rule="the address says an order was placed"/.test(line), 'and which rule fired');
-  ok(/title="Order Placed \| Zepto"/.test(line), 'and the exact title');
-  ok(/url=https:\/\/www\.zeptonow\.com\/order-confirmation\/abc/.test(line),
-    'and the exact address — which is what rewrites the table from a real purchase');
+  ok(/title="Everything delivered in minutes\* \| Zepto"/.test(line), 'and the exact title');
+  ok(/url=https:\/\/www\.zepto\.com\/order\/status\/01a0b4d7/.test(line),
+    'and the exact address — which is what rewrote the table from the real purchase');
 
   ok(handoffDetail({ to: 'LookingForIt', campaignId: 'c1' }) === 'to=LookingForIt campaign=c1',
     'the hand-off writes its own line, so two reads for one purchase would be visible');

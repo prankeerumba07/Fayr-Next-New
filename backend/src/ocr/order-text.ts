@@ -32,6 +32,71 @@ import { dayFromMillis, dayFromText, paiseFromRupees } from './order-comparison'
 export interface ParsedOrderItem {
   name: string;
   pricePaise: bigint;
+  /**
+   * THE PRICE THAT WAS STRUCK THROUGH BESIDE IT, when the page printed a pair.
+   *
+   * MEASURED ON THE OWNER'S OWN ZEPTO ORDER PAGES, 15 SEPTEMBER 2026. Every
+   * product on both drawn fixtures prints two figures, the paid one and the one
+   * it was before the shop's own discount:
+   *
+   *   Gillette Fusion Manual Shaving Razor For Men
+   *   1 pc
+   *   1 unit
+   *   ₹340      <- paid, and this is pricePaise
+   *   ₹425      <- was, and this is the field
+   *
+   * `pricePaise` has always been the smaller of the two and still is — see
+   * amountPaidAt for why neither position is trusted. This carries the OTHER
+   * figure, which until now was read and thrown away.
+   *
+   * WHAT IT IS FOR, AND IT IS ONE THING: saying WHY a price differed from the
+   * offer's, in words a person can check against the page. A paid price below
+   * the offer's with a struck figure above it is the shop's own discount, and
+   * the page says so in print; the same price with no struck figure beside it is
+   * something nobody has measured. See engine/watched-price.ts, which is the
+   * only reader of this field and decides no money with it.
+   *
+   * NULL when the page printed one figure, which is every list row and every
+   * page that does not discount. Never inferred from a total.
+   *
+   * OPTIONAL rather than required, and the reason is a stored row: a candidate
+   * written down before this field existed has no was-price and never will, and
+   * a shape that demanded one would make every old row unreadable. Absent and
+   * null mean the same thing — the page stated none — and watched-price.ts
+   * treats them the same, answering 'unknown' rather than inventing a reason.
+   */
+  wasPricePaise?: bigint | null;
+  /**
+   * HOW MANY OF IT THE PAGE SAID WERE BOUGHT, when it said so at all.
+   *
+   * ── WHY THIS HAD TO BE READ, AND IT IS A MONEY QUESTION ───────────────────
+   *
+   * MEASURED, the owner's own Zepto order #LRGSKOMA18669, 15 September 2026:
+   *
+   *   Korean Kab's Jackpot 2x Hot and Spicy Instant Noodles Non Veg
+   *   1 pack (100 g)
+   *   2 units          <- and the count was read and thrown away
+   *   ₹74              <- which is the price of BOTH of them
+   *   ₹100
+   *
+   * ₹74 is the line, not the unit: one of them cost ₹37. A refund is always for
+   * ONE unit (see charged-amount.ts, "NEVER ASSUME 1"), so handing ₹74 on as a
+   * per-unit price would pay twice what a unit cost. The count was sitting on
+   * the page the whole time; MEASURE_ONLY already matched the line in order to
+   * step over it, and this keeps the number instead of dropping it.
+   *
+   * THE LARGEST COUNT BETWEEN THE NAME AND THE PRICE, because a quick-commerce
+   * page states two: "1 pack (100 g)" is the container and "2 units" is how many
+   * were bought. Taking the larger is the direction that refuses rather than the
+   * direction that pays.
+   *
+   * NULL when the page stated no count at all — which is every Amazon line and
+   * every list row — and null is NOT one. Nothing here turns an unstated count
+   * into a quantity; watched-price.ts refuses an amount it cannot divide and the
+   * refund is held for a person, exactly as it is today for every other amount
+   * that could not be worked out.
+   */
+  unitsStated?: number | null;
 }
 
 /**
@@ -51,6 +116,28 @@ export interface ParsedOrder {
   totalPaise: bigint | null;
   /** What the products alone came to, where the screen states it. Integer paise. */
   itemTotalPaise: bigint | null;
+  /**
+   * WHAT THE SHOP ADDED ON TOP, ADDED UP — delivery, handling, shipping.
+   *
+   * Integer paise. ZERO is a real answer and the commonest one: every delivery
+   * and handling line on every fixture on disk was waived, printed as a struck
+   * figure with the word FREE under it. NULL is the different statement that the
+   * page named no such charge at all.
+   *
+   * ONLY THE LABELS IN FEE_LABELS, every one of them read off a real page. See
+   * the note above that list for why it is four labels and not twenty-four, and
+   * for why an unread fee cannot reach anybody's refund.
+   */
+  feesPaise: bigint | null;
+  /**
+   * A DISCOUNT TAKEN OFF THE WHOLE BILL rather than off one product, as a
+   * positive number of paise. Null when the page printed none.
+   *
+   * Measured once, on Amazon: "Promotion Applied:" / "-₹80.00". No quick
+   * commerce page has ever printed one — Zepto discounts each product on its own
+   * line instead, which is what wasPricePaise carries. See BILL_DISCOUNT_LABELS.
+   */
+  billDiscountPaise: bigint | null;
   /**
    * The day it was DELIVERED, as "2026-06-05". Never the order date.
    *
@@ -125,9 +212,47 @@ export interface ParsedOrder {
    * same fact.
    */
   returned: boolean | null;
+  /**
+   * WHETHER THE ORDER HAS BEEN RATED AT THE SHOP. TRI-STATE, and every state is
+   * something the page really said:
+   *
+   *   true   the page carries "You rated:" and does NOT carry "Rate Order".
+   *   false  the page carries "Rate Order" and does not say it was rated.
+   *   null   the page said neither, or said both, so we do not know.
+   *
+   * ── MEASURED, ON THE OWNER'S OWN ZEPTO ORDER PAGES, 15 SEPTEMBER 2026 ────
+   *
+   * ZEPTO-BRIEF.md, off his signed-in account: an unrated order's page carries
+   * "Rate Order"; a rated one carries "You rated:" and no "Rate Order". Both
+   * pages are fixtures under backend/test/fixtures, and this field is checked
+   * against both of them rather than against a sentence typed here.
+   *
+   * ── WHAT IT IS FOR, AND WHAT IT MUST NEVER BE ────────────────────────────
+   *
+   * Zepto, Blinkit and Instamart publish no review text: all a shop of that kind
+   * takes is a private star on the order, and the words are written inside Fayr.
+   * So "did they review it" has exactly one answer the shop's own page gives,
+   * and this is it. It moves a task from DELIVERED to REVIEWED, by the same
+   * funnel every other fact travels.
+   *
+   * IT SAYS NOTHING ABOUT THE NUMBER OF STARS. The page prints no number, this
+   * reads none, and none is wanted: a low rating passes exactly as a high one.
+   * Fayr never reads, scores or checks what was posted at the shop.
+   */
+  rated: boolean | null;
   shipments: number;
   items: ParsedOrderItem[];
 }
+
+/**
+ * "You rated:" — THE ONE PHRASE A RATED ORDER'S PAGE CARRIES, and "Rate Order" —
+ * THE INVITATION AN UNRATED ONE CARRIES INSTEAD. Both measured; see
+ * ParsedOrder.rated. Whole words, so a product called "Rate Orderly Socks"
+ * cannot be read as an invitation and a line saying "you rated" inside a
+ * review of somebody else's cannot be — there are none on an order page.
+ */
+const RATED_SAID = /\byou\s+rated\b/i;
+const RATE_INVITED = /\brate\s+order\b/i;
 
 /**
  * THE LINES IN A BILL BLOCK THAT ARE NOT PRODUCTS.
@@ -218,6 +343,70 @@ const TOTAL_BILL_LABELS: readonly string[] = [
   // Last, so a page that says both "Total" and "Total Bill" is read on the more
   // specific one first.
   'total',
+];
+
+/**
+ * THE CHARGES A SHOP ADDS ON TOP, AND ONLY THE ONES A REAL PAGE HAS SHOWN.
+ *
+ * Four labels, and every one of them has been read off a page somebody actually
+ * bought something on:
+ *
+ *   delivery fee      zepto-order-page-drawn.txt, …-two-shipments.txt,
+ *                     zepto-order-two-shipments.txt, and order #LRGSKOMA18669
+ *                     inline in this file's own spec — the only sample anywhere
+ *                     where one was genuinely CHARGED (₹30 of a ₹104 bill).
+ *   handling fee      both drawn Zepto fixtures, and #LRGSKOMA18669.
+ *   handling charge   zepto-order-two-shipments.txt ("Handling Charge ₹0").
+ *   shipping          amazon-order-page-garment-rack.txt ("Shipping: ₹0.00").
+ *
+ * ── AND THE TWENTY OTHERS IN BILL_LABELS ARE DELIBERATELY NOT HERE ────────
+ *
+ * 'platform fee', 'small cart charge', 'rain fee', 'surge fee', 'convenience
+ * fee', 'packaging charge', 'tip', 'gst' and the rest are in BILL_LABELS so a
+ * line carrying one is not read as a PRODUCT, which is a job that needs no
+ * measurement — the label being there at all is enough. Reading a FIGURE off
+ * one is a different job: it would put a number nobody has ever seen printed
+ * into an arithmetic that explains somebody's money. Not one fixture on disk
+ * shows any of them. They stay unparsed until a real page shows one, and until
+ * then a bill carrying one simply does not add up, which watched-price.ts
+ * answers with 'unknown' rather than with a guess.
+ *
+ * NOTHING HERE REACHES A REFUND. The refund base is built from the PRODUCT's
+ * own price (see engine/watched-price.ts); a fee that went unread cannot leak
+ * into it, because no fee is ever subtracted from anything to get there.
+ */
+const FEE_LABELS: readonly string[] = [
+  'delivery fee',
+  'handling fee',
+  'handling charge',
+  'shipping',
+];
+
+/**
+ * A DISCOUNT TAKEN OFF THE WHOLE BILL RATHER THAN OFF ONE PRODUCT.
+ *
+ * ONE LABEL, MEASURED ONCE: the owner's own Amazon order page, 15 September
+ * 2026, prints
+ *
+ *   Total:              ₹1,411.00
+ *   Promotion Applied:    -₹80.00
+ *   Grand Total:        ₹1,331.00
+ *
+ * and that is the only bill-level discount line anybody has captured, on any
+ * shop. 'coupon', 'coupon discount', 'discount', 'savings' and 'promo' are in
+ * BILL_LABELS and are NOT here, for the reason written above FEE_LABELS: no
+ * page on disk has ever printed one, so there is nothing to check a reader
+ * against.
+ *
+ * NO QUICK-COMMERCE PAGE HAS EVER SHOWN ONE AT ALL. Zepto's discounting is
+ * entirely per product — its Item Total is exactly the sum of the paid figures
+ * beside the products — so on a watched order this is null today, every time,
+ * and the share apportioned to any one product is zero. The arithmetic is
+ * written and checked anyway, because the day a quick-commerce page prints a
+ * coupon is not the day to start writing it.
+ */
+const BILL_DISCOUNT_LABELS: readonly string[] = [
+  'promotion applied',
 ];
 
 /** Where the products stop and the bill starts. */
@@ -465,6 +654,14 @@ function quantityAndPrice(line: string): bigint | null {
   return m ? paise(m[2]) : null;
 }
 
+/** The count on that same line — the "1" of "1 x ₹149" — or null. */
+function countOnThePriceLine(line: string): number | null {
+  const m = QUANTITY_AND_PRICE.exec(line.trim());
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
 /**
  * Does this line begin with this label, as a whole word?
  *
@@ -516,6 +713,22 @@ const MEASURE_ONLY =
 /** Is this line only a count and a measure, and so never a product's name? */
 function measureOnly(line: string): boolean {
   return MEASURE_ONLY.test(line.trim());
+}
+
+/**
+ * THE NUMBER ON A COUNT-AND-MEASURE LINE — the "2" of "2 units".
+ *
+ * Read off the same match that decides the line is a count at all, so there is
+ * one idea of what such a line looks like and not two. A fraction ("1.5 kg") is
+ * a weight and not a number of things, and answers null: dividing a price by one
+ * and a half is not a per-unit anything.
+ */
+function countOnAMeasureLine(line: string): number | null {
+  const m = MEASURE_ONLY.exec(line.trim());
+  if (!m) return null;
+  const n = Number(/^(\d+(?:\.\d+)?)/.exec(line.trim())?.[1] ?? '');
+  if (!Number.isInteger(n) || n < 1) return null;
+  return n;
 }
 
 /**
@@ -776,7 +989,7 @@ function looksLikeAName(line: string): boolean {
  */
 function nameAndPriceOnOneLine(
   line: string,
-): { name: string; pricePaise: bigint } | null {
+): ParsedOrderItem | null {
   const text = line.trim();
   if (MONEY_ONLY.test(text)) return null;
   if (QUANTITY_AND_PRICE.test(text)) return null;
@@ -785,7 +998,14 @@ function nameAndPriceOnOneLine(
   const name = m[1].trim();
   if (!looksLikeAName(name)) return null;
   const p = paise(m[2]);
-  return p == null || p <= 0n ? null : { name, pricePaise: p };
+  // ONE LINE IS ONE FIGURE, so there is no struck price to carry. A page that
+  // writes the name and the money together has stated no was-price at all, and
+  // inventing one from a later line would be reading two products as one.
+  // AND NO COUNT EITHER: a name and a figure on one line state how much, never
+  // how many. Null is "the page did not say", which is not one.
+  return p == null || p <= 0n
+    ? null
+    : { name, pricePaise: p, wasPricePaise: null, unitsStated: null };
 }
 
 /**
@@ -987,9 +1207,12 @@ function nothing(): ParsedOrder {
     orderDate: null,
     totalPaise: null,
     itemTotalPaise: null,
+    feesPaise: null,
+    billDiscountPaise: null,
     deliveryDate: null,
     returnWindowEndsDate: null,
     returned: null,
+    rated: null,
     shipments: 0,
     items: [],
   };
@@ -1029,12 +1252,53 @@ function nothing(): ParsedOrder {
 function amountPaidAt(
   lines: readonly string[],
   at: number,
-): { paise: bigint; through: number } | null {
+): { paise: bigint; was: bigint | null; through: number } | null {
   const first = moneyOnly(lines[at] ?? '');
   if (first == null) return null;
   const second = moneyOnly(lines[at + 1] ?? '');
-  if (second == null) return { paise: first, through: at };
-  return { paise: first <= second ? first : second, through: at + 1 };
+  if (second == null) return { paise: first, was: null, through: at };
+  // AND THE OTHER ONE IS NOT THROWN AWAY ANY MORE. It was, and that made the
+  // shop's own discount invisible to everything downstream: a product at ₹77
+  // with ₹110 struck through beside it arrived as "₹77, and nobody knows why".
+  // See ParsedOrderItem.wasPricePaise for the one thing that reads it.
+  const paid = first <= second ? first : second;
+  const was = first <= second ? second : first;
+  return { paise: paid, was, through: at + 1 };
+}
+
+/**
+ * WHAT A FEE LINE ACTUALLY COST, WHERE "FREE" IS ONE OF THE TWO FIGURES.
+ *
+ * ── MEASURED ON THE OWNER'S OWN ZEPTO ORDER PAGES, 15 SEPTEMBER 2026 ──────
+ *
+ * A waived charge is printed as a struck price and the WORD free, not as a
+ * second figure:
+ *
+ *   Delivery Fee
+ *   ₹30        <- what it would have been
+ *   FREE       <- what it was
+ *
+ * amountPaidAt cannot help here and would do harm: moneyOnly('FREE') is null,
+ * so the pair rule never fires and it answers ₹30 — a waived fee read as a
+ * charged one. Both drawn fixtures print exactly this shape twice.
+ *
+ * AND A FEE THAT WAS REALLY CHARGED LOOKS DIFFERENT. The same account, order
+ * #LRGSKOMA18669, also 15 September 2026: "Delivery Fee / ₹30 / Handling Fee"
+ * — one figure, no FREE under it, and ₹30 is genuinely part of the ₹104 that
+ * left his account. So a single figure is the charge and a figure followed by
+ * FREE is nothing, and those are the only two shapes anybody has measured.
+ */
+const SAYS_FREE = /^free$/i;
+
+function feeChargedAt(
+  lines: readonly string[],
+  at: number,
+): bigint | null {
+  if (SAYS_FREE.test((lines[at] ?? '').trim())) return 0n;
+  const figure = moneyOnly(lines[at] ?? '');
+  if (figure == null) return null;
+  if (SAYS_FREE.test((lines[at + 1] ?? '').trim())) return 0n;
+  return figure;
 }
 
 /** The money on a labelled bill line, or on the line under it. */
@@ -1082,6 +1346,100 @@ function moneyForOneLabel(
     if (under != null) return under.paise;
   }
   return null;
+}
+
+/**
+ * WHAT ONE FEE LINE COST, IN ANY OF THE THREE SHAPES A PAGE WRITES IT IN.
+ *
+ * All three measured, all three on real pages:
+ *
+ *   Handling Charge ₹0            label and figure on one line
+ *   Delivery Fee FREE             label and the word, on one line
+ *   Delivery Fee / ₹30 / FREE     label, the struck figure, the word under it
+ *   Delivery Fee / ₹30            label and the figure, and it was charged
+ *
+ * Null means this page printed no such line, which is not the same as a line
+ * that says nothing was charged — a page that never mentions delivery and a
+ * page that says delivery was free are different statements, and only the
+ * second one is a zero.
+ */
+function feeForLabel(
+  lines: readonly string[],
+  from: number,
+  label: string,
+): bigint | null {
+  for (let i = from; i < lines.length; i += 1) {
+    if (!startsWithLabel(lines[i], label)) continue;
+    const text = lines[i].trim();
+    // The word on the label's own line: "Delivery Fee FREE".
+    if (SAYS_FREE.test(low(text).slice(label.length).trim())) return 0n;
+    const sameLine = NAME_AND_MONEY.exec(text);
+    if (sameLine) {
+      const p = paise(sameLine[2]);
+      if (p != null) return p;
+    }
+    return feeChargedAt(lines, i + 1);
+  }
+  return null;
+}
+
+/**
+ * EVERY CHARGE THE SHOP ADDED ON TOP, ADDED UP — or null when it named none.
+ *
+ * A sum rather than one figure because a page prints several: delivery AND
+ * handling, both on the same bill. Only the labels in FEE_LABELS are counted,
+ * and the note above that list is the whole argument for why it is short.
+ */
+function feesTotal(lines: readonly string[], from: number): bigint | null {
+  let found = false;
+  let sum = 0n;
+  for (const label of FEE_LABELS) {
+    const one = feeForLabel(lines, from, label);
+    if (one == null) continue;
+    found = true;
+    sum += one;
+  }
+  return found ? sum : null;
+}
+
+/** Money with a minus sign in front of it, which is how a deduction is printed. */
+const MONEY_SIGNED = new RegExp(`^-\\s*${RUPEES}$`, 'i');
+
+/**
+ * A DISCOUNT TAKEN OFF THE WHOLE BILL, AS A POSITIVE NUMBER OF PAISE.
+ *
+ * Measured written as a negative — "Promotion Applied:" then "-₹80.00" — which
+ * MONEY_ONLY cannot read at all, because RUPEES carries no sign. Answered as a
+ * magnitude because that is what it is used for: a figure to take away. The
+ * sign is the page's way of saying which direction, and the direction is
+ * already in the label.
+ */
+function billDiscountAt(lines: readonly string[], at: number): bigint | null {
+  const text = (lines[at] ?? '').trim();
+  const signed = MONEY_SIGNED.exec(text);
+  if (signed) return paise(signed[1]);
+  return moneyOnly(text);
+}
+
+/** Every bill-level discount the page printed, added up, or null for none. */
+function billDiscountTotal(
+  lines: readonly string[],
+  from: number,
+): bigint | null {
+  let found = false;
+  let sum = 0n;
+  for (const label of BILL_DISCOUNT_LABELS) {
+    for (let i = from; i < lines.length; i += 1) {
+      if (!startsWithLabel(lines[i], label)) continue;
+      const sameLine = NAME_AND_MONEY.exec(lines[i].trim());
+      const one = sameLine ? paise(sameLine[2]) : billDiscountAt(lines, i + 1);
+      if (one == null) break;
+      found = true;
+      sum += one < 0n ? -one : one;
+      break;
+    }
+  }
+  return found ? sum : null;
 }
 
 /**
@@ -1185,6 +1543,18 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     ? true
     : (RETURN_MENTIONED.test(whole) ? false : null);
 
+  // ── whether it has been rated at the shop ─────────────────────────────────
+  //
+  // Read over the whole text for the same reason `returned` is. Both phrases
+  // present is a page that contradicts itself and is read as "we do not know",
+  // never as rated: the direction that costs a person one more look, not the
+  // direction that moves a task on a page nobody understood.
+  const saidRated = RATED_SAID.test(whole);
+  const invitedToRate = RATE_INVITED.test(whole);
+  const rated = saidRated && !invitedToRate
+    ? true
+    : (invitedToRate && !saidRated ? false : null);
+
   // ── how many shipments the screen showed ──────────────────────────────────
   const shipments = countShipments(lines);
 
@@ -1229,8 +1599,16 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
       // figure. A shop that puts the price directly under the name skips
       // nothing and behaves exactly as it did.
       let at = i + 1;
+      // AND THE COUNT ON THOSE LINES IS KEPT while stepping over them. See
+      // ParsedOrderItem.unitsStated: it is the difference between an item's line
+      // and one unit's price, and it was being walked past.
+      let units: number | null = null;
       while (at < lines.length
-        && (measureOnly(lines[at]) || aroundAProduct(lines[at]))) at += 1;
+        && (measureOnly(lines[at]) || aroundAProduct(lines[at]))) {
+        const said = countOnAMeasureLine(lines[at]);
+        if (said != null && (units == null || said > units)) units = said;
+        at += 1;
+      }
 
       // A name, then "1 x ₹149", then often the line's own total underneath. The
       // count and price line is the item's OWN price, which is the figure a
@@ -1238,7 +1616,18 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
       // of the bill, and the bill is read separately.
       const counted = quantityAndPrice(lines[at] ?? '');
       if (counted != null && counted > 0n) {
-        items.push({ name: line, pricePaise: counted });
+        // "1 x ₹149" then "₹149" is a count line and the LINE'S OWN TOTAL, not
+        // a struck pair, so there is no was-price here either.
+        // "1 x ₹149" STATES ITS OWN COUNT, and it is the one to believe: it sits
+        // on the price line itself rather than among the container sizes above
+        // it. The figure taken is the item's OWN price, so the count beside it
+        // is one by construction — but it is recorded as read, not as assumed.
+        items.push({
+          name: line,
+          pricePaise: counted,
+          wasPricePaise: null,
+          unitsStated: countOnThePriceLine(lines[at] ?? '') ?? units,
+        });
         foundAt.push(i);
         i = at + (moneyOnly(lines[at + 1] ?? '') != null ? 2 : 1);
         continue;
@@ -1247,7 +1636,9 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
       // struck pair, which is the same question asked once, above.
       const under = amountPaidAt(lines, at);
       if (under != null && under.paise > 0n) {
-        items.push({ name: line, pricePaise: under.paise });
+        items.push({
+          name: line, pricePaise: under.paise, wasPricePaise: under.was, unitsStated: units,
+        });
         foundAt.push(i);
         i = under.through + 1;
         continue;
@@ -1282,9 +1673,15 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     orderDate,
     totalPaise: moneyForLabels(lines, totalsFrom, TOTAL_BILL_LABELS),
     itemTotalPaise: moneyForLabels(lines, totalsFrom, ITEM_TOTAL_LABELS),
+    // FROM THE SAME PLACE AS THE TWO TOTALS, for the same reason written above
+    // totalsFrom: inside the bill block when the page has one, and over the
+    // whole page when it does not.
+    feesPaise: feesTotal(lines, totalsFrom),
+    billDiscountPaise: billDiscountTotal(lines, totalsFrom),
     deliveryDate,
     returnWindowEndsDate,
     returned,
+    rated,
     shipments,
     items: bought,
   };

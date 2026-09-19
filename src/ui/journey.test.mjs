@@ -219,6 +219,65 @@ console.log('\n=== 3a. A SHOP INSIDE FAYR WALKS NONE OF THE FOUR QUESTIONS — 1
     'and a caller that does not say is treated as one of the four');
 }
 
+console.log('\n=== 3a-ii. THE ORDER FAYR WATCHED WALKS NONE OF THE FOUR PICTURE-AND-QUESTION STEPS — 19 SEPTEMBER 2026 ===');
+{
+  // PHASE 8A. The record carries the key of an order Fayr watched being placed
+  // inside its own view, and the read opens THAT page. The owner's decision:
+  // "the phone watched THIS order be placed from THIS claim; the server's match
+  // on the watched page is the confirm." So purchase-shot, checking,
+  // order-details and review-shot do not appear for such a claim.
+  const at = (state) => journeyStepFor(state);
+  const KEY = '01a0b4d7-870c-7dca-b701-e038477c5106';
+  const watched = (task, extra = {}) => at({
+    task: { ...task, watchedOrderKey: KEY }, inFayrShop: true, ...extra,
+  });
+  const NEVER = ['purchase-shot', 'checking', 'order-details', 'review-shot'];
+
+  ok(watched({ state: STATES.CLAIMED }) === 'shop',
+    'A WATCHED ORDER STAYS ON THE BUY STEP WHILE IT IS READ');
+  ok(watched({ state: STATES.CLAIMED }, { lookedForTheOrder: true }) === 'shop',
+    'AND A LOOK THAT FOUND NOTHING YET IS NOT THE SCREENSHOT — the page has not settled, and it is read again');
+  ok(watched({ state: STATES.CLAIMED }, { lookedForTheOrder: true, saidTheyBought: true, wentToBuy: true, connected: true }) === 'shop',
+    'whatever the old notes say');
+  ok(watched({ state: STATES.PURCHASED, order: { id: 'JKLIKGSNS48449', orderConfirmed: false } }) === 'delivered',
+    'NO "YES, THAT IS MINE": the server’s match on the watched page is the confirm');
+  ok(watched({ state: STATES.PURCHASED, order: { id: 'JKLIKGSNS48449' }, blocker: 'order_unreadable' }) === 'delivered',
+    'no picture for a page our side could not read — that page is read again');
+  ok(watched({ state: STATES.PURCHASED, order: { id: 'JKLIKGSNS48449' }, blocker: 'no_delivery_date' }, { purchaseShotSent: true }) === 'delivered',
+    'and no "we check your proof" either');
+  ok(watched({ state: STATES.DELIVERED }) === 'review', 'delivered: the review, with nobody asked');
+  ok(watched({ state: STATES.REVIEWED }) === 'window',
+    'REVIEWED IS THE RETURN WINDOW, not a photograph of a review that exists only inside Fayr');
+  ok(watched({ state: STATES.HOLDING }) === 'window' && watched({ state: STATES.REFUNDED }) === 'refund',
+    'and the last two steps are what they always were');
+
+  // EVERY STATE, EVERY NOTE, AND NOT ONE OF THE FOUR.
+  for (const st of [STATES.CLAIMED, STATES.PURCHASED, STATES.DELIVERED, STATES.REVIEWED, STATES.HOLDING, STATES.REFUNDED]) {
+    for (const extra of [{}, { lookedForTheOrder: true }, { saidTheyBought: true, wentToBuy: true }, { purchaseShotSent: true }]) {
+      for (const order of [undefined, { id: 'JKLIKGSNS48449' }, { id: 'JKLIKGSNS48449', orderConfirmed: true }]) {
+        const step = watched({ state: st, ...(order ? { order } : {}), blocker: 'order_unreadable' }, extra);
+        ok(!NEVER.includes(step), `${st} watched with ${JSON.stringify(extra)} and ${order ? 'an order' : 'no order'} is ${step}, not a picture or a question`);
+      }
+    }
+  }
+
+  // ── WITHOUT A KEY, EVERYTHING IS AS BEFORE — inside Fayr and out ─────────
+  ok(at({ task: { state: STATES.CLAIMED }, inFayrShop: true, lookedForTheOrder: true }) === 'purchase-shot',
+    'a listed shop with no key and a fruitless read still offers the screenshot fallback');
+  ok(at({ task: { state: STATES.PURCHASED, order: { id: 'o1' } }, inFayrShop: true }) === 'order-details',
+    'and an order nobody has said is theirs still stops on its own step');
+  ok(at({ task: { state: STATES.REVIEWED }, inFayrShop: true }) === 'review-shot',
+    'and REVIEWED without a key is still the review proof');
+  ok(at({ task: { state: STATES.REVIEWED, watchedOrderKey: KEY }, inFayrShop: false }) === 'review-shot',
+    'A KEY ON A SHOP OUTSIDE FAYR CHANGES NOTHING: Amazon, Flipkart, Meesho and Myntra walk every step');
+  ok(at({ task: { state: STATES.PURCHASED, order: { id: 'o1' }, watchedOrderKey: KEY }, connected: true }) === 'order-details',
+    'and are still asked whether the order is theirs');
+  ok(at({ task: { state: STATES.PURCHASED, blocker: 'order_unreadable', watchedOrderKey: KEY }, connected: true }) === 'purchase-shot',
+    'and still asked for a picture when their order could not be read');
+  ok(at({ task: { state: STATES.REVIEWED, watchedOrderKey: '' }, inFayrShop: true }) === 'review-shot',
+    'and an empty key is no key');
+}
+
 console.log('\n=== 3b. AN ORDER NOBODY HAS SAID IS THEIRS GETS ITS OWN STEP ===');
 {
   // Added when the journey was split. The engine has always had a gate here —

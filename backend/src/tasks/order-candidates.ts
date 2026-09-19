@@ -25,6 +25,7 @@
 
 import {
   matchOrderToCampaign,
+  type HowToMatch,
   type OrderItemForComparison,
   type OrderMatchReason,
 } from '../ocr/order-comparison';
@@ -84,8 +85,32 @@ export interface JudgedOrder {
   returnWindowEndsAt: Date | null;
   /** TRI-STATE, exactly as the page said it. See ParsedOrder.returned. */
   returned: boolean | null;
+  /**
+   * WHETHER THE ORDER HAS BEEN RATED AT THE SHOP, tri-state, exactly as the page
+   * said it. See ParsedOrder.rated for the two measured phrases. Carried so a
+   * later look at an order somebody has already been matched to can move the
+   * task to REVIEWED with nobody asked — and never stored as a column, because it
+   * is acted on the moment it is read and a stale copy would say nothing true.
+   */
+  rated: boolean | null;
   shipments: number;
-  items: { name: string; pricePaise: bigint }[];
+  items: { name: string; pricePaise: bigint; wasPricePaise?: bigint | null }[];
+  /**
+   * THE BILL AS THE PAGE PRINTED IT — Phase 8B, 19 September 2026.
+   *
+   * What the products came to, what the shop added on top, and any discount
+   * taken off the whole bill. All three were read by the parser and stopped
+   * there: only `totalPaise` ever came this far, and a total on its own cannot
+   * tell a delivery charge from a coupon.
+   *
+   * They are carried, written down and shown to staff, and exactly one thing
+   * reads them — engine/watched-price.ts, which turns the product's own price
+   * into a refund base and names WHY it differs from the offer's. Null means the
+   * page stated nothing of the kind, which is not the same as zero.
+   */
+  itemTotalPaise: bigint | null;
+  feesPaise: bigint | null;
+  billDiscountPaise: bigint | null;
   matches: boolean;
   reason: OrderMatchReason;
   /**
@@ -313,6 +338,10 @@ export function whatTheOrderAlreadySays(
     order.matchedPricePaise == null ? null : String(order.matchedPricePaise));
   put('mrpPaise', order.mrpPaise == null ? null : String(order.mrpPaise));
   put('quantityObserved', order.quantityObserved);
+  // CARRIED LIKE EVERY OTHER THING THE PAGE SAID, and for the reason at the top
+  // of this function: a later fragment REPLACES the order whole, so a delivery
+  // arriving would otherwise wipe the note explaining the refund's amount.
+  put('priceGapReason', order.priceGapReason);
   put('match', order.match);
   put('product', order.product);
   put('image', order.image);
@@ -332,6 +361,10 @@ export function whatTheOrderAlreadySays(
 export function judgeFoundOrders(
   pages: readonly string[] | null | undefined,
   campaign: CampaignFacts,
+  // HOW TO MATCH, handed in rather than worked out: this file is pure and has no
+  // way to know whether Fayr watched the purchase. See HowToMatch in
+  // order-comparison.ts for what the one flag on it changes and why.
+  how?: HowToMatch | null,
 ): JudgedOrder[] {
   const list = Array.isArray(pages) ? pages : [];
   const out: JudgedOrder[] = [];
@@ -345,6 +378,7 @@ export function judgeFoundOrders(
         productName: campaign.productName,
         expectedPricePaise: campaign.productPricePaise,
       },
+      how,
     );
     out.push({
       position: out.length,
@@ -358,8 +392,12 @@ export function judgeFoundOrders(
       // deadline, not a date being compared.
       returnWindowEndsAt: dayToEndOfDay(parsed.returnWindowEndsDate),
       returned: parsed.returned,
+      rated: parsed.rated,
       shipments: parsed.shipments,
       items: parsed.items,
+      itemTotalPaise: parsed.itemTotalPaise,
+      feesPaise: parsed.feesPaise,
+      billDiscountPaise: parsed.billDiscountPaise,
       matches: answer.matches,
       reason: answer.reason,
       matchedItem: answer.item,
@@ -425,9 +463,28 @@ export function dayAsWritten(orderDate: Date | null): string | null {
 
 /** The items of one judged order, as JSON can hold them. Paise as strings. */
 export function itemsToJson(
-  items: readonly { name: string; pricePaise: bigint }[],
-): { name: string; pricePaise: string }[] {
-  return items.map((i) => ({ name: i.name, pricePaise: String(i.pricePaise) }));
+  items: readonly {
+    name: string; pricePaise: bigint; wasPricePaise?: bigint | null; unitsStated?: number | null;
+  }[],
+): { name: string; pricePaise: string; wasPricePaise?: string; unitsStated?: number }[] {
+  return items.map((i) => ({
+    name: i.name,
+    pricePaise: String(i.pricePaise),
+    // AND HOW MANY OF IT THE PAGE SAID WERE BOUGHT. Written only when the page
+    // said so, because chooseMine works the refund out from THIS row and not
+    // from the page, which is long gone by then: a count dropped here is a line
+    // total paid as a unit price. See ParsedOrderItem.unitsStated.
+    ...(typeof i.unitsStated === 'number' && Number.isInteger(i.unitsStated) && i.unitsStated >= 1
+      ? { unitsStated: i.unitsStated }
+      : {}),
+    // THE STRUCK PRICE, WHERE THE PAGE PRINTED ONE. Written only when there is
+    // one, so a row for a page that printed a single figure is byte for byte
+    // what it always was, and an old row read back is not made to look as though
+    // it stated something it did not.
+    ...(typeof i.wasPricePaise === 'bigint' && i.wasPricePaise > 0n
+      ? { wasPricePaise: String(i.wasPricePaise) }
+      : {}),
+  }));
 }
 
 /**
@@ -440,19 +497,38 @@ export function itemsToJson(
  */
 export function itemsFromJson(
   value: unknown,
-): { name: string; pricePaise: bigint }[] {
+): { name: string; pricePaise: bigint; wasPricePaise: bigint | null; unitsStated: number | null }[] {
   if (!Array.isArray(value)) return [];
-  const out: { name: string; pricePaise: bigint }[] = [];
+  const out: {
+    name: string; pricePaise: bigint; wasPricePaise: bigint | null; unitsStated: number | null;
+  }[] = [];
   for (const raw of value) {
     if (!raw || typeof raw !== 'object') continue;
-    const row = raw as { name?: unknown; pricePaise?: unknown };
+    const row = raw as {
+      name?: unknown; pricePaise?: unknown; wasPricePaise?: unknown; unitsStated?: unknown;
+    };
     const name = typeof row.name === 'string' ? row.name.trim() : '';
     if (name === '') continue;
     const price = typeof row.pricePaise === 'string' && /^\d+$/.test(row.pricePaise)
       ? BigInt(row.pricePaise)
       : null;
     if (price == null || price <= 0n) continue;
-    out.push({ name, pricePaise: price });
+    // READ THE SAME WAY AND REFUSED THE SAME WAY. A row written before this
+    // field existed has none, and null is what "the page stated none" has always
+    // meant — so an old row says exactly what it always said.
+    const was = typeof row.wasPricePaise === 'string' && /^\d+$/.test(row.wasPricePaise)
+      ? BigInt(row.wasPricePaise)
+      : null;
+    const units = typeof row.unitsStated === 'number'
+      && Number.isInteger(row.unitsStated) && row.unitsStated >= 1
+      ? row.unitsStated
+      : null;
+    out.push({
+      name,
+      pricePaise: price,
+      wasPricePaise: was != null && was > 0n ? was : null,
+      unitsStated: units,
+    });
   }
   return out;
 }

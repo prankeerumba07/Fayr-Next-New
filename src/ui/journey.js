@@ -30,6 +30,7 @@
 // is exactly what the design draws.
 
 import { STATES } from '../taskflow.js'; // explicit extension: also run under node
+import { theWatchedOrderKey } from '../order/whichRead.js';
 
 /**
  * The ten steps, in order.
@@ -279,6 +280,10 @@ export function needsAPicture(task) {
  *                       arguments.
  *   lookedForTheOrder   a read of the shop's orders has run for this claim, in
  *                       Fayr's own doing. A note on the phone, like the others.
+ *
+ * AND ONE MORE WITH PHASE 8A, read off the RECORD and not handed in: the key of
+ * the order Fayr watched being placed, `task.watchedOrderKey`. It is our side's
+ * own column, so a reinstall or a second phone derives the same step.
  */
 export function journeyStepFor(state) {
   const s = state && typeof state === 'object' ? state : {};
@@ -294,7 +299,25 @@ export function journeyStepFor(state) {
 
   if (st === STATES.REFUNDED) return 'refund';
   if (st === STATES.HOLDING) return 'window';
-  if (st === STATES.REVIEWED) return 'review-shot';
+
+  // ── THE ORDER FAYR WATCHED, AND THE FOUR STEPS IT NEVER WALKS — PHASE 8A ──
+  //
+  // 19 September 2026. When the record carries the key of an order Fayr watched
+  // being placed inside its own view, the read opens THAT order's own page and
+  // the server's match on it is the confirm. The owner's decision, in his
+  // words: "the phone watched THIS order be placed from THIS claim; the
+  // server's match on the watched page is the confirm." So purchase-shot,
+  // checking, order-details and review-shot do not appear for such a claim —
+  // each of them asks a person for a picture or a word about a page Fayr read
+  // itself. Without a key — Amazon, Flipkart, Meesho, Myntra, and a listed shop
+  // whose confirmation page carried none — every one of those steps stays
+  // exactly as it was.
+  const watched = s.inFayrShop === true && theWatchedOrderKey(task) != null;
+
+  // REVIEWED on a watched order is the return window, not a photograph of a
+  // review that exists only inside Fayr. The rated signal was read off the
+  // order's own page by the server.
+  if (st === STATES.REVIEWED) return watched ? 'window' : 'review-shot';
   // ── DELIVERED, BUT HAVE THEY BEEN ASKED? ─────────────────────────────────
   //
   // The record can know a parcel arrived before the person has said a word about
@@ -324,6 +347,10 @@ export function journeyStepFor(state) {
   }
 
   if (st === STATES.PURCHASED || task.order) {
+    // THE WATCHED ORDER SKIPS THE PICTURE AND THE QUESTION. The server matched
+    // it on its own page and confirmed it itself, and a page it could not read
+    // is read again on the next look of that same page, never photographed.
+    if (watched) return 'delivered';
     // Bought and read. The screenshot step is only in the way when the shop
     // could not be read for us — otherwise there is nothing to send.
     // Whether a picture is needed is the SERVER's word, read off the task's own
@@ -375,6 +402,11 @@ export function journeyStepFor(state) {
   // himself. "We have not looked yet" is not a failure, and lookedForTheOrder
   // is what tells the two apart — see LOOKED_FOR_THE_ORDER in shopVisits.js.
   if (s.inFayrShop === true) {
+    // A WATCHED ORDER IS THE SHOP STEP'S SECOND FACE, and never the screenshot:
+    // the read of that one page runs by itself and looks again on the cadence.
+    // See src/journey/shopStep.js for which face, and for why it is a face of
+    // the Buy step rather than a step of its own.
+    if (watched) return 'shop';
     return s.lookedForTheOrder === true ? 'purchase-shot' : 'shop';
   }
   // Connecting comes first, and only once.

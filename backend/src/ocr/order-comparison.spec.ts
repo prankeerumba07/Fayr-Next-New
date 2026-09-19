@@ -461,3 +461,73 @@ describe('an order that holds several products', () => {
     });
   });
 });
+
+describe('a purchase Fayr watched: the product is the whole verdict', () => {
+  // PHASE 8B-a, THE OWNER'S WORDS, 19 September 2026: "It doesn't matter [if the
+  // price differs]. You just have to go and check if the user has purchased the
+  // product inside the Fayr app or not, the same product he has purchased."
+  //
+  // THE SAME ORDER, THE SAME GAP, TWO ANSWERS — that is the whole check, and it
+  // is written as one comparison run twice so the two can never drift apart.
+  const ORDER = { items: [{ name: 'Boldfit Strapless Sports Headband', pricePaise: 14900n }] };
+  const CAMPAIGN = {
+    productName: 'Boldfit Strapless Sports Headband',
+    expectedPricePaise: 32500n,
+  };
+
+  it('WATCHED: a price gap is not a reason to refuse', () => {
+    const answer = matchOrderToCampaign(ORDER, CAMPAIGN, { priceMayDiffer: true });
+    expect(answer.matches).toBe(true);
+    expect(answer.reason).toBe('matched');
+    expect(answer.item?.pricePaise).toBe(14900n);
+  });
+
+  it('UNWATCHED: the same gap on the same order is still price_differs', () => {
+    for (const how of [undefined, null, {}, { priceMayDiffer: false }]) {
+      const answer = matchOrderToCampaign(ORDER, CAMPAIGN, how);
+      expect(answer.matches).toBe(false);
+      expect(answer.reason).toBe('price_differs');
+    }
+  });
+
+  it('and it is the price that bends, not the product', () => {
+    const answer = matchOrderToCampaign(
+      { items: [{ name: 'Something Else Entirely', pricePaise: 32500n }] },
+      CAMPAIGN,
+      { priceMayDiffer: true },
+    );
+    expect(answer.matches).toBe(false);
+    expect(answer.reason).toBe('product_name_not_found');
+  });
+
+  it('an order with nothing readable on it is still nothing', () => {
+    expect(matchOrderToCampaign({ items: [] }, CAMPAIGN, { priceMayDiffer: true }).reason)
+      .toBe('no_products_read');
+  });
+
+  it('AND A CAMPAIGN THAT STATES NO PRICE IS STILL REFUSED', () => {
+    // The ceiling is what stops a percentage being paid on a figure read off a
+    // shop's page. An offer with no price has no ceiling, so this does not bend.
+    const answer = matchOrderToCampaign(
+      ORDER,
+      { productName: CAMPAIGN.productName, expectedPricePaise: null },
+      { priceMayDiffer: true },
+    );
+    expect(answer.matches).toBe(false);
+    expect(answer.reason).toBe('no_expected_price');
+  });
+
+  it('and the product AT the offer\u2019s price still wins over one that is not', () => {
+    const answer = matchOrderToCampaign(
+      {
+        items: [
+          { name: 'Boldfit Strapless Sports Headband', pricePaise: 14900n },
+          { name: 'Boldfit Strapless Sports Headband', pricePaise: 32500n },
+        ],
+      },
+      CAMPAIGN,
+      { priceMayDiffer: true },
+    );
+    expect(answer.item?.pricePaise).toBe(32500n);
+  });
+});

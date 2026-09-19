@@ -425,6 +425,34 @@ model Task {
   /// somebody left to write one.
   wentToReviewAt DateTime?
 
+  /// THE KEY IN THE ADDRESS OF THE ORDER FAYR WATCHED BEING PLACED, or null.
+  ///
+  /// ── TWO IDENTIFIERS, NEVER CONFUSED ──────────────────────────────────────
+  ///
+  /// MEASURED ON THE OWNER'S OWN ZEPTO PURCHASE, 18 SEPTEMBER 2026. One second
+  /// after he paid, the shop's page inside Fayr moved to
+  /// /order/status/01a0b4d7-870c-7dca-b701-e038477c5106. The shop's ADDRESS
+  /// carries that UUID; the shop's PAGE prints an order number, JKLIKGSNS48449.
+  /// Two different strings for one order.
+  ///
+  /// `orderId` above is the order NUMBER, read off the page by the server, and
+  /// the refund gate reads it to stop one purchase paying twice. THIS is the
+  /// ADDRESS KEY, reported by the phone the moment the confirmation page
+  /// appeared, so the phone can open THAT ONE page later — for the order read,
+  /// the delivery read and the review read — instead of walking the list, which
+  /// is what read six strangers that evening.
+  ///
+  /// WRITING ONE INTO THE OTHER'S COLUMN WOULD BREAK THE DUPLICATE-ORDER GATE:
+  /// the gate compares (platform, orderId) across tasks, and a UUID here beside
+  /// a page number there would let one purchase pay twice unseen. So each has
+  /// its own column, and nothing that decides money reads this one.
+  ///
+  /// UNTRUSTED, AND WRITTEN ONCE. It arrives through the same device-evidence
+  /// route as everything else the phone reports; it is a place to look and not
+  /// a fact about money; and the first key a task hears is the key it keeps. See
+  /// tasks/engine/watched-order.ts for the rules and the reasons.
+  watchedOrderKey String?
+
   /// HOW MANY DAYS THE ORDER WINDOW WAS WIDENED BY, FOR TESTING, WHEN IT WAS.
   ///
   /// NULL ON EVERY REAL TASK, and null is what it stays unless two things are
@@ -594,6 +622,29 @@ model OrderCandidate {
   returned           Boolean?
   /// What was charged for the whole order. Integer paise, never a float.
   totalPaise         BigInt?
+  /// WHAT THE PRODUCTS ALONE CAME TO, as the page's own bill block states it.
+  ///
+  /// A total on its own cannot tell a delivery charge from a coupon: the owner's
+  /// Zepto order #LRGSKOMA18669 (15 September 2026) states Item Total ₹74 and
+  /// Total Bill ₹104, and the ₹30 between them is a delivery fee that is not
+  /// refunded. Without this column that ₹30 is invisible and unexplainable.
+  /// Additive and nullable: no existing row is rewritten, and null means the page
+  /// stated no such line.
+  itemTotalPaise     BigInt?
+  /// DELIVERY, HANDLING AND SHIPPING, ADDED UP, as the page printed them.
+  ///
+  /// ZERO IS A REAL ANSWER and the commonest one — every fee on every fixture on
+  /// disk was waived, printed as a struck figure with the word FREE under it.
+  /// NULL is the different statement that the page named no charge at all. Only
+  /// the labels in FEE_LABELS (ocr/order-text.ts) are counted, every one of them
+  /// read off a page somebody really bought something on.
+  feesPaise          BigInt?
+  /// A DISCOUNT TAKEN OFF THE WHOLE BILL rather than off one product, positive.
+  ///
+  /// Measured once, on Amazon: "Promotion Applied: -₹80.00". No quick-commerce
+  /// page has ever printed one — Zepto discounts each product on its own line
+  /// instead, and that struck price is kept inside `items`. Null for none.
+  billDiscountPaise  BigInt?
   /// Every product read off it: [{ name, pricePaise }]. pricePaise is a STRING of
   /// paise, because JSON has no place for a whole number this size.
   items              Json

@@ -168,7 +168,15 @@ describe('reading an order screen that holds several shipments', () => {
         'Total Bill ₹298',
       ].join('\n'));
       expect(order.items).toEqual([
-        { name: 'Boldfit Strapless Sports Headband', pricePaise: 14900n },
+        // AND THE PAGE SAID TWO OF THEM: "2 x ₹149" states its own count, and
+        // ₹149 is still the price of ONE. Read since 19 September 2026 — see
+        // ParsedOrderItem.unitsStated for the refund this exists to get right.
+        {
+          name: 'Boldfit Strapless Sports Headband',
+          pricePaise: 14900n,
+          wasPricePaise: null,
+          unitsStated: 2,
+        },
       ]);
       expect(order.totalPaise).toBe(29800n);
     });
@@ -199,6 +207,8 @@ describe('reading an order screen that holds several shipments', () => {
         {
           name: 'Prestige Induction Cooktop 1900W Black',
           pricePaise: 132600n,
+          wasPricePaise: null,
+          unitsStated: null,
         },
       ]);
       expect(order.totalPaise).toBe(132600n);
@@ -212,7 +222,12 @@ describe('reading an order screen that holds several shipments', () => {
         'Total Bill ₹149',
       ].join('\n'));
       expect(order.items).toEqual([
-        { name: 'Boldfit Strapless Sports Headband', pricePaise: 14900n },
+        {
+          name: 'Boldfit Strapless Sports Headband',
+          pricePaise: 14900n,
+          wasPricePaise: null,
+          unitsStated: null,
+        },
       ]);
     });
   });
@@ -235,7 +250,12 @@ describe('reading an order screen that holds several shipments', () => {
       expect(order.orderDate).toBe('2026-08-21');
       expect(order.totalPaise).toBe(36800n);
       expect(order.items).toEqual([
-        { name: 'Boldfit Strapless Sports Headband', pricePaise: 14900n },
+        {
+          name: 'Boldfit Strapless Sports Headband',
+          pricePaise: 14900n,
+          wasPricePaise: null,
+          unitsStated: 1,
+        },
       ]);
     });
 
@@ -255,7 +275,12 @@ describe('reading an order screen that holds several shipments', () => {
         'Total ₹499',
       ].join('\n'));
       expect(order.items).toEqual([
-        { name: 'Totally Awesome Headband', pricePaise: 49900n },
+        {
+          name: 'Totally Awesome Headband',
+          pricePaise: 49900n,
+          wasPricePaise: null,
+          unitsStated: null,
+        },
       ]);
       expect(order.totalPaise).toBe(49900n);
     });
@@ -268,6 +293,12 @@ describe('reading an order screen that holds several shipments', () => {
         orderDate: null,
         totalPaise: null,
         itemTotalPaise: null,
+        // TWO LINES MORE SINCE 19 SEPTEMBER 2026. The empty shape is pinned in
+        // full on purpose — it is the one place that says what "we read nothing"
+        // looks like — so a field added to the parser has to be added here too,
+        // with null meaning the page stated no such line. See ParsedOrder.
+        feesPaise: null,
+        billDiscountPaise: null,
         // Both null and neither false: nothing was read, so nothing is claimed.
         // "We did not look" is not "we looked and it was not returned".
         deliveryDate: null,
@@ -276,6 +307,10 @@ describe('reading an order screen that holds several shipments', () => {
         // delivery date beside it is.
         returnWindowEndsDate: null,
         returned: null,
+        // AND NOT RATED EITHER — added 19 September 2026 with Phase 8A, tri-state
+        // for the same reason `returned` is: nothing was read, so nothing is
+        // claimed about whether the order was rated at the shop.
+        rated: null,
         shipments: 0,
         items: [],
       });
@@ -1329,5 +1364,54 @@ describe('a bare "Sold by:" with the seller on the line under it', () => {
     // how money is read.
     expect(foldBareSellerLabels(['Grand Total:', '₹4,995.00']))
       .toEqual(['Grand Total:', '₹4,995.00']);
+  });
+});
+
+/**
+ * WHETHER THE ORDER HAS BEEN RATED, READ OFF THE TWO REAL PAGES. Phase 8A.
+ *
+ * ZEPTO-BRIEF.md measured it on the owner's own account: an unrated order's page
+ * carries "Rate Order"; a rated one carries "You rated:" and no "Rate Order".
+ * Both pages are fixtures, so this is checked against what the shop wrote and
+ * not against a sentence typed here.
+ */
+describe('whether the order has been rated at the shop', () => {
+  const fixture = (name: string): string =>
+    readFileSync(join(__dirname, '..', '..', 'test', 'fixtures', name), 'utf8');
+
+  it('TRUE on the owner’s rated order: "You rated:" and no "Rate Order"', () => {
+    const page = fixture('zepto-order-page-drawn-two-shipments.txt');
+    expect(page).toMatch(/You rated:/);
+    expect(page).not.toMatch(/Rate Order/);
+    expect(parseOrderText(page).rated).toBe(true);
+  });
+
+  it('FALSE on the owner’s unrated order, which invites a rating', () => {
+    const page = fixture('zepto-order-page-drawn.txt');
+    expect(page).toMatch(/Rate Order/);
+    expect(page).not.toMatch(/You rated:/);
+    expect(parseOrderText(page).rated).toBe(false);
+  });
+
+  it('NULL on a page that says neither, which is every Amazon order page', () => {
+    expect(parseOrderText(fixture('amazon-order-page-garment-rack.txt')).rated).toBeNull();
+    expect(parseOrderText('Order ID 12345678\nPlaced on 21 Aug 2026').rated).toBeNull();
+    expect(parseOrderText('').rated).toBeNull();
+  });
+
+  it('NULL, never true, on a page that says both — a page nobody understood', () => {
+    expect(parseOrderText('Order #SOS12345\nYou rated:\nRate Order').rated).toBeNull();
+  });
+
+  it('reads whole words, so a product name cannot be an invitation', () => {
+    expect(parseOrderText('Order #SOS12345\nRate Orderly Socks\n₹99').rated).toBeNull();
+    expect(parseOrderText('Order #SOS12345\nyou RATED:').rated).toBe(true);
+  });
+
+  it('AND READS NO NUMBER OF STARS. The page prints none, and none is wanted', () => {
+    const page = fixture('zepto-order-page-drawn-two-shipments.txt');
+    const order = parseOrderText(page) as unknown as Record<string, unknown>;
+    expect(Object.keys(order)).not.toContain('rating');
+    expect(Object.keys(order)).not.toContain('stars');
   });
 });

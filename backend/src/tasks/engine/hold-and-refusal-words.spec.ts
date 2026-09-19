@@ -13,6 +13,7 @@ import { OUT_OF_WINDOW_MESSAGE } from './order-window';
 import { EVERY_REFUSAL } from './refusal-words';
 import { everySentence } from './shop-visit-words';
 import { everyMessageSentence } from './journey-message';
+import { PRICE_GAP_REASONS } from './watched-price';
 
 /**
  * EVERY WORD SAID TO SOMEBODY ABOUT THEIR OWN MONEY, WALKED.
@@ -173,6 +174,15 @@ describe('every word said about somebody’s own money', () => {
       .sort();
     // transition.ts is in this list and NOT in the walk. That is the gap named at
     // the top of this file, kept visible rather than quietly excluded.
+    //
+    // AND watched-price.ts IS HERE FOR A DIFFERENT REASON — 19 September 2026.
+    // It holds no wording at all. The test above matches it because its comment
+    // says "The product's own price as the page prints it AFTER the shop's own
+    // discount", and the two apostrophes in `product's` and `shop's` look to that
+    // regular expression exactly like a quoted sentence. Its only strings are the
+    // six machine names in PRICE_GAP_REASONS, and the test below this one is what
+    // holds them to being machine names rather than sentences — which is the real
+    // version of the question this tripwire is asking.
     expect(wordFiles).toEqual([
       'hold-reasons.ts',
       'journey-message.ts',
@@ -181,6 +191,22 @@ describe('every word said about somebody’s own money', () => {
       'shop-visit-words.ts',
       'states.ts',
       'transition.ts',
+      'watched-price.ts',
     ]);
+  });
+
+  /**
+   * AND THE PRICE-GAP REASONS ARE NAMES, NOT SENTENCES.
+   *
+   * The reason watched-price.ts is excused from the walk above. If one of these
+   * ever becomes a sentence, it becomes a sentence shown to a person about their
+   * own refund, and it must then be walked like every other one — so this fails
+   * the moment one grows a space in it.
+   */
+  it('the price-gap reasons stay machine names and never become wording', () => {
+    expect(PRICE_GAP_REASONS.length).toBeGreaterThan(0);
+    for (const reason of PRICE_GAP_REASONS) {
+      expect(reason).toMatch(/^[a-z]+(?:-[a-z]+)*$/);
+    }
   });
 });

@@ -39,6 +39,24 @@
 // gap, which is the same thing the old screen offered with its Yes button —
 // minus the button.
 //
+// ── AND SINCE PHASE 8A THE SAME FLOOR GOVERNS THE ORDER READ TOO ───────────
+//
+// 19 September 2026. The order Fayr watched being placed is read off ITS OWN
+// page — the same page the delivery read opens — and a live tracking page that
+// cannot be read yet is not a failure: the order has not settled, and the
+// answer is to look again. So the shop step asks this file the same question
+// the delivery step asks, for the same task, and one floor holds between any
+// two looks at that page whichever step is asking. A parcel that arrives ten
+// minutes after the order is one look for the delivery either way.
+//
+// ── A SCREEN THAT IS OPEN MAY START THE LOOK THE MOMENT THE FLOOR PASSES ───
+//
+// The owner: "delivery fetches itself. No screen, no tap." A step left open on
+// the phone redraws every half minute and asks this file again, and the first
+// ask after the floor has passed is a yes. Nothing runs while the app is closed
+// or in the background; there is still no timer that fires a look on its own,
+// only a screen that keeps asking whether it may.
+//
 // PURE, apart from one map that remembers the last look per task in this
 // sitting. Keyed by TASK and not by campaign, for the reason
 // src/order/deliveryLook.js gives: a note against a campaign outlives the claim
@@ -63,6 +81,22 @@ export function mayLookForDeliveryNow(taskId, now) {
   const last = lastLookAt.get(taskId);
   if (last == null) return true;
   return at - last >= LOOK_AGAIN_AFTER_MS;
+}
+
+/**
+ * HOW LONG UNTIL THE NEXT LOOK MAY START, in milliseconds. Zero when it may
+ * start now, and zero for a claim nobody has looked at yet. Never negative.
+ *
+ * For a screen to SAY how long, in a sentence, rather than to decide anything:
+ * mayLookForDeliveryNow is the decision and this is the same arithmetic read
+ * the other way round, so the two cannot disagree about the same moment.
+ */
+export function untilTheNextLook(taskId, now) {
+  if (typeof taskId !== 'string' || taskId === '') return 0;
+  const at = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
+  const last = lastLookAt.get(taskId);
+  if (last == null) return 0;
+  return Math.max(0, LOOK_AGAIN_AFTER_MS - (at - last));
 }
 
 /** Remember that a look started, so the next ask is measured from here. */

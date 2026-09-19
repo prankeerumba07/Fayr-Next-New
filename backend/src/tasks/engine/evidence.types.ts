@@ -298,6 +298,24 @@ export interface EvidenceOrder {
   orderTotalPaise?: bigint | null;
   mrpPaise?: bigint | null;
   amountSource?: string | null;
+  /**
+   * WHY WHAT THEY PAID IS NOT WHAT THE OFFER SAID — Phase 8B-a, 19 Sept 2026.
+   *
+   * One of the names in engine/watched-price.ts: 'none', 'shop-discount',
+   * 'coupon', 'fees-on-top', 'price-rose' or 'unknown'. Written by the server
+   * when it confirms a purchase Fayr watched, derived only from lines the order
+   * page actually printed.
+   *
+   * A NOTE, AND NOT A PAYOUT INPUT. Nothing in the refund gate, the engine or the
+   * wallet reads it; the amount is `unitPricePaise` beside it and nothing else.
+   * It exists so a person at Fayr can answer "why is this refund not the number
+   * on the offer?" without opening the shop.
+   *
+   * AND NO PHONE CAN SET IT. The field is declared on EvidenceOrderDto with no
+   * validator, which makes the global whitelist refuse any body that carries
+   * one — see the note there.
+   */
+  priceGapReason?: string | null;
   itemAmountAmbiguous?: boolean;
   match?: EvidenceOrderMatch | null;
   product?: string | null;

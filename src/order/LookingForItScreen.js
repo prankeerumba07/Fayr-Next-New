@@ -44,13 +44,16 @@ import {
 import { WebView } from 'react-native-webview';
 
 import * as campaignStore from '../backend/campaignStore';
-import { getTaskId, refreshFromBackend } from '../taskStore';
+import { getAuthoritative, getTaskId, refreshFromBackend } from '../taskStore';
 import { PLATFORMS } from '../platforms';
 import {
-  countOrderCardSlots, harvestRendered, isNotAnOrderPage, orderDetailPageFor,
-  ordersWorthOpening, pagesToOpen, readsOrderPages, searchesItsOrders,
-  waitBeforeFetch,
+  countOrderCardSlots, harvestRendered, howThisShopNamesAnOrder, isNotAnOrderPage,
+  orderDetailPageFor, ordersWorthOpening, pagesToOpen, readsOrderPages,
+  searchesItsOrders, waitBeforeFetch,
 } from './detailLook.js';
+// WHICH READ THIS IS — the one order Fayr watched, or the list — decided next
+// door and only asked here. See whichRead.js for the run it comes from.
+import { NOWHERE, THE_LIST, howToLook, theWatchedOrderKey } from './whichRead.js';
 import {
   LEAST_A_DRAW_CAN_TAKE_MS, anAnswerTag, answerWithStatus, drawFacts, isOurAnswer,
   openOneOrderWith, openTheListWith, openTheSearchWith, readDetailStep, readListStep,
@@ -445,6 +448,82 @@ export default function LookingForItScreen({ navigation, route }) {
         if (!alive) return;
         moveOn(matched.length > 0 ? 'IsThisYourOrder' : 'Journey');
       };
+
+      // ── THE ORDER FAYR WATCHED: ONE PAGE, AND NEVER THE LIST — PHASE 8A ──
+      //
+      // MEASURED ON THE OWNER'S OWN PURCHASE, 18 SEPTEMBER 2026. The web view
+      // saw the order one second after payment, and this look then opened the
+      // LIST and judged six strangers. The delivery look that followed was
+      // handed the order NUMBER the page prints, which is not what a Zepto
+      // page is addressed by, so it opened nothing at all: "numbers linked=8
+      // opening=0 named=true".
+      //
+      // With the watched key on the record there is exactly one page to read.
+      // It is built the way the review step already builds it, and it is
+      // opened, read and posted through the same three things every order page
+      // below goes through — openOneOrderWith, readDetailStep, askTheServer —
+      // so there is one reader and one road to the server, not two.
+      //
+      // A PAGE THAT CANNOT BE READ YET IS NOT A FAILURE. A live tracking page in
+      // the first minutes after an order has not settled into the receipt the
+      // reader knows. The look hands back to the journey, which shows the wait
+      // and looks again on the cadence — and NEVER falls back to the list,
+      // because that fallback is what read six strangers.
+      //
+      // AND NO "IS THIS YOUR ORDER?" ON THE WAY BACK. The owner's decision: the
+      // phone watched THIS order be placed from THIS claim, and the server's
+      // match on the watched page is the confirm. So the journey is handed back
+      // to whatever the server decided, and the record says the rest.
+      const watchedKey = theWatchedOrderKey(campaignId ? getAuthoritative(campaignId) : null);
+      const how = howToLook({
+        watchedOrderKey: watchedKey, shape: howThisShopNamesAnOrder(platformKey),
+      });
+      if (how.path !== THE_LIST) {
+        if (how.path === NOWHERE) {
+          // A key, and no page that can honestly be built from it. Read nothing,
+          // because the list is never the answer to "we know which order".
+          logLook('watched', 'opened=0 why=nowhere');
+          await leaveWith([]);
+          return;
+        }
+        const next = openOneOrderWith(
+          platformKey, how.url, Date.now(), aFreshName(), watchedKey, whatIsLeft(),
+        );
+        const one = await openWith(next);
+        if (!alive) return;
+        const detail = readDetailStep(next, one);
+        // COUNTS, THE STATUS AND WHERE IT LANDED — with the key already taken
+        // out of the landing by readDetailStep. Never the page, never the key.
+        logLook('watched', `status=${one && one.status} `
+          + `bytes=${(one && typeof one.html === 'string' ? one.html.length : 0)} `
+          + `landed=${detail.landed == null ? 'null' : detail.landed} `
+          + `looked=${detail.looked} whyNot=${detail.whyNot} `
+          + `wantsSignIn=${detail.wantsSignIn}`);
+        // THE SAME TWO REFUSALS EVERY OTHER PAGE HAS, in the same words.
+        if (detail.wantsSignIn === true) {
+          await settle();
+          if (!alive) return;
+          stopTheClock();
+          setNeedsSignIn(true);
+          return;
+        }
+        if (detail.whyNot != null) {
+          await settle();
+          if (!alive) return;
+          stopTheClock();
+          setRefused(detail.whyNot);
+          return;
+        }
+        // NOT READABLE YET IS NOT A FAILURE. Hand back; the journey looks again.
+        if (!detail.looked) {
+          await leaveWith([]);
+          return;
+        }
+        await askTheServer([detail.text]);
+        if (!alive) return;
+        await leaveWith([]);
+        return;
+      }
 
       // ── THE SHOP'S OWN SEARCH OF THIS PERSON'S ORDERS, ASKED FIRST ──────
       //

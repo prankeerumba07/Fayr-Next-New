@@ -31,6 +31,16 @@ const SKIP_DIRECTORIES = new Set([
   'coverage',
   '.expo',
   '_to_delete_stale_build',
+  // THE LAPTOP'S OWN SCRATCH, AND NOT THE PROJECT — added 19 September 2026.
+  //
+  // .local-logs/ is git-ignored and holds what ./start and ./check write: run
+  // logs, and since 18 September 2026 a database dump the owner took of his own
+  // practice data (db-2026-09-18.sql). A dump of the database holds the number
+  // because the database does, and that is not the number being typed into a
+  // file of the project's, which is the thing this check exists to catch. The
+  // rule above this list already says it: places whose contents are not ours.
+  // Deleting a person's backup to make a check green was not an option.
+  '.local-logs',
 ]);
 
 /** Only files we could actually have written it into. */

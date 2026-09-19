@@ -181,8 +181,13 @@ describe('the orders the phone found, read and judged on the server', () => {
       const order = parseOrderText(ZEPTO);
       const stored = itemsToJson(order.items);
       expect(stored).toEqual([
-        { name: 'Boldfit Strapless Sports Headband', pricePaise: '14900' },
-        { name: 'Hammer Nova earphones', pricePaise: '21900' },
+        // AND THE COUNT THE PAGE STATED GOES DOWN WITH THEM, since 19 September
+        // 2026: "1 x ₹149" says one, and chooseMine works the refund out from
+        // this row long after the page is gone. A count dropped here is a line
+        // total paid as a unit price. No struck price on this page, so none is
+        // written — see itemsToJson for why an absent field stays absent.
+        { name: 'Boldfit Strapless Sports Headband', pricePaise: '14900', unitsStated: 1 },
+        { name: 'Hammer Nova earphones', pricePaise: '21900', unitsStated: 1 },
       ]);
       expect(itemsFromJson(stored)).toEqual(order.items);
     });
@@ -197,7 +202,11 @@ describe('the orders the phone found, read and judged on the server', () => {
         { name: 'Negative', pricePaise: '-100' },
         null,
         'not an item',
-      ])).toEqual([{ name: 'Real', pricePaise: 100n }]);
+      ])).toEqual([
+        // A row that states no struck price and no count reads back as null for
+        // both, which is what "the page said nothing" has always meant.
+        { name: 'Real', pricePaise: 100n, wasPricePaise: null, unitsStated: null },
+      ]);
     });
 
     it('reads nothing out of anything that is not a list', () => {
@@ -695,5 +704,29 @@ describe("the shop's own return window as a statement that it arrived", () => {
     const f = theDeliveryFragment(judged);
     expect(f.delivery).toBeDefined();
     expect(f.delivery?.at).toBe(judged.returnWindowEndsAt?.getTime());
+  });
+});
+
+/**
+ * THE RATED SIGNAL RIDES ON A JUDGED ORDER, TRI-STATE, AS THE PAGE SAID IT.
+ *
+ * Carried and never stored: the later look acts on it the moment it is read, and
+ * a column holding yesterday's answer would say nothing true about today's page.
+ */
+describe('a judged order carries whether it was rated', () => {
+  const fixture = (name: string): string =>
+    readFileSync(join(__dirname, '..', '..', 'test', 'fixtures', name), 'utf8');
+
+  it('TRUE off the owner’s rated page, FALSE off the unrated one', () => {
+    const [rated] = judgeFoundOrders(
+      [fixture('zepto-order-page-drawn-two-shipments.txt')], CAMPAIGN,
+    );
+    expect(rated.rated).toBe(true);
+    const [unrated] = judgeFoundOrders([fixture('zepto-order-page-drawn.txt')], CAMPAIGN);
+    expect(unrated.rated).toBe(false);
+  });
+
+  it('and NULL on a row that says neither', () => {
+    expect(judgeFoundOrders([HEADBAND_ROW], CAMPAIGN)[0].rated).toBeNull();
   });
 });

@@ -1,0 +1,19 @@
+-- THE KEY IN THE ADDRESS OF THE ORDER FAYR WATCHED BEING PLACED.
+--
+-- MEASURED ON THE OWNER'S OWN ZEPTO PURCHASE, 18 SEPTEMBER 2026. One second
+-- after he paid, the shop's page inside Fayr moved to
+-- /order/status/01a0b4d7-870c-7dca-b701-e038477c5106. That UUID is the one
+-- handle the phone has on THAT order: how it opens that order's own page later
+-- instead of walking the list, which read six strangers that evening.
+--
+-- TWO IDENTIFIERS, NEVER CONFUSED. The same order's PAGE prints an order
+-- number, JKLIKGSNS48449, and THAT is what "orderId" holds: the refund gate
+-- compares it across tasks to stop one purchase paying twice. Writing the
+-- address key into "orderId" would put a UUID beside page numbers in the column
+-- the gate reads and let one purchase pay twice unseen. So this is its own
+-- column, and nothing that decides money reads it.
+--
+-- ADDITIVE AND NULLABLE, WITH NO DEFAULT. Every task that exists today was
+-- placed before Fayr watched anything, and null is the truth about all of them.
+-- A Prisma migration and not a native change: nothing on the phone is rebuilt.
+ALTER TABLE "tasks" ADD COLUMN "watchedOrderKey" TEXT;

@@ -5,7 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { matchOrderToCampaign } from '../ocr/order-comparison';
+import { matchOrderToCampaign, type HowToMatch } from '../ocr/order-comparison';
+import { theRefundBase, type BillAsPrinted } from './engine/watched-price';
 import { orderWindow } from './engine/order-window';
 import { ORDER_WINDOW_GRACE_MS } from './engine/order-window';
 import {
@@ -13,7 +14,7 @@ import {
   practiceGraceMs,
 } from './engine/practice-window';
 import { PracticeWindowService } from './practice-window.service';
-import { SOURCES } from './engine/states';
+import { SOURCES, STATES, rank } from './engine/states';
 import {
   dateToSubmit,
   dayAsWritten,
@@ -22,6 +23,7 @@ import {
   itemsToJson,
   judgeFoundOrders,
   whatTheOrderAlreadySays,
+  type JudgedOrder,
 } from './order-candidates';
 import { resolveChargedPaise } from './engine/charged-amount';
 import type { EvidenceOrder } from './engine/evidence.types';
@@ -189,6 +191,34 @@ export function theDeliveryFragment(
   };
 }
 
+/**
+ * HOW TO MATCH THIS TASK'S ORDERS — Phase 8B-a, 19 September 2026.
+ *
+ * ONE PLACE ASKS THE QUESTION so the look and the tap can never answer it
+ * differently. A purchase Fayr watched being placed is judged on the product
+ * alone; every other task is judged exactly as it always was, price included.
+ * See HowToMatch in ocr/order-comparison.ts for the owner's words and the whole
+ * argument, and engine/watched-price.ts for where the price goes instead.
+ */
+function howToMatchThis(task: { watchedOrderKey: string | null }): HowToMatch {
+  return { priceMayDiffer: task.watchedOrderKey != null };
+}
+
+/** The bill block of a stored candidate row, in the shape the rule reads. */
+function theBillOn(row: {
+  itemTotalPaise: bigint | null;
+  totalPaise: bigint | null;
+  feesPaise: bigint | null;
+  billDiscountPaise: bigint | null;
+}): BillAsPrinted {
+  return {
+    itemTotalPaise: row.itemTotalPaise,
+    totalPaise: row.totalPaise,
+    feesPaise: row.feesPaise,
+    billDiscountPaise: row.billDiscountPaise,
+  };
+}
+
 @Injectable()
 export class OrderCandidatesService {
   /**
@@ -268,6 +298,12 @@ export class OrderCandidatesService {
       where: { taskId, chosenAt: { not: null } },
     });
     if (already) {
+      // JUDGED ONCE, HERE, so the delivery half and the rated half of a later
+      // look read the same order rather than parsing the same pages twice.
+      const judgedAgain = judgeFoundOrders(pages, {
+        productName: task.campaign.productName,
+        productPricePaise: task.campaign.productPricePaise,
+      }, howToMatchThis(task));
       await this.deliveryFromALaterLook(
         userId,
         task,
@@ -275,8 +311,9 @@ export class OrderCandidatesService {
         // row. Both halves of a later look then judge the same order.
         toEngineTask(task, []).order,
         already,
-        pages,
+        judgedAgain,
       );
+      await this.ratedFromALaterLook(userId, task, already, judgedAgain);
       return this.list(userId, taskId);
     }
 
@@ -288,7 +325,7 @@ export class OrderCandidatesService {
     const judged = judgeFoundOrders(pages, {
       productName: task.campaign.productName,
       productPricePaise: task.campaign.productPricePaise,
-    });
+    }, howToMatchThis(task));
 
     this.log.log(
       `orders-found task=${taskId} judged=${judged.length} `
@@ -307,6 +344,12 @@ export class OrderCandidatesService {
           orderNumber: j.orderNumber,
           orderDate: j.orderDate,
           totalPaise: j.totalPaise,
+          // THE BILL LINES THE PAGE PRINTED — Phase 8B. Read by the parser all
+          // along and dropped here; a refund on a watched purchase is worked out
+          // from THIS row, long after the page is gone.
+          itemTotalPaise: j.itemTotalPaise,
+          feesPaise: j.feesPaise,
+          billDiscountPaise: j.billDiscountPaise,
           deliveryDate: j.deliveryDate,
           returnWindowEndsAt: j.returnWindowEndsAt,
           returned: j.returned,
@@ -317,6 +360,56 @@ export class OrderCandidatesService {
         })),
       });
     });
+
+    // ── A PURCHASE FAYR WATCHED IS CONFIRMED BY THE SERVER'S OWN MATCH ────
+    //
+    // PHASE 8A, THE OWNER'S DECISION, 19 September 2026: "order-details ('YES,
+    // THAT IS MINE') goes by the owner's decision: the phone watched THIS order
+    // be placed from THIS claim; the server's match on the watched page is the
+    // confirm." So the tap is not waited for.
+    //
+    // THREE THINGS MUST ALL HOLD, and not one of them is the phone's word about
+    // a match:
+    //
+    //   THE TASK CARRIES A WATCHED KEY   Fayr saw a confirmation page for this
+    //                                    claim, inside its own view.
+    //   EXACTLY ONE PAGE ARRIVED         a phone reading its watched order posts
+    //                                    that one page. A list read posts
+    //                                    several, and a list is never the watched
+    //                                    page — so a list can never confirm.
+    //   THE SERVER JUDGED IT A MATCH     the same product at the same price, by
+    //                                    the same one comparison as always.
+    //
+    // THROUGH chooseMine AND NO OTHER WAY, which is the road the tap takes: the
+    // order window rule, the plausibility gate, the price certainty and the
+    // promoted columns all apply unchanged. A refusal there is an ANSWER — the
+    // engine writes the blocker onto the task and the journey shows it — and
+    // never a failure of the read.
+    if (
+      task.watchedOrderKey != null
+      && pages.length === 1
+      && judged.length === 1
+      && judged[0].matches
+    ) {
+      const theOne = await this.prisma.orderCandidate.findFirst({
+        where: { taskId, position: 0 },
+      });
+      if (theOne != null) {
+        try {
+          const after = await this.chooseMine(userId, taskId, theOne.id);
+          this.log.log(
+            `orders-found task=${taskId} watched=yes `
+            + `confirmed=${after.order?.orderConfirmed === true} `
+            + `blocker=${after.blocker ?? 'none'}`,
+          );
+        } catch (e) {
+          this.log.warn(
+            `orders-found task=${taskId} watched=yes confirmed=no: `
+            + `${e instanceof Error ? e.message : 'unknown'}`,
+          );
+        }
+      }
+    }
 
     return this.list(userId, taskId);
   }
@@ -371,6 +464,12 @@ export class OrderCandidatesService {
         productName: task.campaign.productName,
         expectedPricePaise: task.campaign.productPricePaise,
       },
+      // THE SAME QUESTION THE LOOK ASKED, asked again the same way. A watched
+      // purchase is judged on the product alone here too — otherwise an order
+      // this very service auto-confirmed a moment ago would be refused at the
+      // tap, and the two halves of one decision would disagree about somebody's
+      // purchase. See HowToMatch.
+      howToMatchThis(task),
     );
     if (!answer.matches || answer.item == null) {
       throw new ConflictException(
@@ -397,6 +496,54 @@ export class OrderCandidatesService {
     const price = typeof answer.item.pricePaise === 'bigint'
       ? answer.item.pricePaise
       : BigInt(Math.trunc(answer.item.pricePaise));
+
+    // ── AND FOR A PURCHASE FAYR WATCHED, THE AMOUNT IS WORKED OUT INSTEAD ──
+    //
+    // PHASE 8B-a, THE OWNER'S WORDS, 19 September 2026: "whatever amount the
+    // user has paid ... We will just give a refund on that particular amount,
+    // the paid amount, not on the amount that we were showing on our app" — and
+    // "the user will receive only a refund on 359, not on 400. The extra
+    // delivery charge is not in our hands."
+    //
+    // itemPriceIsCertain cannot answer that, and must not be made to: its whole
+    // question is "is this figure the offer's figure", which for a watched order
+    // is now a question about the AMOUNT rather than about the verdict. A coupon,
+    // a shop's own discount or a price that moved would each make it answer no,
+    // and a refund the owner wants paid would sit waiting for a person.
+    //
+    // THE SERVER DOES THE ARITHMETIC, from this row's own stored lines. The
+    // phone sent page text and nothing else; it names no figure here and cannot.
+    const watchedBase = task.watchedOrderKey == null
+      ? null
+      : theRefundBase({
+        // THE PRODUCT AS THE PAGE PRINTED IT, struck price and stated count and
+        // all. answer.item is the comparison's own narrow shape and carries
+        // neither, so the same line is found again among the stored items — by
+        // the name and price the comparison itself chose, not by a second guess
+        // at which line was meant.
+        item: items.find(
+          (i) => i.name === answer.item?.name && i.pricePaise === price,
+        ) ?? null,
+        items,
+        bill: theBillOn(row),
+        listedPaise: task.campaign.productPricePaise,
+      });
+
+    // WHAT GOES ON THE EVIDENCE AS THE REFUND BASIS, from whichever of the two
+    // rules applies. A null base is not a refusal: the order still matched, the
+    // task still moves, and the existing gate holds the money for a person —
+    // which is exactly what an uncertain price has always done.
+    const theBasis = watchedBase != null
+      ? (watchedBase.paise == null
+        ? {}
+        : {
+          unitPricePaise: String(watchedBase.paise),
+          quantity: 1,
+          amountSource: SOURCES.ORDER_HISTORY,
+        })
+      : (certain
+        ? { unitPricePaise: String(price), quantity: 1, amountSource: SOURCES.ORDER_HISTORY }
+        : {});
 
     // THE DATE, AND WHY IT IS SOMETIMES LEFT OFF. All that was read was a day,
     // and the time to buy after claiming is measured in minutes, so a day only
@@ -449,9 +596,20 @@ export class OrderCandidatesService {
         // The same figure the match was made on, carried rather than recomputed,
         // so the candidate card and the task cannot print two different numbers.
         matchedPricePaise: String(price),
-        ...(certain
-          ? { unitPricePaise: String(price), quantity: 1, amountSource: SOURCES.ORDER_HISTORY }
-          : {}),
+        ...theBasis,
+        // ── AND WHY IT DIFFERED FROM THE OFFER'S PRICE, IN THE PAGE'S TERMS ──
+        //
+        // A NOTE, AND NOTHING READS IT TO DECIDE ANYTHING. Not the refund gate,
+        // not the engine, not the wallet — the whole payout input is the figure
+        // above it. It is here for the person at Fayr who has to answer "why is
+        // this refund not the number on the offer?", and every answer it can
+        // carry is derived from a line the page actually printed. See
+        // engine/watched-price.ts.
+        //
+        // IT CANNOT ARRIVE FROM A PHONE. The field is declared on the evidence
+        // DTO with no validator at all, so the global whitelist refuses any body
+        // that carries one — see the note beside it in submit-evidence.dto.ts.
+        ...(watchedBase == null ? {} : { priceGapReason: watchedBase.because }),
         source: SOURCES.ORDER_HISTORY,
       },
       // ── AND THE DELIVERY, WHICH THE SAME PAGE STATED ────────────────────
@@ -549,16 +707,13 @@ export class OrderCandidatesService {
       returnWindowEndsAt: Date | null;
       returned: boolean | null;
     },
-    pages: string[],
+    /** Every page of this look, already read and judged by the caller. */
+    judged: JudgedOrder[],
   ): Promise<void> {
     // NO ORDER NUMBER IS NO MATCH. Said first because it is the guard that keeps
     // one purchase's delivery off another purchase.
     if (chosen.orderNumber == null || chosen.orderNumber === '') return;
 
-    const judged = judgeFoundOrders(pages, {
-      productName: task.campaign.productName,
-      productPricePaise: task.campaign.productPricePaise,
-    });
     const fresh = judged.find((j) => j.orderNumber === chosen.orderNumber) ?? null;
     if (fresh == null) return;
 
@@ -637,6 +792,107 @@ export class OrderCandidatesService {
       // not posted yet, to say nothing new.
       this.log.warn(
         `orders-found task=${task.id} later-look delivery refused: `
+        + `${e instanceof Error ? e.message : 'unknown'}`,
+      );
+    }
+  }
+
+  /**
+   * THE REVIEW, READ OFF THE SAME PAGE, WITH NOBODY ASKED. Phase 8A, Task 5.
+   *
+   * ── WHAT "REVIEWED" MEANS ON A SHOP WITH NO REVIEW FORM ──────────────────
+   *
+   * Zepto, Blinkit and Instamart take a private star on the order and publish
+   * no words; the words are written inside Fayr. So the one thing the shop's own
+   * page can say about a review is that the order HAS BEEN RATED — "You rated:"
+   * and no "Rate Order", measured on the owner's own pages, see ParsedOrder.rated
+   * — and that is what moves a task from DELIVERED to REVIEWED. The owner, 19
+   * September 2026: "Rated -> REVIEWED."
+   *
+   * ── THE SAME FRAGMENT THE FROZEN READER HAS ALWAYS SENT ──────────────────
+   *
+   * src/taskflow.js's quick-commerce reader has said, since it was written:
+   * published true, publishedSource order-history, verified true, and no words.
+   * This is that fragment, built HERE from the page the server read, so one
+   * order rated two ways gives one answer. Its own note travels with it: the
+   * marker says the account rated the item, not that anything is publicly
+   * readable, and that difference is recorded rather than papered over.
+   *
+   * ── AND THEN THE TWO EVENTS THAT MOVE THE TASK, exactly as reviews-found ─
+   *
+   * Evidence alone does not move a task past DELIVERED. MARK_REVIEWED and then
+   * START_HOLD are attempted in turn and never assumed, exactly as
+   * review-candidates.service.ts does for a review read off a public page. A
+   * gate that refuses either leaves the record where it was, and the journey
+   * works its own step out from it.
+   *
+   * ── WHAT IT REFUSES TO DO ────────────────────────────────────────────────
+   *
+   *   IT READS NO NUMBER OF STARS AND NO WORDS. The page prints no number, none
+   *     is read and none is wanted: a low rating passes exactly as a high one.
+   *   IT ACTS ONLY ON THE CHOSEN ORDER'S OWN PAGE, matched by order number, for
+   *     the reason deliveryFromALaterLook gives above.
+   *   IT ACTS ONLY ON A DELIVERED TASK. A rating read on a task the shop has not
+   *     yet said arrived is left for the next look, when the same page will say
+   *     both. A task already past DELIVERED is left alone: nothing goes back.
+   */
+  private async ratedFromALaterLook(
+    userId: string,
+    task: { id: string },
+    chosen: { id: string; orderNumber: string | null },
+    judged: JudgedOrder[],
+  ): Promise<void> {
+    if (chosen.orderNumber == null || chosen.orderNumber === '') return;
+    const fresh = judged.find((j) => j.orderNumber === chosen.orderNumber) ?? null;
+    if (fresh == null || fresh.rated !== true) return;
+
+    // THE STATE AS IT STANDS NOW, after the delivery half of this same look,
+    // which may just have moved it to DELIVERED.
+    const standing = await this.tasks.getForUser(userId, task.id);
+    if (rank(standing.state) !== rank(STATES.DELIVERED)) {
+      this.log.log(
+        `orders-found task=${task.id} later-look rated=yes `
+        + `state=${standing.state} left-alone`,
+      );
+      return;
+    }
+
+    const dto: SubmitEvidenceDto = {
+      // ITS OWN KEY, KEYED ON THE CHOSEN ROW. A re-read of the same rated page
+      // collapses to one event; there is no day to carry because the page prints
+      // none for the rating.
+      key: `rated:${chosen.id}`,
+      review: {
+        published: true,
+        publishedSource: SOURCES.ORDER_HISTORY,
+        verified: true,
+        ...(fresh.matchedItem?.name ? { product: fresh.matchedItem.name } : {}),
+      },
+    };
+    this.log.log(`orders-found task=${task.id} later-look rated=yes review=sent`);
+    try {
+      await this.tasks.submitEvidence(userId, task.id, dto);
+    } catch (e) {
+      this.log.warn(
+        `orders-found task=${task.id} later-look review refused: `
+        + `${e instanceof Error ? e.message : 'unknown'}`,
+      );
+      return;
+    }
+    try {
+      await this.tasks.markReviewed(userId, task.id);
+    } catch (e) {
+      this.log.warn(
+        `orders-found task=${task.id} later-look mark-reviewed refused: `
+        + `${e instanceof Error ? e.message : 'unknown'}`,
+      );
+      return;
+    }
+    try {
+      await this.tasks.startHold(userId, task.id);
+    } catch (e) {
+      this.log.warn(
+        `orders-found task=${task.id} later-look start-hold refused: `
         + `${e instanceof Error ? e.message : 'unknown'}`,
       );
     }

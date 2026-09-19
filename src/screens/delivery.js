@@ -110,7 +110,9 @@ export default function DeliveryScreen({ navigation, route }) {
   const key = campaign ? campaign.marketplace : null;
   const shop = key && PLATFORMS[key] ? PLATFORMS[key].name : 'the shop';
 
-  const [, setTick] = useState(0);
+  // `tick` is read by the automatic look below, so a screen left open on this
+  // step asks the cadence again every half minute — see deliveryCadence.js.
+  const [tick, setTick] = useState(0);
   const taskId = campaignId ? getTaskId(campaignId) : null;
 
   // ── WHERE THIS SCREEN IS, IN ONE WORD ────────────────────────────────────
@@ -155,6 +157,18 @@ export default function DeliveryScreen({ navigation, route }) {
     if (!campaignId) return undefined;
     return subscribe(() => setTick((n) => n + 1));
   }, [campaignId]);
+
+  // ── AND THE CLOCK, SO A SCREEN LEFT OPEN LOOKS AGAIN WHEN IT MAY — 8A ────
+  //
+  // The owner: "delivery fetches itself. No screen, no tap." Until 19 September
+  // 2026 the automatic look ran on arrival and then only on the next arrival,
+  // so a phone left on this step for ten minutes never looked again. Every half
+  // minute this asks the cadence once more; the cadence, not this clock, says
+  // whether a look may start. See the note in deliveryCadence.js.
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if (!navigation || typeof navigation.addListener !== 'function') return undefined;
@@ -261,7 +275,12 @@ export default function DeliveryScreen({ navigation, route }) {
         && record.order.id !== '' ? record.order.id : null;
       navigation.navigate('LookingForIt', { campaignId, onlyThisOrder: itsOrder });
     }
-  }, [asksNothing, known, taskId, campaignId, navigation]);
+    // `tick` IS A DEPENDENCY ON PURPOSE: it is what makes an open screen ask
+    // the cadence again. The read itself reads the WATCHED ORDER'S OWN PAGE
+    // when the record carries its key — whichRead.js decides that inside
+    // LookingForIt, from the record, so the order named here is the fallback
+    // for a shop whose pages are addressed by their number.
+  }, [asksNothing, known, taskId, campaignId, navigation, tick]);
 
   // ── AND NOBODY IS LEFT WATCHING A WORD THAT NEVER CHANGES ───────────────
   //
@@ -354,8 +373,14 @@ export default function DeliveryScreen({ navigation, route }) {
             <Text style={styles.cardBody}>
               We read the delivery from your own orders on {shop}, so there is
               nothing to tap and nothing to tell us. We look again next time you
-              open this. If it has arrived and {shop} is slow to say so, send us a
-              picture and a person will take it from there.
+              open this.
+              {/* THE PICTURE IS OFFERED ONLY WHERE IT IS OFFERED, which since
+                  Phase 8A is not on a shop inside Fayr: the watched order's own
+                  page is read again instead. The sentence goes with the door. */}
+              {!asksNothing
+                ? ` If it has arrived and ${shop} is slow to say so, send us a `
+                  + 'picture and a person will take it from there.'
+                : ' We look again by ourselves while this is open.'}
             </Text>
           </View>
         ) : null}
@@ -386,7 +411,13 @@ export default function DeliveryScreen({ navigation, route }) {
             photograph of something Fayr is in the middle of reading for itself,
             and offering it before the question is answered would be asking for
             one before anybody had looked at all. */}
-        {!reading && !asking && !delivered ? (
+        {/* ── AND NEVER FOR A SHOP INSIDE FAYR — PHASE 8A, TASK 4 ──────────
+            The owner: "The product is delivered. It should not ask the user if
+            the product is delivered." A photograph is the same question asked
+            of a camera. For Zepto, Blinkit and Instamart the watched order's own
+            page is read again on the cadence, and that page is the only
+            evidence there is. The four other shops keep the door. */}
+        {!reading && !asking && !delivered && !asksNothing ? (
           <Ghost
             onPress={() => navigation.navigate('ProofUpload', {
               campaignId, kind: 'DELIVERY',

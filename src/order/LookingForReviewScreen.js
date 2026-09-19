@@ -25,6 +25,17 @@
 // It opens pages and sends TEXT. Whether any of it is this campaign's product,
 // and whether the review counts as publicly visible, are both settled on the
 // server. There is no field on the way in for either.
+//
+// ── A SHOP INSIDE FAYR DOES NOT COME HERE — PHASE 8A, 19 SEPTEMBER 2026 ──
+//
+// Zepto, Blinkit and Instamart publish no review and keep no list of them, so
+// there is nothing on any of these three for this read to open. For those
+// shops the review is written inside Fayr and the shop's own page says only
+// that the order HAS BEEN RATED. That page is the watched order's own page,
+// and coming back from it runs the ORDER read — src/order/LookingForItScreen.js,
+// pointed at that one page by whichRead.js — whose text the server reads the
+// rated signal off. Phase 7 sent that return here, where it looked at nothing
+// and handed back; nothing in this file changed for the shops that do come.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated, Easing, StyleSheet, Text, View,

@@ -66,6 +66,17 @@ export interface TaskResponse {
     matchedPricePaise: string | null;
     /** Also a resolver input: more than one amount was found in the item's row. */
     itemAmountAmbiguous: boolean;
+    /**
+     * WHY WHAT THEY PAID IS NOT WHAT THE OFFER SAID, on a purchase Fayr watched.
+     *
+     * One of the names in engine/watched-price.ts, or null on every other task.
+     * Carried so the staff user page can say it in words: until now the panel
+     * could show a refund that was not the offer's percentage of the offer's
+     * price and had nothing anywhere to explain the difference.
+     *
+     * SHOWN, AND NEVER READ TO DECIDE ANYTHING. See EvidenceOrder.priceGapReason.
+     */
+    priceGapReason: string | null;
     match?: {
       score?: number | null;
       amountOk?: boolean | null;
@@ -150,6 +161,17 @@ export interface TaskResponse {
    * ago they told us they posted it.
    */
   wentToReviewAt: string | null;
+  /**
+   * THE KEY IN THE ADDRESS OF THE ORDER FAYR WATCHED BEING PLACED, or null.
+   *
+   * Sent so the phone can open THAT ONE order page for the order read, the
+   * delivery read and the review read — from any phone, after any reinstall —
+   * instead of walking the shop's list. It is an address fragment and not the
+   * order number: `order.id` above is the number the page prints and the refund
+   * gate compares. Neither goes in the other's place. See tasks.watchedOrderKey
+   * in schema.prisma and engine/watched-order.ts.
+   */
+  watchedOrderKey: string | null;
   /**
    * The pop-up's own words, frozen at the tap, with the real time inside them.
    *
@@ -269,6 +291,7 @@ export function toTaskResponse(
               ? task.order.matchedPricePaise.toString()
               : null,
           itemAmountAmbiguous: task.order.itemAmountAmbiguous === true,
+          priceGapReason: task.order.priceGapReason ?? null,
           product: task.order.product ?? null,
           date: isoEpoch(task.order.date),
           // Straight off the record, unchanged. See the field's own comment: it
@@ -311,6 +334,7 @@ export function toTaskResponse(
     wentToShopAt: iso(row.wentToShopAt),
     shopHoldEndsAt: iso(row.shopHoldEndsAt),
     wentToReviewAt: iso(row.wentToReviewAt),
+    watchedOrderKey: row.watchedOrderKey ?? null,
     shopVisitNoticeText: row.shopVisitNoticeText ?? null,
     practiceWindowDays: row.practiceWindowDays ?? null,
     // BUILT HERE AND NOWHERE ELSE. `now` is the same instant the rest of this

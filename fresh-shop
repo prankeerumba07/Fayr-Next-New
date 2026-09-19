@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# ONE COMMAND TO PUT A QUICK-COMMERCE WALKTHROUGH BACK AT THE VERY START.
+#
+#   ./fresh-shop ZEPTO        (or BLINKIT, or INSTAMART)
+#
+# WHY THIS EXISTS. fresh-amazon does exactly this for Amazon and says why: the
+# older ./reset-amazon-campaigns counts a price READ OFF A SHOP'S PAGE as money,
+# so the moment an order read succeeds the claim is locked and can never be
+# reset. The three shops that open INSIDE Fayr now read their own order pages
+# too, so they lock the same way, and a Zepto walkthrough could only be started
+# once. This is fresh-amazon, pointed at the shop named on the command line.
+#
+# WHAT IT WILL NOT TOUCH. Any claim with a ledger movement against it is left
+# exactly where it is, and the count of those is printed. That refusal is the
+# money rule and it does not weaken here.
+#
+# WHAT IT PRINTS. Counts, and nothing else. No order numbers, no watched order
+# keys, no page text, no titles, no person. A reset tool has no business
+# reading any of that back to a terminal, and the numbers are all the owner
+# needs to see that the rows went.
+#
+# WHOSE ROWS. The practice database holds this owner's practice rows and
+# nobody else's — that is what the _dev/_test guard below is for — so the scope
+# is the shop and the money rule, exactly as fresh-amazon. A user id written
+# into this file would be a second place for a name to disagree with itself,
+# which is the bug the DATABASE_URL note below was written about.
+#
+# IT DOES NOT RESTART ANYTHING, on purpose. ./start re-seeds the practice data
+# every launch, and the seed creates fresh claims. Restarting to reset is what
+# puts the row back. Leave ./start running and use this instead.
+
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+bad()  { printf '  \033[31m%s\033[0m\n' "$1"; }
+
+# ── WHICH SHOP, AND NOTHING ELSE IS A SHOP ──────────────────────────────────
+#
+# One argument, matched against a written-out list. The value is put into SQL
+# below, so it is never the string the caller typed: it is one of the three
+# words on this list or the script has already stopped.
+PLATFORM="$(printf '%s' "${1-}" | tr '[:lower:]' '[:upper:]')"
+case "$PLATFORM" in
+  ZEPTO|BLINKIT|INSTAMART) : ;;
+  *)
+    bad "Name one shop to reset — ZEPTO, BLINKIT or INSTAMART (Amazon has its own script, fresh-amazon)."
+    exit 1 ;;
+esac
+
+# ── WHICH DATABASE, ASKED OF THE ONE FILE THE BACKEND ITSELF READS ──────────
+#
+# THE BUG THIS AVOIDS, and it cost the owner an evening on 16 September 2026.
+# fresh-amazon had `-d fayr_dev` written into it by hand. The backend connects
+# to fayr_next_dev. So every run deleted rows out of a database nothing was
+# using, printed "what is left" from that same empty database, and reported
+# success, while the claim it was meant to clear sat untouched.
+#
+# A NAME WRITTEN IN TWO FILES IS A NAME THAT DISAGREES WITH ITSELF. So it is
+# read from backend/.env, which is the file the server is actually started
+# from, and never written here.
+ENVFILE="$HERE/backend/.env"
+if [ ! -f "$ENVFILE" ]; then
+  bad "Cannot find backend/.env, so I do not know which database the backend uses."
+  exit 1
+fi
+URL="$(sed -n 's/^DATABASE_URL=//p' "$ENVFILE" | head -1)"
+URL="${URL%\"}"; URL="${URL#\"}"
+URL="${URL%\'}"; URL="${URL#\'}"
+if [ -z "$URL" ]; then
+  bad "backend/.env has no DATABASE_URL line."
+  exit 1
+fi
+# postgresql://user:pass@host:port/NAME?query  ->  NAME
+DBNAME="${URL##*/}"
+DBNAME="${DBNAME%%\?*}"
+
+# ── AND IT IS A PRACTICE DATABASE OR NOTHING ────────────────────────────────
+#
+# The same rule scripts/settle-known-item-prices.ts keeps, for the same reason:
+# a name that does not end in _dev or _test is somebody's real records, and this
+# script deletes rows. Fails closed on an empty or odd name.
+case "$DBNAME" in
+  *_dev|*_test) : ;;
+  *)
+    bad "Refusing to touch \"$DBNAME\": this deletes rows and that is not a practice database."
+    exit 1 ;;
+esac
+
+DB=(docker exec -i fayr-postgres psql -U fayr -d "$DBNAME")
+
+if ! docker exec fayr-postgres pg_isready -U fayr -d "$DBNAME" >/dev/null 2>&1; then
+  bad "The database is not answering. Start everything first with ./start"
+  exit 1
+fi
+
+bold ""
+bold "Shop: $PLATFORM   Database: $DBNAME   (read from backend/.env, not written into this script)"
+
+# ── BEFORE ──────────────────────────────────────────────────────────────────
+#
+# Counts only. `money_moved` is the same test the delete below refuses on, so
+# the two can never mean different things: a claim counted here as money is a
+# claim the delete leaves alone.
+bold ""
+bold "BEFORE — how many claims on this shop, and how many of them touched money"
+"${DB[@]}" <<SQL
+SELECT t.state,
+       count(*) AS claims,
+       count(*) FILTER (
+         WHERE EXISTS (SELECT 1 FROM ledger_transactions l
+                       WHERE l."referenceType" = 'task'
+                         AND l."referenceId" = t.id::text)
+       ) AS money_moved
+FROM tasks t JOIN campaigns c ON c.id = t."campaignId"
+WHERE c.platform = '$PLATFORM'
+GROUP BY t.state
+ORDER BY t.state;
+SQL
+
+bold ""
+bold "BEFORE — the rows that hang off those claims"
+"${DB[@]}" <<SQL
+SELECT
+  (SELECT count(*) FROM tasks t JOIN campaigns c ON c.id = t."campaignId"
+    WHERE c.platform = '$PLATFORM') AS claims,
+  (SELECT count(*) FROM order_candidates o
+     JOIN tasks t ON t.id = o."taskId" JOIN campaigns c ON c.id = t."campaignId"
+    WHERE c.platform = '$PLATFORM') AS order_pages_read,
+  (SELECT count(*) FROM screenshot_uploads s
+     JOIN tasks t ON t.id = s."taskId" JOIN campaigns c ON c.id = t."campaignId"
+    WHERE c.platform = '$PLATFORM') AS pictures_sent,
+  (SELECT count(*) FROM task_events e
+     JOIN tasks t ON t.id = e."taskId" JOIN campaigns c ON c.id = t."campaignId"
+    WHERE c.platform = '$PLATFORM') AS steps_recorded,
+  (SELECT count(*) FROM task_reviews r
+     JOIN tasks t ON t.id = r."taskId" JOIN campaigns c ON c.id = t."campaignId"
+    WHERE c.platform = '$PLATFORM') AS reviews_recorded;
+SQL
+
+# ── THE DELETE ──────────────────────────────────────────────────────────────
+#
+# THE MONEY RULE IS THE WHERE CLAUSE. NOT EXISTS a ledger_transactions row for
+# this task, written exactly as fresh-amazon writes it.
+#
+# The child rows go with the claim by the database's own ON DELETE CASCADE —
+# order_candidates, task_events, visibility_checks, screenshot_uploads (and the
+# evidence_submissions row that hangs off each picture) and task_reviews. They
+# are not deleted separately on purpose: a second statement is a second place
+# to forget a table, and a child that outlived its claim would be read later as
+# somebody's order.
+#
+# psql prints "DELETE <n>" — that number is how many claims went.
+bold ""
+bold "REMOVING the ones with no real money against them"
+"${DB[@]}" <<SQL
+DELETE FROM tasks AS t
+USING campaigns AS c
+WHERE c.id = t."campaignId"
+  AND c.platform = '$PLATFORM'
+  AND NOT EXISTS (
+    SELECT 1 FROM ledger_transactions l
+    WHERE l."referenceType" = 'task' AND l."referenceId" = t.id::text
+  );
+SQL
+
+# ── AFTER ───────────────────────────────────────────────────────────────────
+#
+# Everything still standing touched money and was left alone on purpose. If
+# `claims` is not zero here, that is the money rule doing its job, not a
+# failure.
+bold ""
+bold "AFTER — what is left (every one of these touched money and was left alone)"
+"${DB[@]}" <<SQL
+SELECT
+  (SELECT count(*) FROM tasks t JOIN campaigns c ON c.id = t."campaignId"
+    WHERE c.platform = '$PLATFORM') AS claims_left,
+  (SELECT count(*) FROM order_candidates o
+     JOIN tasks t ON t.id = o."taskId" JOIN campaigns c ON c.id = t."campaignId"
+    WHERE c.platform = '$PLATFORM') AS order_pages_left,
+  (SELECT count(*) FROM screenshot_uploads s
+     JOIN tasks t ON t.id = s."taskId" JOIN campaigns c ON c.id = t."campaignId"
+    WHERE c.platform = '$PLATFORM') AS pictures_left,
+  (SELECT count(*) FROM task_events e
+     JOIN tasks t ON t.id = e."taskId" JOIN campaigns c ON c.id = t."campaignId"
+    WHERE c.platform = '$PLATFORM') AS steps_left,
+  (SELECT count(*) FROM task_reviews r
+     JOIN tasks t ON t.id = r."taskId" JOIN campaigns c ON c.id = t."campaignId"
+    WHERE c.platform = '$PLATFORM') AS reviews_left;
+SQL
+
+bold ""
+bold "Now reload the app: press  r  in the window running ./start."
+echo "  Do NOT stop and re-run ./start — its step 4 re-seeds a fresh claim."
+echo "  Every $PLATFORM offer should now read as claimable from the very start."

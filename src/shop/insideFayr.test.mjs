@@ -500,7 +500,20 @@ console.log('\n=== 9. the screen wires the decisions and decides nothing itself 
   // bought, or said a parcel arrived. The screen may record that a shop greeted
   // them and nothing else about what they did.
   ok(!/dispatch\(|postEvidence|applyAuthoritative/.test(screen),
-    'and this screen moves no task and sends no evidence');
+    'and this screen moves no task and applies no record itself');
+  // ── ONE FACT, AND ONLY ONE, GOES TO OUR SIDE FROM HERE — 19 SEPTEMBER 2026 ─
+  //
+  // This label used to say "sends no evidence", and it was true. Phase 8A
+  // gives the screen one thing to tell our side: the key in the address of the
+  // order it watched being placed. It goes by syncEvidence — the existing
+  // route with its outbox and its retry — and the body is built next door by
+  // whatToTellOurSide, which puts NOTHING the engine reads in it: no order, no
+  // delivery, no review, no blocker. It is a place to look, not a fact about
+  // money, and the checks in theWatchedOrder.test.mjs hold it to that.
+  ok((screen.match(/syncEvidence\(/g) || []).length === 1,
+    'the screen tells our side through the evidence route exactly once');
+  ok(/syncEvidence\(taskId, tell\.body\)/.test(screen) && /whatToTellOurSide\(\{/.test(screen),
+    'and what it tells is decided by theWatchedOrder.js, not written here');
   ok(/markVisitedShop\(campaignId, SIGNED_IN\)/.test(screen),
     'one note it may write is that the shop greeted them');
   // ── AND ONE MORE SINCE 18 SEPTEMBER 2026: THAT A READ HAS RUN ───────────

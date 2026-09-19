@@ -272,6 +272,18 @@ export function untaughtShopDetail({ shop, title, url }) {
 }
 
 /**
+ * THE ORDER FAYR WATCHED, TOLD TO OUR SIDE. Phase 8A.
+ *
+ * `told` is what the one POST answered: 'yes' when our side has it, 'queued'
+ * when the phone parked it for the next foreground. NEVER THE KEY. It is an
+ * address fragment tied to the owner's own account and it is already in the
+ * row where it belongs; the line only has to say that it went.
+ */
+export function watchedDetail({ campaignId, told }) {
+  return `campaign=${orNone(campaignId)} told=${orNone(told)}`;
+}
+
+/**
  * THE HAND-OFF: the shop screen is finished and the read that already exists
  * takes over.
  *

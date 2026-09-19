@@ -648,10 +648,13 @@ console.log('\n=== 13. a shop whose ORDER pages are drawn is gone to, one at a t
   // and each order page — every page this look can open gets its own name, and
   // the search is the one that is opened FIRST, so a late answer from it is
   // exactly the kind that could otherwise resolve the wait for the next page.
+  // FOUR SINCE 19 SEPTEMBER 2026: the watched order's own page, which Phase 8A
+  // opens INSTEAD of the search and the list when the record carries its key,
+  // gets its own name for the same reason every other page does.
   const opens = (code.match(/aFreshName\(\)/g) || []).length;
-  ok(opens === 3,
-    `and it is called wherever a page is opened (${opens}) — the search, the list, `
-    + 'and each order page');
+  ok(opens === 4,
+    `and it is called wherever a page is opened (${opens}) — the watched order, `
+    + 'the search, the list, and each order page');
   ok(!/anAnswerTag\(startedAt/.test(code),
     'and the one name for the whole look is gone, not merely unused');
   ok(/isOurAnswer\(payload, answerTag\.current\)/.test(code),

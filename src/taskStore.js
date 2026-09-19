@@ -17,6 +17,7 @@ import { claim as claimApi, listTasks, postTaskAction } from './backend/tasksApi
 import { isTaskAction, alreadyApplied } from './backend/taskActions';
 import { preferTask } from './ui/tasklist';
 import { forgottenCampaigns } from './forgotten';
+import { isLetGo } from './ui/letGo';
 
 const FILE = 'fayr-tasks-v3.json'; // v3: {campaignId: {taskId, authoritative}}
 
@@ -178,9 +179,23 @@ export function getTaskId(campaignId) {
   const e = entries[campaignId];
   return e ? e.taskId : null;
 }
+// IS THERE A LIVE CLAIM ON THIS OFFER? Not "is there a task id".
+//
+// ── CORRECTED 19 SEPTEMBER 2026, PHASE 8A, TASK 7 ──────────────────────────
+//
+// The owner: "'Continue' for ever ... A claim that was released and never
+// bought keeps its card on 'Continue'." A task that was let go — closed, still
+// CLAIMED, no order, which is exactly the shape backend/src/campaigns/seats.ts
+// frees a seat for — is not a live claim, and the Home and Detail cards read
+// this to decide between Continue and Claim. A REFUNDED task is closed and is
+// NOT let go: closed does not mean gone, and it still shows as done. The
+// decision is src/ui/letGo.js, walked under node against seats.ts's own source.
+//
+// The entry itself is KEPT. Nothing is filtered out of what our side sent: a
+// re-claim arrives as a new, open task and preferTask lets it win the slot.
 export function hasTask(campaignId) {
   const e = entries[campaignId];
-  return !!(e && e.taskId);
+  return !!(e && e.taskId && !isLetGo(e.authoritative));
 }
 export function getTasks() {
   const out = {};

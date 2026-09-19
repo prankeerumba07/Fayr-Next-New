@@ -2460,5 +2460,45 @@ console.log('\n=== the signing-up funnel, actually drawn ===');
     'every number on the chart is one the server sent');
 }
 
+console.log('\n=== WHY A REFUND IS NOT THE NUMBER ON THE OFFER — Phase 8B-a ===');
+{
+  // The server works a watched purchase's refund out from what the person paid
+  // for that one product, capped at the offer's price, and records WHICH printed
+  // line explains the difference. The panel is where a person reads it.
+  const words = (script.match(/var PRICE_GAP_WORDS = \{([\s\S]*?)\};/) || [])[1] || '';
+  ok(words.length > 100, 'the panel has a sentence for each price-gap reason');
+
+  // EVERY NAME THE SERVER CAN SEND HAS ONE, read off the server's own list so
+  // the two cannot drift apart.
+  const ruleFile = fs.readFileSync(
+    path.join(import.meta.dirname, '..', 'backend', 'src', 'tasks', 'engine', 'watched-price.ts'),
+    'utf8',
+  );
+  const listed = (ruleFile.match(/PRICE_GAP_REASONS = \[([\s\S]*?)\] as const;/) || [])[1] || '';
+  const names = [...listed.matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
+  ok(names.length === 6, `the server names ${names.length} reasons`);
+  for (const name of names) {
+    ok(new RegExp(`"${name}"\\s*:`).test(words), `the panel has an answer for "${name}"`);
+  }
+
+  // "none" IS NOTHING TO SAY, and says nothing rather than a reassuring line.
+  ok(/"none":\s*null/.test(words), '"none" draws no line at all');
+
+  // AND IT IS DRAWN ON THE OFFER CARD, which is where the refund figure is.
+  ok(/priceGapLine\(t\)/.test(script), 'the offer card draws it');
+  ok(/function priceGapLine\(t\)/.test(script), 'and the helper exists');
+  ok(/t\.order \? t\.order\.priceGapReason : null/.test(script),
+    'read off the order the server sent, and nowhere else');
+
+  // THE PANEL DOES NO ARITHMETIC WITH IT. It is a note, and the panel treats it
+  // as one: no comparison of amounts anywhere near it.
+  const helper = (script.match(/function priceGapLine\(t\) \{([\s\S]*?)\n    \}/) || [])[1] || '';
+  ok(helper.length > 50, 'the helper body was found');
+  ok(!/[*/+-]\s*\d|Paise|amount/i.test(helper), 'and it computes nothing');
+
+  // A NAME THE PANEL DOES NOT KNOW IS SHOWN, NOT SWALLOWED.
+  ok(/Price gap recorded as/.test(script), 'an unknown reason is printed as itself');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

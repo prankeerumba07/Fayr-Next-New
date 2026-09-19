@@ -166,9 +166,19 @@ it('and the order page line is said BEFORE the two branches that stop the look',
   // line, so a line said after them is a line that never appears on exactly the
   // runs worth explaining.
   const at = screen.indexOf("logLook('detail',");
-  const stops = screen.indexOf('if (detail.wantsSignIn === true)');
+  // THE STOP THAT BELONGS TO THIS LINE — the first one AFTER it — and not the
+  // first `if (detail.wantsSignIn === true)` in the file. Corrected 19 September
+  // 2026: the watched order's read, added by Phase 8A, opens its one page above
+  // the list and has a stop of its own, which this used to find first.
+  const stops = screen.indexOf('if (detail.wantsSignIn === true)', at);
   ok(at > 0 && stops > 0, 'both the line and the branch are there to compare');
   ok(at < stops, 'the order page line is said before the look can stop');
+  // AND THE SAME RULE FOR THE WATCHED ORDER'S OWN LINE.
+  const watchedAt = screen.indexOf("logLook('watched', `status=");
+  const watchedStops = screen.indexOf('if (detail.wantsSignIn === true)', watchedAt);
+  ok(watchedAt > 0 && watchedStops > 0 && watchedAt < watchedStops,
+    'the watched order line is said before ITS look can stop');
+  ok(watchedAt < at, 'and it comes before the list path, because it replaces it');
 });
 
 it('THE LIST LINE says what came back without carrying it', () => {
@@ -256,7 +266,19 @@ it('and NO call site anywhere passes a page or an order text', () => {
   // AND IT IS ONLY WRITTEN WHEN SOMETHING WAS PRESSED, so a shop with no
   // measured button — which is every shop but Zepto — logs exactly what it did
   // before.
-  ok(calls.length === 7, `expected seven calls, found ${calls.length}`);
+  //
+  // THE EIGHTH AND NINTH ARE THE WATCHED ORDER, added 19 September 2026 with
+  // Phase 8A. One line when the read opened THAT ONE order's page — status,
+  // byte count, landing with the key taken out, looked, whyNot, wantsSignIn,
+  // the same six words the order page line carries — and one when a key was on
+  // the record but no page could be built from it. Never the key: it is an
+  // address fragment tied to the owner's own account and it is already in the
+  // row where it belongs.
+  ok(calls.length === 9, `expected nine calls, found ${calls.length}`);
+  const watched = calls.filter((c) => c.startsWith("logLook('watched'"));
+  ok(watched.length === 2, `two watched lines, found ${watched.length}`);
+  ok(watched.every((c) => !/watchedKey|how\.url|\.text/.test(c)),
+    'and neither carries the key, the address or the page');
   const pressing = calls.find((c) => c.includes("logLook('presses'"));
   ok(pressing != null, 'and the seventh is the pressing line');
   ok(/n=\$\{drawn\.presses\}/.test(pressing) && /rows=\$\{drawn\.rowsAtTheEnd\}/.test(pressing),

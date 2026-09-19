@@ -87,10 +87,19 @@ console.log('\n=== 4. THE DELIVERY SCREEN ASKS NOTHING FOR A SHOP INSIDE FAYR ==
   // AND NOT THROUGH THE TAP'S PATH, whose once-per-sitting note would refuse the
   // ten minute re-look — the defect an adversarial review found on the first
   // writing of this effect.
-  const auto = code.slice(code.indexOf('if (!asksNothing || known || taskId == null) return;'),
-    code.indexOf('}, [asksNothing, known, taskId, campaignId, navigation]);'));
+  // BOTH ANCHORS MUST BE FOUND. An end anchor that is missing reads as -1, and
+  // slice(start, -1) is the whole rest of the file — which passed, on 19
+  // September 2026, for the wrong reason when the dependency list changed.
+  // `tick` joined it with Phase 8A: an open screen asks the cadence again every
+  // half minute, and the effect has to re-run for the ask to happen.
+  const autoStart = code.indexOf('if (!asksNothing || known || taskId == null) return;');
+  const autoEnd = code.indexOf('}, [asksNothing, known, taskId, campaignId, navigation, tick]);', autoStart);
+  ok(autoStart > -1 && autoEnd > autoStart, 'the automatic look and its dependency list are both where expected');
+  const auto = code.slice(autoStart, autoEnd);
   ok(auto.length > 50 && !/theySaidYes\(\)|alreadyLookedForDelivery|rememberWeLookedForDelivery/.test(auto),
     'and the automatic look is governed by the cadence alone, never by the per-sitting note');
+  ok(/setInterval\(\(\) => setTick\(\(n\) => n \+ 1\), 30000\)/.test(code),
+    'AND AN OPEN SCREEN ASKS AGAIN, every half minute, so the floor passing is noticed without a tap');
   ok(/navigation\.navigate\('LookingForIt', \{ campaignId, onlyThisOrder: itsOrder \}\)/.test(auto),
     'and it names the order, exactly as the tap\u2019s path does');
   // The two answer buttons are still drawn only under `asking`, which is false

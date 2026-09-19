@@ -332,6 +332,51 @@ export function timeLeftInWords(msLeft) {
 }
 
 /**
+ * THE BUY STEP AFTER THE ORDER WAS WATCHED. Phase 8A, 19 September 2026.
+ *
+ * ── WHY THESE EXIST ────────────────────────────────────────────────────────
+ *
+ * The owner: "Once the payment is done and they come back to the Zepto app
+ * [inside Fayr], I want the app to redirect me to the Fayr campaign page." That
+ * page then reads the order off the shop's own page by itself. While it does,
+ * and between looks, somebody is standing on the Buy step with a purchase made
+ * and nothing to tap — and a step that says nothing looks stuck.
+ *
+ * So four things are said: the order was seen; Fayr is reading it; the shop has
+ * not finished writing it up yet, when a look found nothing; and when the next
+ * look is. Each one is a fact about what Fayr is doing, and not one of them
+ * claims the purchase counted — the server decides that, from the page.
+ *
+ * THE SHOP'S NAME IS A HOLE, filled by the screen, the way reviewsGoLiveIn does
+ * it. The plain language rule reads the template with a name in it.
+ */
+export const ORDER_PLACED_WE_SAW_IT = 'Order placed. We saw it.';
+/** The key is parked for the next foreground, and nothing can be read until our side has it. */
+export const TELLING_OUR_SIDE = 'We are telling our side about it. This takes a moment.';
+export function readingYourOrder(shopName) {
+  return `We are reading your ${shopName} order ourselves. There is nothing to tap.`;
+}
+export function notWrittenUpYet(shopName) {
+  return `${shopName} has not finished writing your order up yet.`;
+}
+/**
+ * WHEN THE NEXT LOOK IS, in whole minutes, rounded up so it never says "now"
+ * about a moment that has not come. Zero is a look that may start now, which the
+ * screen starts rather than announces; this is the sentence for every other
+ * number.
+ */
+export function weLookAgainIn(minutes) {
+  const n = Math.max(1, Math.ceil(Number(minutes) || 0));
+  return n === 1 ? 'We look again in a minute.' : `We look again in ${n} minutes.`;
+}
+/** Our side refused the watched order. The reason under it is our side's own. */
+export const WE_CANNOT_COUNT_THIS_ORDER = 'We cannot count this order.';
+/** The one quiet door left on the step: the shop, again. */
+export function openTheShopAgain(shopName) {
+  return `Open ${shopName} again`;
+}
+
+/**
  * Every sentence this file can put in front of somebody, for the walk.
  *
  * The clock lines are produced by calling the real function at spans that
@@ -383,4 +428,12 @@ export const EVERY_SENTENCE = [
   timeLeftInWords(60 * 60 * 1000),
   timeLeftInWords(2 * 60 * 60 * 1000),
   timeLeftInWords(119 * 60 * 1000),
+  ORDER_PLACED_WE_SAW_IT,
+  TELLING_OUR_SIDE,
+  readingYourOrder('Zepto'),
+  notWrittenUpYet('Zepto'),
+  weLookAgainIn(1),
+  weLookAgainIn(8),
+  WE_CANNOT_COUNT_THIS_ORDER,
+  openTheShopAgain('Zepto'),
 ];

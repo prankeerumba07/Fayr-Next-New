@@ -61,10 +61,10 @@
  *
  * `inApp: true` says only "shop here, inside Fayr". It says nothing about what
  * this shop's pages look like, and the two must never be allowed to imply one
- * another: Zepto's order table below is a labelled guess, and Blinkit's and
- * Instamart's are deliberately EMPTY. An empty table answers CANNOT_TELL and
- * can never answer NOT_PLACED — see whatTheOrderPageSays, where that is a rule
- * of its own and runs first.
+ * another: Zepto's order table below is MEASURED, off the owner's own purchase
+ * of 18 September 2026, and Blinkit's and Instamart's are deliberately EMPTY.
+ * An empty table answers CANNOT_TELL and can never answer NOT_PLACED — see
+ * whatTheOrderPageSays, where that is a rule of its own and runs first.
  *
  * `inApp`       whether this shop shops inside Fayr at all.
  * `orderPlaced` what its confirmation page looks like, or `{}` for a shop
@@ -79,62 +79,74 @@
 export const SHOPS_INSIDE_FAYR = {
   zepto: {
     inApp: true,
-    // ── WHAT THIS SHOP'S "ORDER PLACED" PAGE LOOKS LIKE — EVERY LINE A GUESS ──
+    // ── WHAT THIS SHOP'S PURCHASE LOOKS LIKE — MEASURED, 18 SEPTEMBER 2026 ────
     //
-    // NOBODY HAS MEASURED IT. Not one of the phrases or paths below came off a
-    // real Zepto confirmation page, because nobody has ever placed an order
-    // inside this screen and watched what appeared. They are what an Indian
-    // quick-commerce shop ordinarily titles that page, which is a guess with
-    // good manners, and they are labelled as one here for the same reason
-    // theRightProduct.js labels its thresholds.
+    // Every line below came off the owner's own Zepto purchase inside this
+    // screen, from .local-logs/run.log, and replaces a table of guesses that had
+    // been labelled as guesses since Phase 1. The web view reported, in order:
     //
-    // PHASE 1'S LOG IS WHAT CORRECTS THEM. One real purchase writes the real
-    // title and the real address into the console, and this table is then
-    // rewritten from a fact instead of from an expectation.
+    //   19:37:01  bhim://upi//pay?...                            handed to the phone
+    //   19:37:20  /ProcessOrder?order_id=<uuid>                   back from paying
+    //   19:37:24  /order/status/<uuid>?referrer=home&from=ProcessOrder
+    //   19:37:37  /FaqList?orderId=<uuid>&orderCode=OGGHJGSNO04081    (a 404)
+    //   19:44:20  /order/<uuid>?child=true                        the order's own page
     //
-    // ── AND IT LEANS SHY, BECAUSE THE TWO MISTAKES DO NOT COST THE SAME ──────
+    // THREE SHAPES, AND THE OWNER NAMED THEM:
     //
-    // A MISSED order costs one extra tap: "Did you buy it?" is still on the
-    // journey and still works, for every shop, unchanged.
+    //   /order/status/<uuid>   a live order — this IS the confirmation
+    //   /order/<uuid>          an order's own page — may be old
+    //   /account/orders        the list — never a purchase
     //
-    // A FALSE order sends somebody into a read for a purchase that never
-    // happened, which ends in "we could not find it" and looks broken.
+    // ZEPTO'S TITLES NEVER SAY "ORDER PLACED". Every title that evening was
+    // "none" or "Everything delivered in minutes* | Zepto", so the title list
+    // is EMPTY and the address is the only signal for this shop. An empty list
+    // here is a measurement and not an absence, and theOrderPlaced.test.mjs
+    // pins it as one.
     //
-    // So a page has to POSITIVELY say so, and anything unrecognised answers
-    // "cannot tell" rather than being guessed at in either direction.
+    // ── THE BUG THIS TABLE CORRECTS ─────────────────────────────────────────
     //
-    // A NOTE ON PATHS AND THE RULE THAT NO ADDRESS IS WRITTEN IN THIS FILE: the
-    // strings below are path FRAGMENTS to recognise, never addresses to open.
-    // Nothing navigates to one. The rule at the top of this file is about not
-    // holding a second copy of a shop's DOMAIN, and there is still none here.
+    // The old table's notAFreshOrder held the bare fragment '/order/', which is
+    // also the start of '/order/status/'. The guard against FALSE purchases
+    // swallowed the REAL one — the log reads
+    //
+    //   ORDER? said=NOT_PLACED rule="an order's own page or the order list,
+    //          not a new order" url=https://www.zepto.com/order/status/01a0b4d7-…
+    //
+    // — and the read that followed walked the list and judged six strangers.
+    // So the bare order page is now written as "/order/ followed by anything
+    // that is not status/", which cannot swallow the confirmation, and the rule
+    // order in whatTheOrderPageSays — notAFreshOrder FIRST — is kept exactly.
+    //
+    // ── WHAT WAS SEEN AND IS DELIBERATELY NOT USED ──────────────────────────
+    //
+    // /ProcessOrder?order_id=<uuid> appears four seconds BEFORE /order/status/.
+    // It is a page that processes a payment, and a payment cancelled at the
+    // bank may well pass through it too — nobody has watched one. A page that
+    // processes is not yet an order, so it stays CANNOT_TELL. And the FaqList
+    // address carries the page's order NUMBER (orderCode=), the other
+    // identifier; it answered 404 and is not built on.
+    //
+    // PATH FRAGMENTS, NEVER A DOMAIN. The rule at the top of this file holds:
+    // nothing here is an address to open, and the domain lives once, in the
+    // frozen platforms.js.
     orderPlaced: {
-      // A page whose title says it outright.
-      titleSays: [
-        'order placed', 'order confirmed', 'order confirmation',
-        'order successful', 'order success', 'order received',
-        'thank you for your order', 'thanks for your order',
-      ],
-      // Or whose address does.
-      pathSays: [
-        '/order-confirmation', '/order-confirmed', '/order-success',
-        '/order-successful', '/order-placed', '/checkout/success',
-        '/checkout/confirmation', '/thank-you', '/thankyou',
-      ],
-      // ── AND THE PAGES THAT ARE AN ORDER BUT NOT A NEW ONE ─────────────────
+      // MEASURED EMPTY. The address is the only signal for this shop.
+      titleSays: [],
+      // A live order. This IS the confirmation.
+      pathSays: ['/order/status/'],
+      // The list, and the bare order page. A RegExp is a fragment too: it is
+      // matched against the path and nothing navigates to it. See markMatches
+      // in theOrderPlaced.js.
+      notAFreshOrder: ['/account/orders', /^\/order\/(?!status\/)/],
+      // ── WHERE THE ORDER'S KEY SITS IN THE ADDRESS ───────────────────────
       //
-      // THIS RULE RUNS FIRST, and it has to. Zepto's order history is where its
-      // startUrl already points, and its own order page prints "Order Placed
-      // at / 21 Jul 2026, 5:07 PM" — MEASURED, on the owner's real order, and
-      // quoted in backend/src/ocr/order-text.ts. So the words "order placed"
-      // genuinely appear on a page that is not a fresh purchase, and without
-      // this rule browsing old orders would fire a read every time.
-      //
-      // THE KNOWN COST, WRITTEN DOWN: if Zepto's checkout turns out to land
-      // straight on /order/<uuid> — which plenty of shops do — this rule
-      // suppresses the real signal and the person taps "Did you buy it?"
-      // instead. That is the shy direction, on purpose, and the log will say
-      // within one purchase whether it is what happens.
-      notAFreshOrder: ['/account/orders', '/order/'],
+      // What follows this fragment, up to the next slash, question mark or
+      // hash, is the key the phone opens that one order's page with later —
+      // for the order read, the delivery read and the review read. It is the
+      // UUID in the address, NOT the order number the page prints; see
+      // theOrderKeyInTheAddress in theOrderPlaced.js, and tasks.watchedOrderKey
+      // on our side for why the two must never be confused.
+      orderKeyFollows: '/order/status/',
     },
     // NULL MEANS THE PHONE'S OWN, and for shopping that is the right answer.
     // ConnectScreen overrides the user agent for exactly one shop — Amazon —
@@ -154,13 +166,14 @@ export const SHOPS_INSIDE_FAYR = {
   //
   // ── AND THEIR ORDER TABLES ARE EMPTY, WHICH IS THE WHOLE POINT ────────────
   //
-  // NOBODY HAS EVER WATCHED EITHER SHOP'S CONFIRMATION PAGE. Zepto's phrases
-  // above are already labelled a guess with good manners; copying that guess
-  // into two more shops would turn one unmeasured table into three and make
-  // them look measured by weight of numbers. An EMPTY table cannot be mistaken
-  // for a measurement, and whatTheOrderPageSays answers CANNOT_TELL to it
-  // explicitly — never NOT_PLACED, which would be a claim about a page nobody
-  // has seen.
+  // NOBODY HAS EVER WATCHED EITHER SHOP'S CONFIRMATION PAGE. Zepto's table
+  // above is measured, on Zepto, and says nothing about these two; copying it
+  // across would turn one measured table into three that look measured by
+  // weight of numbers. An EMPTY table cannot be mistaken for a measurement, and
+  // whatTheOrderPageSays answers CANNOT_TELL to it explicitly — never
+  // NOT_PLACED, which would be a claim about a page nobody has seen. Phase 8A
+  // keeps both EMPTY, in the owner's words, and theOrderKey.test.mjs fails the
+  // day either one stops being so.
   //
   // THE COST IS ONE TAP AND IT IS THE SHY DIRECTION. An order placed on Blinkit
   // is simply not noticed, and "Did you buy it?" is still on the journey, for

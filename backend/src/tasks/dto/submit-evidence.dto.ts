@@ -1,8 +1,9 @@
 import { Type } from 'class-transformer';
 import {
+  Equals,
   IsBoolean,
-  IsInt,
   IsIn,
+  IsInt,
   IsNumber,
   IsObject,
   IsOptional,
@@ -32,6 +33,7 @@ import {
   type BlockerName,
   type SourceName,
 } from '../engine/states';
+import { WATCHED_ORDER_KEY_SHAPE } from '../engine/watched-order';
 
 const BLOCKER_VALUES = Object.values(BLOCKERS);
 /**
@@ -151,6 +153,36 @@ class EvidenceOrderDto {
    */
   @IsOptional() @IsInt() @Min(1) @Max(100) quantityObserved?: number;
   @IsOptional() @IsString() amountSource?: string;
+
+  /**
+   * WHY THE PRICE DIFFERED FROM THE OFFER'S — AND THE SERVER'S WORD ONLY.
+   *
+   * ── A VALIDATOR THAT ACCEPTS NOTHING, WHICH IS THE POINT ─────────────────
+   *
+   * `@Equals(undefined)` passes when the field is absent and fails when it is
+   * there, whatever it says. So the server may set this shape in TypeScript —
+   * chooseMine builds it and hands it straight to submitEvidence, never through
+   * the pipe — and no request body can, because any body carrying one is a 400
+   * before it reaches a line of code.
+   *
+   * ── AND NOT BY LEAVING THE DECORATOR OFF, WHICH WAS TRIED ────────────────
+   *
+   * MEASURED, 19 SEPTEMBER 2026. An undecorated property looks like it would do
+   * the same job: the pipe runs `whitelist: true, forbidNonWhitelisted: true`
+   * and builds the whitelist from the decorators, so an undeclared field is
+   * refused. What actually happened is that class-transformer materialises every
+   * DECLARED property on the instance — as `undefined` — and forbidNonWhitelisted
+   * then refused the whole body for carrying a property it had no metadata for.
+   * EVERY evidence submission with an order in it started answering 400. The
+   * staff quantity suite caught it, twenty-nine tests at once.
+   *
+   * CHANGING THIS LINE CHANGES WHO MAY SET IT. There is a named check that pins
+   * the decorator, and an end-to-end test that posts one and expects a 400.
+   */
+  @Equals(undefined, {
+    message: 'priceGapReason is worked out by Fayr and cannot be sent',
+  })
+  priceGapReason?: string;
   @IsOptional() @IsBoolean() itemAmountAmbiguous?: boolean;
   @IsOptional()
   @ValidateNested()
@@ -213,6 +245,20 @@ export class SubmitEvidenceDto {
   @IsOptional() @IsBoolean() returned?: boolean;
 
   @IsOptional() @IsObject() probe?: Record<string, unknown>;
+
+  /**
+   * THE KEY IN THE ADDRESS OF THE ORDER THE PHONE WATCHED BEING PLACED.
+   *
+   * MEASURED 18 SEPTEMBER 2026: /order/status/<uuid> appeared inside Fayr one
+   * second after the owner paid. This is that uuid, sent ONCE through this same
+   * untrusted route, so the phone can open that one page later instead of the
+   * shop's list. It is a place to look and not a fact about money: no gate reads
+   * it, and it is never written into `order.id`, which is the order NUMBER the
+   * duplicate-order gate compares. See engine/watched-order.ts.
+   *
+   * BOUNDED TO WHAT MAY BE PART OF AN ADDRESS, because that is where it ends up.
+   */
+  @IsOptional() @IsString() @Matches(WATCHED_ORDER_KEY_SHAPE) watchedOrderKey?: string;
 }
 
 const toBig = (v: string | undefined): bigint | null =>
@@ -260,6 +306,7 @@ export function evidenceFromDto(dto: SubmitEvidenceDto): Evidence {
           quantityReason: dto.order.quantityReason ?? null,
           quantityObserved: dto.order.quantityObserved ?? null,
           amountSource: dto.order.amountSource ?? null,
+          priceGapReason: dto.order.priceGapReason ?? null,
           itemAmountAmbiguous: dto.order.itemAmountAmbiguous,
           match: dto.order.match
             ? {
