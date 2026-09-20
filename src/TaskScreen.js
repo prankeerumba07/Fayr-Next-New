@@ -41,6 +41,8 @@ import { countdownFor, messageText } from './journey/theNotice';
 import { goBackOrHome } from './ui/nav';
 import { timeLeftOnTheWindow, whenTheWindowEnds } from './ui/returnWindow';
 import { StageChip } from './ui/stagebits';
+// Which shops Fayr opens inside itself, for the order page the rating lives on.
+import { shopsInsideFayr } from './shop/insideFayr';
 
 const POLICY = createPolicy();
 
@@ -476,7 +478,38 @@ export default function TaskScreen({ navigation, route }) {
   const reviewed = rank >= STEPS.indexOf(STATES.REVIEWED);
   const published = !!(task.review && task.review.published === true);
   const refunded = task.state === STATES.REFUNDED;
-  const windowClosed = view.windowEndsAt != null && now >= view.windowEndsAt;
+  // ── THE SERVER'S WINDOW WINS, AND ON A QUICK SHOP IT IS THE ONLY RIGHT ONE ──
+  //
+  // 20 SEPTEMBER 2026, FROM THE OWNER'S OWN RAZOR. His task screen said the
+  // return window had "6d 23h remaining" while his row said:
+  //
+  //   deliveredAt   14:22:01
+  //   windowEndsAt  17:22:01     — three hours, exactly
+  //
+  // Both numbers are honestly computed and one of them is wrong here. `view`
+  // comes from describe(task, now, POLICY), and POLICY is createPolicy() in the
+  // frozen src/taskflow.js, which knows only DAYS — a default and a table by
+  // category. It has no way to express the three hour quick-commerce hold that
+  // backend/src/tasks/engine/return-policy.ts applies to Zepto, Blinkit and
+  // Instamart, so on those three the screen quietly showed a week.
+  //
+  // THE SERVER ALREADY SENDS THE ANSWER. task.response.ts puts the real instant
+  // on every snapshot as an ISO string. So the screen stops recomputing what it
+  // has been told and only falls back to its own arithmetic when the server has
+  // said nothing — which is the moment before the first snapshot arrives.
+  //
+  // NOT FIXED IN taskflow.js ON PURPOSE. That file is frozen, and the hold is a
+  // server rule about money; a second copy of it on the phone is exactly the
+  // drift this screen's own header rule warns about ("The BACKEND is the source
+  // of truth ... never from a timer that could drift from the server").
+  const serverWindowEndsAt = (() => {
+    const iso = authoritative && authoritative.windowEndsAt;
+    if (typeof iso !== 'string' || iso === '') return null;
+    const ms = Date.parse(iso);
+    return Number.isFinite(ms) ? ms : null;
+  })();
+  const windowEndsAt = serverWindowEndsAt != null ? serverWindowEndsAt : view.windowEndsAt;
+  const windowClosed = windowEndsAt != null && now >= windowEndsAt;
   const inHold = rank >= STEPS.indexOf(STATES.HOLDING);
   const eligible = view.refund.eligible;
   const rv = REVIEW_VERIFY[campaign.marketplace] || REVIEW_VERIFY.amazon;
@@ -533,6 +566,25 @@ export default function TaskScreen({ navigation, route }) {
       : navigation.navigate('LookingForIt', { campaignId })
   );
 
+  // THE ORDER THE RATING LIVES ON, and only when the shop is one Fayr opens
+  // inside itself. Read off the order Fayr already matched, never typed and
+  // never guessed: with no order number there is no page to open, so the step
+  // offers no button at all rather than a dead one.
+  const orderIdForReview = (() => {
+    if (!shopsInsideFayr(campaign.marketplace)) return null;
+    const id = task.order && task.order.id;
+    return typeof id === 'string' && id.trim() !== '' ? id.trim() : null;
+  })();
+  const goRateTheOrder = () => navigation.navigate('Shop', {
+    campaignId,
+    marketplace: campaign.marketplace,
+    // The two words ShopScreen needs to land on ONE order rather than on the
+    // shop's front page. See whereToLand: an order address is accepted only when
+    // Fayr's own view would load it AND it is on the shop's own origin.
+    land: 'order',
+    orderKey: orderIdForReview,
+  });
+
   const stages = [
     {
       key: 'claimed',
@@ -587,15 +639,45 @@ export default function TaskScreen({ navigation, route }) {
     {
       key: 'review',
       icon: '✍️',
-      title: reviewed ? 'Review submitted' : 'Write your review',
+      // ── IT OPENS THE ORDER. IT DOES NOT DECLARE THE REVIEW DONE ───────────
+      //
+      // 20 SEPTEMBER 2026. This step used to offer "I've written my review",
+      // which dispatched MARK_REVIEWED — and that is all it did. The owner's own
+      // task went to REVIEWED on one tap with:
+      //
+      //   task_reviews     0 rows
+      //   reviewPublished  null
+      //   wentToReviewAt   null
+      //
+      // No rating, no review, no evidence of any kind, and the next row then
+      // told him "processing automatically, nothing needed from you". He had
+      // rated nothing. A review Fayr has not READ is not a review, and this is
+      // the loophole the whole product exists to close — see CLAUDE.md, where
+      // public visibility is the signal and a person's word never is.
+      //
+      // WHERE IT GOES INSTEAD, and it is the page he asked for by name: "it
+      // should redirect them to that particular order details page where their
+      // details are showing, and they can add their ratings and reviews." Not
+      // the product page — that one has no rating on it. theOrderPage builds it
+      // from the order Fayr already read, which for Zepto is
+      // https://www.zepto.com/order/<id>?isArchived=false — My Orders, that
+      // order, where the stars are.
+      //
+      // AND THE STEP COMPLETES WHEN THE SHOP SAYS SO. The reader picks the
+      // rating off the order in the same sweep that read the delivery; nothing
+      // here writes REVIEWED, so there is no longer any way to reach it by
+      // tapping. A shop whose order carries no readable rating therefore stays
+      // on this step rather than advancing on somebody's word — which is the
+      // honest outcome, and is visible rather than silent.
+      title: reviewed ? 'Review submitted' : 'Rate your product',
       sub: reviewed
         ? `Posted on ${platformName}`
-        : 'An honest review once you’ve used the product',
+        : `Open your order on ${platformName} and rate it there`,
       state: reviewed ? 'done' : hasDelivery ? 'active' : 'pending',
-      action: !reviewed && hasDelivery
+      action: !reviewed && hasDelivery && orderIdForReview != null
         ? {
-            label: 'I’ve written my review',
-            onPress: () => act({ type: 'MARK_REVIEWED', key: 'reviewed', at: Date.now() }),
+            label: `Rate it on ${platformName}`,
+            onPress: goRateTheOrder,
           }
         : null,
     },
@@ -613,8 +695,8 @@ export default function TaskScreen({ navigation, route }) {
       key: 'window',
       icon: '⏳',
       title: 'Return window',
-      sub: view.windowEndsAt != null
-        ? timeLeftOnTheWindow(view.windowEndsAt, now)
+      sub: windowEndsAt != null
+        ? timeLeftOnTheWindow(windowEndsAt, now)
         : 'Starts once delivery is confirmed',
       // The window closing is the MARKETPLACE's clock, but this stage is OUR
       // hold — it is not complete until the task has actually been held through
@@ -932,9 +1014,9 @@ export default function TaskScreen({ navigation, route }) {
             <Row label="Delivered" value={fmtDate(task.delivery && task.delivery.at)} missing="Not verified yet" />
             <Row label="Review live" value={task.review ? (task.review.published ? 'Yes' : 'No') : null} missing="Not checked yet" />
             <Row label="Returned" value={task.returned == null ? null : task.returned ? 'Yes' : 'No'} missing="Unknown" hint="blocks refund" />
-            <Row label="Window ends" value={whenTheWindowEnds(view.windowEndsAt, now)} missing="Needs a delivery date" />
-            {view.windowEndsAt != null ? (
-              <Text style={styles.countdown}>{timeLeftOnTheWindow(view.windowEndsAt, now)}</Text>
+            <Row label="Window ends" value={whenTheWindowEnds(windowEndsAt, now)} missing="Needs a delivery date" />
+            {windowEndsAt != null ? (
+              <Text style={styles.countdown}>{timeLeftOnTheWindow(windowEndsAt, now)}</Text>
             ) : null}
             {/* `eligible` requires state HOLDING, so it goes FALSE the moment a
                 refund is released — without this branch a paid task read

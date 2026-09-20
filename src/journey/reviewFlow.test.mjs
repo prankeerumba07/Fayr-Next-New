@@ -506,5 +506,62 @@ it('AND THE OPERATOR\u2019S OWN PATH IS UNTOUCHED, which is what actually moves 
     'the panel has grown a release action, so this note is out of date');
 });
 
+// ── A REVIEW FAYR HAS NOT READ IS NOT A REVIEW ─────────────────────────────
+//
+// 20 SEPTEMBER 2026, from the owner's own razor. The task screen offered
+// "I've written my review", the button dispatched MARK_REVIEWED, and that was
+// the whole of it. His task reached REVIEWED carrying:
+//
+//   task_reviews     0 rows
+//   reviewPublished  null
+//   wentToReviewAt   null
+//
+// No rating, no review, no evidence of any kind — and the next row then told
+// him "processing automatically, nothing needed from you". He had rated
+// nothing, and asked, fairly, whether somebody had rated it for him.
+//
+// CLAUDE.md is unambiguous about which signal counts: the review being publicly
+// visible is the signal. A person's tap is not evidence, and on the three quick
+// shops the rating is readable straight off the order — so there is no reason
+// for a self-declaration to exist there at all.
+console.log('\n=== THE REVIEW STEP OPENS THE ORDER, AND DECLARES NOTHING ===');
+{
+  const screen = withoutComments(read('src/TaskScreen.js'));
+
+  // THE ONLY WAY TO REVIEWED IS NOW THE SHOP'S OWN RATING, READ BY THE READER.
+  // This is the load-bearing one: one leftover dispatch and the loophole is back.
+  it('nothing on the task screen can declare the review done', () => {
+    if (/MARK_REVIEWED/.test(screen)) {
+      throw new Error('TaskScreen still dispatches MARK_REVIEWED somewhere');
+    }
+  });
+
+  it('the step sends them to their own ORDER, not to the product page', () => {
+    if (!/land: 'order',/.test(screen)) throw new Error("no land: 'order'");
+    if (!/orderKey: orderIdForReview,/.test(screen)) throw new Error('no orderKey');
+    // The product page carries no rating — that is the whole reason the owner
+    // said "I don't want them to be redirected to the product page".
+    if (!/navigation\.navigate\('Shop', \{/.test(screen)) throw new Error('not the shop view');
+  });
+
+  it('the order number is read off the matched order, never typed', () => {
+    if (!/const id = task\.order && task\.order\.id;/.test(screen)) {
+      throw new Error('the order id is not read off the task');
+    }
+  });
+
+  it('and with no order number there is no button at all', () => {
+    if (!/orderIdForReview != null/.test(screen)) {
+      throw new Error('the action is not gated on having an order to open');
+    }
+  });
+
+  it('the step no longer calls itself "write your review"', () => {
+    if (!/title: reviewed \? 'Review submitted' : 'Rate your product',/.test(screen)) {
+      throw new Error('the heading does not say Rate your product');
+    }
+  });
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

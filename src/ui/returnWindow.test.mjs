@@ -215,10 +215,15 @@ console.log('\n=== 6. a wait that is not measured in days at all — Phase 8B-b 
   ok(!/daysUntil/.test(screen), 'and the screen counts nothing itself');
 
   // AND THE CLAIM'S OWN SCREEN COUNTS NOTHING EITHER.
+  // THE INSTANT IT HANDS OVER IS `windowEndsAt` SINCE 20 SEPTEMBER 2026, not
+  // `view.windowEndsAt`: the screen now prefers the server's own window over the
+  // one the frozen day-based policy works out. See the section at the foot of
+  // this file for why. What these two hold is unchanged — the screen ASKS for
+  // the words rather than doing the arithmetic itself.
   const task = withoutComments(read('src/TaskScreen.js'));
-  ok(/timeLeftOnTheWindow\(view\.windowEndsAt, now\)/.test(task),
+  ok(/timeLeftOnTheWindow\(windowEndsAt, now\)/.test(task),
     'TaskScreen asks for the count rather than working one out');
-  ok(/whenTheWindowEnds\(view\.windowEndsAt, now\)/.test(task),
+  ok(/whenTheWindowEnds\(windowEndsAt, now\)/.test(task),
     'and for the window row too');
   ok(!/function countdown\(/.test(task), 'and keeps no countdown of its own any more');
   ok(!/\$\{hours\}h remaining/.test(task), 'nor the arithmetic that said 0h for the last hour');
@@ -236,6 +241,46 @@ console.log('\n=== 5. nothing missing reaches the screen ===');
     ok(typeof line === 'string' && line.length > 20, 'and still says something');
     ok(!/undefined|null|NaN|\[object/.test(line), 'with nothing missing in it');
   }
+}
+
+// ── THE SCREEN SHOWS THE SERVER'S WINDOW, NOT ONE IT WORKED OUT ITSELF ──────
+//
+// 20 SEPTEMBER 2026, from the owner's own razor. His task screen said the return
+// window had "6d 23h remaining" while his row on the server said:
+//
+//   deliveredAt   14:22:01
+//   windowEndsAt  17:22:01     — three hours, exactly
+//
+// Both were honestly computed and one was wrong on screen. `view` comes from
+// describe(task, now, POLICY), and POLICY is createPolicy() in the FROZEN
+// src/taskflow.js, which knows only days — a default and a table by category. It
+// cannot express the three hour quick-commerce hold that the server applies to
+// Zepto, Blinkit and Instamart, so on those three the screen showed a week for a
+// deadline that afternoon.
+console.log('\n=== THE WINDOW ON SCREEN IS THE ONE THE SERVER SENT ===');
+{
+  const screen = withoutComments(read('src/TaskScreen.js'));
+
+  ok(/const iso = authoritative && authoritative\.windowEndsAt;/.test(screen),
+    'the screen reads the window off the authoritative snapshot');
+  ok(/const windowEndsAt = serverWindowEndsAt != null \? serverWindowEndsAt : view\.windowEndsAt;/
+    .test(screen),
+    'and prefers it, falling back to its own arithmetic only when nothing was sent');
+
+  // AND NOTHING STILL READS THE LOCAL ONE. This is the half that actually fixes
+  // the screen: one leftover view.windowEndsAt and the row goes on saying a week.
+  const leftovers = (screen.match(/view\.windowEndsAt/g) || []).length;
+  ok(leftovers === 1,
+    `only the fallback may name view.windowEndsAt — found ${leftovers}`);
+
+  // The three places a person actually reads it.
+  ok(/sub: windowEndsAt != null\s*\?\s*timeLeftOnTheWindow\(windowEndsAt, now\)/.test(screen),
+    'the timeline row counts down the server’s window');
+  ok(/whenTheWindowEnds\(windowEndsAt, now\)/.test(screen),
+    'the "Window ends" row states the server’s window');
+  ok(/windowClosed = windowEndsAt != null && now >= windowEndsAt/.test(screen),
+    'and whether the hold is OVER is decided by it too, which is the one that '
+    + 'gates the refund rather than merely describing it');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
