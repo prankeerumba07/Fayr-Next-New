@@ -139,9 +139,16 @@ console.log('\n=== 4. OUR SIDE TAKES IT, ONCE, OUTSIDE THE ENGINE, AND IN ITS OW
   const service = strip(read('backend/src/tasks/task.service.ts'));
   const submit = service.slice(service.indexOf('async submitEvidence('), service.indexOf('private async recordWatchedOrderKey('));
   ok(submit.length > 100, 'submitEvidence is where expected');
+  // THE ENGINE CALL IS `await this.runEvent(` SINCE 20 SEPTEMBER 2026, not
+  // `return this.runEvent(`: submitEvidence now holds the result so that a
+  // published review can go on to MARK_REVIEWED and START_HOLD, the way the
+  // other two readers already did. What this pins is unchanged — the key is
+  // written first, and a body carrying only the key never reaches the engine.
+  const engineRuns = submit.indexOf('this.runEvent(');
   ok(submit.indexOf('recordWatchedOrderKey(userId, taskId, dto.watchedOrderKey)') > -1
     && submit.indexOf('carriesOnlyTheWatchedKey(') > -1
-    && submit.indexOf('carriesOnlyTheWatchedKey(') < submit.indexOf('return this.runEvent('),
+    && engineRuns > -1
+    && submit.indexOf('carriesOnlyTheWatchedKey(') < engineRuns,
   'THE KEY IS RECORDED FIRST, and a key-only body returns BEFORE the engine runs');
   ok(/where: \{ id: taskId, userId, watchedOrderKey: null \},\s*data: \{ watchedOrderKey: key \}/.test(service),
     'WRITTEN ONCE: conditional on the column still being null, like wentToShopAt');

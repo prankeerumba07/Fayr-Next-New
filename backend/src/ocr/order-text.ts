@@ -315,6 +315,24 @@ const RATED_SAID = /\byou\s+rated\b|\byour\s+delivery\s+experience\s+rating\b/i;
 const RATE_INVITED = /\brate\s+order\b/i;
 
 /**
+ * THE ITEM TOTAL OF AN ORDER THAT HOLDS EXACTLY ONE PRODUCT.
+ *
+ * Answers that product's own stated price, or null for anything else. See the
+ * note at itemTotalPaise: this fills a hole a page left, it never overrides a
+ * labelled figure, and it refuses the moment there is more than one product or
+ * the page stated a count above one.
+ */
+function theOnlyProductsOwnPrice(items: readonly ParsedOrderItem[]): bigint | null {
+  if (items.length !== 1) return null;
+  const only = items[0];
+  if (only == null) return null;
+  // A stated count of anything but one leaves the figure ambiguous between a
+  // unit price and a line total, and those are different money.
+  if (only.unitsStated != null && only.unitsStated !== 1) return null;
+  return only.pricePaise;
+}
+
+/**
  * THE LINES IN A BILL BLOCK THAT ARE NOT PRODUCTS.
  *
  * Named and exported so the next shop's wording is added in one place a person
@@ -1820,7 +1838,36 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     orderNumber,
     orderDate,
     totalPaise: moneyForLabels(lines, totalsFrom, TOTAL_BILL_LABELS),
-    itemTotalPaise: moneyForLabels(lines, totalsFrom, ITEM_TOTAL_LABELS),
+    // ── AND WHEN THE PAGE LABELS NOTHING, ONE PRODUCT IS ITS OWN ITEM TOTAL ──
+    //
+    // 20 SEPTEMBER 2026, from the owner's own razor. Zepto's ORDER LIST prints a
+    // card per order and labels none of its money:
+    //
+    //   Order delivered   ₹360   Placed at 20th Sep 2026, 07:45 pm
+    //   [Gillette Fusion Manual Shaving Razor For Men]
+    //
+    // There is no "Total", no "Item total" and no "Subtotal" anywhere on it, so
+    // both labelled lookups answer null and the stored row carried no bill at
+    // all. With an empty bill theRefundBase cannot work an amount out, the
+    // evidence went up with itemAmountAmbiguous, and a refund the shop had
+    // already priced sat waiting for a person to type 360 into a panel.
+    //
+    // EXACTLY ONE PRODUCT, AND NOTHING IS MULTIPLIED OR ADDED UP. Not a sum
+    // over several lines — two products at ₹180 each and one at ₹360 are the
+    // same total and mean completely different refunds, which is the whole
+    // reason a basket's total is never paid from. One product's own stated
+    // price is not an inference about a basket; it is that product's price,
+    // read off the page, and it is the only shape where the two cannot differ.
+    //
+    // AND A STATED COUNT ABOVE ONE STILL REFUSES. "2 x" beside the price means
+    // the figure may be the line rather than the unit, and the two are not the
+    // same money. unitsStated null is a page that said nothing about count,
+    // which is every Zepto list card.
+    //
+    // A LABELLED TOTAL ALWAYS WINS. This only fills a hole; it never overrides
+    // a figure the page put a name to.
+    itemTotalPaise: moneyForLabels(lines, totalsFrom, ITEM_TOTAL_LABELS)
+      ?? theOnlyProductsOwnPrice(bought),
     // FROM THE SAME PLACE AS THE TWO TOTALS, for the same reason written above
     // totalsFrom: inside the bill block when the page has one, and over the
     // whole page when it does not.

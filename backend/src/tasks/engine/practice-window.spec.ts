@@ -5,7 +5,8 @@ import {
 } from './order-window';
 import {
   PRACTICE_WINDOW_MAX_DAYS, PRACTICE_WINDOW_OFF, isAPracticeDatabase,
-  practiceCampaignFloor, practiceGraceMs, practiceWindowDays, widenTheHold,
+  practiceCampaignFloor, practiceGraceMs, practiceHoldMs, practiceWindowDays,
+  widenTheHold,
 } from './practice-window';
 import { checkOrderAgainstTheVisit, theHold } from './shop-visit';
 
@@ -408,5 +409,39 @@ describe('the practice order window', () => {
         /PRACTICE_ORDER_WINDOW_DAYS: z\.coerce[\s\S]{0,120}\.default\(0\)/,
       );
     });
+  });
+});
+
+// ── A REHEARSAL HOLD, AND THE TWO GATES THAT KEEP IT OFF REAL RECORDS ──────
+//
+// 20 September 2026. The real quick-commerce hold is three hours and is not
+// changing. A rehearsal cannot wait that long to see the refund land, and the
+// owner's demo wants two minutes. Off unless BOTH halves agree, exactly like
+// practiceWindowDays.
+describe('practiceHoldMs', () => {
+  it('turns two minutes into milliseconds on a practice database', () => {
+    expect(practiceHoldMs(2, 'fayr_next_dev')).toBe(120_000);
+    expect(practiceHoldMs(2, 'fayr_test')).toBe(120_000);
+  });
+
+  // THE GATE THAT MATTERS. A value left in an environment file must never be
+  // able to shorten a hold on somebody's real refund.
+  it('is OFF on any database that is not a practice one', () => {
+    expect(practiceHoldMs(2, 'fayr_prod')).toBe(0);
+    expect(practiceHoldMs(2, 'fayr')).toBe(0);
+    expect(practiceHoldMs(2, '')).toBe(0);
+    expect(practiceHoldMs(2, null)).toBe(0);
+  });
+
+  it('is OFF for anything that is not a positive number of minutes', () => {
+    expect(practiceHoldMs(0, 'fayr_next_dev')).toBe(0);
+    expect(practiceHoldMs(-5, 'fayr_next_dev')).toBe(0);
+    expect(practiceHoldMs(null, 'fayr_next_dev')).toBe(0);
+    expect(practiceHoldMs(undefined, 'fayr_next_dev')).toBe(0);
+    expect(practiceHoldMs(Number.NaN, 'fayr_next_dev')).toBe(0);
+  });
+
+  it('caps at a day, because a short hold longer than the real one is a typo', () => {
+    expect(practiceHoldMs(99_999, 'fayr_next_dev')).toBe(1440 * 60_000);
   });
 });

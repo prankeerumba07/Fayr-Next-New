@@ -3,8 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.validation';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  PRACTICE_HOLD_OFF,
   PRACTICE_WINDOW_OFF,
   isAPracticeDatabase,
+  practiceHoldMs,
   practiceWindowDays,
 } from './engine/practice-window';
 
@@ -54,6 +56,53 @@ export class PracticeWindowService {
   /** The setting, whatever the database turns out to be. */
   private setting(): number {
     return this.config.get('PRACTICE_ORDER_WINDOW_DAYS', { infer: true });
+  }
+
+  /**
+   * HOW LONG THE QUICK-COMMERCE HOLD IS FOR A REHEARSAL, IN MILLISECONDS.
+   *
+   * Zero means off, and zero is what every caller gets unless BOTH halves
+   * agree: the setting is a positive number AND the live database is a practice
+   * one. Exactly the shape daysAllowed uses above, for the same reason — a
+   * value left in an environment file must not be able to shorten a hold on
+   * anybody's real refund. The deciding is in practiceHoldMs, where a check can
+   * walk it; this only fetches the two facts.
+   */
+  async holdMsAllowed(): Promise<number> {
+    // ── NEVER UNDER TEST, WHATEVER THE SETTING SAYS ────────────────────────
+    //
+    // Found by the checks themselves, 20 September 2026. Putting
+    // PRACTICE_HOLD_MINUTES=2 in backend/.env shortened the hold inside the e2e
+    // run as well — the test database is named _test, so both gates passed —
+    // and scheduler.e2e-spec.ts failed on "the three hour hold on a shop that
+    // cannot be sent back to" and "AND NOT ONE MINUTE BEFORE". Those two are
+    // asserting the PRODUCT'S rule, and a rehearsal setting that can quietly
+    // rewrite what they measure makes them worthless.
+    //
+    // The same shape the scheduler already uses: disabled under NODE_ENV=test
+    // regardless. The pure rule in practiceHoldMs keeps its own unit checks, so
+    // nothing here goes unwalked.
+    if (process.env.NODE_ENV === 'test') return PRACTICE_HOLD_OFF;
+
+    const setting = this.config.get('PRACTICE_HOLD_MINUTES', { infer: true });
+    if (typeof setting !== 'number' || setting <= 0) return PRACTICE_HOLD_OFF;
+
+    const name = await this.nameOfTheDatabase();
+    const ms = practiceHoldMs(setting, name);
+
+    if (ms <= 0) {
+      // SAID OUT LOUD, EVERY TIME. Somebody has deliberately asked for a short
+      // hold and is not getting one, and a silent refusal here is an afternoon
+      // spent wondering why a refund has not landed.
+      this.log.warn(
+        `PRACTICE_HOLD_MINUTES is set to ${setting} but "${name}" is not a `
+        + 'practice or development database, so the quick-commerce hold is NOT '
+        + 'shortened. A database whose name does not end in _dev or _test is '
+        + 'somebody\'s real records.',
+      );
+      return PRACTICE_HOLD_OFF;
+    }
+    return ms;
   }
 
   private async nameOfTheDatabase(): Promise<string> {

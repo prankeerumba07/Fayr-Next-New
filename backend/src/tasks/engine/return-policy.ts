@@ -135,14 +135,33 @@ export function windowDaysFor(
 export function policyForWindowDays(
   overrideDays: number | null | undefined,
   platform?: string | null,
+  /**
+   * A REHEARSAL HOLD, IN MILLISECONDS, AND ONLY EVER FROM practiceHoldMs.
+   *
+   * 20 September 2026. Zero, null or absent means "use the product's own rule",
+   * which is what every real deployment gets because practiceHoldMs answers
+   * zero unless the setting is positive AND the database is a practice one.
+   * A caller cannot shorten a hold by passing a number here that the practice
+   * rule did not produce — see the one call site in task.service.ts.
+   *
+   * IT ONLY APPLIES WHERE A HOLD APPLIES. A shop that CAN be sent back to is
+   * governed by its own return window in days, and nothing here touches that:
+   * shortening a hold that does not exist would be a number with no meaning.
+   */
+  practiceHoldMs?: number | null,
 ): ReturnPolicy {
   if (overrideDays != null) {
     return { defaultDays: overrideDays, byCategory: {} };
   }
   if (cannotBeSentBack(platform)) {
+    const rehearsal = typeof practiceHoldMs === 'number'
+      && Number.isFinite(practiceHoldMs)
+      && practiceHoldMs > 0
+      ? practiceHoldMs
+      : null;
     return {
       ...DEFAULT_RETURN_POLICY,
-      holdMs: QUICK_COMMERCE_HOLD_HOURS * HOUR,
+      holdMs: rehearsal ?? QUICK_COMMERCE_HOLD_HOURS * HOUR,
     };
   }
   return DEFAULT_RETURN_POLICY;

@@ -189,6 +189,29 @@ export const envSchema = z.object({
     .max(3650)
     .default(0),
 
+  // HOW LONG THE QUICK-COMMERCE HOLD IS, IN MINUTES, FOR A REHEARSAL ONLY.
+  //
+  // 20 September 2026. The real rule is three hours and it is not changing —
+  // see QUICK_COMMERCE_HOLD_HOURS for the owner's reasoning about a shop where
+  // a wrong or missing item surfaces in minutes. But a rehearsal cannot wait
+  // three hours to see the refund land, and his words for the demo were plain:
+  // "it will show a countdown timer for 2 minutes ... after 2 minutes it will
+  // automatically fetch and show refund has been added to your wallet".
+  //
+  // ZERO MEANS OFF, AND OFF IS THE DEFAULT, so every real deployment keeps the
+  // three hours without anybody choosing it. Like PRACTICE_ORDER_WINDOW_DAYS
+  // above, it is refused outright on a database whose name does not end _dev or
+  // _test, and the refusal is said out loud rather than swallowed.
+  //
+  // The ceiling is one day: a "short" hold longer than the real one is somebody
+  // typing a wrong number, not a rehearsal.
+  PRACTICE_HOLD_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(1440)
+    .default(0),
+
   // --- Scheduler (step 1.6) -------------------------------------------------
   // The maintenance cron: re-checks review visibility during HOLDING, auto-
   // releases eligible refunds, and expires unpurchased claims. Disabled under

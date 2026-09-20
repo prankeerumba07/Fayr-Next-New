@@ -1140,7 +1140,11 @@ export class TaskService {
     // THE PLATFORM GOES IN WITH THE DAYS — Phase 8B-b. Three shops hold for
     // hours rather than days, and an operator-set window still wins over both.
     // See policyForWindowDays.
-    const policy = policyForWindowDays(campaign.returnWindowDays, campaign.platform);
+    const policy = policyForWindowDays(
+      campaign.returnWindowDays,
+      campaign.platform,
+      await this.practiceWindow.holdMsAllowed(),
+    );
     const elig = refundEligibility(task, now, policy);
     if (!elig.eligible) {
       return { status: 'ineligible', reasons: elig.reasons };
@@ -1689,7 +1693,11 @@ export class TaskService {
   ): Promise<void> {
     // THE SAME POLICY THE GATE WILL USE, so the windowEndsAt column written here
     // is the instant the refund really becomes due. See policyForWindowDays.
-    const policy = policyForWindowDays(campaign.returnWindowDays, campaign.platform);
+    const policy = policyForWindowDays(
+      campaign.returnWindowDays,
+      campaign.platform,
+      await this.practiceWindow.holdMsAllowed(),
+    );
     await tx.task.update({
       where: { id: result.task.id },
       data: {

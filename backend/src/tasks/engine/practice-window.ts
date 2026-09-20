@@ -201,3 +201,36 @@ export function widenTheHold<T extends { tappedAt: number; endsAt: number }>(
   if (allowed <= 0) return hold;
   return { ...hold, tappedAt: hold.tappedAt - allowed * DAY_MS };
 }
+
+/** A rehearsal hold is off unless somebody deliberately set one. */
+export const PRACTICE_HOLD_OFF = 0;
+
+/** One day. A "short" hold longer than the real three hours is a typo. */
+export const PRACTICE_HOLD_MAX_MINUTES = 1440;
+
+/**
+ * HOW LONG THE QUICK-COMMERCE HOLD IS FOR A REHEARSAL, IN MILLISECONDS.
+ *
+ * 20 September 2026. The real rule is three hours and this does not change it
+ * — see QUICK_COMMERCE_HOLD_HOURS. What it answers is the owner's demo: "it
+ * will show a countdown timer for 2 minutes ... after 2 minutes it will
+ * automatically fetch and show refund has been added to your wallet."
+ *
+ * THE SAME TWO GATES AS practiceWindowDays ABOVE, and for the same reason. Off
+ * unless the setting is a positive number AND the live database is a practice
+ * one, so a value left in an environment file cannot shorten a hold on anybody
+ * real. Answers 0 for every case that is not plainly allowed, and 0 means "use
+ * the product's own rule".
+ */
+export function practiceHoldMs(
+  settingMinutes: number | null | undefined,
+  databaseName: string | null | undefined,
+): number {
+  if (!isAPracticeDatabase(databaseName)) return PRACTICE_HOLD_OFF;
+  if (typeof settingMinutes !== 'number' || !Number.isFinite(settingMinutes)) {
+    return PRACTICE_HOLD_OFF;
+  }
+  const whole = Math.trunc(settingMinutes);
+  if (whole <= 0) return PRACTICE_HOLD_OFF;
+  return Math.min(whole, PRACTICE_HOLD_MAX_MINUTES) * 60_000;
+}

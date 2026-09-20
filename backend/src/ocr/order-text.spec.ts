@@ -1630,3 +1630,55 @@ describe('whether the order has been rated at the shop', () => {
     expect(Object.keys(order)).not.toContain('stars');
   });
 });
+
+// ── ONE PRODUCT IS ITS OWN ITEM TOTAL, WHEN THE PAGE LABELS NOTHING ────────
+//
+// 20 September 2026, from the owner's own razor. Zepto's ORDER LIST labels none
+// of its money — no "Total", no "Item total", no "Subtotal" — so both labelled
+// lookups answered null, the candidate stored no bill at all, theRefundBase had
+// nothing to work from, and a refund the shop had already priced at ₹360 sat
+// waiting for a person to type 360 into a staff panel.
+describe('the item total of an order that holds one product', () => {
+  it('is that product’s own price when the page labels nothing', () => {
+    // THE SHAPE THE OWNER'S OWN CANDIDATE ROW CARRIED, copied out of the
+    // database: one item, its own price, no stated count, and no labelled
+    // total anywhere on the card.
+    //   items = [{"name":"Gillette Fusion Manual Shaving Razor For Men",
+    //             "pricePaise":"36000","unitsStated":1}]
+    //   totalPaise = null   itemTotalPaise = null
+    const page = parseOrderText(
+      'Order #RGTLJGSNO87088\n'
+      + 'Gillette Fusion Manual Shaving Razor For Men ₹360.00',
+    );
+    expect(page.items).toHaveLength(1);
+    expect(page.itemTotalPaise).toBe(36000n);
+  });
+
+  // NOTHING IS SUMMED. Two products at ₹180 and one at ₹360 give the same
+  // total and mean completely different refunds — which is exactly why a
+  // basket's total is never paid from.
+  it('and is NULL the moment there is more than one product', () => {
+    const page = parseOrderText(
+      'Order delivered\nFirst Thing ₹180.00\nSecond Thing ₹180.00\nOrder Again',
+    );
+    expect(page.items.length).toBeGreaterThan(1);
+    expect(page.itemTotalPaise).toBeNull();
+  });
+
+  it('and NULL when the page states a count above one', () => {
+    const page = parseOrderText(
+      'Order delivered\n2 x Gillette Fusion Manual Shaving Razor For Men ₹720.00',
+    );
+    if (page.items.length === 1 && page.items[0]?.unitsStated === 2) {
+      expect(page.itemTotalPaise).toBeNull();
+    }
+  });
+
+  // A LABELLED FIGURE ALWAYS WINS. This only ever fills a hole.
+  it('and never overrides a total the page put a name to', () => {
+    const page = parseOrderText(
+      'Order #SOS12345\nOne Thing ₹360.00\nItem total: ₹400.00',
+    );
+    expect(page.itemTotalPaise).toBe(40000n);
+  });
+});
