@@ -51,7 +51,7 @@ import { readAccountName } from '../signin.js';
 import {
   DID_NOT_OPEN, I_HAVE_SIGNED_IN, NOT_SURE, OPENING, SHOW_ME_THE_SHOP, SIGNED_IN, TRY_AGAIN,
 } from './gateWords.js';
-import { PAYING_PATH, SIGN_IN_PATH } from './pageQuestions.js';
+import { ORDERS_PATH, PAYING_PATH, SIGN_IN_PATH } from './pageQuestions.js';
 
 /**
  * HOW LONG THE SHOP GETS TO OPEN.
@@ -329,6 +329,16 @@ export function isTheShopsOwnSignInPage(path) {
   if (typeof path !== 'string') return false;
   const where = path.charAt(0) === '/' ? path : `/${path}`;
   return new RegExp(SIGN_IN_PATH).test(where);
+}
+
+/**
+ * IS THIS THE SHOP'S OWN ORDERS PAGE? See ORDERS_PATH in pageQuestions.js for
+ * what it is for and why that one is an allowlist where PAYING_PATH is not.
+ */
+export function isTheShopsOwnOrdersPage(path) {
+  if (typeof path !== 'string') return false;
+  const where = path.charAt(0) === '/' ? path : `/${path}`;
+  return new RegExp(ORDERS_PATH).test(where);
 }
 
 /**
@@ -863,6 +873,53 @@ export function whatThePageShows(facts) {
   // all on a shop whose sign in is a panel, and the condition on the line above
   // is what holds it to one page instead of every page of the visit.
   if (f.signInWasUp !== true && f.signInControlIsThere === true) return 'up';
+
+  // ── THE SHOP'S OWN ORDERS PAGE, NO LONGER ASKING THEM TO LOG IN ──────────
+  //
+  // 20 SEPTEMBER 2026. Three shops greet nobody by name and print no way out, so
+  // the two rules that answer "in" at the top of this function can never fire on
+  // them. Zepto is one, and the owner hit it the moment he signed in: he was
+  // asked "we cannot tell if it worked" while standing on his own orders list.
+  // Both halves are measured, from his device, on the same path an hour apart:
+  //
+  //   signed out  signInControlIsThere=true   greeting "Please Login ... Login"
+  //   signed in   signInControlIsThere=false  greeting "\nOrders\n"
+  //
+  // So this shop does say which it is. Not by a name and not by a way out, but
+  // by whether its own orders page is still offering a way IN.
+  //
+  // WHY IT IS SAFE, AND EVERY CONDITION IS LOAD-BEARING:
+  //
+  //   IT IS THE ORDERS PAGE AND NOTHING ELSE. An allowlist of paths measured off
+  //   real logs (ORDERS_PATH). A storefront cannot reach this line, which is the
+  //   whole of the Amazon risk written out above.
+  //
+  //   A SIGN IN REALLY WAS UP IN THIS ATTEMPT. Without it, a person who was
+  //   already signed in before Fayr ever asked would be reported as having just
+  //   signed in — and our own side would write down a sign in that never
+  //   happened. signInWasUp is latched by this same function.
+  //
+  //   THE PAGE IS OFFERING NO WAY IN. Neither a box nor a control. Signed out,
+  //   Zepto's orders page offers one, so the signed-out case cannot match. This
+  //   is also why the line sits HERE, below every rule that answers "up": a page
+  //   still showing a way in has already been answered before this is reached.
+  //
+  //   AND IT HELD STILL. The same count the "gone" answer below uses, so a page
+  //   halfway through drawing itself cannot be read as a signed-in one.
+  //
+  // WHAT IT IS NOT. It is not "an orders page means they are in". A shop that
+  // shows its orders page to a signed-out person AND offers no way in on it
+  // would be read wrongly — and no shop of the seven does that: the one that
+  // shows the page signed out is Zepto, and it offers the way in. If one ever
+  // starts, this answers wrongly and the check next door is where that is said.
+  const heldStill = typeof f.looksInARow === 'number' ? f.looksInARow : 0;
+  if (
+    f.signInWasUp === true
+    && isTheShopsOwnOrdersPage(path)
+    && f.signInControlIsThere !== true
+    && f.fieldIsThere !== true
+    && heldStill >= LOOKS_IN_A_ROW_BEFORE_WE_ASK
+  ) return 'in';
 
   // AND THE SIGN IN HAS GONE. Every one of these has to hold.
   if (f.signInWasUp !== true) return null;

@@ -60,6 +60,7 @@ import {
   shopViewKey,
   whatIsOnScreen,
   whatThePageShows,
+  isTheShopsOwnOrdersPage,
   whatTheShopSaid,
   whatWeSay,
 } from './gate.js';
@@ -1554,6 +1555,55 @@ console.log('\n=== 21. BUG SEVEN. Amazon moved its password step to /ax/ ===');
   ok(new RegExp(SIGN_IN_PATH).test('/ax/claim'),
     'the exported pattern itself matches it, so the watcher inside the shop’s '
     + 'page and our own side cannot disagree about what a sign in page is');
+}
+
+// ── A SHOP THAT NEITHER GREETS NOR SHOWS A WAY OUT ─────────────────────────
+//
+// 20 September 2026. The owner signed in to Zepto inside Fayr and was asked "we
+// cannot tell if it worked" while looking at his own orders list. He said, twice:
+// "I don't want this page ever again." Three of the seven shops greet nobody by
+// name and print no way out, so the two rules that answer "in" cannot fire on
+// them at all.
+//
+// EVERY FACT BELOW IS COPIED OUT OF HIS OWN DEVICE LOG, both halves, same path,
+// an hour apart. Nothing here is invented.
+console.log('\n=== THE ORDERS PAGE THAT STOPPED ASKING THEM TO LOG IN ===');
+{
+  const SIGNED_IN = {
+    path: '/account/orders', greeting: '\nOrders\n', looksInARow: 2,
+    signInWasUp: true, signInControlIsThere: false, fieldIsThere: false, signOutIsThere: false,
+  };
+  const SIGNED_OUT = {
+    ...SIGNED_IN,
+    greeting: 'Please Login\nPlease login to check orders.\n\nLogin\n',
+    signInControlIsThere: true,
+  };
+
+  ok(whatThePageShows(SIGNED_IN) === 'in',
+    'his own orders page, no longer offering a way in, is read as SIGNED IN — '
+    + 'so the question he never wanted to see is never asked');
+  ok(whatThePageShows(SIGNED_OUT) !== 'in',
+    'and the SAME page an hour earlier, still offering its own "Login", is not');
+
+  // Each condition removed on its own, so none of them is decoration.
+  ok(whatThePageShows({ ...SIGNED_IN, signInWasUp: false }) !== 'in',
+    'a sign in must really have been up first, or somebody already signed in '
+    + 'before Fayr asked is written down as having just signed in');
+  ok(whatThePageShows({ ...SIGNED_IN, path: '/' }) !== 'in',
+    'a storefront can never reach it — that is the whole of the Amazon risk');
+  ok(whatThePageShows({ ...SIGNED_IN, path: '/checkout' }) !== 'in',
+    'and neither can a paying page');
+  ok(whatThePageShows({ ...SIGNED_IN, fieldIsThere: true }) !== 'in',
+    'a page still showing a sign in box is not somebody signed in');
+  ok(whatThePageShows({ ...SIGNED_IN, looksInARow: 1 }) !== 'in',
+    'and a page halfway through drawing itself is not read at all');
+
+  // The paths are an allowlist on purpose: this answer says somebody IS signed
+  // in, so a path nobody has measured must never match.
+  ok(isTheShopsOwnOrdersPage('/account/orders'), 'zepto’s own orders path is one');
+  ok(isTheShopsOwnOrdersPage('/gp/css/order-history'), 'and amazon’s');
+  ok(!isTheShopsOwnOrdersPage('/'), 'a storefront is not');
+  ok(!isTheShopsOwnOrdersPage('/orders-are-us'), 'and neither is a path that merely starts the same way');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

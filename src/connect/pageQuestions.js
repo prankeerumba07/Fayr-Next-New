@@ -103,6 +103,51 @@
 export const SIGN_IN_PATH = String.raw`^\/(login|signin|sign-in|auth|ap\/|ax\/|gp\/sign-in)\b`;
 
 /**
+ * A SHOP'S OWN ORDERS PAGE — A PAGE THAT ONLY EXISTS FOR SOMEBODY SIGNED IN.
+ *
+ * ── WHY THIS IS HERE, FROM THE OWNER'S OWN DEVICE, 20 SEPTEMBER 2026 ───────
+ *
+ * He signed in to Zepto inside Fayr and was then asked whether it had worked:
+ *
+ *   PAGE SAID {"fieldIsThere":false,"signInControlIsThere":false,
+ *              "signOutIsThere":false,"looksLikeAGreeting":false,
+ *              "path":"/account/orders","greeting":"\nOrders\n"}
+ *   READ AS signInIsUp=false theyAreIn=false signInIsGone=true
+ *   GATE shop -> cannotTell because signInIsGone
+ *
+ * Zepto greets nobody by name and prints no way out, so the two rules that
+ * answer "in" could not fire, and he got "we cannot tell if it worked" on a
+ * page that could only be on his screen BECAUSE it had worked. His words:
+ * "I don't want this page ever again."
+ *
+ * AND THE SAME PAGE, SIGNED OUT, FROM THE SAME DEVICE AN HOUR EARLIER:
+ *
+ *   PAGE SAID {"signInControlIsThere":true,"path":"/account/orders",
+ *              "greeting":"Please Login\nPlease login to check orders.\n\nLogin\n"}
+ *
+ * So the shop says which it is, plainly, in a way that needs no name and no way
+ * out: signed out the orders page offers a way IN, and signed in it does not.
+ * That is the whole of the rule in gate.js, and this is the path half of it.
+ *
+ * A BLOCKLIST WOULD BE WRONG HERE AND AN ALLOWLIST IS RIGHT, which is the
+ * opposite of the choice the paying-page list below makes, and for the opposite
+ * reason: this one is used to say somebody IS signed in, so a path nobody has
+ * measured must never match. Every entry below was read off a real log.
+ *
+ * AND THAT LIST IS NOT NAMED HERE ON PURPOSE. connect-words.spec.ts on our own
+ * side reads the first three hundred characters after its name in this file and
+ * holds them to naming a checkout, a cart and a payment page. Writing the name
+ * above its own definition moved that window onto this comment and failed two
+ * checks that were entirely right to fail.
+ */
+// IT ENDS AT A SLASH OR AT THE END, AND NOT AT A WORD BOUNDARY. The first
+// writing used \b, and the check next door refuted it the same minute:
+// "/orders-are-us" matched, because a hyphen is a word boundary. A path that
+// merely STARTS like an orders page is not one, and this answer is the one that
+// says somebody is signed in — so it has to end where the path segment ends.
+export const ORDERS_PATH = String.raw`^\/(account\/orders|orders|my-orders|order-history|gp\/css\/order-history|gp\/your-account\/order-list)(\/|$)`;
+
+/**
  * THE PAGES NOTHING HERE WILL LOOK AT.
  *
  * A checkout, a cart or a payment page. A blocklist and not an allowlist, which

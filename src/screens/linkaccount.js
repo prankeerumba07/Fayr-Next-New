@@ -218,6 +218,28 @@ export default function LinkAccountScreen({ navigation, route }) {
     await openShopApp(key, opens);
   }, [key, opens]);
 
+  // ── PASSING THROUGH, SO DRAW NOTHING AT ALL — 20 September 2026 ───────────
+  //
+  // THE OWNER SAW IT AND SAID SO TWICE: "for a split second, it showed a screen
+  // which I don't want you to show ... Once I put in my OTP, I'm logged in. It
+  // should automatically show the homepage of Zepto."
+  //
+  // The effect above already moves them on, but an effect runs AFTER the first
+  // paint, so this screen drew one frame of itself — the connected card, the
+  // heading, the button — on the way past. One frame of a screen that was
+  // deliberately removed from the journey is still that screen.
+  //
+  // WHY A BLANK AND NOT THE SPINNER. Whatever is drawn here is on screen for a
+  // frame or two between the shop's own sign in and the shop's own home page. A
+  // spinner would be a third thing flashing; an empty page in the app's own
+  // colour reads as the same page still loading, which is what it is.
+  //
+  // ONLY THE PASSING-THROUGH CASE. With `onJourneyMoved` the journey drew this
+  // screen on purpose and it must still be a screen.
+  if (params.justSignedIn === true && !params.onJourneyMoved) {
+    return <Screen bg={COLOR.cream} />;
+  }
+
   return (
     <Screen bg={COLOR.cream}>
       <TopBar title="Connect your account" onBack={() => goBackOrHome(navigation)} />

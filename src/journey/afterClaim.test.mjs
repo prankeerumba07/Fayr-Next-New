@@ -131,5 +131,27 @@ console.log('=== 6. THE REMOVED SCREEN NEVER STOPS ANYBODY AGAIN ===');
     'or to the buy step for a shop that is not shopped inside Fayr');
 }
 
+
+console.log('=== 7. PASSING THROUGH DRAWS NOTHING, SO NOTHING FLASHES ===');
+{
+  // The owner saw the removed screen for a frame on the way past and said so
+  // twice. An effect runs after the first paint, so forwarding alone is not
+  // enough — the screen must not draw itself at all while it is a doorway.
+  const at = link.indexOf("if (params.justSignedIn === true && !params.onJourneyMoved) {");
+  ok(at > -1, 'the passing-through case is spotted before anything is drawn');
+  // FROM the doorway, not from the top of the file: there are earlier `return (`
+  // lines in the callbacks above, and searching from zero found one of those and
+  // called the check failed while the code was right. The slice below is printed
+  // for exactly this reason.
+  const mainReturn = link.indexOf('return (', at);
+  ok(at > -1 && mainReturn > at,
+    'and it returns BEFORE the screen’s own markup, not after it');
+  const slice = link.slice(at, at + 160);
+  console.log('    ---- the doorway, as it stands ----');
+  console.log(slice.split('\n').map((l) => `    | ${l}`).join('\n'));
+  ok(/return <Screen bg=\{COLOR\.cream\} \/>;/.test(slice),
+    'it draws an empty page in the app’s own colour, not a second spinner');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
