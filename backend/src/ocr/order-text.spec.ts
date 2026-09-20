@@ -1584,6 +1584,45 @@ describe('whether the order has been rated at the shop', () => {
     expect(parseOrderText('Order #SOS12345\nyou RATED:').rated).toBe(true);
   });
 
+  // ── ZEPTO'S ORDER LIST DOES NOT SAY "YOU RATED" ──────────────────────────
+  //
+  // 20 September 2026. The owner rated his razor on Zepto and the task would
+  // not move. Both cards, copied off his own order list minutes apart:
+  //
+  //   rated     Order delivered  ₹360  Your delivery experience rating: ★★★★★
+  //                                    Order Again
+  //   unrated   Order delivered  ₹480  Rate order   Order Again
+  //
+  // The invitation half was already right — an unrated Zepto order does say
+  // "Rate order", and it is REPLACED by the rating row once rated. The positive
+  // half was missing: "you rated" appears nowhere on Zepto, so his rated order
+  // read as neither, `rated` came back null, and ratedFromALaterLook returned
+  // before it could run MARK_REVIEWED. Fayr read the page that proved he had
+  // rated it and went on asking him to write a review.
+  it('TRUE on Zepto’s own wording, which never says "you rated"', () => {
+    const rated = parseOrderText(
+      'Order delivered\n₹360\nPlaced at 20th Sep 2026, 07:45 pm\n'
+      + 'Your delivery experience rating:\nOrder Again',
+    );
+    expect(rated.rated).toBe(true);
+  });
+
+  it('and FALSE on the card beside it that still invites a rating', () => {
+    const unrated = parseOrderText(
+      'Order delivered\n₹480\nPlaced at 18th Sep 2026, 08:47 pm\n'
+      + 'Rate order\nOrder Again',
+    );
+    expect(unrated.rated).toBe(false);
+  });
+
+  // THE PHRASE IS THE WHOLE LABEL AND NOT A WORD INSIDE IT. "rating" on its own
+  // is a word an order page may carry for all sorts of reasons; this must not
+  // fire on any of them.
+  it('and a bare mention of a rating is still not a rating', () => {
+    expect(parseOrderText('Order #SOS12345\nProduct rating 4.7').rated).toBeNull();
+    expect(parseOrderText('Order #SOS12345\nYour rating matters to us').rated).toBeNull();
+  });
+
   it('AND READS NO NUMBER OF STARS. The page prints none, and none is wanted', () => {
     const page = fixture('zepto-order-page-drawn-two-shipments.txt');
     const order = parseOrderText(page) as unknown as Record<string, unknown>;

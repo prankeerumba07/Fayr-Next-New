@@ -575,6 +575,42 @@ export default function TaskScreen({ navigation, route }) {
     const id = task.order && task.order.id;
     return typeof id === 'string' && id.trim() !== '' ? id.trim() : null;
   })();
+  // ── AND ONCE THEY HAVE BEEN, THE READ IS WHAT FINISHES THE STEP ──────────
+  //
+  // 20 SEPTEMBER 2026. Removing the self-declaring button left a circle with no
+  // way in: LookingForReview is the screen that posts to reviews-found, and
+  // reviews-found is the only route that runs markReviewed + startHold — but it
+  // was only offered to a task that was ALREADY reviewed. So a task sat on
+  // DELIVERED with review.published true on it, which is what the owner hit:
+  // he rated the razor on Zepto, Fayr read the rating, and the screen still
+  // asked him to write a review.
+  //
+  // `wentToReviewAt` is the server's own record that they went off to rate —
+  // written by goingToTheReview when the order page was opened. So: they have
+  // been, the shop's answer has not been read yet, and reading it is the whole
+  // of what is left. Nothing here decides anything about the review; it opens
+  // the read, and the read's evidence decides.
+  const beenToRateIt = !!(authoritative && authoritative.wentToReviewAt);
+  // ── AND WHICH READ, BECAUSE THE TWO SHOPS KEEP IT IN DIFFERENT PLACES ────
+  //
+  // 20 SEPTEMBER 2026, and the first writing of this got it wrong. It sent every
+  // shop to LookingForReview, which walks a shop's REVIEWS pages. Amazon and
+  // Flipkart have those. Zepto does not: its rating lives on the order, beside
+  // the delivery, which is why reviews-found had been called exactly zero times
+  // all evening while the owner went round the same loop. The screen found no
+  // reviews to send, handed back to the journey, and the journey drew the review
+  // step again.
+  //
+  // A SHOP FAYR SHOPS INSIDE KEEPS THE RATING ON THE ORDER, so the read is the
+  // ORDER read — orders-found, the same route that read the delivery, which
+  // carries ratedFromALaterLook and with it MARK_REVIEWED and START_HOLD. Every
+  // other shop keeps the review on a page of its own and is unchanged.
+  const ratingIsOnTheOrder = shopsInsideFayr(campaign.marketplace);
+  const goReadTheRating = () => (
+    ratingIsOnTheOrder
+      ? navigation.navigate('LookingForIt', { campaignId })
+      : navigation.navigate('LookingForReview', { campaignId, thenRelease: true })
+  );
   const goRateTheOrder = () => navigation.navigate('Shop', {
     campaignId,
     marketplace: campaign.marketplace,
@@ -674,12 +710,16 @@ export default function TaskScreen({ navigation, route }) {
         ? `Posted on ${platformName}`
         : `Open your order on ${platformName} and rate it there`,
       state: reviewed ? 'done' : hasDelivery ? 'active' : 'pending',
-      action: !reviewed && hasDelivery && orderIdForReview != null
-        ? {
-            label: `Rate it on ${platformName}`,
-            onPress: goRateTheOrder,
-          }
-        : null,
+      // TWO FACES, AND THE SECOND IS THE ONE THAT FINISHES IT. Before they have
+      // been, the step opens the order. After they have been, it reads what the
+      // shop says — and that read is the only thing that can move the task on.
+      action: reviewed || !hasDelivery
+        ? null
+        : beenToRateIt
+          ? { label: `Check my rating on ${platformName}`, onPress: goReadTheRating }
+          : orderIdForReview != null
+            ? { label: `Rate it on ${platformName}`, onPress: goRateTheOrder }
+            : null,
     },
     {
       key: 'verifying',

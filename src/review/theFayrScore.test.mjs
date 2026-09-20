@@ -283,9 +283,46 @@ console.log('\n=== 8. FAYR NEVER WRITES ANYBODY’S REVIEW ===');
 console.log('\n=== 9. it warns and it NEVER blocks ===');
 {
   const screen = withoutComments(read('src/review/WriteReviewScreen.js'));
-  // THE BUTTON IS NEVER DISABLED ON A SCORE. `saving` stops a second tap and
-  // nothing else does.
-  ok(/disabled=\{saving\}/.test(screen), 'the only thing that disables the button is saving');
+  // NOTHING ON THIS SCREEN IS DISABLED, AND CERTAINLY NOT BY A SCORE.
+  //
+  // This used to read `ok(/disabled={saving}/)` — the SAVE MY REVIEW button was
+  // the only thing that carried it. That button went on 20 September 2026, when
+  // the owner said saving should not be a thing a person has to remember to do:
+  // the one tap that copies and opens the order saves as well. With it went the
+  // last `disabled` on the screen.
+  //
+  // WHAT ACTUALLY MATTERED IS KEPT, and it is the harder promise: a thin review
+  // is warned about and never blocked. So this now refuses ANY disabled at all,
+  // which is strictly stronger than the line it replaces and cannot be satisfied
+  // by disabling on the score.
+  ok(!/disabled=/.test(screen),
+    'nothing on the review screen is disabled — a thin review is warned about, never blocked');
+
+  // ── AND THE ONE TAP WRITES THE WORDS DOWN BEFORE IT SENDS ANYBODY OFF ─────
+  //
+  // 20 SEPTEMBER 2026. The owner wrote a review, tapped "copy and add review",
+  // pasted it on Zepto and submitted — and task_reviews still had 0 rows,
+  // because saving sat behind a button he had no reason to press. His reason
+  // for wanting it saved is the one that matters: "at the time of refunding the
+  // money to the wallet, the backend will check for the last time if the review
+  // is there or not ... we can check if the review has been edited, updated,
+  // removed, or deleted."
+  //
+  // Those saved words are the ONLY copy Fayr holds of what was meant to be
+  // posted. Without them the end-of-hold check can see that SOMETHING is on the
+  // page, never that it is still the same thing — which is the clawback half of
+  // loophole three in CLAUDE.md.
+  const oneTap = screen.slice(
+    screen.indexOf('const copyAndOpenTheOrder'),
+    screen.indexOf('}, [send, text, campaignId'),
+  );
+  ok(oneTap.length > 40, 'the one tap is where expected');
+  const saves = oneTap.indexOf('await send();');
+  const opens = oneTap.indexOf("navigation.navigate('Shop'");
+  ok(saves > -1, 'the one tap saves the review');
+  ok(opens > saves, 'and it saves BEFORE it opens the order, not after');
+  ok(/setCopied\(copyToClipboard\(text\)\)/.test(oneTap),
+    'and still copies exactly what is in the box');
   ok(!/disabled=\{[^}]*(score|band|THIN|scored)/.test(screen),
     'no score, band or scored value reaches a disabled prop');
   ok(!/if \([^)]*THIN[^)]*\) return/.test(screen), 'a thin review is never refused');

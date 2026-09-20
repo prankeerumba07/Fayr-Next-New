@@ -556,6 +556,33 @@ console.log('\n=== THE REVIEW STEP OPENS THE ORDER, AND DECLARES NOTHING ===');
     }
   });
 
+  it('once they have been to rate it, the step READS rather than asks again', () => {
+    if (!screen.includes('const beenToRateIt = !!(authoritative && authoritative.wentToReviewAt);')) {
+      throw new Error('the screen does not know they already went to rate it');
+    }
+    if (!screen.includes("navigation.navigate('LookingForReview'")) {
+      throw new Error('nothing opens the review read, so nothing can reach REVIEWED');
+    }
+    // AND IT PICKS THE RIGHT READ. A shop Fayr shops inside keeps the rating on
+    // the ORDER — Zepto has no reviews page at all — so sending it to the
+    // reviews walk finds nothing and hands back to the journey, which draws the
+    // review step again. That is the loop the owner went round all evening, and
+    // reviews-found was called zero times while it happened.
+    if (!screen.includes('const ratingIsOnTheOrder = shopsInsideFayr(campaign.marketplace);')) {
+      throw new Error('the screen does not ask where this shop keeps its rating');
+    }
+    if (!screen.includes("navigation.navigate('LookingForIt', { campaignId })")) {
+      throw new Error('a quick-commerce rating is not read off the order');
+    }
+    // reviews-found is the ONLY route that runs markReviewed + startHold. Without
+    // this face the task sits on DELIVERED with a published review on it — which
+    // is exactly what the owner hit: he rated the razor, Fayr read the rating,
+    // and the screen went on asking him to write a review.
+    if (!screen.includes('label: `Check my rating on ${platformName}`')) {
+      throw new Error('the second face is not offered');
+    }
+  });
+
   it('the step no longer calls itself "write your review"', () => {
     if (!/title: reviewed \? 'Review submitted' : 'Rate your product',/.test(screen)) {
       throw new Error('the heading does not say Rate your product');

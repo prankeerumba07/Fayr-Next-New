@@ -186,6 +186,36 @@ export default function WriteReviewScreen({ navigation, route }) {
    * the review read, and the read decides.
    */
   const copyAndOpenTheOrder = useCallback(async () => {
+    // ── IT SAVES FIRST, AND THAT IS THE WHOLE POINT OF SAVING ───────────────
+    //
+    // 20 SEPTEMBER 2026, THE OWNER, AFTER RUNNING IT HIMSELF. "There should not
+    // be any option for 'Save my review'. Once the user clicks on the option
+    // 'Copy' and is redirected to the Zepto product page, it automatically
+    // saves the review the user has given for the product."
+    //
+    // AND HIS REASON, WHICH IS THE REAL ONE: "at the time of refunding the
+    // money to the wallet, the backend will check for the last time if the
+    // review is there or not. We already have that review which the user has
+    // given here in the Fayr app, and then they have pasted it there ... we can
+    // check if the review has been edited, updated, removed, or deleted."
+    //
+    // The saved words are the ONLY copy Fayr has of what was supposed to be
+    // posted. Without them the clawback check at the end of the hold has
+    // nothing to compare the shop's page against — it can see THAT something is
+    // there, never that it is still the same thing. So the tap that sends
+    // somebody off to paste is exactly the tap that must write it down.
+    //
+    // HIS OWN RUN PROVED THE GAP. He wrote a review, tapped this, pasted it on
+    // Zepto and submitted — and task_reviews still had 0 rows, because saving
+    // lived behind a separate button he had no reason to press.
+    //
+    // IT DOES NOT BLOCK THE DOOR. A refused save leaves its sentence on screen
+    // and the order page still opens: somebody standing in a shop with their
+    // words on the clipboard must not be stranded because our side was
+    // unreachable. The consequence is stated rather than hidden — with nothing
+    // saved, the end-of-hold check can only confirm a review exists, and that
+    // is the honest weaker answer, not a silent one.
+    await send();
     setCopied(copyToClipboard(text));
     if (campaignId) markVisitedShop(campaignId, WENT_TO_REVIEW);
     if (taskId) await goingToTheReview(taskId);
@@ -197,7 +227,7 @@ export default function WriteReviewScreen({ navigation, route }) {
       land: 'order',
       orderKey,
     });
-  }, [text, campaignId, taskId, campaign, navigation]);
+  }, [send, text, campaignId, taskId, campaign, navigation]);
 
   if (loading) {
     return (
@@ -307,12 +337,18 @@ export default function WriteReviewScreen({ navigation, route }) {
         </ScrollView>
 
         <View style={styles.foot}>
-          {/* NEVER DISABLED ON A SCORE. `saving` is the only thing that stops a
-              second tap, and a thin review sends exactly as readily as a strong
-              one. The owner chose warning over blocking. */}
-          <Pill onPress={send} color={COLOR.ink} disabled={saving}>
-            {saving ? 'SAVING…' : 'SAVE MY REVIEW'}
-          </Pill>
+          {/* ── "SAVE MY REVIEW" IS GONE — 20 SEPTEMBER 2026 ───────────────
+              The owner, after running it: "There should not be any option for
+              'Save my review'. Once the user clicks on the option 'Copy' and is
+              redirected to the Zepto product page, it automatically saves the
+              review." It was a button whose only job was bookkeeping, offered
+              to a person who has no way of knowing the bookkeeping matters —
+              and on his own run he skipped it, so his words were never stored
+              and the end-of-hold comparison had nothing to compare against.
+              The saving moved into the one tap that sends him off to paste.
+              NEVER DISABLED ON A SCORE, and that rule moved with it: a thin
+              review goes exactly as readily as a strong one. The owner chose
+              warning over blocking. */}
           {/* ── AND THEN COPY IT, TO PASTE INTO THE SHOP ──────────────────
               Never disabled by the score either. It is not disabled at all:
               copying is free, it needs no network and it cannot fail in a way
@@ -323,7 +359,7 @@ export default function WriteReviewScreen({ navigation, route }) {
               The plain copy stays for somebody who wants the words and not the
               page — the two are the same copy, so nothing can drift. */}
           <Pill onPress={copyAndOpenTheOrder} color={COLOR.greenDeep}>
-            COPY AND ADD REVIEW FOR THIS PRODUCT
+            {saving ? 'SAVING…' : 'COPY AND ADD REVIEW FOR THIS PRODUCT'}
           </Pill>
           <Pill onPress={copy} color={COLOR.line}>COPY MY REVIEW</Pill>
           {copied ? (

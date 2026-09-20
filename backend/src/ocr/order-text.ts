@@ -284,8 +284,34 @@ export interface ParsedOrder {
  * ParsedOrder.rated. Whole words, so a product called "Rate Orderly Socks"
  * cannot be read as an invitation and a line saying "you rated" inside a
  * review of somebody else's cannot be — there are none on an order page.
+ *
+ * ── AND ZEPTO DOES NOT SAY "YOU RATED" — MEASURED 20 SEPTEMBER 2026 ────────
+ *
+ * The owner rated his razor on Zepto and the task would not move. His order
+ * list, read off his own device, says this on the rated order:
+ *
+ *   Order delivered   ₹360   Placed at 20th Sep 2026, 07:45 pm
+ *   Your delivery experience rating:  ★★★★★
+ *   Order Again
+ *
+ * and this on an unrated one, two cards below it:
+ *
+ *   Order delivered   ₹480   Placed at 18th Sep 2026, 08:47 pm
+ *   Rate order        Order Again
+ *
+ * So the invitation half was already right — an unrated Zepto order does say
+ * "Rate order", and it DISAPPEARS once rated, replaced by the rating row. What
+ * was missing is the positive half: "you rated" appears nowhere on Zepto, so a
+ * rated order read as neither rated nor unrated, `rated` came back null, and
+ * ratedFromALaterLook returned before it could move anything. He rated the
+ * product, Fayr read the page, and the app went on asking him to review it.
+ *
+ * THE PHRASE IS THE SHOP'S OWN AND IT IS NOT A NEAR MISS. "your delivery
+ * experience rating" is eleven syllables of Zepto's own label, it sits directly
+ * beside the stars, and it is absent from every unrated card on the same page —
+ * which is what makes it a signal rather than a word that happens to be there.
  */
-const RATED_SAID = /\byou\s+rated\b/i;
+const RATED_SAID = /\byou\s+rated\b|\byour\s+delivery\s+experience\s+rating\b/i;
 const RATE_INVITED = /\brate\s+order\b/i;
 
 /**
