@@ -71,6 +71,10 @@ import { appButtonLabel } from '../ui/shopApp';
 import { goBackOrHome } from '../ui/nav';
 import { deadlineLine } from '../ui/confirmJoin';
 import { getAuthoritative } from '../taskStore';
+// So a sign in that lands back here carries on instead of stopping. See the
+// note on the justSignedIn effect below.
+import { shopsInsideFayr } from '../shop/insideFayr';
+import { enterTheShop } from '../shop/enterTheShop';
 
 /** The three lines in the design's blue "what we never do" card. */
 function neverDo(shop) {
@@ -149,13 +153,37 @@ export default function LinkAccountScreen({ navigation, route }) {
   //
   // THE SAME ONE LINE THE "I have signed in" BUTTON ALREADY USED. There was
   // never a second mechanism missing; this path simply did not call it.
+  // ── AND WHEN THE CLAIM SENT THEM STRAIGHT TO THE SIGN IN, THIS SCREEN IS
+  //    A DOOR THEY NEVER SEE — 20 September 2026 ──────────────────────────────
+  //
+  // The claim no longer shows this screen at all: it opens the shop's own sign
+  // in directly (src/journey/afterClaim.js). But the connect screen is FROZEN
+  // and, when the sign in succeeds, it navigates HERE with `justSignedIn` — one
+  // line, src/ConnectScreen.js, and not ours to change. So the screen still has
+  // to exist, and what it must not do is STOP somebody here.
+  //
+  // `onJourneyMoved` is how the journey's router asks to look again, and it is
+  // only ever handed in when the JOURNEY drew this screen. Arriving with no
+  // router to tell means nobody is waiting for this screen, so it takes them on
+  // by itself: into the shop where Fayr shops inside, and to the buy step where
+  // it does not. Without this they land on a finished-looking page with a button
+  // as the only way forward, which is the exact screen that was asked to go.
   useEffect(() => {
     if (params.justSignedIn !== true) return;
     if (campaignId) markVisitedShop(campaignId, SIGNED_IN);
     setConnected(true);
     setSent(true);
-    if (params.onJourneyMoved) params.onJourneyMoved();
-  }, [params.justSignedIn, params, campaignId]);
+    if (params.onJourneyMoved) { params.onJourneyMoved(); return; }
+    let alive = true;
+    (async () => {
+      if (shopsInsideFayr(key)) {
+        const went = await enterTheShop({ campaignId, marketplace: key, navigation });
+        if (went.ok || !alive) return;
+      }
+      if (alive) navigation.navigate('buyinterstitial', { campaignId });
+    })();
+    return () => { alive = false; };
+  }, [params.justSignedIn, params, campaignId, key, navigation]);
 
   /** Tapping connect. The sheet comes up; nothing opens yet. */
   const askFirst = useCallback(() => setSheetUp(true), []);

@@ -49,22 +49,43 @@ console.log('=== 1. THE CONSENT IS RECORDED, FIRST, AND THE SHOP DOES NOT OPEN W
     'and a shop that is not inside Fayr is refused here too, whatever the caller thought');
 }
 
-console.log('\n=== 2. CLAIM -> SHOP, NOTHING BETWEEN, FOR A LISTED SHOP ===');
+console.log('\n=== 2. CLAIM -> THE SIGN IN, OR THE SHOP IF THEY ARE ALREADY IN ===');
 {
+  // CORRECTED 20 SEPTEMBER 2026, BY THE OWNER, ABOUT HIS OWN WORDS. This section
+  // used to say "CLAIM -> SHOP, NOTHING BETWEEN" and held the claim to going
+  // through the door and nowhere else. That was half of what he asked for. The
+  // screen he wanted removed was "Connect your {shop} account" — the page with a
+  // button on it — and NOT the sign in behind it:
+  //
+  //   "I wanted that connect my marketplace screen to be removed, not the sign
+  //    in thing. Once user taps on claim the campaign they are redirected to the
+  //    sign in page of that particular marketplace."
+  //
+  // Held to the old rule, a claim made signed-out opened Zepto's FRONT PAGE,
+  // which carries no sign in at all — measured on a real claim the same day. So
+  // the rule is now: the sign in when we do not know they are in, the door when
+  // we do, and still no screen of Fayr's own in between either way.
   const claim = detail.slice(detail.indexOf('const doClaim = useCallback'),
     detail.indexOf('}, [navigation, campaignId, accepted, claiming, campaign]);'));
   ok(claim.length > 100, 'the claim callback is where expected');
-  const gate = claim.indexOf('if (shopsInsideFayr(campaign ? campaign.marketplace : null))');
+  const decided = claim.indexOf('whereAClaimGoes({');
+  const toSignIn = claim.indexOf('navigation.navigate(goes.route, signInParams(campaignId))');
   const enter = claim.indexOf('await enterTheShop({');
   const returns = claim.indexOf('if (went.ok) return;');
   const claimed = claim.indexOf("navigation.navigate('Claimed'");
-  ok(gate > -1 && enter > gate && returns > enter,
-    'after a successful claim a listed shop goes through the door and RETURNS');
+  ok(decided > -1, 'the claim asks one place where it goes');
+  ok(toSignIn > decided, 'and a person we cannot call signed in goes to the SHOP’S OWN SIGN IN');
+  ok(enter > toSignIn && returns > enter,
+    'a person who IS signed in still goes through the door and RETURNS');
   ok(claimed > returns, 'so the slot-reserved moment is reached only when the door did not open');
-  // AND NOTHING ELSE IS NAVIGATED TO BETWEEN THE CLAIM AND THE DOOR.
+  // AND NOTHING OF FAYR'S OWN IS NAVIGATED TO BETWEEN THE CLAIM AND EITHER ONE.
+  // The shop's sign in is the shop's own page, not a screen of ours, so the one
+  // navigate that is allowed here is the one that opens it.
   const between = claim.slice(claim.indexOf('if (!res.ok)'), enter);
   const betweenOk = between.slice(between.indexOf('return;\n    }') + 12);
-  ok(!/navigate\(|replace\(/.test(betweenOk), 'and nothing is navigated to between the claim succeeding and the door');
+  const strays = betweenOk.replace('navigation.navigate(goes.route, signInParams(campaignId));', '');
+  ok(!/navigate\(|replace\(/.test(strays),
+    'and nothing but the shop’s own sign in is navigated to between the claim and the door');
   ok(!/'linkaccount'|'buyinterstitial'|'returncatch'|'Journey'/.test(claim),
     'and no connect, before-you-go or did-you-buy-it screen is named by the claim at all');
 }

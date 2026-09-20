@@ -30,8 +30,11 @@ import { seatsLine, joinedLine, isFullCampaign, lockedReason } from './ui/seats'
 import { Card, RefundBadge, MarketplaceTag, ProductImage } from './ui/primitives';
 import { copyToClipboard } from './ui/clipboard';
 import { TERMS_SENTENCE, acceptedTerms, claimBlockedLine } from './ui/terms';
-import { shopsInsideFayr } from './shop/insideFayr';
 import { enterTheShop } from './shop/enterTheShop';
+// WHERE A CLAIM GOES, decided in one pure place so the sign in cannot be
+// dropped again by a screen. See src/journey/afterClaim.js.
+import { whereAClaimGoes, signInParams } from './journey/afterClaim.js';
+import { isConnected } from './backend/connectedShops';
 import { reachedBottom } from './ui/detailReveal';
 import { goBackOrHome } from './ui/nav';
 
@@ -210,7 +213,7 @@ export default function DetailScreen({ navigation, route }) {
       navigation.navigate('JoinFailed', { campaignId, error: msg });
       return;
     }
-    // ── A SHOP INSIDE FAYR: STRAIGHT INTO THE SHOP, NOTHING BETWEEN ─────────
+    // ── STRAIGHT TO THE SHOP'S OWN LOGIN PAGE, NOTHING BETWEEN ─────────────
     //
     // 18 SEPTEMBER 2026, THE OWNER'S FLOW IN HIS OWN WORDS: "accept terms ->
     // CLAIM -> STRAIGHT to the shop's own LOGIN page, inside Fayr. No screen
@@ -219,14 +222,30 @@ export default function DetailScreen({ navigation, route }) {
     // For Zepto, Blinkit and Instamart they do not leave, so none of it is
     // shown.
     //
+    // WHAT WAS BEING REMOVED WAS ONE SCREEN, NOT THE SIGN IN — 20 September
+    // 2026. "Connect your {shop} account" was the page he wanted gone. The
+    // build took the landing with it, so a claim made signed-out went to the
+    // shop's FRONT PAGE, which has no sign in on it. Measured on a Zepto claim
+    // the same day. whereAClaimGoes is the half that was missing; the word
+    // `toSignIn` is what opens the sign in rather than the shopping page.
+    //
+    // THE FOUR OTHER SHOPS GET THIS TOO, and that is the point: he asked for it
+    // "for other marketplaces as well". Every shop has a screen under its own
+    // key in App.js, so there is one answer and not two.
+    const goes = whereAClaimGoes({
+      marketplace: campaign ? campaign.marketplace : null,
+      connected: isConnected(campaign ? campaign.marketplace : null),
+    });
+    if (goes.kind === 'signin') {
+      navigation.navigate(goes.route, signInParams(campaignId));
+      return;
+    }
     // THE CONSENT IS STILL RECORDED, by enterTheShop, with the same server call
     // the pop-up used to make, and the shop does not open if it fails: a
     // purchase our side has no consent for cannot be paid. When it fails the
     // claim has still happened, so they land on the slot-reserved moment as
     // before and the journey offers the door again.
-    //
-    // THE FOUR OTHER SHOPS TAKE THE LINE AFTER THIS ONE, exactly as they did.
-    if (shopsInsideFayr(campaign ? campaign.marketplace : null)) {
+    if (goes.kind === 'shop') {
       const went = await enterTheShop({
         campaignId, marketplace: campaign.marketplace, navigation,
       });
