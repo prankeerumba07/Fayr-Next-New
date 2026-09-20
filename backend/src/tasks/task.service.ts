@@ -1380,8 +1380,42 @@ export class TaskService {
   async sweepExpiredClaims(
     now: Date = new Date(),
   ): Promise<{ expired: number }> {
+    // ── A CLAIM THAT HAS GONE TO THE SHOP IS PAST THIS CLOCK ─────────────────
+    //
+    // 20 SEPTEMBER 2026, AND IT COST A REAL PURCHASE. The owner claimed, went to
+    // Zepto, and paid ₹360 for the razor. Eight minutes later this sweep closed
+    // his claim. His own row:
+    //
+    //   wentToShopAt    14:10:03   he went to the shop
+    //                   ~14:15     he paid
+    //   claimExpiresAt  14:22:41
+    //   closedAt        14:23:00   this sweep
+    //   watchedOrderKey 01a0bf2c…  Fayr was already watching that order
+    //   shopHoldEndsAt  16:10:03   what the screen was showing him
+    //
+    // THE TWO CLOCKS MEAN DIFFERENT THINGS, in his own words: "the campaign was
+    // reserved for 30 minutes; however, the user can make his purchase within
+    // 2 hours." claimExpiresAt is the window to TAP BUY — goToShop enforces it
+    // with mayTapBuy and refuses after it. The moment that tap lands,
+    // shopHoldEndsAt starts and IT is the window to actually pay.
+    //
+    // So once wentToShopAt is set, this clock has already done its whole job.
+    // Reading it afterwards cancels people who are mid-purchase, and there is no
+    // way back for them: the money is spent and the claim is closed.
+    //
+    // WHY wentToShopAt AND NOT watchedOrderKey, though his row had both. The
+    // order key only appears once Fayr has seen an order, which is minutes after
+    // the money leaves. Between the tap and that sighting is exactly the gap he
+    // fell into. The tap is the earliest honest moment, so it is the one used.
+    //
+    // WHAT THIS DOES NOT DO. It does not make a seat immortal. A claim that never
+    // taps Buy still expires here on the thirty minutes and still hands its
+    // tickets back, which is the whole reason this sweep exists.
     const candidates = await this.prisma.task.findMany({
-      where: { state: 'CLAIMED', closedAt: null, claimExpiresAt: { lt: now } },
+      where: {
+        state: 'CLAIMED', closedAt: null, claimExpiresAt: { lt: now },
+        wentToShopAt: null,
+      },
       select: { id: true, userId: true },
     });
     let expired = 0;

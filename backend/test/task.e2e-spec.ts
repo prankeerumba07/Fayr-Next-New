@@ -1045,6 +1045,52 @@ describe('Task loop (e2e)', () => {
     expect(closed.closeReason).toBe('expired');
   });
 
+  // ── AND NEVER ONCE THEY HAVE GONE TO THE SHOP ────────────────────────────
+  //
+  // 20 September 2026, from the owner's own run. He claimed, went to Zepto, paid
+  // ₹360 for the razor, and eight minutes later this sweep closed his claim —
+  // with the order key for that purchase already on the row. The money was gone
+  // and the claim was shut.
+  //
+  // THE TWO CLOCKS ARE NOT THE SAME CLOCK, in his words: "the campaign was
+  // reserved for 30 minutes; however, the user can make his purchase within 2
+  // hours." claimExpiresAt is the window to TAP BUY. shopHoldEndsAt, which that
+  // tap starts, is the window to pay. Once the tap has happened the first clock
+  // has done its whole job, and reading it again cancels people mid-purchase.
+  it('never expires a claim that has already gone to the shop', async () => {
+    const { id: userId, token } = await newUser();
+    await ticketsSvc.grantSignup(userId);
+    const campaign = await makeCampaign();
+    const claim = await request(server())
+      .post('/tasks')
+      .set('Authorization', bearer(token))
+      .send({ campaignId: campaign.id, acceptedTerms: true })
+      .expect(201);
+    expect(await ticketsSvc.getBalance(userId)).toBe(10);
+
+    // His row exactly: the tap happened, the two hour hold is running, and the
+    // thirty minutes ran out a long time ago.
+    await prisma.task.update({
+      where: { id: claim.body.id },
+      data: {
+        claimExpiresAt: new Date(Date.now() - DAY),
+        wentToShopAt: new Date(Date.now() - DAY),
+        shopHoldEndsAt: new Date(Date.now() + DAY),
+      },
+    });
+
+    const { expired } = await taskSvc.sweepExpiredClaims();
+    expect(expired).toBe(0);
+
+    const still = await prisma.task.findUniqueOrThrow({
+      where: { id: claim.body.id },
+    });
+    expect(still.closedAt).toBeNull();
+    expect(still.closeReason).toBeNull();
+    // And the tickets stay spent, because the purchase is real.
+    expect(await ticketsSvc.getBalance(userId)).toBe(10);
+  });
+
   // Claim-limit rule: a campaign may be claimed once per user, but only a
   // *purchase* is permanent. An unpurchased claim that expires can be re-claimed;
   // once a task ever passes CLAIMED (purchase confirmed), the campaign is locked
