@@ -510,13 +510,28 @@ export default function LookingForItScreen({ navigation, route }) {
         const one = await openWith(next);
         if (!alive) return;
         const detail = readDetailStep(next, one);
+        // HOW MANY CHARACTERS OF WORDS THE PAGE ENDED WITH, worked out HERE and
+        // not inside the line below, so that no log call anywhere in this file
+        // so much as names the page's text. lookLog.test.mjs bans `.text` from
+        // every one of them outright, and a length is worth having without
+        // weakening that ban by one character.
+        const charsRead = one && typeof one.text === 'string' ? one.text.length : 0;
         // COUNTS, THE STATUS AND WHERE IT LANDED — with the key already taken
         // out of the landing by readDetailStep. Never the page, never the key.
         logLook('watched', `status=${one && one.status} `
           + `bytes=${(one && typeof one.html === 'string' ? one.html.length : 0)} `
           + `landed=${detail.landed == null ? 'null' : detail.landed} `
           + `looked=${detail.looked} whyNot=${detail.whyNot} `
-          + `wantsSignIn=${detail.wantsSignIn}`);
+          + `wantsSignIn=${detail.wantsSignIn} `
+          // WHY A PAGE THAT ANSWERED STILL DID NOT COUNT AS READ. Six numbers
+          // and no words: looked=false has three different causes — the page
+          // never settled, its text never held still, or it settled empty —
+          // and without these they are one silence. All counts, never content.
+          + `drew=${one && one.drew} settled=${one && one.settled} `
+          + `waited=${one && one.waited} looks=${one && one.looks} `
+          + `nodes=${one && one.nodesFirst}->${one && one.nodesNow} `
+          + `chars=${charsRead} `
+          + `arrived=${one && one.beforeTheScript}`);
         // THE SAME TWO REFUSALS EVERY OTHER PAGE HAS, in the same words.
         if (detail.wantsSignIn === true) {
           await settle();
@@ -1111,18 +1126,34 @@ export default function LookingForItScreen({ navigation, route }) {
             httpStatus.current = Number.isFinite(said) ? said : 0;
           }}
           onError={givenUpOn}
-          /* NOTHING HERE IS FOR ANYBODY TO READ OR REACH. It is one point across,
-             fully see through and off the side of the screen, and it now holds
-             somebody's own orders — so it is taken out of the reading order as
-             well, rather than relying on being invisible. */
+          /* NOTHING HERE IS FOR ANYBODY TO READ, REACH OR TOUCH. It is fully see
+             through and parked further off the side of the screen than any
+             screen is wide, and it now holds somebody's own orders — so it is
+             taken out of the reading order and out of the way of a finger as
+             well, rather than relying on being invisible. Its SIZE is a phone's,
+             and why that matters is written at styles.away. */
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
           style={styles.away}
         />
       ) : null}
     </Screen>
   );
 }
+
+/**
+ * THE VIEWPORT THE LOOK'S PAGE IS LAID OUT INTO, in points.
+ *
+ * A PHONE, AND NOT THIS PHONE. Fixed rather than read off the device, so that
+ * two people with the same order are handed the same page: a shop that renders
+ * one section on a tall screen and not on a short one would otherwise make the
+ * reader's answer depend on whose hand it is in. 390 by 844 is an ordinary
+ * portrait phone and is tall enough for the whole of a quick-commerce order
+ * page — the one this was measured against draws in about six hundred points.
+ */
+const A_PHONE_WIDE = 390;
+const A_PHONE_TALL = 844;
 
 const styles = StyleSheet.create({
   middle: {
@@ -1172,7 +1203,39 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Off the screen rather than hidden: a WebView with no size does not always run
-  // its script on either phone, and this one has to run.
-  away: { position: 'absolute', width: 1, height: 1, opacity: 0, left: -10, top: -10 },
+  // ── OFF THE SCREEN, AND A WHOLE PHONE WIDE ──────────────────────────────
+  //
+  // Off the screen rather than hidden, because a WebView with no size does not
+  // always run its script on either phone, and this one has to run.
+  //
+  // AND A REAL SIZE, WHICH IT DID NOT USED TO HAVE, and that cost five days.
+  // It was one point by one point. A page laid out into a viewport one point
+  // across renders almost nothing, and innerText is RENDERED text — so the read
+  // came back with the top of the order and no more. Measured on the owner's own
+  // Zepto order page, 21 September 2026, which showed a rating and a bill on
+  // screen and handed the reader this:
+  //
+  //   lens=[189] markers=[you-rated=no rate-order=no order-delivered=no
+  //                       the-word-delivered=yes bill-heading=no item-total=no]
+  //
+  // One hundred and eighty-nine characters, steady over thirteen seconds, with
+  // "You rated:" and the whole Bill Summary missing — not because the shop had
+  // stopped saying them but because there was nowhere to draw them. The task sat
+  // at DELIVERED, the app went on asking for a review that had been posted hours
+  // before, and the price had to be guessed from the one item rather than read
+  // off "Item Total".
+  //
+  // THE NUMBERS ARE A PHONE, not this phone: a fixed portrait viewport, so what
+  // the reader sees does not change with the device it happens to be running on
+  // and a page cannot render differently for two people with the same order.
+  // OFF TO THE LEFT BY MORE THAN ANY SCREEN IS WIDE, so being full sized cannot
+  // make it visible, and still fully see through on top of that.
+  away: {
+    position: 'absolute',
+    width: A_PHONE_WIDE,
+    height: A_PHONE_TALL,
+    opacity: 0,
+    left: -(A_PHONE_WIDE + 1000),
+    top: 0,
+  },
 });

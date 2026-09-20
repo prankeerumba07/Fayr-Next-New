@@ -168,6 +168,41 @@ export const MOST_LOOKS = Math.ceil(DRAW_DEADLINE_MS / LOOK_AGAIN_MS);
 export const LEAST_A_DRAW_CAN_TAKE_MS = LOOK_AGAIN_MS * STEADY_LOOKS_BEFORE_WE_READ;
 
 /**
+ * A SECOND OF STILLNESS, in looks, FOR A PAGE THAT NEVER SAYS IT HAS FINISHED.
+ *
+ * ── MEASURED ON THE OWNER'S OWN ZEPTO ORDER PAGE, 21 SEPTEMBER 2026 ────────
+ *
+ * Three reads of the same order, minutes apart, all of them fully drawn on
+ * screen and all of them holding exactly 189 characters:
+ *
+ *   drew=true  settled=true  waited=13186 looks=44 chars=189
+ *   drew=false settled=false waited=13354 looks=45 chars=189
+ *   drew=false settled=false waited=29549 looks=1  chars=0
+ *
+ * `document.readyState` reached "complete" on ONE of them, thirteen seconds in,
+ * and never on the others. That is not a page still drawing — the words had
+ * stopped moving within a few seconds of arriving and never moved again — it is
+ * a shop that keeps a connection open, and waiting for it to say "complete" is
+ * waiting for something that may never be said. An order that had been delivered
+ * and rated for hours was read, correctly, and then thrown away for it.
+ *
+ * SO "FINISHED" IS NO LONGER REQUIRED, AND STILLNESS IS ASKED FOR LONGER
+ * INSTEAD. A page whose own code says it has finished is believed after the
+ * app's usual two looks. A page that says nothing has to hold the same words for
+ * a whole second before we believe them — long enough that none of the
+ * half-drawn states above could ever be mistaken for the end, short enough to
+ * leave the deadline mostly unspent.
+ *
+ * AND `chars > 0` STILL CARRIES THE OTHER HALF of the old rule: a shell steady
+ * at nothing is not a page that drew, however still it holds.
+ */
+export const A_SECOND_OF_STILLNESS_MS = 1000;
+export const STEADY_LOOKS_WHEN_NOTHING_SAYS_FINISHED = Math.max(
+  STEADY_LOOKS_BEFORE_WE_READ + 1,
+  Math.ceil(A_SECOND_OF_STILLNESS_MS / LOOK_AGAIN_MS),
+);
+
+/**
  * WHICH SHOPS' ORDER PAGES HAVE TO BE DRAWN, WHICH IS NOT THE LIST QUESTION.
  *
  * ── AND AMAZON IS THE LIVING PROOF THEY ARE DIFFERENT FACTS ───────────────
@@ -672,20 +707,56 @@ export function readDrawnOutcome(answer) {
  * every refusal, the status, the landing and the shape reports all go on reading
  * that, unchanged. The words are an addition and not a replacement.
  *
- * THE SECOND IS COST: innerText makes the page lay itself out. So it is read
- * ONCE, in send(), and never in a look. What a look watches is textContent's
- * LENGTH, which reads off the tree and lays nothing out.
+ * THE SECOND IS COST: innerText makes the page lay itself out, so a look used to
+ * watch textContent's LENGTH instead, which reads off the tree and lays nothing
+ * out. THAT WAS WRONG, AND HERE IS THE LINE THAT SHOWED IT — the owner's own
+ * Zepto order page, 21 September 2026:
+ *
+ *   watched drew=true settled=true waited=602 looks=3 nodes=245->172 chars=0
+ *
+ * Drawn, finished and read after six hundred milliseconds, with NOTHING on it.
+ * textContent counts the text inside <script> tags, and this shop ships its
+ * whole page as script payload before it renders a word of it. So the watcher
+ * was watching the shop's DATA arrive and go still, while the page itself was
+ * still blank — and the read that followed took an empty page and threw it away.
+ *
+ * SO A LOOK WATCHES WHAT THE READ WILL TAKE: rendered text, the same innerText
+ * send() hands over. It costs a layout a look, on ONE order page, at most the
+ * handful of looks a deadline allows, and the whole point of the poll is to find
+ * out when that text exists. Watching something cheaper that answers a different
+ * question is not a saving. The LIST poller next door still counts rows and
+ * still lays nothing out; nothing here changes that.
  *
  * AND IT IS THE TEXT THE SERVER IS ALREADY PROVEN AGAINST. parseOrderText was
  * written and checked against this exact page's own words. Handing it markup to
  * cut up instead would be a second reader of the same page.
  *
- * ── AND ITS CLOCK IS ITS OWN ──────────────────────────────────────────────
+ * ── AND ITS CLOCK IS ITS OWN, AND IT STARTS INSIDE THE PAGE ───────────────
  *
- * `beganAt` is the moment THIS page was opened, never the moment the look began.
- * Sharing the look's start would put the second order page already past its
- * deadline at its first look — which reads as "it never drew" about a page
- * nobody ever waited for.
+ * MEASURED ON THE OWNER'S OWN ZEPTO ORDER PAGE, 21 SEPTEMBER 2026, and this is
+ * the line that ate an evening:
+ *
+ *   watched status=200 bytes=279406 landed=/order/<order> looked=false
+ *   drew=false settled=false waited=29549 looks=1 nodes=245->245 chars=0
+ *
+ * ONE look. The deadline used to be measured from `beganAt` — the moment the
+ * screen ASKED the view to navigate — and the shop took twenty-nine seconds to
+ * hand this script a document. So `waited` was already twice the deadline at
+ * the script's very first look, `out` was true before the page had drawn a
+ * single character, and it sent back an empty read of a page that was about to
+ * fill in perfectly. The order had been delivered and rated for hours; the app
+ * went on asking for a review, because a fully drawn page was never read.
+ *
+ * THE DEADLINE IS FOR DRAWING, so it is measured from when there is something to
+ * draw: `began` is taken when this script first runs, which on iOS is document
+ * end — the shell parsed, the body still empty. Time spent BEFORE that is
+ * navigation, and navigation is already bounded by the screen's own ceiling,
+ * which moves the person on whatever this script does.
+ *
+ * `beganAt` IS STILL USED, AND FOR THE THING IT CAN HONESTLY ANSWER: how long
+ * the shop took to answer at all, handed back as `beforeTheScript` so the next
+ * person to read a looked=false line can tell a slow shop from a slow draw
+ * without adding a log line to find out.
  */
 export function buildDrawnOrderScript({
   beganAt, tag, wantedPath, deadlineMs,
@@ -705,6 +776,7 @@ export function buildDrawnOrderScript({
 (function(){
   if (window.__fayrReading) return;
   window.__fayrReading = true;
+  var began = Date.now();
   var sent = false, ticker = null, looks = 0, steady = -1, same = 0, first = -1;
   function stop(){ if (ticker !== null) { clearInterval(ticker); ticker = null; } }
   function send(o){
@@ -716,21 +788,23 @@ export function buildDrawnOrderScript({
     try { o.html = document.documentElement ? document.documentElement.outerHTML : ''; } catch(e){ o.html = ''; }
     try { o.text = document.body ? document.body.innerText : ''; } catch(e){ o.text = ''; }
     try { o.url = String(location.href); } catch(e){ o.url = ''; }
+    o.beforeTheScript = ${startedAt} === 0 ? 0 : began - ${startedAt};
     try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch(e){}
   }
-  function howMuch(){ try { return document.body ? document.body.textContent.length : 0; } catch(e){ return 0; } }
+  function howMuch(){ try { return document.body ? document.body.innerText.length : 0; } catch(e){ return 0; } }
   function howBig(){ try { return document.getElementsByTagName("*").length; } catch(e){ return 0; } }
   function look(){
     looks = looks + 1;
     var chars = howMuch();
     var now = howBig();
     if (first < 0) first = now;
-    var waited = Date.now() - ${startedAt};
+    var waited = Date.now() - began;
     var settled = false, elsewhere = false;
     try { settled = document.readyState === "complete"; } catch(e){}
     try { elsewhere = ${wanted} !== "" && location.pathname !== ${wanted}; } catch(e){}
     if (chars > 0 && chars === steady) { same = same + 1; } else { steady = chars; same = 1; }
-    var wrote = settled && chars > 0 && same >= ${STEADY_LOOKS_BEFORE_WE_READ};
+    var enough = settled ? ${STEADY_LOOKS_BEFORE_WE_READ} : ${STEADY_LOOKS_WHEN_NOTHING_SAYS_FINISHED};
+    var wrote = chars > 0 && same >= enough;
     var out = waited >= ${deadline} || looks >= ${mostLooks};
     if (wrote || out || (elsewhere && settled)) {
       send({ drew: wrote, settled: settled, waited: waited, looks: looks,

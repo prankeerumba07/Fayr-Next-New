@@ -30,7 +30,10 @@ import { formatPaise } from '../money.js'; // explicit extension: also run under
 /** Copy from the design, verbatim. Kept here so no screen re-types it. */
 const EYEBROW = 'Refund paid';
 const TITLE = "You've been paid";
-const CHIP = '✓ Credited to fayr Wallet';
+// THE APP IS ALWAYS "Fayr". The design's own file typed it lower case in this
+// one chip; every other line of Fayr's copy capitalises it, and a paid screen is
+// the last one anybody sees.
+const CHIP = '✓ Credited to Fayr Wallet';
 /** The half of the sub-line that is true whatever else is missing. */
 const ALWAYS_TRUE = 'Your honest review made this happen.';
 

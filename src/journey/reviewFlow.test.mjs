@@ -536,17 +536,58 @@ console.log('\n=== THE REVIEW STEP OPENS THE ORDER, AND DECLARES NOTHING ===');
     }
   });
 
-  it('the step sends them to their own ORDER, not to the product page', () => {
-    if (!/land: 'order',/.test(screen)) throw new Error("no land: 'order'");
-    if (!/orderKey: orderIdForReview,/.test(screen)) throw new Error('no orderKey');
-    // The product page carries no rating — that is the whole reason the owner
-    // said "I don't want them to be redirected to the product page".
-    if (!/navigation\.navigate\('Shop', \{/.test(screen)) throw new Error('not the shop view');
+  // ── THROUGH FAYR'S OWN REVIEW SCREEN, NOT STRAIGHT TO THE SHOP ───────────
+  //
+  // 21 September 2026, and this check was written to match my own mistake. It
+  // pinned `land: 'order'` on the TASK screen, so it passed while that button
+  // sent people straight to Zepto — skipping the Fayr composer, the score and
+  // the copy. The owner caught it: "I did not add my review in Fayr and did not
+  // have any score. I did not copy it or do anything, so it did not work as
+  // planned."
+  //
+  // HIS FLOW, WHICH IS THE PRODUCT'S: delivered -> write it in Fayr -> score ->
+  // copy and add review -> the shop's own ORDER page -> rate, paste, submit.
+  // The written review is the thing a brand pays for on a shop that only takes
+  // a star, and it is also the only copy the end-of-hold check can compare
+  // against. Sending somebody straight to the shop throws all of it away.
+  //
+  // THE ORDER LANDING IS STILL PINNED — in WriteReviewScreen, where it belongs:
+  // theFayrScore.test.mjs holds the one tap to saving, copying and opening the
+  // order. One door, checked where it lives.
+  it('the step opens Fayr’s own review screen, not the shop', () => {
+    if (!/navigation\.navigate\('WriteReview', \{ campaignId \}\)/.test(screen)) {
+      throw new Error('the task screen does not open Fayr’s review composer');
+    }
+    // AND IT NO LONGER REACHES PAST IT TO THE SHOP. A land:'order' here is the
+    // composer being skipped again.
+    if (/land: 'order'/.test(screen)) {
+      throw new Error('the task screen is jumping straight to the shop again');
+    }
   });
 
-  it('the order number is read off the matched order, never typed', () => {
-    if (!/const id = task\.order && task\.order\.id;/.test(screen)) {
-      throw new Error('the order id is not read off the task');
+  // ── THE KEY, NOT THE NUMBER, AND THIS CHECK NOW SAYS WHICH ───────────────
+  //
+  // 21 September 2026. This used to pin `task.order.id` — the order NUMBER the
+  // page prints — so it passed happily while the button built
+  // https://www.zepto.com/order/RGTLJGSNT54558?isArchived=false and Zepto
+  // answered "the page you are looking for has made an exit". The owner tapped
+  // "Write review" and got a 404.
+  //
+  // A Zepto order's page is addressed by the UUID in its link, a different
+  // string, and the two are kept apart on our side on purpose:
+  //   tasks.orderId          the number the page prints
+  //   tasks.watchedOrderKey  the UUID its address uses
+  // Phase 8A fixed this exact bug in WriteReviewScreen on 19 September and left
+  // the warning in that file. The task screen's own button was written without
+  // reading it, and this check was written to match the broken code.
+  it('the order page is addressed by the watched KEY, never the printed number', () => {
+    if (!/const key = theWatchedOrderKey\(authoritative\);/.test(screen)) {
+      throw new Error('the order page is not addressed by the watched key');
+    }
+    // AND THE PRINTED NUMBER IS NOT USED FOR IT. A task.order.id anywhere near
+    // this door is the 404 coming back.
+    if (/orderIdForReview[\s\S]{0,300}task\.order\.id/.test(screen)) {
+      throw new Error('the printed order number is being used as an address again');
     }
   });
 

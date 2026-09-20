@@ -48,6 +48,9 @@ import {
   SIGNED_IN, WENT_TO_BUY, hasVisitedShop, markVisitedShop,
 } from './shopVisits';
 import { shopsInsideFayr } from '../shop/insideFayr';
+// WHEN A STEP THAT IS ONLY WAITING ASKS AGAIN. The rule is next door and pure;
+// this file only obeys it. See waitingCadence.js for the rehearsal it comes from.
+import { askAgainIn } from './waitingCadence';
 import ArrivedMoment from './ArrivedMoment';
 import { shouldCelebrateDelivery } from './arrived';
 import { isConnected as isShopConnected } from '../backend/connectedShops';
@@ -80,7 +83,9 @@ export default function JourneyScreen({ navigation, route }) {
   const params = (route && route.params) || {};
   const campaignId = params.campaignId || null;
 
-  const [, setTick] = useState(0);
+  // THE COUNT IS READ, not only bumped: the waiting effect below depends on it,
+  // which is what makes one timer follow the last rather than all firing at once.
+  const [tick, setTick] = useState(0);
   const [purchaseShots, setPurchaseShots] = useState(0);
 
   const campaign = campaignId ? campaignStore.getById(campaignId) : null;
@@ -93,6 +98,37 @@ export default function JourneyScreen({ navigation, route }) {
     if (!campaignId) return undefined;
     return subscribe(() => setTick((n) => n + 1));
   }, [campaignId]);
+
+  // ── A STEP WHOSE ONLY JOB IS TO WAIT ASKS AGAIN BY ITSELF ───────────────
+  //
+  // The two occasions above — the store changing, and arriving at the screen —
+  // are both things somebody DOES. The hold is the one step where they are asked
+  // to do nothing and watch, and on 21 September 2026 a rehearsal refund landed
+  // while the screen went on counting down to it. So while the money is due
+  // within sight, this asks our side again on the cadence waitingCadence.js sets,
+  // and redraws — which is all it takes, because the record decides the screen.
+  //
+  // IT SCHEDULES ONE TIMER AT A TIME and re-runs on every redraw, so the chain
+  // stops of its own accord the moment the record leaves HOLDING.
+  useEffect(() => {
+    const endsAt = authoritative && typeof authoritative.windowEndsAt === 'string'
+      ? Date.parse(authoritative.windowEndsAt)
+      : null;
+    const ms = askAgainIn({
+      state: authoritative ? authoritative.state : null,
+      windowEndsAt: Number.isNaN(endsAt) ? null : endsAt,
+      now: Date.now(),
+    });
+    if (ms == null) return undefined;
+    const timer = setTimeout(() => {
+      // THE REDRAW IS NOT OPTIONAL. A countdown drawn from Date.now() at render
+      // is a still picture until something makes the screen draw again, and the
+      // answer may well come back identical.
+      setTick((n) => n + 1);
+      if (taskId) getTask(taskId).catch(() => {});
+    }, ms);
+    return () => clearTimeout(timer);
+  }, [authoritative, taskId, tick]);
 
   const loadShots = useCallback(async () => {
     if (!taskId) { setPurchaseShots(0); return; }

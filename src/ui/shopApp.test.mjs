@@ -301,8 +301,34 @@ console.log('\n=== 6. THE THREE SCREENS THAT SEND SOMEBODY SHOPPING REALLY DO IT
         `${reader} must keep its web view out of the reading order`);
       ok(/importantForAccessibility="no-hide-descendants"/.test(src),
         `${reader} must hide its web view from assistive tech`);
-      ok(/position: 'absolute', width: 1, height: 1, opacity: 0/.test(src),
-        `${reader} must keep its web view one point across and invisible`);
+      // ── INVISIBLE AND OUT OF REACH, WHICH IS THE GROUND. NOT ONE POINT. ──
+      //
+      // This used to demand the literal `width: 1, height: 1`, and that was a
+      // measurement written down as a rule. The ground the exception rests on is
+      // that nobody can see or touch the view — the size was only ever how that
+      // was achieved.
+      //
+      // AND THE SIZE TURNED OUT TO BE WRONG. Measured 21 September 2026 on the
+      // owner's own Zepto order page: a page laid out into a viewport one point
+      // across renders almost nothing, and innerText is RENDERED text, so the
+      // read came back with the top of the order and no more — no rating, no
+      // bill. The order had been delivered and rated for hours and the app went
+      // on asking for a review. See styles.away in LookingForItScreen.js.
+      //
+      // So what is checked is the ground: out of the layout, fully see through,
+      // parked off the side — and, for a view big enough for a finger to find,
+      // out of reach of one as well.
+      ok(/position: 'absolute'/.test(src),
+        `${reader} must take its web view out of the layout`);
+      ok(/opacity: 0/.test(src),
+        `${reader} must keep its web view fully see through`);
+      ok(/left: -/.test(src),
+        `${reader} must park its web view off the side of the screen`);
+      const onePointAcross = /width: 1,\s*height: 1/.test(src);
+      if (!onePointAcross) {
+        ok(/pointerEvents="none"/.test(src),
+          `${reader} has a web view big enough to touch, so it must be out of reach of a finger`);
+      }
     }
     // AND THE NEW ONE'S GROUNDS ARE CHECKED IN THE SAME SPIRIT. Its claim is not
     // that it is invisible — it is deliberately visible — but that only a listed

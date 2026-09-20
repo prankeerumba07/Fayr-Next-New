@@ -1,5 +1,7 @@
 import { PracticeWindowService } from './practice-window.service';
-import { PRACTICE_WINDOW_MAX_DAYS, PRACTICE_WINDOW_OFF } from './engine/practice-window';
+import {
+  PRACTICE_HOLD_OFF, PRACTICE_WINDOW_MAX_DAYS, PRACTICE_WINDOW_OFF,
+} from './engine/practice-window';
 
 /**
  * THE GUARD ITSELF: THE SETTING AND THE DATABASE NAME, TOGETHER.
@@ -134,6 +136,34 @@ describe('the practice window guard', () => {
       await service.daysAllowed();
       await service.daysAllowed();
       expect(db.asked()).toBe(1);
+    });
+  });
+
+  describe('the rehearsal hold, asked for without waiting', () => {
+    // ── WHY THERE IS A SYNCHRONOUS WAY TO ASK AT ALL ────────────────────────
+    //
+    // toTaskResponse builds a screen's answer and cannot await anything. Without
+    // this it recomputed the hold from the product's own rule, and on 21
+    // September 2026 the app told the owner his refund was due at 3:57 am while
+    // the money was released two minutes after delivery. See
+    // task-response-window.spec.ts for the other half.
+    //
+    // NOTE THESE RUN UNDER NODE_ENV=test, where the rehearsal hold is switched
+    // off on purpose — see holdMsAllowed. So what is checked here is the one
+    // thing that is checkable under test and is the thing that mattered: the
+    // synchronous answer is the SAME answer the awaited one gives, before
+    // warming and after.
+    it('is off before anything has warmed it, which is the failing-closed way', () => {
+      const { service } = serviceFor(400, 'fayr_next_dev');
+      expect(service.holdMsNow()).toBe(PRACTICE_HOLD_OFF);
+    });
+
+    it('and afterwards it is exactly what the awaited question answers', async () => {
+      for (const name of ['fayr_next_dev', 'fayr_next_test', 'fayr', null]) {
+        const { service } = serviceFor(2, name);
+        await service.onModuleInit();
+        expect(service.holdMsNow()).toBe(await service.holdMsAllowed());
+      }
     });
   });
 });

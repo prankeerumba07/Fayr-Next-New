@@ -246,6 +246,29 @@ export interface ParsedOrder {
    * same fact.
    */
   returned: boolean | null;
+
+  /**
+   * DID THE PAGE SAY, IN WORDS, THAT THE ORDER ARRIVED — WITHOUT DATING IT?
+   *
+   * ── MEASURED ON THE OWNER'S OWN CHILLI OIL, 21 SEPTEMBER 2026 ────────────
+   *
+   * Zepto's order LIST states the status and never the moment:
+   *
+   *   Order delivered   ₹225   Placed at 21st Sep 2026, 12:37 am
+   *
+   * "Placed at" is the ORDER time, not the arrival. So `deliveryDate` and
+   * `deliveryAt` both come back null on a card that says the thing arrived, and
+   * deliveryFromALaterLook bails on `fragment.delivery == null`. Fayr read a page
+   * that says in plain words the order was delivered and recorded nothing. The
+   * owner watched it happen twice.
+   *
+   * THIS IS THE STATUS AND NOTHING ELSE. It never becomes a date here: a page
+   * that states no instant has stated no instant, and inventing one is the thing
+   * this file refuses everywhere else. What it lets the caller do is tell "the
+   * shop has not said it arrived" apart from "the shop said it arrived and did
+   * not say when" — two facts this parser could not previously distinguish.
+   */
+  deliveredSaid: boolean | null;
   /**
    * WHETHER THE ORDER HAS BEEN RATED AT THE SHOP. TRI-STATE, and every state is
    * something the page really said:
@@ -665,6 +688,29 @@ const RETURN_COMPLETED =
  * there was no return; a page that never mentions one has told us nothing.
  */
 const RETURN_MENTIONED = /\b(?:return|refund|cancel)[a-z]*\b/i;
+
+/**
+ * THE PAGE SAYING, IN WORDS, THAT THE ORDER ARRIVED.
+ *
+ * Measured on the owner's own Zepto order list, 21 September 2026. The three
+ * states a card goes through, in his own account, all on the same screen:
+ *
+ *   Your order is getting packed
+ *   Order on the way
+ *   Order delivered            ← this one, and it prints no time beside it
+ *
+ * WHOLE PHRASES, NOT THE WORD "DELIVERED" ON ITS OWN, and the difference is the
+ * whole safety of this line. Zepto's own chrome says "delivered in minutes*" on
+ * every page of the site, its search placeholder offers "Groceries in Minutes",
+ * and a bare /delivered/ would read the shop's advertising as a statement about
+ * somebody's parcel. "order delivered" and "delivery completed" are things a
+ * page says about ONE order.
+ *
+ * AND IT IS DELIBERATELY NOT "out for delivery" OR "arriving", which are the
+ * states immediately before this one and mean the opposite.
+ */
+const DELIVERED_SAID =
+  /\border\s+delivered\b|\bdelivery\s+completed\b|\bdelivered\s+on\b/i;
 
 /** A shipment heading — "Shipment 1 of 2", "Shipment 1", "SHIPMENT 2". */
 const SHIPMENT_HEADING = /^shipment\b/i;
@@ -1354,6 +1400,7 @@ function nothing(): ParsedOrder {
     deliveryAt: null,
     returnWindowEndsDate: null,
     returned: null,
+    deliveredSaid: null,
     rated: null,
     shipments: 0,
     items: [],
@@ -1591,6 +1638,44 @@ function billDiscountTotal(
  * gets an answer it can read every field of, and "we could not read it" is an
  * order with no number and no products rather than a missing object.
  */
+/**
+ * WHICH OF THE READER'S OWN PHRASES A PAGE CARRIES. FOR A LOG LINE, NEVER FOR A
+ * DECISION — nothing branches on this and nothing may start to.
+ *
+ * ── THE EVENING IT EXISTS FOR ──────────────────────────────────────────────
+ *
+ * 21 September 2026. A Zepto order page, delivered and rated hours earlier,
+ * came back `rated=null delivered=null` read after read, and the two possible
+ * causes are opposite problems with opposite fixes:
+ *
+ *   THE PAGE ARRIVED HALF DRAWN   the phrases are there and we read the page
+ *                                 before they were. Fix the waiting.
+ *   THE WORDING HAS MOVED         the page is whole and says something else.
+ *                                 Fix the phrase.
+ *
+ * A length cannot tell them apart and neither can a null. This can: the last
+ * two probes are not the reader's phrases at all, they are words that sit
+ * FURTHER DOWN the same page, so "bill-heading=yes you-rated=no" is a whole page
+ * whose wording moved and "bill-heading=no" is a page we did not wait for.
+ *
+ * IT CARRIES NO CONTENT. Six fixed names and six yes/no, built from the
+ * reader's own expressions so a phrase cannot be checked here and matched
+ * differently next door.
+ */
+export function whichMarkersAppear(text: string | null | undefined): string {
+  const whole = typeof text === 'string' ? text.replace(/\s+/g, ' ') : '';
+  const probes: readonly (readonly [string, RegExp])[] = [
+    ['you-rated', RATED_SAID],
+    ['rate-order', RATE_INVITED],
+    ['order-delivered', DELIVERED_SAID],
+    // AND THE THREE THAT ARE NOT DECISIONS, only landmarks further down the page.
+    ['the-word-delivered', /\bdelivered\b/i],
+    ['bill-heading', /\bbill\s+summary\b/i],
+    ['item-total', /\bitem\s+total\b/i],
+  ];
+  return probes.map(([name, probe]) => `${name}=${probe.test(whole) ? 'yes' : 'no'}`).join(' ');
+}
+
 export function parseOrderText(text: string | null | undefined): ParsedOrder {
   if (typeof text !== 'string' || text.trim() === '') return nothing();
 
@@ -1715,6 +1800,9 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
   // present is a page that contradicts itself and is read as "we do not know",
   // never as rated: the direction that costs a person one more look, not the
   // direction that moves a task on a page nobody understood.
+  // THE STATUS, NEVER A DATE. See ParsedOrder.deliveredSaid.
+  const deliveredSaid = DELIVERED_SAID.test(whole) ? true : null;
+
   const saidRated = RATED_SAID.test(whole);
   const invitedToRate = RATE_INVITED.test(whole);
   const rated = saidRated && !invitedToRate
@@ -1877,6 +1965,7 @@ export function parseOrderText(text: string | null | undefined): ParsedOrder {
     deliveryAt,
     returnWindowEndsDate,
     returned,
+    deliveredSaid,
     rated,
     shipments,
     items: bought,

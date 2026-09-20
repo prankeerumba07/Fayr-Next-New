@@ -279,6 +279,27 @@ it('and NO call site anywhere passes a page or an order text', () => {
   ok(watched.length === 2, `two watched lines, found ${watched.length}`);
   ok(watched.every((c) => !/watchedKey|how\.url|\.text/.test(c)),
     'and neither carries the key, the address or the page');
+  // ── THE LENGTH IS NOT THE PAGE, and the same distinction the search line
+  // already draws ("it must log the length, not the page") applies here.
+  //
+  // WHY THE READ LINE NEEDED MORE THAN SIX WORDS. Measured 21 September 2026:
+  // looked=false has three different causes — the page never settled, its words
+  // never held still, or it settled with nothing on it — and without the counts
+  // that separate them they are one silence. An evening went into telling them
+  // apart by hand. So the line now also carries whether the page drew, whether
+  // it said it had finished, how long it waited, how many looks that took, how
+  // many nodes it had at each end, how many characters of words it ended with,
+  // and how long the shop took to hand the script a document.
+  //
+  // EVERY ONE OF THOSE IS A NUMBER OR A YES/NO. Not a character of the page.
+  const read = watched.find((c) => c.includes('drew='));
+  ok(read != null, 'the read line must say whether the page drew');
+  for (const field of ['drew=', 'settled=', 'waited=', 'looks=', 'nodes=', 'chars=', 'arrived=']) {
+    ok(read.includes(field), `the read line has no ${field}`);
+  }
+  ok(/chars=\$\{charsRead\}/.test(read), 'chars= must come from a worked-out length');
+  ok(/const charsRead = [^;]*one\.text\.length/.test(screen),
+    'and that length must be the page\'s own, worked out away from the line');
   const pressing = calls.find((c) => c.includes("logLook('presses'"));
   ok(pressing != null, 'and the seventh is the pressing line');
   ok(/n=\$\{drawn\.presses\}/.test(pressing) && /rows=\$\{drawn\.rowsAtTheEnd\}/.test(pressing),

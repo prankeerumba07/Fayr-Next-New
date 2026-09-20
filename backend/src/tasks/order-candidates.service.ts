@@ -7,6 +7,7 @@ import {
 import { dayInIndiaOf } from '../common/india-clock';
 import { PrismaService } from '../prisma/prisma.service';
 import { matchOrderToCampaign, type HowToMatch } from '../ocr/order-comparison';
+import { whichMarkersAppear } from '../ocr/order-text';
 import { theRefundBase, type BillAsPrinted } from './engine/watched-price';
 import { orderWindow } from './engine/order-window';
 import { ORDER_WINDOW_GRACE_MS } from './engine/order-window';
@@ -313,6 +314,20 @@ export class OrderCandidatesService {
         productName: task.campaign.productName,
         productPricePaise: task.campaign.productPricePaise,
       }, howToMatchThis(task));
+      // WHAT THE LATER LOOK ACTUALLY READ. Lengths and three booleans, never a
+      // word of the page: an evening went into not being able to tell a page
+      // that arrived half-drawn from a page whose wording had moved, and those
+      // are opposite problems with opposite fixes. See the same pair of
+      // meanings written out at countOrderCardSlots in src/order/detailLook.js.
+      this.log.log(
+        `orders-found task=${taskId} later-look `
+        + `pages=${pages.length} `
+        + `lens=[${pages.map((p) => (typeof p === 'string' ? p.length : 0)).join(',')}] `
+        + `read=[${judgedAgain.map((j) => `rated=${String(j.rated)}`
+          + `,delivered=${String(j.deliveredSaid)}`
+          + `,numbered=${j.orderNumber == null ? 'no' : 'yes'}`).join(' ')}] `
+        + `markers=[${pages.map((p) => whichMarkersAppear(p)).join(' | ')}]`,
+      );
       await this.deliveryFromALaterLook(
         userId,
         task,
@@ -782,6 +797,41 @@ export class OrderCandidatesService {
     // AND THE FRESH READING IS THE INSTANT WHEN THE PAGE PRINTED ONE — Phase
     // 8B-c, through the same one rule the first write uses. The stored value is
     // already whichever of the two that read settled on.
+    // ── A PAGE THAT SAYS IT ARRIVED AND WILL NOT SAY WHEN — 21 SEPT 2026 ────
+    //
+    // THE OWNER WATCHED THIS TWICE AND IT IS THE LAST THING STANDING BETWEEN HIM
+    // AND AN UNATTENDED RUN. Zepto's order list prints the status and never the
+    // moment:
+    //
+    //   Order delivered   ₹225   Placed at 21st Sep 2026, 12:37 am
+    //
+    // "Placed at" is when he ORDERED it. Nothing on the card says when it came.
+    // So deliveryDate and deliveryAt are both null, theDeliveryFragment answers
+    // nothing, and the line below this one returns — on a page that states in
+    // plain words that the thing was delivered. His words: "The product has been
+    // delivered. Why are you not able to fetch the same?"
+    //
+    // ── WHAT THIS RECORDS, AND WHAT IT REFUSES TO PRETEND ──────────────────
+    //
+    // It records WHEN FAYR FIRST SAW THE PAGE SAY DELIVERED, and that is not the
+    // same claim as "the shop said it arrived at this time". The shop said no
+    // such thing. This is our own observation, and `source` says so: it goes in
+    // as OBSERVED_DELIVERED rather than ORDER_HISTORY, so a year from now nobody
+    // reads this row as a figure the marketplace printed. No `raw` is written,
+    // because there is no day on the page to quote.
+    //
+    // AND IT ONLY EVER RUNS LATE. A first sighting is always at or after the
+    // real arrival, never before it, so a hold anchored to it can only be longer
+    // than the truth. On a shop whose hold is three hours that is the safe
+    // direction: it cannot pay somebody early, only late, and paying late is a
+    // person waiting rather than money leaving on a delivery that never happened.
+    //
+    // IT IS THE LAST RESORT AND NOT THE FIRST. A stated date always wins, then a
+    // stated instant, then the return-window inference in theDeliveryFragment.
+    // Only when all three are silent AND the page uses the words does this fire.
+    const observedDelivered = chosen.deliveryDate == null
+      && theDeliveryInstant(fresh) == null
+      && fresh.deliveredSaid === true;
     const deliveryDate = chosen.deliveryDate ?? theDeliveryInstant(fresh);
     const returnWindowEndsAt = chosen.returnWindowEndsAt ?? fresh.returnWindowEndsAt;
     const returned = chosen.returned ?? fresh.returned;
@@ -796,7 +846,13 @@ export class OrderCandidatesService {
     // `deliveryDate == null` twice in its own words, and a second copy of "what
     // counts as delivered" is exactly how the two halves of this file end up
     // disagreeing about it.
-    const fragment = theDeliveryFragment({ deliveryDate, returnWindowEndsAt, returned });
+    // THE OBSERVED DELIVERY IS BUILT HERE, NOT INSIDE theDeliveryFragment. That
+    // builder answers "what did the PAGE say", and it must go on answering only
+    // that: an observation of our own does not belong behind a function every
+    // other caller reads as the shop's word. See observedDelivered above.
+    const fragment = observedDelivered
+      ? { delivery: { at: Date.now(), source: SOURCES.OBSERVED_DELIVERED } }
+      : theDeliveryFragment({ deliveryDate, returnWindowEndsAt, returned });
     if (fragment.delivery == null) return;
 
     // AND ON A SHOP THAT CANNOT BE SENT BACK TO, THE DELIVERY IS THE ANSWER.

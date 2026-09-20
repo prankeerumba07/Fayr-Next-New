@@ -226,11 +226,31 @@ export function toTaskResponse(
   row: Task,
   campaign: Campaign,
   now: number = Date.now(),
+  /**
+   * THE REHEARSAL HOLD, AND IT IS THE THIRD ARGUMENT THE PAYOUT USES.
+   *
+   * ── MEASURED, 21 SEPTEMBER 2026 ──────────────────────────────────────────
+   *
+   * persist() writes windowEndsAt with this; this function did not take it, so
+   * the screen recomputed the product's own three hours instead. A rehearsal
+   * read "Your refund unlocks in 2 hours, due at 3:57 am" and the money landed
+   * two minutes later. Two answers to one question, and the wrong one was the
+   * one a person could see.
+   *
+   * ABSENT MEANS THE PRODUCT'S OWN HOLD, which is what every real deployment
+   * gets: only PracticeWindowService produces a positive number here, and only
+   * on a practice database. See policyForWindowDays.
+   */
+  practiceHoldMs: number | null = null,
 ): TaskResponse {
   const task = toEngineTask(row, []);
-  // THE SAME TWO ARGUMENTS THE PAYOUT USES, so the date a screen shows is the
+  // THE SAME THREE ARGUMENTS THE PAYOUT USES, so the date a screen shows is the
   // date the money actually waits for. See policyForWindowDays.
-  const policy = policyForWindowDays(campaign.returnWindowDays, campaign.platform);
+  const policy = policyForWindowDays(
+    campaign.returnWindowDays,
+    campaign.platform,
+    practiceHoldMs,
+  );
   const elig = refundEligibility(task, now, policy);
 
   // THE SCREEN MUST NEVER PROMISE A NUMBER THE PAYOUT WOULD REFUSE.

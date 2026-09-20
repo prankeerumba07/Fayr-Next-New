@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { BILL_LABELS, foldBareSellerLabels, parseOrderText } from './order-text';
+import {
+  BILL_LABELS, foldBareSellerLabels, parseOrderText, whichMarkersAppear,
+} from './order-text';
 import { paiseFromRupees, rupeesFromPaise } from './order-comparison';
 
 /**
@@ -337,6 +339,11 @@ describe('reading an order screen that holds several shipments', () => {
         // delivery date beside it is.
         returnWindowEndsDate: null,
         returned: null,
+        // AND NOTHING SAID ABOUT ARRIVING — added 21 September 2026. Null is "the
+        // page did not say it arrived", which is a different fact from a missing
+        // delivery DATE: Zepto's order list states "Order delivered" and prints
+        // no time at all, and before this field those two were the same silence.
+        deliveredSaid: null,
         // AND NOT RATED EITHER — added 19 September 2026 with Phase 8A, tri-state
         // for the same reason `returned` is: nothing was read, so nothing is
         // claimed about whether the order was rated at the shop.
@@ -1680,5 +1687,109 @@ describe('the item total of an order that holds one product', () => {
       'Order #SOS12345\nOne Thing ₹360.00\nItem total: ₹400.00',
     );
     expect(page.itemTotalPaise).toBe(40000n);
+  });
+});
+
+// ── A PAGE THAT SAYS IT ARRIVED AND WILL NOT SAY WHEN ──────────────────────
+//
+// 21 September 2026. The owner's chilli oil was delivered and Fayr would not
+// record it. Zepto's order list prints the status and never the moment:
+//
+//   Order delivered   ₹225   Placed at 21st Sep 2026, 12:37 am
+//
+// "Placed at" is when he ORDERED it. So deliveryDate and deliveryAt both come
+// back null on a card that plainly says the thing arrived, and
+// deliveryFromALaterLook bailed on a missing date. His words: "The product has
+// been delivered. Why are you not able to fetch the same?"
+describe('whether the page SAYS the order arrived, without dating it', () => {
+  it('TRUE on the owner’s own delivered card, which states no arrival time', () => {
+    const page = parseOrderText(
+      'Order delivered\n₹225\nPlaced at 21st Sep 2026, 12:37 am\nOrder Again',
+    );
+    expect(page.deliveredSaid).toBe(true);
+    // AND IT IS STILL NOT A DATE. The page stated no instant and none is invented
+    // here; what the caller does with the status is the caller's business.
+    expect(page.deliveryDate).toBeNull();
+    expect(page.deliveryAt).toBeNull();
+  });
+
+  // THE TWO STATES IMMEDIATELY BEFORE IT, off the same screen, which mean the
+  // opposite and must never read as an arrival.
+  it('NULL while the order is still coming', () => {
+    expect(parseOrderText('Order on the way\n₹225').deliveredSaid).toBeNull();
+    expect(parseOrderText('Your order is getting packed\n₹225').deliveredSaid).toBeNull();
+    expect(parseOrderText('Out for delivery').deliveredSaid).toBeNull();
+  });
+
+  // THE LINE THAT MAKES THIS SAFE. A bare /delivered/ would read the shop's own
+  // advertising as a statement about somebody's parcel: Zepto prints "delivered
+  // in minutes*" on every page of the site and offers "Groceries in Minutes" in
+  // its search box.
+  it('NULL on the shop’s own advertising, which says "delivered" everywhere', () => {
+    expect(parseOrderText('Zepto | Everything delivered in minutes*').deliveredSaid).toBeNull();
+    expect(parseOrderText('Groceries in Minutes delivered in minutes').deliveredSaid).toBeNull();
+    expect(
+      parseOrderText('Zepto: Online Grocery Delivery App - Groceries in Minutes').deliveredSaid,
+    ).toBeNull();
+  });
+
+  it('and TRUE on the other whole phrases a shop uses for the same fact', () => {
+    expect(parseOrderText('Delivery completed').deliveredSaid).toBe(true);
+    expect(parseOrderText('Delivered on 21 Sep 2026').deliveredSaid).toBe(true);
+  });
+});
+
+describe('telling a page that arrived half drawn from one whose wording moved', () => {
+  // ── WHY THIS IS NOT A LOG LINE'S PRIVATE BUSINESS ────────────────────────
+  //
+  // 21 September 2026: a Zepto order page, delivered and rated hours before,
+  // read `rated=null delivered=null` over and over. The two causes need
+  // opposite fixes and the two nulls look identical. These six names are what
+  // separate them, so they are checked rather than trusted.
+  const HALF_DRAWN = [
+    'Order #RGTLJGSNT54558',
+    '1 item',
+  ].join('\n');
+
+  const WHOLE = [
+    'Order #RGTLJGSNT54558',
+    'You rated:',
+    'Delivered',
+    '1 item in order',
+    'Bill Summary',
+    'Item Total ₹195',
+  ].join('\n');
+
+  it('a page we did not wait for says so: no landmark from further down it', () => {
+    const said = whichMarkersAppear(HALF_DRAWN);
+    expect(said).toContain('bill-heading=no');
+    expect(said).toContain('item-total=no');
+    expect(said).toContain('you-rated=no');
+  });
+
+  it('and a whole page whose wording moved carries the landmarks and not the phrase', () => {
+    const said = whichMarkersAppear(WHOLE.replace('You rated:', 'Rating given'));
+    expect(said).toContain('bill-heading=yes');
+    expect(said).toContain('item-total=yes');
+    expect(said).toContain('you-rated=no');
+  });
+
+  it('and the whole page as Zepto actually prints it answers yes to the phrase', () => {
+    const said = whichMarkersAppear(WHOLE);
+    expect(said).toContain('you-rated=yes');
+    expect(said).toContain('rate-order=no');
+    // THE ONE THAT IS EASY TO MISREAD. Zepto's order page says the bare word
+    // and never "Order delivered", which is the LIST's wording — so the reader
+    // is right to answer null here, and the probe shows why.
+    expect(said).toContain('order-delivered=no');
+    expect(said).toContain('the-word-delivered=yes');
+    expect(parseOrderText(WHOLE).deliveredSaid).toBeNull();
+  });
+
+  it('and it carries no word of the page itself', () => {
+    const said = whichMarkersAppear(WHOLE);
+    expect(said).not.toContain('RGTLJGSNT54558');
+    expect(said).not.toContain('195');
+    expect(said).toMatch(/^[a-z-]+=(yes|no)( [a-z-]+=(yes|no))*$/);
   });
 });

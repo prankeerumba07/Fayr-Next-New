@@ -114,6 +114,16 @@ export interface JudgedOrder {
    * is acted on the moment it is read and a stale copy would say nothing true.
    */
   rated: boolean | null;
+
+  /**
+   * THE PAGE SAID IT ARRIVED AND DID NOT SAY WHEN — 21 September 2026.
+   *
+   * Zepto's order list prints "Order delivered" as a status with no time beside
+   * it, so deliveryDate and deliveryAt are both null on a card that plainly says
+   * the thing arrived, and deliveryFromALaterLook bailed. Carried for the same
+   * reason  is: it is acted on the moment it is read.
+   */
+  deliveredSaid: boolean | null;
   shipments: number;
   items: { name: string; pricePaise: bigint; wasPricePaise?: bigint | null }[];
   /**
@@ -442,6 +452,7 @@ export function judgeFoundOrders(
       returnWindowEndsAt: dayToEndOfDay(parsed.returnWindowEndsDate),
       returned: parsed.returned,
       rated: parsed.rated,
+      deliveredSaid: parsed.deliveredSaid,
       shipments: parsed.shipments,
       items: parsed.items,
       itemTotalPaise: parsed.itemTotalPaise,

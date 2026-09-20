@@ -283,5 +283,39 @@ console.log('\n=== THE WINDOW ON SCREEN IS THE ONE THE SERVER SENT ===');
     + 'gates the refund rather than merely describing it');
 }
 
+// ── THE TASK SCREEN ASKS THE SERVER, AND ASKS AGAIN ON THE WAY BACK ────────
+//
+// 21 September 2026, and it misled the owner three times in one night. The load
+// effect read `if (!getTask(campaignId)) load();` — fetch only when nothing is
+// cached — so once a task was in the store this screen never asked again. Every
+// change that happened while he was looking at it was invisible:
+//
+//   the razor    wallet paid, ledger posted, screen still greyed out "Refund
+//                confirmed" and still showed "Needs staff check"
+//   the oil      state DELIVERED on the server, screen still said "Zepto has
+//                not said your order arrived yet"
+//
+// Both times the app was right and the screen was lying, and the only cure was
+// killing the app. The screen's own header rule already forbade this: "The
+// BACKEND is the source of truth ... never a timer or a step counter that could
+// drift from the server." A cache never refreshed is that drift.
+console.log('\n=== THE TASK SCREEN REFETCHES, AND ON FOCUS ===');
+{
+  const screen = withoutComments(read('src/TaskScreen.js'));
+
+  ok(!/if \(!getTask\(campaignId\)\) load\(\);/.test(screen),
+    'it no longer fetches ONLY when the store happens to be empty');
+  ok(/\n\s*load\(\);\n\s*sync\(\);/.test(screen),
+    'it asks the server every time the screen is set up');
+
+  // THE ONE THAT ACTUALLY MATTERS FOR THE JOURNEY. The interesting changes
+  // happen while somebody is off in the shop rating a product, and coming back
+  // is exactly when the screen must not still show what it drew before.
+  ok(/addListener\('focus', \(\) => \{ load\(\); sync\(\); \}\)/.test(screen),
+    'and asks again whenever the screen comes back into view');
+  ok(/if \(unfocus\) unfocus\(\);/.test(screen),
+    'and lets that listener go, so a closed screen keeps no subscription');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

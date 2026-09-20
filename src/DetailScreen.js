@@ -320,7 +320,7 @@ export default function DetailScreen({ navigation, route }) {
 
   const FAQS = [
     ['When do I get my refund?',
-      'Once your review is publicly live on the product page and the marketplace return window has closed. The refund is credited to your fayr Wallet.'],
+      'Once your review is publicly live on the product page and the marketplace return window has closed. The refund is credited to your Fayr Wallet.'],
     ['Does my rating affect my refund?',
       'No. Any rating pays the same — we only verify that the review is genuine and publicly visible.'],
     ['What if I don’t end up buying it?',
@@ -457,12 +457,12 @@ export default function DetailScreen({ navigation, route }) {
             <Step
               icon="💸" tint="#E9F7E4"
               title="Get your refund"
-              sub="After the return window closes — straight to your fayr Wallet."
+              sub="After the return window closes — straight to your Fayr Wallet."
               last
             />
             <View style={styles.walletNote}>
               <Text style={styles.walletNoteText}>
-                Your refund is credited to your <Text style={styles.bold}>fayr Wallet</Text>.
+                Your refund is credited to your <Text style={styles.bold}>Fayr Wallet</Text>.
               </Text>
             </View>
           </Section>

@@ -59,6 +59,21 @@ export type BlockerName = (typeof BLOCKERS)[keyof typeof BLOCKERS];
 export const SOURCES = {
   ORDER_DETAILS: 'order-details',
   ORDER_HISTORY: 'order-history',
+  /**
+   * FAYR SAW THE SHOP'S PAGE SAY THE ORDER ARRIVED, AND THE PAGE GAVE NO TIME.
+   *
+   * 21 September 2026. Zepto's order list prints "Order delivered" as a status
+   * with no moment beside it — "Placed at 21st Sep 2026, 12:37 am" is when the
+   * order was PLACED. So a delivery read off that card has no instant the shop
+   * stated, and the instant recorded is when Fayr first saw the words.
+   *
+   * IT IS KEPT APART FROM order-history ON PURPOSE. A figure under that source
+   * is one the marketplace printed. This one is Fayr's own observation, and a
+   * record that blurs the two is a record that will be believed about the wrong
+   * thing. A first sighting is always at or after the real arrival, so a hold
+   * anchored to it runs late rather than early.
+   */
+  OBSERVED_DELIVERED: 'observed-delivered',
   DKIM: 'dkim',
   /**
    * A machine established that the review is PUBLICLY VISIBLE — either by
@@ -95,6 +110,11 @@ export const ATTESTED_SOURCES: readonly SourceName[] = [
   SOURCES.DKIM,
   SOURCES.ORDER_DETAILS,
   SOURCES.ORDER_HISTORY,
+  // A MACHINE READ THIS OFF THE SHOP TOO, so it is attested — and it is the
+  // WEAKEST attested source there is, because the instant in it is Fayr's own
+  // sighting rather than a figure the shop printed. The ranking below is where
+  // that difference is expressed, exactly as it is for staff-confirmed-visible.
+  SOURCES.OBSERVED_DELIVERED,
   SOURCES.REVIEW_PUBLIC,
 ];
 
@@ -130,15 +150,24 @@ export function isAttestedSource(source?: string | null): boolean {
  * replace genuine scraped order data by last-write-wins.
  *
  * Tiers, highest first:
- *   5  dkim                     — signed by the marketplace; unforgeable by the user
- *   4  order-details            — scraped from the account's own pages, on-device
- *   4  order-history            — ditto (peers: a re-fetch should still update)
- *   4  review-public            — the public review itself, read by machine
+ *   6  dkim                     — signed by the marketplace; unforgeable by the user
+ *   5  order-details            — scraped from the account's own pages, on-device
+ *   5  order-history            — ditto (peers: a re-fetch should still update)
+ *   5  review-public            — the public review itself, read by machine
+ *   4  observed-delivered       — a machine read the shop's page, and the page
+ *                                 gave no figure: the moment in it is Fayr's own
+ *                                 sighting. See SOURCES.OBSERVED_DELIVERED.
  *   3  staff-confirmed-visible  — a Fayr reviewer opened the page and looked
  *   2  invoice                  — a document the USER chose to upload
  *   1  manual                   — a number the USER typed
  *   1  ocr                      — a screenshot the USER chose
  *   0  unknown                  — never ties with anything real
+ *
+ * `observed-delivered` sits BELOW the three machine reads and does not tie with
+ * them, and the gap is load-bearing: "the page said it had arrived" must never
+ * overwrite "the page said it arrived at this moment". A first sighting is
+ * always at or after the real arrival, so a hold anchored to one runs late — and
+ * a record that let the late guess replace the stated moment would pay early.
  *
  * `ocr` and `manual` sit level deliberately: both are entirely user-chosen, and
  * neither should be able to overwrite the other's staff-approved value.
@@ -152,10 +181,11 @@ export function isAttestedSource(source?: string | null): boolean {
  *     armed rather than overridable by hand.
  */
 const SOURCE_RANK: Record<string, number> = {
-  [SOURCES.DKIM]: 5,
-  [SOURCES.ORDER_DETAILS]: 4,
-  [SOURCES.ORDER_HISTORY]: 4,
-  [SOURCES.REVIEW_PUBLIC]: 4,
+  [SOURCES.DKIM]: 6,
+  [SOURCES.ORDER_DETAILS]: 5,
+  [SOURCES.ORDER_HISTORY]: 5,
+  [SOURCES.REVIEW_PUBLIC]: 5,
+  [SOURCES.OBSERVED_DELIVERED]: 4,
   [SOURCES.STAFF_VISIBLE]: 3,
   [SOURCES.INVOICE]: 2,
   [SOURCES.MANUAL]: 1,

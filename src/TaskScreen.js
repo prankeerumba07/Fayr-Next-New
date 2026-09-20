@@ -43,6 +43,8 @@ import { timeLeftOnTheWindow, whenTheWindowEnds } from './ui/returnWindow';
 import { StageChip } from './ui/stagebits';
 // Which shops Fayr opens inside itself, for the order page the rating lives on.
 import { shopsInsideFayr } from './shop/insideFayr';
+// The UUID a Zepto order's page is addressed by — never the printed number.
+import { theWatchedOrderKey } from './order/whichRead';
 
 const POLICY = createPolicy();
 
@@ -316,10 +318,41 @@ export default function TaskScreen({ navigation, route }) {
       if (id !== campaignId) return;
       sync();
     });
-    if (!getTask(campaignId)) load();
+    // ── ALWAYS ASK, AND ASK AGAIN WHEN THE SCREEN COMES BACK — 21 SEPT 2026 ──
+    //
+    // THIS LINE READ `if (!getTask(campaignId)) load();` AND IT MISLED THE OWNER
+    // THREE TIMES IN ONE NIGHT. It fetched only when nothing was cached, so once
+    // a task was in the store this screen never asked the server again. Every
+    // change that happened while he was looking at it was invisible:
+    //
+    //   the razor's refund  — wallet paid, ledger posted, screen still said
+    //                         "Refund confirmed" greyed out and "Needs staff check"
+    //   the chilli oil      — state DELIVERED on the server, screen still said
+    //                         "Zepto has not said your order arrived yet"
+    //
+    // Both times the app was right and the screen was lying, and both times the
+    // only cure was killing the app. His words: "why is it not showing on the
+    // screen in the simulator that the refund has been confirmed?"
+    //
+    // THE SCREEN'S OWN HEADER ALREADY DEMANDED THIS. Rule 2 at the top of this
+    // file: "The BACKEND is the source of truth. Stage states derive from the
+    // authoritative task snapshot, never from a timer or a step counter that
+    // could drift from the server." A cache that is never refreshed is exactly
+    // that drift.
+    //
+    // ON FOCUS TOO, because the interesting changes happen while somebody is off
+    // in the shop rating a product — and coming back is precisely when the
+    // screen must not still be showing what it drew before they left.
+    load();
     sync();
-    return un;
-  }, [campaignId]);
+    const unfocus = navigation && typeof navigation.addListener === 'function'
+      ? navigation.addListener('focus', () => { load(); sync(); })
+      : null;
+    return () => {
+      un();
+      if (unfocus) unfocus();
+    };
+  }, [campaignId, navigation]);
 
   // Drives the countdown, and is where a real build would run the HOLDING
   // visibility re-check. Deliberately NOT doing that here: the check must be a
@@ -570,10 +603,29 @@ export default function TaskScreen({ navigation, route }) {
   // inside itself. Read off the order Fayr already matched, never typed and
   // never guessed: with no order number there is no page to open, so the step
   // offers no button at all rather than a dead one.
+  // ── THE KEY, NOT THE NUMBER. THIS WAS FIXED ONCE AND I BROKE IT AGAIN ────
+  //
+  // 21 SEPTEMBER 2026. This read `task.order.id` — the order NUMBER the page
+  // prints, RGTLJGSNT54558 — and handed it to theOrderPage, which built
+  // https://www.zepto.com/order/RGTLJGSNT54558?isArchived=false. Zepto answered
+  // "the page you are looking for has made an exit". The owner tapped "Write
+  // review" and got a 404.
+  //
+  // WriteReviewScreen has carried the warning since Phase 8A, in these words:
+  // "THE KEY, NOT THE NUMBER — CORRECTED 19 SEPTEMBER 2026. Phase 7 handed over
+  // task.order.id, the order NUMBER the page prints. A Zepto order's page is
+  // addressed by the UUID in its link, a different string, so the door opened
+  // on a page that does not exist." I wrote this button without reading it.
+  //
+  // THE TWO IDENTIFIERS ARE KEPT APART ON OUR SIDE and must stay apart here:
+  //   tasks.orderId          the number the page prints  (RGTLJGSNT54558)
+  //   tasks.watchedOrderKey  the UUID its address uses   (01a0c037-…)
+  // theWatchedOrderKey is the one reader of the second, and it is what the
+  // review screen's own one-tap door already uses.
   const orderIdForReview = (() => {
     if (!shopsInsideFayr(campaign.marketplace)) return null;
-    const id = task.order && task.order.id;
-    return typeof id === 'string' && id.trim() !== '' ? id.trim() : null;
+    const key = theWatchedOrderKey(authoritative);
+    return typeof key === 'string' && key.trim() !== '' ? key.trim() : null;
   })();
   // ── AND ONCE THEY HAVE BEEN, THE READ IS WHAT FINISHES THE STEP ──────────
   //
@@ -611,15 +663,30 @@ export default function TaskScreen({ navigation, route }) {
       ? navigation.navigate('LookingForIt', { campaignId })
       : navigation.navigate('LookingForReview', { campaignId, thenRelease: true })
   );
-  const goRateTheOrder = () => navigation.navigate('Shop', {
-    campaignId,
-    marketplace: campaign.marketplace,
-    // The two words ShopScreen needs to land on ONE order rather than on the
-    // shop's front page. See whereToLand: an order address is accepted only when
-    // Fayr's own view would load it AND it is on the shop's own origin.
-    land: 'order',
-    orderKey: orderIdForReview,
-  });
+  // ── IT OPENS FAYR'S OWN REVIEW SCREEN, NOT THE SHOP — 21 SEPTEMBER 2026 ──
+  //
+  // THIS SKIPPED THE WHOLE POINT OF THE PRODUCT AND THE OWNER CAUGHT IT. It used
+  // to navigate straight to the shop's order page, so he rated on Zepto and
+  // never saw Fayr at all: "I did not add my review in Fayr and did not have any
+  // score. I did not copy it or do anything, so it did not work as planned."
+  //
+  // HIS FLOW, WHICH IS THE PRODUCT'S FLOW:
+  //
+  //   delivered -> WRITE YOUR REVIEW IN FAYR -> the Fayr score
+  //             -> copy and add review       -> the shop's own order page
+  //             -> rate, paste, submit       -> back to Fayr
+  //
+  // The written review IS the thing a brand pays for on a shop that only takes
+  // a star, and WriteReviewScreen is where it is written, scored and — since
+  // tonight — saved before the order page opens. Sending somebody straight to
+  // the shop throws all of that away and leaves the end-of-hold check with no
+  // words to compare against.
+  //
+  // SO THIS GOES WHERE reviewguide's OWN BUTTON GOES, and by the same name.
+  // WriteReviewScreen already owns the door to the order page, already uses the
+  // watched KEY rather than the printed number, and already records the visit.
+  // One door, not two.
+  const goWriteTheReview = () => navigation.navigate('WriteReview', { campaignId });
 
   const stages = [
     {
@@ -718,7 +785,7 @@ export default function TaskScreen({ navigation, route }) {
         : beenToRateIt
           ? { label: `Check my rating on ${platformName}`, onPress: goReadTheRating }
           : orderIdForReview != null
-            ? { label: `Rate it on ${platformName}`, onPress: goRateTheOrder }
+            ? { label: 'Write your review in Fayr', onPress: goWriteTheReview }
             : null,
     },
     {

@@ -170,7 +170,11 @@ export class TaskService {
         const open = await tx.task.findFirst({
           where: { userId, campaignId, closedAt: null },
         });
-        if (open) return toTaskResponse(open, campaign);
+        if (open) {
+          return toTaskResponse(
+            open, campaign, Date.now(), this.practiceWindow.holdMsNow(),
+          );
+        }
 
         // Claim-limit: a purchase is permanent. Once ANY prior task for this
         // (user, campaign) has progressed past CLAIMED — i.e. a purchase was
@@ -257,7 +261,7 @@ export class TaskService {
           },
         });
 
-        return toTaskResponse(row, campaign);
+        return toTaskResponse(row, campaign, Date.now(), this.practiceWindow.holdMsNow());
       });
 
       // ── THE FIRST ONE, AND ONLY THE FIRST ────────────────────────────────
@@ -311,7 +315,7 @@ export class TaskService {
       include: { campaign: true },
     });
     return {
-      task: toTaskResponse(updated, updated.campaign),
+      task: toTaskResponse(updated, updated.campaign, Date.now(), this.practiceWindow.holdMsNow()),
       userId: row.userId,
       orderId: row.orderId,
       // WHICH LINE was overridden, or null when the reason for the hold was that
@@ -417,7 +421,7 @@ export class TaskService {
     // makes that true now that the key below is unique per press.
     if (previousQuantity === quantity && order.quantitySource === 'staff') {
       return {
-        task: toTaskResponse(row, row.campaign),
+        task: toTaskResponse(row, row.campaign, Date.now(), this.practiceWindow.holdMsNow()),
         userId: row.userId,
         previousQuantity,
       };
@@ -528,7 +532,7 @@ export class TaskService {
     // still writes.
     if (existing === input.unitPricePaise && order.amountSource === nextAmountSource) {
       return {
-        task: toTaskResponse(row, row.campaign),
+        task: toTaskResponse(row, row.campaign, Date.now(), this.practiceWindow.holdMsNow()),
         userId: row.userId,
         previousUnitPricePaise,
       };
@@ -730,7 +734,7 @@ export class TaskService {
       review!.visibleUrl === input.productUrl
     ) {
       return {
-        task: toTaskResponse(row, row.campaign),
+        task: toTaskResponse(row, row.campaign, Date.now(), this.practiceWindow.holdMsNow()),
         userId: row.userId,
         seenAt: new Date(review!.visibleCheckedAt ?? seenAtMs).toISOString(),
         previousVisible,
@@ -781,7 +785,9 @@ export class TaskService {
       include: { campaign: true },
       orderBy: { createdAt: 'desc' },
     });
-    return rows.map((row) => toTaskResponse(row, row.campaign));
+    return rows.map((row) => toTaskResponse(
+      row, row.campaign, Date.now(), this.practiceWindow.holdMsNow(),
+    ));
   }
 
   /** One of the caller's tasks. 404 (never leak) if missing or not theirs. */
@@ -793,7 +799,7 @@ export class TaskService {
     if (!row || row.userId !== userId) {
       throw new NotFoundException('Task not found');
     }
-    return toTaskResponse(row, row.campaign);
+    return toTaskResponse(row, row.campaign, Date.now(), this.practiceWindow.holdMsNow());
   }
 
   /**
@@ -1134,7 +1140,10 @@ export class TaskService {
   ): Promise<ReleaseOutcome> {
     const task = toEngineTask(row, await this.loadAppliedKeys(tx, row.id));
     if (task.state === STATES.REFUNDED) {
-      return { status: 'already', task: toTaskResponse(row, campaign) };
+      return {
+        status: 'already',
+        task: toTaskResponse(row, campaign, Date.now(), this.practiceWindow.holdMsNow()),
+      };
     }
 
     // THE PLATFORM GOES IN WITH THE DAYS — Phase 8B-b. Three shops hold for
@@ -1308,7 +1317,10 @@ export class TaskService {
     });
 
     const updated = await tx.task.findUniqueOrThrow({ where: { id: row.id } });
-    return { status: 'released', task: toTaskResponse(updated, campaign) };
+    return {
+      status: 'released',
+      task: toTaskResponse(updated, campaign, Date.now(), this.practiceWindow.holdMsNow()),
+    };
   }
 
   /**
@@ -1354,7 +1366,7 @@ export class TaskService {
       const updated = await tx.task.findUniqueOrThrow({
         where: { id: taskId },
       });
-      return toTaskResponse(updated, campaign);
+      return toTaskResponse(updated, campaign, Date.now(), this.practiceWindow.holdMsNow());
     });
   }
 
@@ -1619,7 +1631,7 @@ export class TaskService {
       const updated = await tx.task.findUniqueOrThrow({
         where: { id: taskId },
       });
-      return toTaskResponse(updated, campaign);
+      return toTaskResponse(updated, campaign, Date.now(), this.practiceWindow.holdMsNow());
     });
   }
 

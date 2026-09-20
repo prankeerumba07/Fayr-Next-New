@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.validation';
 import { PrismaService } from '../prisma/prisma.service';
@@ -39,8 +39,26 @@ import {
  * wrong the other way is a real person's real old purchase being paid for.
  */
 @Injectable()
-export class PracticeWindowService {
+export class PracticeWindowService implements OnModuleInit {
   private readonly log = new Logger(PracticeWindowService.name);
+
+  /**
+   * THE REHEARSAL HOLD, SETTLED AT BOOT SO IT CAN BE ASKED FOR WITHOUT WAITING.
+   *
+   * ── WHY ANYTHING NEEDS IT WITHOUT WAITING ────────────────────────────────
+   *
+   * 21 September 2026. The hold the MONEY waits for is written by persist(),
+   * which awaits holdMsAllowed(); the hold the SCREEN shows was computed by
+   * toTaskResponse, which could not await anything and so used the product's own
+   * three hours. The owner's own rehearsal said "Your refund unlocks in 2 hours,
+   * due at 3:57 am" and was paid two minutes later. One rule, two answers.
+   *
+   * SO IT IS SETTLED ONCE, HERE. Both halves of the question — a setting and the
+   * live database's name — are fixed for the life of the process, which is the
+   * same reason nameOfTheDatabase is already remembered. Nothing is decided
+   * here that holdMsAllowed does not decide; this only holds its answer.
+   */
+  private warmedHoldMs: number = PRACTICE_HOLD_OFF;
 
   /** null until asked; then the name, or '' if it could not be read. */
   private databaseName: string | null = null;
@@ -52,6 +70,21 @@ export class PracticeWindowService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /** Settle the rehearsal hold before anything can be asked about it. */
+  async onModuleInit(): Promise<void> {
+    this.warmedHoldMs = await this.holdMsAllowed();
+  }
+
+  /**
+   * THE SAME ANSWER holdMsAllowed GIVES, WITHOUT WAITING FOR IT.
+   *
+   * OFF until onModuleInit has run, which is the failing-closed direction: a
+   * hold that has not been shortened yet is the product's own hold.
+   */
+  holdMsNow(): number {
+    return this.warmedHoldMs;
+  }
 
   /** The setting, whatever the database turns out to be. */
   private setting(): number {

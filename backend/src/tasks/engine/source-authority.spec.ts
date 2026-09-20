@@ -68,6 +68,28 @@ describe('evidence authority — attested beats asserted', () => {
     }
   });
 
+  it('puts a SIGHTING below every figure the shop itself printed, and above staff', () => {
+    // ── WHY THIS ONE HAS ITS OWN TIER ───────────────────────────────────────
+    //
+    // Zepto's order list says "Order delivered" with no moment beside it, so the
+    // instant Fayr records is when Fayr first SAW the words — always at or after
+    // the real arrival. Tied with order-history it could replace a moment the
+    // shop actually printed by arriving second, and the hold would then run from
+    // the later guess. A hold that runs late is safe; one that runs early pays
+    // for a parcel that could still be sent back.
+    for (const printed of [
+      SOURCES.DKIM, SOURCES.ORDER_DETAILS, SOURCES.ORDER_HISTORY, SOURCES.REVIEW_PUBLIC,
+    ]) {
+      expect(sourceRank(printed)).toBeGreaterThan(sourceRank(SOURCES.OBSERVED_DELIVERED));
+    }
+    // AND IT IS STILL A MACHINE READING THE SHOP, so it outranks everything no
+    // machine stands behind — including a Fayr reviewer's own eyes.
+    for (const noMachine of ASSERTED_SOURCES) {
+      expect(sourceRank(SOURCES.OBSERVED_DELIVERED)).toBeGreaterThan(sourceRank(noMachine));
+    }
+    expect(isAttestedSource(SOURCES.OBSERVED_DELIVERED)).toBe(true);
+  });
+
   it('classifies every known source, and treats an unknown one as least trusted', () => {
     for (const s of Object.values(SOURCES)) expect(sourceRank(s)).toBeGreaterThan(0);
     // An unrecognised source must never tie with a real one.

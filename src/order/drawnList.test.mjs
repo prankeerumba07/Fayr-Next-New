@@ -25,10 +25,12 @@
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
+  A_SECOND_OF_STILLNESS_MS,
   DRAW_DEADLINE_MS, LEAST_A_DRAW_CAN_TAKE_MS, LOOK_AGAIN_MS, MOST_LOOKS,
   PRESS_BUYS_MS, PRESS_DEADLINE_MS,
   SHOPS_WHOSE_LIST_THE_PAGE_DRAWS, SHOPS_WHOSE_ORDER_PAGES_ARE_DRAWN,
-  STEADY_LOOKS_BEFORE_WE_READ, WHAT_EACH_SHOP_DRAWS, anAnswerTag,
+  STEADY_LOOKS_BEFORE_WE_READ, STEADY_LOOKS_WHEN_NOTHING_SAYS_FINISHED,
+  WHAT_EACH_SHOP_DRAWS, anAnswerTag,
   answerWithStatus, buildDrawnListScript, buildDrawnOrderScript, drawFacts, isOurAnswer,
   landedWithoutTheOrder, openOneOrderWith, openTheListWith, readDetailStep,
   readDrawnOutcome, readListStep, theListIsDrawn, theOrderPagesAreDrawn, whatThisShopDraws,
@@ -576,22 +578,24 @@ it('the order page hands back its WORDS as well as its markup, and never instead
     'AND THE MARKUP AS WELL, because every refusal and the byte count still read that');
   ok(script.includes('o.url = String(location.href);'), 'and where it ended up');
 
-  // ── innerText IS READ ONCE, AND NEVER IN A LOOK ─────────────────────────
+  // ── AND A LOOK WATCHES WHAT THE READ WILL TAKE ──────────────────────────
   //
-  // It makes the page lay itself out. What a look watches is textContent length,
-  // which reads off the tree and lays nothing out.
-  const send = script.slice(script.indexOf('function send('), script.indexOf('function howMuch('));
-  const look = script.slice(script.indexOf('function look()'));
-  ok(send.includes('innerText'), 'the words are taken in send');
-  ok(!look.includes('innerText'), 'AND NEVER IN A LOOK, because laying out on a timer is a cost');
-  ok(script.includes('document.body.textContent.length'),
-    'what a look watches is a length off the tree');
+  // It used to watch textContent, which is cheaper and answers a different
+  // question: textContent counts the text inside <script> tags, and Zepto ships
+  // its whole page as script payload before rendering a word of it. Measured 21
+  // September 2026 — drew=true settled=true waited=602 chars=0 — the watcher
+  // went still on the shop's DATA and the read took a blank page.
+  ok(script.includes('document.body.innerText.length'),
+    'what a look watches is the rendered text, the same thing send takes');
+  ok(!script.includes('textContent'),
+    'AND NEVER textContent, which counts words nobody can see');
 
-  // AND IT WAITS FOR THE PAGE TO BE FINISHED, not merely steady. On a list a
-  // steady row count is enough; on a page whose whole content IS the thing being
-  // waited for, a shell steady at nothing would read as done at the second look.
-  ok(/var wrote = settled && chars > 0 && same >= 2;/.test(script),
-    'a page is only read when it has settled AND held its text');
+  // AND A SHELL STEADY AT NOTHING IS NOT A PAGE THAT DREW, however still it
+  // holds. The other half of the rule — how long stillness has to last — is no
+  // longer a phrase to match: it depends on whether the page said it finished,
+  // and it is checked by running the script further down this file.
+  ok(/var wrote = chars > 0 && same >= enough;/.test(script),
+    'a page with nothing on it is never read, however steady its nothing');
 
   // AND ITS GUARD IS ITS OWN NAME. Two scripts sharing one would let whichever
   // ran first lock the other out of a document it had already touched.
@@ -720,6 +724,197 @@ it('and the rule itself, on every shape that matters', () => {
   // AND THE SLASH IS NOT COSMETIC. Without it this would be satisfied by a
   // different page whose name merely starts the same way.
   equal(elsewhere('/your-orders/orders', '/your-orders/orders-archive'), true);
+});
+
+console.log('\nan order page that took a long time to arrive is still waited for');
+
+/**
+ * RUN THE ORDER PAGE'S SCRIPT IN A PAGE WE CONTROL, and hand back what it
+ * posted. Not a search of its source: the defect below was a comparison between
+ * two clocks, and a source match cannot tell a right one from a wrong one.
+ *
+ * `arrivedAfterMs`  how long the shop took to hand the script a document, which
+ *                   is the whole point — the script's first run is the moment
+ *                   the page exists, and that can be long after the screen asked
+ *                   the view to go there.
+ * `frames`          what the page looks like at each look, in order. The last
+ *                   one stands for ever after.
+ */
+function whatTheOrderPageSentBack(script, { askedAt = 0, arrivedAfterMs = 0, frames = [] } = {}) {
+  let now = askedAt + arrivedAfterMs;
+  let at = 0;
+  let tick = null;
+  const posted = [];
+  const frame = () => frames[Math.min(at, frames.length - 1)] || { text: '', nodes: 0, complete: false };
+  const document = {
+    get readyState() { return frame().complete ? 'complete' : 'interactive'; },
+    get body() {
+      const { text, scriptChars = 0 } = frame();
+      // textContent COUNTS THE TEXT INSIDE <script>, and a Next.js page ships
+      // its whole payload there before rendering a word. That gap between the
+      // two lengths is the defect below, so the fake page has it too.
+      return { innerText: text, textContent: { length: text.length + scriptChars } };
+    },
+    documentElement: { outerHTML: '<html><body></body></html>' },
+    getElementsByTagName: () => ({ length: frame().nodes }),
+  };
+  const window = { ReactNativeWebView: { postMessage: (line) => posted.push(JSON.parse(line)) } };
+  const location = { href: 'https://shop.example/order/x', pathname: '/order/x' };
+  const clock = { now: () => now };
+  const start = (fn) => { tick = fn; return 1; };
+  const stop = () => { tick = null; };
+  // eslint-disable-next-line no-new-func
+  new Function('window', 'document', 'location', 'setInterval', 'clearInterval', 'Date', script)(
+    window, document, location, start, stop, clock,
+  );
+  for (let n = 0; n < 500 && tick !== null; n += 1) {
+    now += LOOK_AGAIN_MS;
+    at += 1;
+    tick();
+  }
+  return posted;
+}
+
+it('a page the shop took half a minute to hand over is read, not abandoned at its first look', () => {
+  // ── THE RUN THIS COMES FROM ─────────────────────────────────────────────
+  //
+  // The owner's own Zepto order, 21 September 2026. Delivered and rated for
+  // hours, and the app still asking him to review it:
+  //
+  //   watched status=200 landed=/order/<order> looked=false
+  //   drew=false settled=false waited=29549 looks=1 nodes=245->245 chars=0
+  //
+  // ONE look, at a shell. The deadline was being measured from the moment the
+  // screen asked the view to navigate, the shop took twenty-nine seconds to hand
+  // the script a document, and so the page was already out of time before it had
+  // drawn a character. It then filled in perfectly, and nobody read it.
+  const script = buildDrawnOrderScript({
+    beganAt: 1700000000000, tag: 'look-slow', wantedPath: '/order/x',
+  });
+  const DREW = 'Order #RGTLJGSNT54558 You rated: Delivered 1 item in order';
+  const posted = whatTheOrderPageSentBack(script, {
+    askedAt: 1700000000000,
+    arrivedAfterMs: 29549,
+    frames: [
+      { text: '', nodes: 245, complete: false },
+      { text: '', nodes: 245, complete: false },
+      { text: DREW, nodes: 902, complete: true },
+      { text: DREW, nodes: 902, complete: true },
+      { text: DREW, nodes: 902, complete: true },
+    ],
+  });
+  equal(posted.length, 1, 'it answers exactly once');
+  equal(posted[0].drew, true, 'THE PAGE DREW, and the answer says so');
+  equal(posted[0].text, DREW, 'and it carries the words the server reads');
+  ok(posted[0].looks > 1, 'which took more than the one look it used to get');
+  // AND THE TIME THE SHOP TOOK IS NOT LOST, it is handed back under its own name
+  // so a looked=false line can still tell a slow shop from a slow draw.
+  equal(posted[0].beforeTheScript, 29549);
+  ok(posted[0].waited < DRAW_DEADLINE_MS,
+    'and the deadline is spent on drawing, never on getting there');
+});
+
+it('a page that never says it has finished is still read, once its words hold still', () => {
+  // ── THE RUN THIS COMES FROM ─────────────────────────────────────────────
+  //
+  // The same Zepto order, 21 September 2026, read three times minutes apart and
+  // fully drawn on screen every time. `document.readyState` reached "complete"
+  // on ONE of the three, thirteen seconds in, and never on the other two — a
+  // shop holding a connection open, not a page still drawing. Waiting for
+  // "complete" threw away a correct read of an order delivered and rated hours
+  // before.
+  const script = buildDrawnOrderScript({
+    beganAt: 1700000000000, tag: 'look-open', wantedPath: '/order/x',
+  });
+  const DREW = 'Order #RGTLJGSNT54558 You rated: Delivered';
+  const never = { text: DREW, nodes: 902, complete: false };
+  const posted = whatTheOrderPageSentBack(script, {
+    askedAt: 1700000000000,
+    frames: [
+      { text: '', nodes: 245, complete: false },
+      never, never, never, never, never, never, never, never,
+    ],
+  });
+  equal(posted.length, 1);
+  equal(posted[0].settled, false, 'the page never said it had finished');
+  equal(posted[0].drew, true, 'AND IT IS STILL READ, because its words held still');
+  equal(posted[0].text, DREW);
+  ok(posted[0].waited < DRAW_DEADLINE_MS, 'well inside the deadline');
+});
+
+it('and a page halfway through drawing is not mistaken for one that finished', () => {
+  const script = buildDrawnOrderScript({
+    beganAt: 1700000000000, tag: 'look-half', wantedPath: '/order/x',
+  });
+  // HALF A SECOND OF STILLNESS IS NOT A SECOND. A page that pauses for one look
+  // in the middle of drawing, with no readyState to vouch for it, must not be
+  // read at that pause — that is the whole reason stillness is asked for longer
+  // when nothing says the page has finished.
+  const half = { text: 'Order #RGTLJGSNT54558', nodes: 400, complete: false };
+  const whole = { text: 'Order #RGTLJGSNT54558 You rated: Delivered', nodes: 902, complete: false };
+  const posted = whatTheOrderPageSentBack(script, {
+    askedAt: 1700000000000,
+    frames: [half, half, whole, whole, whole, whole, whole, whole],
+  });
+  equal(posted.length, 1);
+  equal(posted[0].text, whole.text, 'it waited past the pause and read the whole thing');
+  // AND THE TWO SPANS ARE WHAT SEPARATES THEM, derived and not typed twice.
+  ok(STEADY_LOOKS_WHEN_NOTHING_SAYS_FINISHED > STEADY_LOOKS_BEFORE_WE_READ);
+  equal(
+    STEADY_LOOKS_WHEN_NOTHING_SAYS_FINISHED,
+    Math.max(STEADY_LOOKS_BEFORE_WE_READ + 1, Math.ceil(A_SECOND_OF_STILLNESS_MS / LOOK_AGAIN_MS)),
+  );
+});
+
+it('a shop whose data has arrived but whose page is still blank is NOT read', () => {
+  // ── THE RUN THIS COMES FROM ─────────────────────────────────────────────
+  //
+  //   watched drew=true settled=true waited=602 looks=3 nodes=245->172 chars=0
+  //
+  // Six hundred milliseconds, "drawn", "finished", and nothing on the page. The
+  // look was watching textContent, which counts the text inside <script> tags;
+  // Zepto had shipped its payload, that length went still, and the read took a
+  // blank page and threw it away.
+  const script = buildDrawnOrderScript({
+    beganAt: 1700000000000, tag: 'look-payload', wantedPath: '/order/x',
+  });
+  const DREW = 'Order #RGTLJGSNT54558 You rated: Delivered';
+  // The payload lands and goes still while the page is still empty...
+  const shipped = { text: '', nodes: 245, complete: true, scriptChars: 120000 };
+  const posted = whatTheOrderPageSentBack(script, {
+    askedAt: 1700000000000,
+    frames: [
+      shipped, shipped, shipped, shipped, shipped, shipped,
+      // ...and only then does the shop render it.
+      { text: DREW, nodes: 902, complete: true, scriptChars: 120000 },
+      { text: DREW, nodes: 902, complete: true, scriptChars: 120000 },
+      { text: DREW, nodes: 902, complete: true, scriptChars: 120000 },
+    ],
+  });
+  equal(posted.length, 1);
+  equal(posted[0].text, DREW, 'it waited for the WORDS, not for the payload');
+  equal(posted[0].drew, true);
+  ok(posted[0].looks > 6, 'so it looked past the moment the data went still');
+});
+
+it('and the deadline still bites on a page that draws nothing', () => {
+  const script = buildDrawnOrderScript({
+    beganAt: 1700000000000, tag: 'look-dead', wantedPath: '/order/x',
+  });
+  const posted = whatTheOrderPageSentBack(script, {
+    askedAt: 1700000000000,
+    arrivedAfterMs: 0,
+    frames: [{ text: '', nodes: 245, complete: false }],
+  });
+  equal(posted.length, 1, 'it gives up rather than polling for ever');
+  equal(posted[0].drew, false, 'and says the page never drew');
+  equal(posted[0].text, '', 'with nothing of anybody in it');
+  // ONE LOOK SHORT OF THE DEADLINE IS THE DEADLINE. The second axe — the look
+  // count — is arithmetic on the same two numbers and lands a single interval
+  // early; what is being checked is that it waits it out rather than that it
+  // waits one more millisecond.
+  ok(posted[0].waited >= DRAW_DEADLINE_MS - LOOK_AGAIN_MS,
+    'having waited the whole deadline out');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

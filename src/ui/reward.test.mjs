@@ -39,7 +39,8 @@ console.log('=== 1. the design\'s own words, once the money has actually moved =
   ok(v !== null, 'a refunded task celebrates');
   ok(v.eyebrow === 'Refund paid', 'eyebrow is the design\'s');
   ok(v.title === "You've been paid", 'title is the design\'s');
-  ok(v.chip === '✓ Credited to fayr Wallet', 'chip is the design\'s');
+  ok(v.chip === '✓ Credited to Fayr Wallet', 'chip is the design\'s, with the app\'s own name');
+  ok(!/\bfayr\b/.test(v.chip), 'AND NEVER lower case: the app is always "Fayr"');
   ok(v.amount === '₹539.10', 'the amount is EXACT paise, not floored rupees');
   ok(
     v.sub === 'Paid ₹599.00 × 90% refund. Your honest review made this happen.',
@@ -134,7 +135,7 @@ console.log('\n=== 7. the screen reads the helper, not the raw payload ===');
   // drew its own version of the refund page as well.
   const screen = strip('screens/reward.js');
   ok(/rewardView/.test(screen), 'the reward screen composes the helper');
-  ok(!/You've been paid|Refund paid|Credited to fayr Wallet/.test(screen),
+  ok(!/You've been paid|Refund paid|Credited to Fayr Wallet/.test(screen),
     'and does not hardcode the copy a second time');
   ok(/displayRefundPaise/.test(screen) && /displayChargedPaise/.test(screen),
     'it resolves both figures through src/ui/refund.js, the existing chain');
