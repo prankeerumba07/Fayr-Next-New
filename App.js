@@ -241,6 +241,26 @@ function AppInner() {
         // signed in at one while they were away, on the shop's own app, and this
         // is the moment we can find out without asking the shop anything.
         void connectedShops.load();
+        // ── AND THE OFFERS THEMSELVES — 21 SEPTEMBER 2026 ──────────────────
+        //
+        // The owner: "whenever I add a new campaign, is there any particular
+        // command that I need to share on the terminal so it refreshes the page
+        // and shows it on the app itself? I cannot tell you every time I add a
+        // new campaign."
+        //
+        // There was no command, and that was the bug. campaignStore.load() ran
+        // ONCE, in the sign-in effect below, so an offer published while the app
+        // was open stayed invisible until the JS was reloaded — which on a phone
+        // means force-quitting. Coming back to the app is the same moment the
+        // two lines above already use, and an offer list is the same kind of
+        // fact they are: something our side may have changed while nobody was
+        // looking.
+        //
+        // IT COSTS ONE REQUEST, on the same ten second floor as the other two,
+        // and only ever for somebody signed in — shouldRefreshOnForeground
+        // decides all of that and this rides on its answer rather than adding a
+        // second opinion.
+        void campaignStore.load();
       }
     });
     return () => {

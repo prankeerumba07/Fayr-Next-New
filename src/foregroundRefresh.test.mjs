@@ -123,6 +123,35 @@ console.log('\n=== 6. IT IS WIRED, AND IT IS WIRED WHERE ONLY A SIGNED IN APP RU
   // THE TOKEN RENEWAL IS UNTOUCHED. It was there first and it is a separate job.
   ok(/if \(next === 'active'\) void keeper\.checkNow\(\);/.test(code),
     'the token renewal that was already there still happens');
+
+  // ── AND THE THREE THINGS OUR SIDE MAY HAVE CHANGED WHILE NOBODY LOOKED ──
+  //
+  // 21 September 2026, the owner: "whenever I add a new campaign, is there any
+  // particular command that I need to share on the terminal so it refreshes the
+  // page and shows it on the app itself? I cannot tell you every time I add a
+  // new campaign."
+  //
+  // There was no command. campaignStore.load() ran once, in the sign-in effect,
+  // so an offer published while the app was open stayed invisible until the JS
+  // was reloaded — on a phone, a force-quit. Coming back is the moment to ask,
+  // and the offers ride on the same decision the other two already use rather
+  // than growing a second opinion about when it is polite to ask.
+  const yesAt = code.indexOf('askedAt = now;');
+  const yesEnd = code.indexOf('}', yesAt);
+  const onYes = code.slice(yesAt, yesEnd);
+  ok(yesAt !== -1 && yesEnd > yesAt, 'the yes branch is where expected');
+  for (const [what, call] of [
+    ['the tasks', 'void refreshFromBackend();'],
+    ['which shops they are signed in at', 'void connectedShops.load();'],
+    ['the offers themselves', 'void campaignStore.load();'],
+  ]) {
+    ok(onYes.includes(call), `coming back re-reads ${what}`);
+  }
+  // AND ALL THREE ARE INSIDE THE GATE, never above it: a fetch with no session
+  // is not merely wasted, it is a way to reach the sign-in screen from the
+  // sign-in screen. The note above the watcher in App.js says so.
+  ok(!/void campaignStore\.load\(\);[\s\S]{0,200}shouldRefreshOnForeground/.test(code),
+    'AND THE OFFERS ARE NOT FETCHED BEFORE ANYBODY HAS BEEN ASKED whether to');
 }
 
 console.log('\n=== 7. AND THE BUY SCREEN TELLS THE STORE WHAT OUR SIDE SAID ===');
