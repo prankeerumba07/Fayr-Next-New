@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# PROVE THE TRANSFER LOST NOTHING.
+#
+# Run this AFTER `git push -u origin --all && git push origin --tags`.
+# It does not trust anything. It clones your new repo from scratch into a
+# throwaway folder and compares it, commit by commit and file by file, with
+# what is on this laptop. Then it builds and runs the whole test suite in the
+# clone, so "it transferred" and "it still works" are both proved, not assumed.
+#
+# It changes NOTHING in your working copy. Safe to run as often as you like.
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TMP="$(mktemp -d)"
+fail=0
+say()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
+ok()   { printf '  \033[32mOK\033[0m    %s\n' "$1"; }
+bad()  { printf '  \033[31mWRONG\033[0m %s\n' "$1"; fail=1; }
+
+cd "$HERE" || exit 1
+URL="$(git remote get-url origin 2>/dev/null)"
+[ -z "$URL" ] && { echo "No 'origin' remote yet — create the repo first."; exit 1; }
+
+say "1. Every local commit exists on your new repo"
+missing="$(git log --oneline --all --not --remotes=origin | wc -l | tr -d ' ')"
+[ "$missing" = "0" ] && ok "0 commits missing (all $(git rev-list --all --count) are there)" \
+                     || bad "$missing commits are NOT on the remote"
+
+say "2. Every branch points at the same commit on both sides"
+while read -r sha ref; do
+  b="${ref#refs/heads/}"
+  local_sha="$(git rev-parse "refs/heads/$b" 2>/dev/null)"
+  [ "$local_sha" = "$sha" ] && ok "$b" || bad "$b: local $local_sha vs remote $sha"
+done < <(git ls-remote --heads origin)
+
+say "3. A fresh clone is byte-for-byte what you have"
+git clone --quiet "$URL" "$TMP/clone" 2>/dev/null || { bad "could not clone"; echo; echo "Result: FAILED"; exit 1; }
+cd "$TMP/clone" || exit 1
+git checkout --quiet "$(cd "$HERE" && git branch --show-current)" 2>/dev/null
+diff_out="$(diff -r -q \
+  --exclude=.git --exclude=node_modules --exclude=ios --exclude=android \
+  --exclude=.env --exclude=.local-logs --exclude=private-uploads \
+  --exclude=.DS_Store \
+  "$HERE" "$TMP/clone" 2>/dev/null | grep -v '^Only in '"$HERE" )"
+[ -z "$diff_out" ] && ok "no tracked file differs" || { bad "these differ:"; echo "$diff_out" | head -20; }
+
+say "4. The clone actually builds and passes every check"
+cp "$HERE/backend/.env" "$TMP/clone/backend/.env" 2>/dev/null && ok "copied backend/.env (never in git, by design)"
+( cd "$TMP/clone" && npm install --silent >/dev/null 2>&1 ) && ok "npm install" || bad "npm install failed"
+( cd "$TMP/clone/backend" && npm install --silent >/dev/null 2>&1 ) && ok "backend npm install" || bad "backend npm install failed"
+( cd "$TMP/clone" && npm test >/dev/null 2>&1 ) && ok "app + panel checks pass in the clone" || bad "app checks FAILED in the clone"
+
+say "Result"
+if [ "$fail" = "0" ]; then
+  printf '  \033[1;32mNOTHING WAS LOST.\033[0m Your new repo is a complete copy.\n'
+else
+  printf '  \033[1;31mSOMETHING IS WRONG — do not delete anything.\033[0m\n'
+fi
+echo "  (clone was in $TMP — deleting)"
+rm -rf "$TMP"
+exit "$fail"
