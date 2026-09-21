@@ -56,8 +56,30 @@ console.log('=== 1. THE SHOP OPENS WHERE PEOPLE SHOP, AND NEVER ON AN ORDER LIST
     const land = whereToLand(key, { productUrl: null, startUrl: START_URLS[key] });
     ok(land != null, `${key} has somewhere to land`);
     ok(land.kind === 'shop', `and for ${key} it is the shop's own site`);
-    ok(/^https?:\/\/[^/]+\/$/.test(land.url),
-      `and ${key} lands on the root of it and nothing deeper: ${land.url}`);
+    // ── WHERE PEOPLE SHOP, WHICH IS NOT ALWAYS THE ROOT — 21 SEP 2026 ────
+    //
+    // This demanded the bare root, and that was right while every shop inside
+    // Fayr WAS its own site. Instamart is not: it is a section of Swiggy, and
+    // swiggy.com's root is a chooser between three businesses. Measured on the
+    // owner's own signed-in session:
+    //
+    //   https://www.swiggy.com/          "Order Food & Groceries … Swiggy it!"
+    //   https://www.swiggy.com/instamart "Online Grocery Store … - Instamart"
+    //
+    // So the rule this line was always FOR — open where people shop, never on an
+    // order list — is checked directly below, and the shape is allowed to be
+    // either the root or the one measured door the shop's own table names. A
+    // shop with no measured door still gets the root and nothing deeper.
+    const shops = read('src/shop/insideFayr.js');
+    const blockAt = shops.indexOf(`\n  ${key}: {`);
+    // BOUNDED TO THIS SHOP'S OWN BLOCK. Without the end anchor the search runs
+    // on into the next shop and hands every shop the last door in the file —
+    // which it did, on the first writing of this line.
+    const blockEnd = blockAt === -1 ? -1 : shops.indexOf('\n  },', blockAt);
+    const block = blockAt === -1 ? '' : shops.slice(blockAt, blockEnd);
+    const door = (block.match(/landsOn:\s*'([^']+)'/) || [])[1] || '/';
+    ok(new RegExp(`^https?://[^/]+${door.replace(/\//g, '\\/')}$`).test(land.url),
+      `and ${key} lands on its own door and nothing deeper: ${land.url}`);
     // THE CHECK THE PHASE ASKED FOR, IN ITS OWN WORDS.
     ok(!/\/account\/orders/.test(land.url),
       `${key} NEVER lands on an order list`);

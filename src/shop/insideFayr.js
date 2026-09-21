@@ -206,6 +206,32 @@ export const SHOPS_INSIDE_FAYR = {
     inApp: true,
     orderPlaced: {},
     userAgent: null,
+    // ── AND THE SHOP IS NOT AT THE SHOP'S FRONT DOOR — MEASURED 21 SEP 2026 ─
+    //
+    // Instamart is a SECTION of Swiggy, not a site. swiggy.com's own front page
+    // is a chooser between three businesses, and the owner met it:
+    //
+    //   "it opened the home page of Swiggy, where I had to select between three
+    //    options for delivery, Instamart, and dine out. After I clicked on
+    //    Instamart, it opened the Instamart homepage."
+    //
+    // A person who claimed a groceries offer should never be asked which
+    // business they meant. Both addresses are off his own signed-in session:
+    //
+    //   https://www.swiggy.com/            "Order Food & Groceries. Discover
+    //                                       the best restaurants. Swiggy it!"
+    //   https://www.swiggy.com/instamart   "Online Grocery Store | Buy
+    //                                       Groceries at Best Prices - Instamart"
+    //
+    // A PATH AND NOT AN ADDRESS, because this file is refused by its own check
+    // if an http address ever appears in it — the rule that stops a second copy
+    // of a shop's domain drifting from the frozen platforms.js. The origin still
+    // comes from startUrl; this only says which door of it to use.
+    //
+    // ZEPTO AND BLINKIT HAVE NONE, and that is not an oversight. Zepto's front
+    // page IS its shop. Blinkit has never been watched, and this file does not
+    // guess a shop nobody has opened.
+    landsOn: '/instamart',
   },
 };
 
@@ -393,12 +419,38 @@ export function whereToLand(key, where) {
   if (product !== '' && whoOpensThis(product) === 'us') {
     return { kind: 'product', url: product };
   }
-  // THE SHOP'S OWN SITE, AND ONLY ITS ROOT. The path that came with startUrl is
-  // dropped on purpose: for zepto that path is /account/orders, which is where
-  // the reader needs to be and the last place to put somebody who came to buy
-  // something.
+  // THE SHOP'S OWN SITE, AND THE DOOR OF IT THIS SHOP WAS MEASURED AT. The path
+  // that came with startUrl is still dropped on purpose: for zepto that path is
+  // /account/orders, which is where the reader needs to be and the last place to
+  // put somebody who came to buy something.
+  //
+  // `landsOn` IS NOT THAT PATH COMING BACK. It is a separate, measured fact about
+  // shops that are a SECTION of a bigger site — Instamart inside Swiggy — where
+  // the root is a chooser between businesses and not a shop at all. A shop with
+  // no landsOn gets the root exactly as before, and no shop gets one until
+  // somebody has opened it and written the date down.
   const origin = originOf(at.startUrl);
-  return origin ? { kind: 'shop', url: `${origin}/` } : null;
+  if (origin == null) return null;
+  const door = theDoorInto(key);
+  return { kind: 'shop', url: `${origin}${door}` };
+}
+
+/**
+ * THE PATH INTO THIS SHOP, or '/' for a shop that IS its own site.
+ *
+ * A PATH, NEVER AN ADDRESS. insideFayr.test.mjs refuses this file the moment an
+ * http address appears anywhere in it, so that no second copy of a shop's domain
+ * can drift from the frozen platforms.js. The origin is handed in; this only
+ * chooses the door.
+ */
+function theDoorInto(key) {
+  const shop = SHOPS_INSIDE_FAYR[String(key || '').toLowerCase()] || null;
+  const path = shop && typeof shop.landsOn === 'string' ? shop.landsOn.trim() : '';
+  // A PATH HAS TO LOOK LIKE ONE. Anything that could change the origin — a
+  // scheme, a host, a protocol-relative '//' — is not a door into this shop and
+  // is refused rather than joined onto somebody's address.
+  if (path === '' || !/^\/[A-Za-z0-9._~\-/]*$/.test(path)) return '/';
+  return path;
 }
 
 /**

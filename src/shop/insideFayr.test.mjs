@@ -550,5 +550,56 @@ console.log('\n=== 9. the screen wires the decisions and decides nothing itself 
     'so no order is read from this screen, and none ever will be');
 }
 
+console.log('\na shop that is a SECTION of a bigger site lands on its own door');
+{
+  // ── MEASURED 21 SEPTEMBER 2026, on the owner's own signed-in session ─────
+  //
+  // Instamart is part of Swiggy, not a site. swiggy.com's front page is a
+  // chooser between three businesses, and he met it: "it opened the home page of
+  // Swiggy, where I had to select between three options for delivery, Instamart,
+  // and dine out." Both addresses are off his log:
+  //
+  //   https://www.swiggy.com/          "Order Food & Groceries … Swiggy it!"
+  //   https://www.swiggy.com/instamart "Online Grocery Store … - Instamart"
+  const swiggy = 'https://www.swiggy.com/my-account';
+  const landed = whereToLand('instamart', { startUrl: swiggy });
+  ok(landed && landed.kind === 'shop', 'a shopping session still lands on the shop');
+  ok(landed && landed.url === 'https://www.swiggy.com/instamart',
+    `AND ON INSTAMART'S OWN DOOR, not Swiggy's chooser: ${landed && landed.url}`);
+
+  // THE PATH THAT CAME WITH startUrl IS STILL DROPPED. That rule is why Zepto's
+  // shopper is not dumped on /account/orders, and landsOn is not it coming back.
+  ok(!(landed && landed.url.includes('my-account')),
+    'and never the path startUrl carried');
+
+  // A SHOP THAT IS ITS OWN SITE IS UNCHANGED. Zepto's front page IS its shop.
+  const zepto = whereToLand('zepto', { startUrl: 'https://www.zepto.com/account/orders' });
+  ok(zepto && zepto.url === 'https://www.zepto.com/', 'zepto still lands on its root');
+  const blinkit = whereToLand('blinkit', { startUrl: 'https://blinkit.com/anything' });
+  ok(blinkit && blinkit.url === 'https://blinkit.com/', 'and so does a shop nobody has opened');
+
+  // AND A DOOR CAN NEVER MOVE THE ORIGIN. The door is chosen inside the module
+  // from its own table and is never handed in, so the way to hold this is on the
+  // guard itself: anything that could change the origin — a scheme, a host, a
+  // protocol-relative '//' — must be refused and fall back to the root.
+  ok(whereToLand('instamart', { startUrl: swiggy }).url.startsWith('https://www.swiggy.com/'),
+    'the landing is always on the shop’s own origin');
+  const guard = read('src/shop/insideFayr.js');
+  ok(/function theDoorInto\(key\)/.test(guard), 'the door is chosen inside the module');
+  const doorFn = guard.slice(guard.indexOf('function theDoorInto(key)'));
+  const doorBody = doorFn.slice(0, doorFn.indexOf('\n}') + 2);
+  ok(doorBody.includes("return '/'"),
+    'AND A DOOR THAT IS NOT A PLAIN PATH FALLS BACK TO THE ROOT');
+  ok(/\^\\\/\[A-Za-z0-9/.test(doorBody),
+    'AND IT IS ANCHORED AT A SINGLE SLASH, so a scheme or a // host can never pass');
+
+  // THE FILE STILL HOLDS NO ADDRESS, which is the rule that keeps this file from
+  // drifting away from the frozen platforms.js.
+  const src = read('src/shop/insideFayr.js');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n')
+    .filter((l) => !l.trim().startsWith('//')).join('\n');
+  ok(!/https?:\/\//.test(code), 'and insideFayr.js still holds no http address of its own');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
