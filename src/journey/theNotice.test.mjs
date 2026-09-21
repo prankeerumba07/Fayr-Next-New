@@ -18,7 +18,8 @@ import { countdownFor, holdIsOver, messageText, noticeFromTask } from './theNoti
 import { theSentenceTheyGaveUs } from './refusal.js';
 import {
   COULD_NOT_START, EVERY_SENTENCE, HAVE_YOU_BOUGHT_IT, NOTHING_WAS_SPENT,
-  NOT_YET, TIME_IS_UP, TRY_AGAIN, YES_I_HAVE, takeMeThere, timeLeftInWords,
+  NOT_YET, TIME_IS_UP, TRY_AGAIN, WE_CANNOT_SEE_A_PURCHASE, YES_I_HAVE,
+  takeMeThere, timeLeftInWords,
 } from '../ui/journeyWords.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -229,7 +230,23 @@ console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
   // one minute and in several), our side could not count it, and the one quiet
   // door back into the shop. Each is a fact about what Fayr is doing and not
   // one claims the purchase counted.
-  ok(EVERY_SENTENCE.length === 52, `the list of them is complete (${EVERY_SENTENCE.length})`);
+  // ── AND THE SCREEN THAT SHOWS THE NEWEST ONE NAMES IT ──────────────────
+  //
+  // 21 September 2026. A sentence retyped into a screen is invisible to this
+  // whole file: the plain-language walk reads journeyWords.js off disk, so a
+  // copy living in a .js screen is copy nobody checks. Proven by mutation when
+  // WE_CANNOT_SEE_A_PURCHASE was added — retyping it into returncatch.js broke
+  // nothing, which is exactly the hole this closes.
+  {
+    const screen = read('src/screens/returncatch.js');
+    ok(/import \{ WE_CANNOT_SEE_A_PURCHASE \} from '\.\.\/ui\/journeyWords'/.test(screen),
+      'returncatch.js names the sentence from the file that owns it');
+    ok(/\{WE_CANNOT_SEE_A_PURCHASE\}/.test(screen), 'and draws it by name');
+    ok(!screen.includes(WE_CANNOT_SEE_A_PURCHASE),
+      'AND NEVER RETYPES IT, because a retyped sentence is one nothing walks');
+  }
+
+  ok(EVERY_SENTENCE.length === 53, `the list of them is complete (${EVERY_SENTENCE.length})`);
   // AND NEITHER OF THE TWO IS ANYWHERE IN THE APP'S WORDS ANY MORE.
   for (const gone of [
     'This opens one day after your product arrives.',

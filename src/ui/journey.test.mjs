@@ -185,9 +185,26 @@ console.log('\n=== 3a. A SHOP INSIDE FAYR WALKS NONE OF THE FOUR QUESTIONS — 1
   ok(at({ task: { state: STATES.CLAIMED }, connected: true, saidTheyBought: true, ...inFayr }) === 'shop',
     'not even a note saying they bought it, because nobody is asked');
 
-  // ── ONLY A READ THAT RAN AND FOUND NOTHING OFFERS THE SCREENSHOT ────────
-  ok(at({ task: { state: STATES.CLAIMED }, lookedForTheOrder: true, ...inFayr }) === 'purchase-shot',
-    'a read that ran and left no order on the record: the screenshot fallback');
+  // ── ONLY A READ THAT RAN AND FOUND NOTHING ASKS — 21 SEPTEMBER 2026 ─────
+  //
+  // This said 'purchase-shot': a read that found nothing asked for a photograph.
+  // The owner changed it, for every shop: "it could not complete the payment due
+  // to bank servers or any other things ... it should show the screen: 'We cannot
+  // see you have placed a product. Have you completed a purchase?'"
+  //
+  // The card he described already existed and four shops already reached it. A
+  // shop inside Fayr was the only kind that did not — so somebody whose payment
+  // failed was asked to photograph an order that does not exist.
+  //
+  // AND IT AGREES WITH THE DELIVERY STEP NOW instead of contradicting it: the
+  // camera door has been shut for these shops since Phase 8A, on the grounds
+  // that a picture is the same question asked of a camera.
+  ok(at({ task: { state: STATES.CLAIMED }, lookedForTheOrder: true, ...inFayr }) === 'returncatch',
+    'a read that ran and left no order on the record: ask, do not ask for a camera');
+  // AND THE FOUR SHOPS OUTSIDE FAYR REACH THE SAME CARD, which is what makes
+  // this one question rather than two.
+  ok(at({ task: { state: STATES.CLAIMED }, connected: true, wentToBuy: true }) === 'returncatch',
+    'and a shop outside Fayr lands on the same card, as it always did');
   ok(at({ task: { state: STATES.CLAIMED }, lookedForTheOrder: false, ...inFayr }) === 'shop',
     'and "we have not looked yet" is NOT a failure — it is the shop again');
 
@@ -262,8 +279,8 @@ console.log('\n=== 3a-ii. THE ORDER FAYR WATCHED WALKS NONE OF THE FOUR PICTURE-
   }
 
   // ── WITHOUT A KEY, EVERYTHING IS AS BEFORE — inside Fayr and out ─────────
-  ok(at({ task: { state: STATES.CLAIMED }, inFayrShop: true, lookedForTheOrder: true }) === 'purchase-shot',
-    'a listed shop with no key and a fruitless read still offers the screenshot fallback');
+  ok(at({ task: { state: STATES.CLAIMED }, inFayrShop: true, lookedForTheOrder: true }) === 'returncatch',
+    'a listed shop with no key and a fruitless read asks the question');
   ok(at({ task: { state: STATES.PURCHASED, order: { id: 'o1' } }, inFayrShop: true }) === 'order-details',
     'and an order nobody has said is theirs still stops on its own step');
   ok(at({ task: { state: STATES.REVIEWED }, inFayrShop: true }) === 'review-shot',

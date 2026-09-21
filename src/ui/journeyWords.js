@@ -383,7 +383,26 @@ export function openTheShopAgain(shopName) {
  * exercise every branch of it, so the walk reads what a person would really see
  * rather than a sample somebody typed.
  */
+/**
+ * WHAT FAYR SAYS WHEN IT LOOKED AND FOUND NO ORDER — 21 SEPTEMBER 2026.
+ *
+ * The owner's own sentence, for the case he named: "it could not complete the
+ * payment due to bank servers or any other things. When they come back to Fayr
+ * ... it should show the screen: 'We cannot see you have placed a product.'"
+ *
+ * IT SAYS WHAT FAYR CANNOT SEE, NOT WHAT THE PERSON DID. "You have not bought
+ * it" would be Fayr telling somebody about their own afternoon on the strength
+ * of a read that found nothing — and a read finds nothing for a dozen reasons
+ * that are not "there is no order". This says only the true half.
+ *
+ * AND IT NEVER SAYS WHERE IT LOOKED. The same rule the waiting screen keeps in
+ * src/ui/funnyWait.js: nothing Fayr shows may tell somebody their marketplace
+ * account is being read.
+ */
+export const WE_CANNOT_SEE_A_PURCHASE = 'We cannot see a purchase for this offer yet.';
+
 export const EVERY_SENTENCE = [
+  WE_CANNOT_SEE_A_PURCHASE,
   COULD_NOT_START,
   NOTHING_WAS_SPENT,
   TRY_AGAIN,

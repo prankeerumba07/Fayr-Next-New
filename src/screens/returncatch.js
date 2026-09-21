@@ -36,6 +36,7 @@ import { SAID_THEY_BOUGHT, markVisitedShop } from '../journey/shopVisits';
 import { COLOR, SPACE } from '../ui/theme';
 import { Pill, TextBtn, hSub, hTitle } from '../ui/brand';
 import { Screen, ProductImage } from '../ui/primitives';
+import { WE_CANNOT_SEE_A_PURCHASE } from '../ui/journeyWords';
 import { goBackOrHome } from '../ui/nav';
 
 export default function ReturnCatchScreen({ navigation, route }) {
@@ -61,6 +62,14 @@ export default function ReturnCatchScreen({ navigation, route }) {
           radius={20}
           style={styles.art}
         />
+        {/* WHAT FAYR CANNOT SEE, SAID BEFORE IT ASKS — 21 September 2026.
+            The owner's case: a payment that failed at the bank. Landing on a
+            bare "Did you buy it?" after Fayr has already looked reads as though
+            nothing had happened; saying what Fayr could not see first is what
+            makes the question a next step rather than a doubt. The sentence is
+            named from journeyWords.js, never retyped, because the plain
+            language walk reads that file off disk. */}
+        <Text style={[hSub, styles.cannot]}>{WE_CANNOT_SEE_A_PURCHASE}</Text>
         <Text style={[hTitle, styles.title]}>Did you buy it?</Text>
         <Text style={[hSub, styles.sub]}>
           {product
@@ -83,7 +92,9 @@ export default function ReturnCatchScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   body: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 },
   art: { width: 92, height: 92 },
-  title: { marginTop: 18, textAlign: 'center' },
+  // Quieter than the question under it: it is context, not the thing being asked.
+  cannot: { marginTop: 18, textAlign: 'center', maxWidth: 270, opacity: 0.85 },
+  title: { marginTop: 6, textAlign: 'center' },
   sub: { textAlign: 'center', maxWidth: 270 },
   foot: { paddingHorizontal: 28, paddingBottom: 28, gap: SPACE.xs },
 });

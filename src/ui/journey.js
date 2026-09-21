@@ -407,7 +407,30 @@ export function journeyStepFor(state) {
     // See src/journey/shopStep.js for which face, and for why it is a face of
     // the Buy step rather than a step of its own.
     if (watched) return 'shop';
-    return s.lookedForTheOrder === true ? 'purchase-shot' : 'shop';
+    // ── AND A READ THAT FOUND NOTHING ASKS, IT DOES NOT ASK FOR A CAMERA ──
+    //
+    // 21 September 2026. The owner: "there might be some cases ... it could not
+    // complete the payment due to bank servers or any other things. When they
+    // come back to Fayr ... it should show the screen: 'We cannot see you have
+    // placed a product. Have you completed a purchase?' ... This is not only for
+    // Zepto. This is for all the marketplaces."
+    //
+    // THE CARD HE DESCRIBED ALREADY EXISTS and four shops already land on it —
+    // src/screens/returncatch.js, reached from `wentToBuy` below. A shop inside
+    // Fayr was the only kind that never got there: this line sent it straight to
+    // the photograph instead, so somebody whose payment failed was asked to
+    // photograph an order that does not exist.
+    //
+    // THE PHOTOGRAPH IS NOT LOST, IT WAS ALREADY NOT OFFERED HERE. src/screens/
+    // delivery.js keeps the camera door shut for these shops for the reason
+    // written there — a picture is the same question asked of a camera, and the
+    // watched order's own page is the only evidence there is. This makes the buy
+    // step agree with the delivery step rather than contradicting it.
+    //
+    // AND THE TAP STILL SETTLES NOTHING. returncatch's YES writes one
+    // device-local note and opens the same read this step already runs; the
+    // record's order still comes only from the server reading the shop's pages.
+    return s.lookedForTheOrder === true ? 'returncatch' : 'shop';
   }
   // Connecting comes first, and only once.
   if (s.connected !== true) return 'connect';
