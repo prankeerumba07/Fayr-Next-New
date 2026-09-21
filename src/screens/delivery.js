@@ -528,7 +528,7 @@ export default function DeliveryScreen({ navigation, route }) {
             of a camera. For Zepto, Blinkit and Instamart the watched order's own
             page is read again on the cadence, and that page is the only
             evidence there is. The four other shops keep the door. */}
-        {!reading && !asking && !delivered && !asksNothing ? (
+        {!reading && !asking && !delivered && !asksNothing && !wentBack ? (
           <Ghost
             onPress={() => navigation.navigate('ProofUpload', {
               campaignId, kind: 'DELIVERY',
@@ -537,7 +537,31 @@ export default function DeliveryScreen({ navigation, route }) {
             Send a picture of the delivery
           </Ghost>
         ) : null}
-        <TextBtn onPress={problem}>It is late, or there is a problem</TextBtn>
+        {/* ── AND ON AN ORDER THAT WENT BACK, NEITHER OF THOSE IS THE QUESTION
+            ── 21 September 2026 ────────────────────────────────────────────
+            The owner, looking at this screen on his own cancelled order: "why
+            are we showing questions like 'It is late' or 'There is a problem'?
+            We already know that the order has been cancelled or returned."
+
+            He is right. Both of those ask about an order still on its way. An
+            order the shop says went back is not late and has no problem to
+            report — it has an outcome, and the screen already states it. What
+            he needs here is the one thing this screen had none of: a way out.
+            "There is no back option on the page."
+
+            SO THE WAY OUT IS THE ONLY CONTROL, and it goes to the offer rather
+            than to Home, because the offer is where the next thing happens —
+            the seat may be free again and the button may say Claim. */}
+        {wentBack ? (
+          <TextBtn onPress={() => (campaignId
+            ? navigation.navigate('Detail', { campaignId })
+            : goBackOrHome(navigation))}
+          >
+            Back to the offer
+          </TextBtn>
+        ) : (
+          <TextBtn onPress={problem}>It is late, or there is a problem</TextBtn>
+        )}
       </View>
     </Screen>
   );

@@ -111,6 +111,22 @@ console.log('\n=== 4. THE DELIVERY SCREEN ASKS AGAIN, AND LOOKS ONLY WHEN ASKED 
     'the screen knows when the shop says the order went back');
   ok(/'This order went back'/.test(code), 'and says so instead of asking');
 
+  // ── AND THE FOOT OF IT OFFERS THE ONE THING THERE IS — 21 SEP 2026 ─────
+  //
+  // The owner on his own cancelled order: "why are we showing questions like
+  // 'It is late' or 'There is a problem'? We already know that the order has
+  // been cancelled or returned." And: "There is no back option on the page."
+  //
+  // Both of those controls ask about an order still on its way. An order the
+  // shop says went back is not late, has no problem to report, and needs no
+  // photograph — it has an outcome, which the screen states. What it needs is
+  // a way out, which it had none of.
+  ok(/\{wentBack \? \(\s*<TextBtn/.test(code),
+    'a returned order gets a way out instead of the late-or-problem question');
+  ok(/Back to the offer/.test(code), 'and it goes to the offer, where the next thing happens');
+  ok(/!asksNothing && !wentBack \? \(\s*<Ghost/.test(code),
+    'AND NO CAMERA IS OFFERED for an order that went back');
+
   // THE AUTOMATIC LOOK IS STILL THERE AND STILL CORRECT, and it is gated on the
   // same flag — so it is dead today and would come back whole, cadence and all,
   // if anybody ever sets the flag true. Deleting it would throw away the ten
@@ -137,7 +153,7 @@ console.log('\n=== 4. THE DELIVERY SCREEN ASKS AGAIN, AND LOOKS ONLY WHEN ASKED 
   // this one.
   ok(/const asksNothing = shopsInsideFayr\(key\);/.test(code),
     'the screen still knows which shop it is drawing for');
-  ok(/\{!reading && !asking && !delivered && !asksNothing \? \(\s*<Ghost/.test(code),
+  ok(/\{!reading && !asking && !delivered && !asksNothing && !wentBack \? \(\s*<Ghost/.test(code),
     'AND NO PICTURE IS ASKED OF A SHOP INSIDE FAYR, which the tap does not change');
 
   ok(/\{asking \? \(\s*<>\s*<Pill onPress=\{theySaidYes\}/.test(code),

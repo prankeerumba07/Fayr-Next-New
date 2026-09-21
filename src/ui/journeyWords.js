@@ -84,8 +84,21 @@ export const NO = 'No';
  * that guessed would be wrong most days.
  */
 export const THANK_YOU_FOR_CONFIRMING = 'Thank you for confirming.';
+/**
+ * ── "HONEST", NOT "FAIR" — 21 SEPTEMBER 2026 ────────────────────────────────
+ *
+ * This said "give a fair review". The owner read it on his own screen and asked
+ * for it to be capitalised as FAYR, which is the tell: in an app called Fayr,
+ * the adjective "fair" and the brand are one word apart in the eye and the
+ * sentence stops being about the review. If it reads as a misspelling to the
+ * person who named the company, it reads that way to everybody.
+ *
+ * "Honest" says exactly the same thing and cannot be confused with the name —
+ * and it is the word the product's own ground rules use for the whole idea: a
+ * review the person actually means, paid the same whether it is kind or not.
+ */
 export const USE_IT_AND_REVIEW_FAIRLY =
-  'Once your product is delivered, use it and give a fair review.';
+  'Once your product is delivered, use it and give an honest review.';
 
 /**
  * THE DELIVERY QUESTION. Step eight, and it is a TRIGGER and never an answer.
@@ -138,7 +151,10 @@ export const PRODUCT_DELIVERED = 'Product delivered.';
  * longer happens, so keeping either would be the app describing a rule it does
  * not have.
  */
-export const WRITE_A_FAIR_REVIEW = 'Write a fair review after using the product.';
+// AND THE SAME WORD HERE, for the reason at USE_IT_AND_REVIEW_FAIRLY: in an app
+// called Fayr, "a fair review" is one letter from the brand and stops being
+// about the review. The constant keeps its name so nothing else has to move.
+export const WRITE_A_FAIR_REVIEW = 'Write an honest review after using the product.';
 
 /**
  * THE REVIEW QUESTION, ASKED WHEN THEY COME BACK FROM WRITING ONE. Steps
