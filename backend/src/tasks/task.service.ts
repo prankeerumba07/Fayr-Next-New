@@ -13,7 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InsufficientTicketsError } from '../tickets/ticket.types';
 import { TicketService } from '../tickets/ticket.service';
 import { WalletService } from '../wallet/wallet.service';
-import { CLAIMED_SEATS_WHERE, isFull } from '../campaigns/seats';
+import { CLAIMED_SEATS_WHERE, THE_ORDER_WENT_BACK, isFull } from '../campaigns/seats';
 import {
   chargedDisagreesWithCampaign,
   resolveChargedPaise,
@@ -182,8 +182,37 @@ export class TaskService {
         // even fully refunded) — the user may never claim this campaign again.
         // The state machine only moves forward, and an unpurchased expiry leaves
         // the task at CLAIMED, so `state != CLAIMED` is exactly "was purchased".
+        //
+        // ── EXCEPT AN ORDER THE SHOP SENT BACK, 21 SEPTEMBER 2026 ───────────
+        //
+        // MEASURED ON THE OWNER'S OWN ACCOUNT. He claimed the one-slot Cadbury
+        // offer, signed in, bought the product, and the shop cancelled the
+        // order. That task sits at DELIVERED for ever, so this gate answered
+        // "You've already completed this campaign" to the one person who had
+        // done everything asked of them and got nothing for it.
+        //
+        // HIS RULE: "The user has completed every step from their side... the
+        // user should be allowed to complete the campaign again. They should
+        // have to claim the campaign again and accept the terms and conditions
+        // again, but only if there is still a slot available. If there are no
+        // slots left, the user should see a message saying that the slot is
+        // closed and the campaign is no longer active."
+        //
+        // SO IT IS NARROWED, NOT LIFTED. The seat check below still runs, and
+        // still refuses with "Campaign is full" when the slot has since gone —
+        // which is the message he asked for. A purchase that was NOT sent back
+        // still bars a second claim for ever, exactly as it did.
+        //
+        // THROUGH THE SAME ONE SHAPE seats.ts frees the seat by, imported and
+        // not rewritten: a cancelled order that freed its seat for everybody
+        // else but still barred its own buyer would be the worst of both.
         const everPurchased = await tx.task.findFirst({
-          where: { userId, campaignId, state: { not: 'CLAIMED' } },
+          where: {
+            userId,
+            campaignId,
+            state: { not: 'CLAIMED' },
+            NOT: THE_ORDER_WENT_BACK,
+          },
           select: { id: true },
         });
         if (everPurchased) {
@@ -1628,6 +1657,15 @@ export class TaskService {
         // repeatedly costs nothing in the log but always leaves usable evidence.
         await this.persistDiagnostics(tx, taskId, result.diagnostics);
       }
+      // ── AND IF THE SHOP SAYS IT WENT BACK, THE TASK IS LET GO HERE ────────
+      //
+      // OUTSIDE THE `changed` BRANCH ON PURPOSE. The look that first carries the
+      // return usually does change the task, but it does not have to: a second
+      // read of the same returned page collapses to a no-op, and a task whose row
+      // already said `returned` before any of this existed would otherwise sit
+      // closed-less for ever. Both the closedAt guard inside and the ticket
+      // ledger's own key make running it every time cost nothing.
+      await this.letGoBecauseTheOrderWentBack(tx, userId, result.task, Date.now());
       const updated = await tx.task.findUniqueOrThrow({
         where: { id: taskId },
       });
@@ -1693,6 +1731,60 @@ export class TaskService {
         blocker: diagnostics.blocker,
       },
     });
+  }
+
+
+  /**
+   * THE SHOP UNDID THE PURCHASE, SO THE CLAIM IS OVER AND THE FIVE COME BACK.
+   *
+   * 21 September 2026. The owner bought a campaign product on Zepto and the
+   * order was cancelled. He had done every step the offer asked of him, and was
+   * left with a task that could never be paid, a seat nobody could ever use
+   * again, and five tickets spent. His decision, in his own words:
+   *
+   *   "The user has completed every step from their side. They claimed the
+   *    campaign, accepted the terms and conditions, connected their marketplace
+   *    account, searched for the product, and completed the purchase. If the
+   *    order is cancelled or returned because of some issue, the user should be
+   *    allowed to complete the campaign again."
+   *
+   * ── WHAT THIS DOES AND WHAT IT REFUSES TO DO ─────────────────────────────
+   *
+   * IT CLOSES THE TASK, with its own reason, so the record says WHY rather than
+   * borrowing 'expired' from a clock that never ran out.
+   * IT GIVES THE FIVE BACK through the ticket service's own path, keyed to this
+   * task, so a second look at the same cancelled order cannot pay twice.
+   * IT MOVES NO STATE. The task keeps the state it reached; the engine only
+   * goes forward and a closed row is what says it is over.
+   * IT TOUCHES NO REFUND. refundEligibility already refuses a returned order in
+   * its own words, and nothing here is near the wallet.
+   *
+   * AND IT IS THE SHOP'S WORD ONLY. `returned` is read off the shop's own page
+   * by the server; an explicit true and an order are both required, because a
+   * null means the page said nothing either way and a flag with no order behind
+   * it is a flag about nothing.
+   */
+  private async letGoBecauseTheOrderWentBack(
+    tx: Tx,
+    userId: string,
+    task: EngineTask,
+    at: number,
+  ): Promise<boolean> {
+    if (task.returned !== true || task.order == null) return false;
+    const row = await tx.task.findUnique({
+      where: { id: task.id },
+      select: { closedAt: true },
+    });
+    // ALREADY CLOSED IS ALREADY DONE. The ticket return is idempotent on its own
+    // key as well, so this is the cheap guard rather than the only one.
+    if (row == null || row.closedAt != null) return false;
+    await tx.task.update({
+      where: { id: task.id },
+      data: { closedAt: new Date(at), closeReason: 'returned' },
+    });
+    await this.tickets.returnOnCancelled(userId, task.id, tx);
+    this.logger.log(`task ${task.id} let go: the shop says the order went back`);
+    return true;
   }
 
   private async persist(

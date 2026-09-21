@@ -97,6 +97,25 @@ export function closedInfo(task) {
         + 'tickets were returned. You can claim it again if it is still open.',
     };
   }
+  // ── THE SHOP CANCELLED OR RETURNED THE ORDER, 21 SEPTEMBER 2026 ───────────
+  //
+  // Written by ONE place on the server — letGoBecauseTheOrderWentBack — and it
+  // is a different thing from 'cancelled' below, which is a CLAIM somebody
+  // cancelled. This one is a claim that did everything right and an order that
+  // went back anyway, so the words say the tickets came back and the offer can
+  // be claimed again. Without this branch it fell through to "Closed: returned."
+  if (reason === 'returned') {
+    return {
+      closed: true,
+      label: 'Order went back',
+      tone: 'red',
+      title: 'This order went back',
+      body:
+        'The shop says this order was cancelled or returned, so there is no '
+        + 'refund to pay on it. Your tickets have been returned, and you can '
+        + 'claim this offer again while a slot is open.',
+    };
+  }
   if (reason === 'cancelled') {
     return {
       closed: true,

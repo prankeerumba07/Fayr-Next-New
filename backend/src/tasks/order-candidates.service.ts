@@ -834,7 +834,31 @@ export class OrderCandidatesService {
       && fresh.deliveredSaid === true;
     const deliveryDate = chosen.deliveryDate ?? theDeliveryInstant(fresh);
     const returnWindowEndsAt = chosen.returnWindowEndsAt ?? fresh.returnWindowEndsAt;
-    const returned = chosen.returned ?? fresh.returned;
+    // ── THE ONE FACT A LATER LOOK MAY MOVE, AND ONLY ONE WAY ────────────────
+    //
+    // Every other column below is frozen once written, because a fact already on
+    // the row is a fact that may already have been acted on. `returned` cannot
+    // be, and this is the sequence that proves it — measured on the owner's own
+    // cancelled Cadbury order, 21 September 2026:
+    //
+    //   first look, at purchase:  "Return window closed"  → returned = FALSE
+    //   the order is cancelled days later
+    //   later look:               "Returned"              → returned = true
+    //
+    // `chosen.returned ?? fresh.returned` kept the FALSE for ever, because false
+    // is not null. So the shop could say an order went back and nothing on this
+    // side would ever hear it, on every order that had ever mentioned a return
+    // window — which is all of them.
+    //
+    // FALSE TO TRUE ONLY. Never true back to false, never either back to null.
+    // That is also the safe direction wherever money is concerned: `returned ===
+    // true` FAILS refundEligibility, so this can only ever hold a refund back,
+    // never release one.
+    const wentBackSinceTheLastLook =
+      chosen.returned !== true && fresh.returned === true;
+    const returned = wentBackSinceTheLastLook
+      ? true
+      : (chosen.returned ?? fresh.returned);
 
     // ── WHAT COUNTS AS THE PAGE HAVING SAID IT ARRIVED ──────────────────────
     //
@@ -874,6 +898,9 @@ export class OrderCandidatesService {
       chosen.deliveryDate == null
       || chosen.returnWindowEndsAt == null
       || chosen.returned == null
+      // AND WHEN THE SHOP HAS SINCE SAID IT WENT BACK, which is the one write to
+      // this row that is not a first write. See wentBackSinceTheLastLook above.
+      || wentBackSinceTheLastLook
     ) {
       await this.prisma.orderCandidate.update({
         where: { id: chosen.id },

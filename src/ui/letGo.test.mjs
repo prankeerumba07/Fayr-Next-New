@@ -64,34 +64,73 @@ console.log('=== 1. THE ONE SHAPE THAT IS LET GO, AND EVERY SHAPE THAT IS NOT ==
   ok(trues === 1, `exactly one row of twelve is let go, found ${trues}`);
 }
 
-console.log('\n=== 2. THE SAME THREE FACTS seats.ts EXCLUDES, READ OFF ITS OWN SOURCE ===');
+console.log('\n=== 2. THE SAME TWO SHAPES seats.ts EXCLUDES, READ OFF ITS OWN SOURCE ===');
 {
   const seats = strip(read('backend/src/campaigns/seats.ts'));
-  const taken = seats.slice(seats.indexOf('export const SEAT_TAKEN_BY'), seats.indexOf('export function seatIsTakenBy'));
+  const taken = seats.slice(seats.indexOf('export const THE_ORDER_WENT_BACK'), seats.indexOf('export function seatIsTakenBy'));
   ok(taken.length > 20, 'SEAT_TAKEN_BY is where expected');
-  ok(/NOT: \{\s*closedAt: \{ not: null \},\s*state: 'CLAIMED',\s*orderId: null,\s*\}/.test(taken),
-    'the server frees a seat for closed AND CLAIMED AND no order, written as one NOT over one conjunction');
+  ok(/NOT: \[/.test(taken),
+    'the server frees a seat for a LIST of shapes, not one conjunction — so a second reason to free cannot quietly change the first');
+  ok(/closedAt: \{ not: null \},\s*state: 'CLAIMED',\s*orderId: null,/.test(taken),
+    'shape one: closed AND still CLAIMED AND no order');
+  ok(/closedAt: \{ not: null \},\s*closeReason: 'returned',/.test(taken)
+    && /NOT: \[[\s\S]*THE_ORDER_WENT_BACK,\s*\],/.test(taken),
+  'SHAPE TWO: closed AND closed BECAUSE THE ORDER WENT BACK, named once and used by the seat rule');
   const twin = seats.slice(seats.indexOf('export function seatIsTakenBy'), seats.indexOf('export function CLAIMED_SEATS_WHERE'));
   ok(/row\.closedAt != null && row\.state === 'CLAIMED' && row\.orderId == null/.test(twin),
-    'and its in-memory twin says the same three things');
+    'and its in-memory twin says the first shape');
+  ok(/row\.closedAt != null && row\.closeReason === 'returned'/.test(twin),
+    'and the second');
+  ok(/return !releasedWithoutBuying && !theOrderWentBack;/.test(twin),
+    'and takes a seat only when NEITHER frees it');
   const mine = strip(read('src/ui/letGo.js'));
   ok(/closedAt != null && t\.closedAt !== ''/.test(mine) && /t\.state === STATES\.CLAIMED/.test(mine)
-    && /t\.order\.id/.test(mine) && /return closed && stillClaimed && noOrder;/.test(mine),
-  'and the phone says the same three, in the same conjunction');
+    && /t\.order\.id/.test(mine) && /releasedWithoutBuying = closed && stillClaimed && noOrder;/.test(mine),
+  'and the phone says the first shape, in the same conjunction');
+  ok(/theOrderWentBack = closed && t\.closeReason === 'returned';/.test(mine)
+    && /return releasedWithoutBuying \|\| theOrderWentBack;/.test(mine),
+  'AND THE SECOND, as its own question — either one on its own turns the card back to Claim');
   ok(/seats\.ts/.test(read('src/ui/letGo.js')), 'and names seats.ts, so the two are found together when either moves');
   // THE SAME ROWS THROUGH BOTH, by the twin's own arithmetic written here from
-  // its source: taken = NOT(closed && CLAIMED && no order). letGo must be its complement.
-  const seatIsTakenBy = (row) => !(row.closedAt != null && row.state === 'CLAIMED' && row.orderId == null);
+  // its source: taken = NOT(shape one) AND NOT(shape two). letGo is its complement.
+  const seatIsTakenBy = (row) => !(
+    (row.closedAt != null && row.state === 'CLAIMED' && row.orderId == null)
+    || (row.closedAt != null && row.closeReason === 'returned')
+  );
+  let freed = 0;
   for (const closedAt of [null, CLOSED]) {
-    for (const state of [STATES.CLAIMED, STATES.PURCHASED, STATES.REFUNDED]) {
+    for (const state of [STATES.CLAIMED, STATES.PURCHASED, STATES.DELIVERED, STATES.REFUNDED]) {
       for (const orderId of [null, 'X1']) {
-        const asTheServerSeesIt = { closedAt, state, orderId };
-        const asThePhoneSeesIt = { closedAt, state, order: orderId == null ? null : { id: orderId } };
-        ok(isLetGo(asThePhoneSeesIt) === !seatIsTakenBy(asTheServerSeesIt),
-          `${state} ${closedAt ? 'closed' : 'open'} ${orderId ? 'with' : 'without'} an order: the phone and the seat agree`);
+        for (const closeReason of [null, 'expired', 'refunded', 'returned']) {
+          const asTheServerSeesIt = { closedAt, state, orderId, closeReason };
+          const asThePhoneSeesIt = {
+            closedAt, state, closeReason, order: orderId == null ? null : { id: orderId },
+          };
+          const letGo = isLetGo(asThePhoneSeesIt);
+          if (letGo) freed += 1;
+          ok(letGo === !seatIsTakenBy(asTheServerSeesIt),
+            `${state} ${closedAt ? 'closed' : 'open'} ${orderId ? 'with' : 'without'} an order, ${closeReason || 'no reason'}: the phone and the seat agree`);
+        }
       }
     }
   }
+  // Of the sixty-four: the four closed-CLAIMED-no-order rows, plus the eight
+  // closed rows whose reason is `returned`, less the one both describe.
+  ok(freed === 4 + 8 - 1, `exactly eleven of sixty-four are let go, found ${freed}`);
+}
+
+console.log('\n=== 2b. AND A CANCELLED ORDER SAYS SO IN WORDS, RATHER THAN "Closed: returned." ===');
+{
+  const went = closedInfo({ state: STATES.DELIVERED, closedAt: CLOSED, closeReason: 'returned' });
+  ok(went.closed === true, 'it is closed');
+  ok(went.title === 'This order went back', 'and the title says what happened, in the same words the journey screen uses');
+  ok(!/Closed: /.test(went.body || ''), 'and it never falls through to the raw reason');
+  ok(/tickets have been returned/.test(went.body || ''), 'the tickets coming back is said out loud — it is the question a person actually has');
+  ok(/claim this offer again/.test(went.body || ''), 'and so is the one thing they can do next');
+  // NOT THE SAME AS A CANCELLED CLAIM, which is a different thing entirely.
+  const claimCancelled = closedInfo({ state: STATES.CLAIMED, closedAt: CLOSED, closeReason: 'cancelled' });
+  ok(claimCancelled.title === 'This claim was cancelled' && went.title !== claimCancelled.title,
+    'and a cancelled CLAIM still reads as a cancelled claim — the two are not merged');
 }
 
 console.log('\n=== 3. hasTask MEANS A LIVE CLAIM, THE CARDS READ IT, AND NOTHING IS FILTERED OUT ===');

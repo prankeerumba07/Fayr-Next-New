@@ -29,6 +29,35 @@
 // gone. Nothing is filtered out of listForUser on our side, because REFUNDED
 // history would vanish with it.
 //
+// ── AND THE SECOND SHAPE, 21 SEPTEMBER 2026: THE ORDER WENT BACK ────────────
+//
+// The owner bought the Cadbury product on a one-slot offer and the shop
+// cancelled the order. In his words: "the user has completed every step from
+// their side... the user should be allowed to complete the campaign again. They
+// should have to claim the campaign again and accept the terms and conditions
+// again... when I go back on the Fayr homepage, I need to see that the campaign
+// is active again... it should show 'Claim' not 'Continue'."
+//
+// That task has an order and it moved past CLAIMED, so the first shape keeps it
+// for ever. seats.ts grew a SECOND row under its NOT for it —
+//
+//   { closedAt: { not: null }, closeReason: 'returned' }
+//
+// — and this is that row on the phone. The two shapes free for different
+// reasons and either one on its own is enough, so they are written as two
+// questions and an OR, exactly as the server writes two rows and not four facts.
+//
+// THE CLOSE REASON IS THE WHOLE TEST, not `returned` itself. `returned` is
+// written the moment the shop's page says the word; the close comes afterwards,
+// in the one server method that also returns the five tickets. A card that went
+// back to "Claim" on the word alone would offer a second claim while the first
+// was still live.
+//
+// AND IT IS STILL THERE IN MY PRODUCTS. That screen lists tasks directly and
+// never asks this question, so the person can still open a cancelled order and
+// read why it stopped — the Home card going back to "Claim" is about the OFFER
+// being open again, not about the task being gone.
+//
 // PURE. No React, no store, no clock.
 
 import { STATES } from '../taskflow.js'; // explicit extension: also run under node
@@ -48,5 +77,7 @@ export function isLetGo(task) {
   const stillClaimed = t.state === STATES.CLAIMED;
   const orderId = t.order && typeof t.order === 'object' ? t.order.id : null;
   const noOrder = orderId == null || orderId === '';
-  return closed && stillClaimed && noOrder;
+  const releasedWithoutBuying = closed && stillClaimed && noOrder;
+  const theOrderWentBack = closed && t.closeReason === 'returned';
+  return releasedWithoutBuying || theOrderWentBack;
 }

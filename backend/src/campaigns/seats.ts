@@ -59,13 +59,70 @@ import type { Prisma } from '@prisma/client';
  * Written as one NOT over one conjunction so that the exception cannot grow a
  * clause without the whole condition changing, and so the gate and the feed —
  * both of which import this — cannot read it differently.
+ *
+ * ── AND THE SECOND SHAPE THAT FREES: 21 SEPTEMBER 2026 ─────────────────────
+ *
+ * MEASURED, AGAIN ON THE OWNER'S OWN ACCOUNT. He claimed the one slot on the
+ * Cadbury offer, signed in to the shop, bought the product — and the order was
+ * cancelled before it arrived. The seat stayed taken for ever, because the task
+ * had an order on it and had moved past CLAIMED: both of the facts above that
+ * keep a seat.
+ *
+ * ── THE RULE, IN HIS WORDS ────────────────────────────────────────────────
+ *
+ * "The user has completed every step from their side... the user should be
+ * allowed to complete the campaign again. They should have to claim the
+ * campaign again and accept the terms and conditions again, but only if there
+ * is still a slot available. If there are no slots left, the user should see a
+ * message saying that the slot is closed and the campaign is no longer active."
+ *
+ * So the seat a cancelled order was holding goes back into the pool. It is a
+ * seat that was paid for with a purchase, but it is a seat nothing can ever be
+ * finished from: `returned === true` fails refundEligibility for ever, and the
+ * task is closed.
+ *
+ * ── AND IT IS A SECOND SHAPE, NOT A FOURTH CLAUSE ─────────────────────────
+ *
+ * Widening the conjunction above would have changed what the FIRST rule means.
+ * These are two different things a closed task can be, so they are written as
+ * two rows under one NOT — Prisma reads an array there as "none of these" —
+ * and either one on its own frees the seat.
+ *
+ * THE CLOSE REASON IS THE WHOLE TEST, and it is written by exactly one place:
+ * letGoBecauseTheOrderWentBack in task.service.ts, which fires only on
+ * `task.returned === true`. Reading `returned` here instead would have freed
+ * the seat the moment the shop said the word, before anything had closed the
+ * task — a live claim with a seat already given away to somebody else.
  */
+/**
+ * A TASK THE SHOP SENT BACK, IN ONE PLACE.
+ *
+ * Two rules read this and they must read the same thing: the seat rule below —
+ * the seat goes back into the pool — and the claim gate in task.service.ts,
+ * which otherwise answers "You've already completed this campaign" for ever to
+ * the one person who ought to be allowed to try again. A cancelled order that
+ * freed its seat but still barred its own buyer would be the worst of both.
+ *
+ * BOTH FACTS, NEVER ONE. `closeReason` alone would be enough today, because only
+ * letGoBecauseTheOrderWentBack writes it and it always writes `closedAt` in the
+ * same update. Asking for both keeps that true by construction rather than by
+ * remembering, and says what this is: a task that is OVER, and over for this
+ * reason.
+ */
+export const THE_ORDER_WENT_BACK: Prisma.TaskWhereInput = {
+  closedAt: { not: null },
+  closeReason: 'returned',
+};
+
 export const SEAT_TAKEN_BY: Prisma.TaskWhereInput = {
-  NOT: {
-    closedAt: { not: null },
-    state: 'CLAIMED',
-    orderId: null,
-  },
+  NOT: [
+    {
+      closedAt: { not: null },
+      state: 'CLAIMED',
+      orderId: null,
+    },
+    THE_ORDER_WENT_BACK,
+  ],
 };
 
 /**
@@ -80,10 +137,17 @@ export function seatIsTakenBy(row: {
   closedAt: Date | null;
   state: string;
   orderId: string | null;
+  // REQUIRED, not optional. An optional field is one a caller can forget to
+  // select, and a forgotten closeReason reads as undefined — which would answer
+  // "still taken" on every returned order and free nothing, silently. Naming it
+  // here makes the query that feeds this fail to compile instead.
+  closeReason: string | null;
 }): boolean {
   const releasedWithoutBuying =
     row.closedAt != null && row.state === 'CLAIMED' && row.orderId == null;
-  return !releasedWithoutBuying;
+  const theOrderWentBack =
+    row.closedAt != null && row.closeReason === 'returned';
+  return !releasedWithoutBuying && !theOrderWentBack;
 }
 
 export function CLAIMED_SEATS_WHERE(campaignId: string): Prisma.TaskWhereInput {

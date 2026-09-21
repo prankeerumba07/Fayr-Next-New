@@ -38,9 +38,17 @@ describe('seats', () => {
       // THE SHAPE IS ASSERTED EXACTLY, not merely "has a NOT": the two
       // mutations this file exists to catch each drop one of the three facts,
       // and each is a different wrong rule.
+      //
+      // AND SINCE 21 SEPTEMBER 2026 THERE IS A SECOND SHAPE under the same NOT:
+      // a task closed because the shop said the order went back. Two rows, not
+      // four facts in one row — the two free for different reasons and either on
+      // its own is enough.
       expect(CLAIMED_SEATS_WHERE('c-1')).toEqual({
         campaignId: 'c-1',
-        NOT: { closedAt: { not: null }, state: 'CLAIMED', orderId: null },
+        NOT: [
+          { closedAt: { not: null }, state: 'CLAIMED', orderId: null },
+          { closedAt: { not: null }, closeReason: 'returned' },
+        ],
       });
     });
 
@@ -49,8 +57,16 @@ describe('seats', () => {
     // A Prisma where-clause cannot be run here. seatIsTakenBy is the same rule
     // written so a test can ask it, and the last case below checks the twin
     // agrees with the clause's own three facts so the two cannot drift.
-    const open = { closedAt: null, state: 'CLAIMED', orderId: null };
-    const released = { closedAt: new Date(), state: 'CLAIMED', orderId: null };
+    const open = {
+      closedAt: null, state: 'CLAIMED', orderId: null, closeReason: null,
+    };
+    const released = {
+      closedAt: new Date(), state: 'CLAIMED', orderId: null, closeReason: 'expired',
+    };
+    /** A purchase the shop cancelled, closed by letGoBecauseTheOrderWentBack. */
+    const wentBack = {
+      closedAt: new Date(), state: 'DELIVERED', orderId: 'ORD-1', closeReason: 'returned',
+    };
 
     it('A RELEASED, NEVER-PURCHASED CLAIM FREES ITS SEAT', () => {
       expect(seatIsTakenBy(released)).toBe(false);
@@ -67,11 +83,17 @@ describe('seats', () => {
       // "because that seat really was used" — open or closed, and in every
       // state past CLAIMED.
       for (const state of ['PURCHASED', 'DELIVERED', 'REVIEWED', 'HOLDING', 'REFUNDED']) {
-        expect(seatIsTakenBy({ closedAt: null, state, orderId: 'ORD-1' })).toBe(true);
-        expect(seatIsTakenBy({ closedAt: new Date(), state, orderId: 'ORD-1' })).toBe(true);
+        const at = { closeReason: null };
+        expect(seatIsTakenBy({ closedAt: null, state, orderId: 'ORD-1', ...at })).toBe(true);
+        expect(seatIsTakenBy({ closedAt: new Date(), state, orderId: 'ORD-1', ...at })).toBe(true);
         // And the state alone is enough: a row that reached PURCHASED with no
         // orderId written is still a used seat.
-        expect(seatIsTakenBy({ closedAt: new Date(), state, orderId: null })).toBe(true);
+        expect(seatIsTakenBy({ closedAt: new Date(), state, orderId: null, ...at })).toBe(true);
+        // AND A REFUND CLOSES A TASK TOO, and that close keeps its seat: the
+        // whole test is the REASON, not the fact of being closed.
+        expect(seatIsTakenBy({
+          closedAt: new Date(), state, orderId: 'ORD-1', closeReason: 'refunded',
+        })).toBe(true);
       }
     });
 
@@ -81,34 +103,77 @@ describe('seats', () => {
       expect(seatIsTakenBy({ ...released, orderId: 'ORD-1' })).toBe(true);
     });
 
-    it('the in-memory twin and the where-clause say the same three things', () => {
+    it('A SEAT A CANCELLED ORDER WAS HOLDING GOES BACK INTO THE POOL', () => {
+      // The owner's own Cadbury run, 21 September 2026: one slot, claimed,
+      // bought, and the shop cancelled the order. Every fact of the first rule
+      // says "taken" — it has an order and it moved past CLAIMED — so without a
+      // second shape that offer was dead for ever after one cancelled purchase.
+      expect(seatIsTakenBy(wentBack)).toBe(false);
+      // And it is the REASON that frees it, in every state a purchase reaches.
+      for (const state of ['PURCHASED', 'DELIVERED', 'REVIEWED', 'HOLDING']) {
+        expect(seatIsTakenBy({ ...wentBack, state })).toBe(false);
+      }
+    });
+
+    it('but only once it is CLOSED — a live task the shop says went back keeps its seat', () => {
+      // THE ORDER OF THE TWO FACTS MATTERS. `returned` is written the moment the
+      // shop's page says the word; the close comes after, in the one method that
+      // also returns the tickets. Freeing on the word alone would give the seat
+      // away while the claim was still live, and two people would hold one slot.
+      expect(seatIsTakenBy({ ...wentBack, closedAt: null })).toBe(true);
+    });
+
+    it('the in-memory twin and the where-clause say the same things', () => {
       // WALKED, NOT RESTATED — corrected 18 September 2026. The first writing
       // re-asserted the clause's literal shape, which the test above already
       // pins, and never called the twin at all, so a twin that drifted would
       // have passed here. This evaluates the clause's own NOT against every
       // shape of row a task can be in and asks the twin the same question.
-      const not = SEAT_TAKEN_BY.NOT as {
-        closedAt: { not: null }; state: string; orderId: null;
+      //
+      // THE NOT IS NOW A LIST, and the walk reads it as one: Prisma reads an
+      // array under NOT as "none of these", so a row is taken when it matches
+      // NONE of the shapes. Written as a fold over the list rather than two
+      // hand-copied conditions, so a third shape added to seats.ts is walked
+      // here without this test being edited to know about it.
+      const shapes = SEAT_TAKEN_BY.NOT as {
+        closedAt?: { not: null }; state?: string;
+        orderId?: null; closeReason?: string;
+      }[];
+      expect(Array.isArray(shapes)).toBe(true);
+      expect(shapes).toHaveLength(2);
+      expect(shapes.map((sh) => Object.keys(sh).sort())).toEqual([
+        ['closedAt', 'orderId', 'state'],
+        ['closeReason', 'closedAt'],
+      ]);
+      type Row = {
+        closedAt: Date | null; state: string;
+        orderId: string | null; closeReason: string | null;
       };
-      expect(Object.keys(not).sort()).toEqual(['closedAt', 'orderId', 'state']);
-      const clauseSays = (row: { closedAt: Date | null; state: string; orderId: string | null }) => {
-        const closedAtMatches = row.closedAt !== null; // { not: null }
-        const stateMatches = row.state === not.state;
-        const orderIdMatches = row.orderId === not.orderId;
-        return !(closedAtMatches && stateMatches && orderIdMatches); // NOT (all three)
-      };
-      const rows: { closedAt: Date | null; state: string; orderId: string | null }[] = [];
+      const clauseSays = (row: Row) => !shapes.some((sh) => (
+        (sh.closedAt === undefined || row.closedAt !== null) // { not: null }
+        && (sh.state === undefined || row.state === sh.state)
+        && (sh.orderId === undefined || row.orderId === sh.orderId)
+        && (sh.closeReason === undefined || row.closeReason === sh.closeReason)
+      ));
+      const rows: Row[] = [];
       for (const closedAt of [null, new Date()]) {
         for (const state of ['CLAIMED', 'PURCHASED', 'DELIVERED', 'REVIEWED', 'HOLDING', 'REFUNDED']) {
-          for (const orderId of [null, 'ORD-1']) rows.push({ closedAt, state, orderId });
+          for (const orderId of [null, 'ORD-1']) {
+            for (const closeReason of [null, 'expired', 'refunded', 'returned']) {
+              rows.push({ closedAt, state, orderId, closeReason });
+            }
+          }
         }
       }
-      expect(rows).toHaveLength(24);
+      expect(rows).toHaveLength(96);
       for (const row of rows) {
         expect(seatIsTakenBy(row)).toBe(clauseSays(row));
       }
-      // And exactly one of the twenty-four frees its seat.
-      expect(rows.filter((r) => !seatIsTakenBy(r))).toHaveLength(1);
+      // AND THE COUNT IS EXACT. Of the ninety-six: the four closed-CLAIMED-no-
+      // order rows (one per close reason), plus the closed rows whose reason is
+      // `returned` — twelve of them, one per state and order, less the one
+      // already counted by the first shape.
+      expect(rows.filter((r) => !seatIsTakenBy(r))).toHaveLength(4 + 12 - 1);
     });
 
     it('is the ONLY place the claim gate counts seats', () => {

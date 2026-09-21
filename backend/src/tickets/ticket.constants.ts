@@ -27,5 +27,10 @@ export const ticketKey = {
   signup: (userId: string): string => `ticket:signup:${userId}`,
   claim: (taskId: string): string => `ticket:claim:${taskId}`,
   expiry: (taskId: string): string => `ticket:expiry:${taskId}`,
+  // THE SHOP UNDID THE PURCHASE, so the five come back. Its own key and not
+  // expiry's: a task can only ever have one of the two, but they mean different
+  // things and a shared key would let whichever happened first silently swallow
+  // the other. See the 21 September 2026 migration for why it is not an expiry.
+  cancelled: (taskId: string): string => `ticket:cancelled:${taskId}`,
   completion: (taskId: string): string => `ticket:completion:${taskId}`,
 } as const;

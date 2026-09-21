@@ -1,0 +1,20 @@
+-- THE FIVE TICKETS COME BACK WHEN THE ORDER GOES BACK.
+--
+-- 21 September 2026. The owner bought a campaign product and the order was
+-- cancelled. He was left having done every step the offer asked of him — claim,
+-- terms, connect, search, buy — with five tickets spent, no refund possible, and
+-- no way to try again. In his words: "The user has completed every step from
+-- their side ... If the order is cancelled or returned because of some issue,
+-- the user should be allowed to complete the campaign again."
+--
+-- ── WHY THIS IS NOT EXPIRY_RETURN ─────────────────────────────────────────
+--
+-- EXPIRY_RETURN means, in the schema's own comment, "+5 back if the claim
+-- expires with no purchase". A cancelled order is not an expiry: the person did
+-- buy, and the shop is what undid it. Posting this as an expiry would put a
+-- sentence in the ticket ledger that is not true of the row it describes, and
+-- the ledger is append-only precisely so that what it says stays what happened.
+--
+-- One reason per thing that really happened, so a report can tell a claim
+-- nobody acted on from a purchase the shop cancelled.
+ALTER TYPE "TicketReason" ADD VALUE IF NOT EXISTS 'CANCELLED_RETURN';

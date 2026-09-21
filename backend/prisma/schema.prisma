@@ -182,6 +182,7 @@ enum TicketReason {
   SIGNUP_GRANT // +15 on registration
   CLAIM // -5 when a campaign is claimed
   EXPIRY_RETURN // +5 back if the claim expires with no purchase
+  CANCELLED_RETURN // +5 back when the SHOP cancelled or returned the order
   COMPLETION_RETURN // +10 after full completion + withdrawal
   ADJUSTMENT // manual correction (append-only, never edits a prior row)
 }

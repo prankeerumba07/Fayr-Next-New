@@ -130,6 +130,56 @@ export class TicketService {
     );
   }
 
+  /**
+   * THE FIVE BACK WHEN THE SHOP UNDID THE PURCHASE. Idempotent.
+   *
+   * 21 September 2026. The owner bought a campaign product and the order was
+   * cancelled. He had done every step the offer asked of him — claim, terms,
+   * connect, search, buy — and was left with five tickets spent, no refund
+   * possible, and no way to try again. His decision: "The user has completed
+   * every step from their side ... the user should be allowed to complete the
+   * campaign again."
+   *
+   * ── THE SAME SHAPE AS returnOnExpiry, AND DELIBERATELY NOT THE SAME ROW ──
+   *
+   * It reads the CLAIM deduction and posts its inverse, exactly as the expiry
+   * return does, so the amount is always what was actually taken and never a
+   * number written here. What differs is the reason and the key.
+   *
+   * THE REASON, because EXPIRY_RETURN says in the schema's own words "+5 back if
+   * the claim expires with no purchase", and this person did buy — the shop is
+   * what undid it. A ledger that is append-only so that what it says stays what
+   * happened must not say the wrong thing in the first place.
+   *
+   * THE KEY, because one task can only ever have one of the two, and a shared
+   * key would let whichever happened first silently swallow the other.
+   */
+  async returnOnCancelled(
+    userId: string,
+    taskId: string,
+    tx?: Db,
+  ): Promise<TicketEntry> {
+    const db = tx ?? this.prisma;
+    const claim = await db.ticketEntry.findFirst({
+      where: { taskId, reason: 'CLAIM' },
+    });
+    if (!claim) {
+      throw new TicketError(
+        `cannot return tickets: task ${taskId} has no claim deduction`,
+      );
+    }
+    return this.post(
+      {
+        userId,
+        delta: -claim.delta, // claim.delta is negative → this is a positive return
+        reason: 'CANCELLED_RETURN',
+        taskId,
+        idempotencyKey: ticketKey.cancelled(taskId),
+      },
+      tx,
+    );
+  }
+
   /** The +10 grant after a task is fully completed + withdrawn. Idempotent. */
   grantCompletion(
     userId: string,

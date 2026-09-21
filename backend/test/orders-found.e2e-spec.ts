@@ -1066,6 +1066,219 @@ describe('The orders the phone found (e2e)', () => {
       expect(sql).not.toMatch(/\bDROP\b/i);
       expect(sql).not.toMatch(/\bUPDATE\b/i);
     });
+
+    /**
+     * ── AN ORDER THE SHOP SAYS WENT BACK IS LET GO, AND THE TICKETS COME BACK ──
+     *
+     * THE OWNER'S DECISION, 21 SEPTEMBER 2026, IN HIS OWN WORDS: "the user has
+     * completed every step from their side... the user should be allowed to
+     * complete the campaign again. They should have to claim the campaign again
+     * and accept the terms and conditions again, but only if there is still a
+     * slot available." And: "Yes, return the five tickets."
+     *
+     * So a cancelled or returned order is not the person's fault and is not a
+     * punishment. The task stops where it is — no refund, the money path is not
+     * touched and no rule of it is loosened — and the five tickets the claim cost
+     * go back onto the ledger, so the same person can claim again if a seat is
+     * free.
+     *
+     * NOTHING HERE MOVES MONEY. `returned === true` already fails
+     * refundEligibility on its own; closing the task simply stops it sitting in a
+     * journey it can never finish.
+     */
+    it('AN ORDER THE SHOP SAYS WENT BACK CLOSES THE TASK AND RETURNS THE FIVE TICKETS', async () => {
+      // Amazon, because returnedOnThisShop hands a stated word straight back on a
+      // shop that has a returns process. On Zepto the page's own word is read the
+      // same way; only SILENCE is answered differently there.
+      const { userId, token, taskId } = await readyForYesterday({ platform: 'AMAZON' });
+
+      // 15 at signup, less the 5 the claim cost.
+      expect(await ticketsSvc.getBalance(userId)).toBe(10);
+
+      const beforeItCame = await post(token, taskId, [
+        orderPage('408-5094957-4481129', { delivered: null }),
+      ]);
+      const chosen = await chooseIt(token, taskId, beforeItCame.body[0].id);
+      expect(chosen.body.state).toBe('PURCHASED');
+
+      // The later look. The same page, now stating a delivery AND that it went
+      // back — which is what the owner's own cancelled Cadbury order printed once
+      // the shop had processed it.
+      await post(token, taskId, [
+        `${orderPage('408-5094957-4481129', { windowCloses: daysFromNow(30) })}\nReturned`,
+      ]);
+
+      const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      expect(task.returned).toBe(true);
+      expect(task.closedAt).not.toBeNull();
+      expect(task.closeReason).toBe('returned');
+
+      // AND THE FIVE ARE BACK, through the ledger and not by editing a balance.
+      expect(await ticketsSvc.getBalance(userId)).toBe(15);
+      const back = await prisma.ticketEntry.findMany({
+        where: { userId, reason: 'CANCELLED_RETURN' },
+      });
+      expect(back).toHaveLength(1);
+      expect(back[0].delta).toBe(5);
+      expect(back[0].taskId).toBe(taskId);
+
+      // NO REFUND WAS PAID AND NO COMPLETION GRANT WAS MADE. This is the
+      // assertion that fails if letting a returned order go is ever confused with
+      // finishing one.
+      expect(await prisma.ticketEntry.count({
+        where: { userId, reason: 'COMPLETION_RETURN' },
+      })).toBe(0);
+      expect(await prisma.walletEntry.count({ where: { account: { userId } } })).toBe(0);
+    });
+
+    it('AND LOOKING AGAIN RETURNS THE FIVE ONCE, NOT ONCE PER LOOK', async () => {
+      // The phone re-reads the shop's list every time the screen is opened.
+      // Without an idempotency key of its own this would print five more tickets
+      // on each of those looks.
+      const { userId, token, taskId } = await readyForYesterday({ platform: 'AMAZON' });
+      const found = await post(token, taskId, [
+        orderPage('408-5094957-4481129', { delivered: null }),
+      ]);
+      await chooseIt(token, taskId, found.body[0].id);
+
+      const wentBack =
+        `${orderPage('408-5094957-4481129', { windowCloses: daysFromNow(30) })}\nReturned`;
+      await post(token, taskId, [wentBack]);
+      const { closedAt } = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      await post(token, taskId, [wentBack]);
+      await post(token, taskId, [wentBack]);
+
+      expect(await ticketsSvc.getBalance(userId)).toBe(15);
+      expect(await prisma.ticketEntry.count({
+        where: { userId, reason: 'CANCELLED_RETURN' },
+      })).toBe(1);
+      // And the moment it was let go is the FIRST one, not the latest look.
+      const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      expect(task.closedAt?.getTime()).toBe(closedAt?.getTime());
+    });
+
+    it('AND AN ORDER THAT DID NOT GO BACK IS NOT LET GO, AND ITS TICKETS STAY SPENT', async () => {
+      // The other half of the rule. Without this, "closes the task" could be
+      // written as "closes every task" and both checks above would still pass.
+      const { userId, token, taskId } = await readyForYesterday({ platform: 'AMAZON' });
+      const found = await post(token, taskId, [
+        orderPage('408-5094957-4481129', { delivered: null }),
+      ]);
+      await chooseIt(token, taskId, found.body[0].id);
+      await post(token, taskId, [
+        orderPage('408-5094957-4481129', { windowCloses: daysFromNow(30) }),
+      ]);
+
+      const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      expect(task.state).toBe('DELIVERED');
+      expect(task.returned).toBe(false);
+      expect(task.closedAt).toBeNull();
+      expect(await ticketsSvc.getBalance(userId)).toBe(10);
+      expect(await prisma.ticketEntry.count({
+        where: { userId, reason: 'CANCELLED_RETURN' },
+      })).toBe(0);
+    });
+
+    /**
+     * ── AND THE SAME PERSON MAY CLAIM IT AGAIN, IF A SEAT IS STILL THERE ─────
+     *
+     * The other half of the owner's rule, and the half that is actually about
+     * him: "They should have to claim the campaign again and accept the terms
+     * and conditions again, but only if there is still a slot available. If
+     * there are no slots left, the user should see a message saying that the
+     * slot is closed and the campaign is no longer active."
+     *
+     * Three things have to line up for that, and each is checked here over real
+     * requests: the seat goes back into the pool (seats.ts), the claim limit
+     * stops counting the cancelled purchase (task.service.ts), and a seat that
+     * has since been taken by somebody else still refuses.
+     */
+    describe('claiming again after the shop sent the order back', () => {
+      /** Claim, buy, and have the shop say it went back. Returns the dead task. */
+      async function boughtAndSentBack(over: Partial<Prisma.CampaignCreateInput> = {}) {
+        const made = await readyForYesterday({ platform: 'AMAZON', ...over });
+        const found = await post(made.token, made.taskId, [
+          orderPage('408-5094957-4481129', { delivered: null }),
+        ]);
+        await chooseIt(made.token, made.taskId, found.body[0].id);
+        await post(made.token, made.taskId, [
+          `${orderPage('408-5094957-4481129', { windowCloses: daysFromNow(30) })}\nReturned`,
+        ]);
+        const task = await prisma.task.findUniqueOrThrow({ where: { id: made.taskId } });
+        expect(task.closeReason).toBe('returned');
+        return made;
+      }
+
+      const claimAgain = (token: string, campaignId: string) =>
+        request(server())
+          .post('/tasks')
+          .set('Authorization', bearer(token))
+          .send({ campaignId, acceptedTerms: true });
+
+      it('THE SAME PERSON CLAIMS IT AGAIN, AND GETS A NEW TASK', async () => {
+        // Before this, the claim gate read "any task past CLAIMED means this
+        // person is done" — and a cancelled order sits at DELIVERED for ever. So
+        // the one person who had done every step asked of them was the one
+        // person permanently barred.
+        const { token, campaign, taskId } = await boughtAndSentBack({ totalSlots: 1 });
+
+        const again = await claimAgain(token, campaign.id).expect(201);
+        expect(again.body.id).not.toBe(taskId);
+        expect(again.body.state).toBe('CLAIMED');
+        expect(again.body.closedAt).toBeNull();
+
+        // AND THE TERMS WERE ACCEPTED AGAIN, because it went through the same
+        // claim endpoint and that endpoint refuses a claim without them.
+        await request(server())
+          .post('/tasks')
+          .set('Authorization', bearer(token))
+          .send({ campaignId: campaign.id })
+          .expect(400);
+      });
+
+      it('AND SPENDS FIVE TICKETS AGAIN, from the five that came back', async () => {
+        const { userId, token, campaign } = await boughtAndSentBack({ totalSlots: 1 });
+        expect(await ticketsSvc.getBalance(userId)).toBe(15);
+        await claimAgain(token, campaign.id).expect(201);
+        expect(await ticketsSvc.getBalance(userId)).toBe(10);
+      });
+
+      it('BUT ONLY WHILE A SEAT IS THERE: one somebody else took refuses', async () => {
+        // The owner's own words for what this must say: "the slot is closed and
+        // the campaign is no longer active."
+        const { token, campaign } = await boughtAndSentBack({ totalSlots: 1 });
+
+        // The freed seat is a real seat, and the next person gets it.
+        const other = await newUser();
+        await ticketsSvc.grantSignup(other.id);
+        await claimAgain(other.token, campaign.id).expect(201);
+
+        const refused = await claimAgain(token, campaign.id).expect(409);
+        expect(String(refused.body.message)).toMatch(/full/i);
+      });
+
+      it('AND A PURCHASE THAT WAS NOT SENT BACK STILL BARS A SECOND CLAIM FOR EVER', async () => {
+        // The limit is NARROWED, not lifted. Without this, "a purchase is
+        // permanent" could be deleted outright and every check above would pass.
+        const { token, campaign, taskId } = await readyForYesterday({ platform: 'AMAZON' });
+        const found = await post(token, taskId, [
+          orderPage('408-5094957-4481129', { delivered: null }),
+        ]);
+        await chooseIt(token, taskId, found.body[0].id);
+        await post(token, taskId, [
+          orderPage('408-5094957-4481129', { windowCloses: daysFromNow(30) }),
+        ]);
+        // The task is open, so close it WITHOUT the returned reason — otherwise
+        // the open-task idempotency above answers before the limit is reached.
+        await prisma.task.update({
+          where: { id: taskId },
+          data: { closedAt: new Date(), closeReason: 'refunded' },
+        });
+
+        const refused = await claimAgain(token, campaign.id).expect(409);
+        expect(String(refused.body.message)).toMatch(/already completed this campaign/i);
+      });
+    });
   });
 
   /**
