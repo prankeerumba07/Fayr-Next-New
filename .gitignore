@@ -57,3 +57,33 @@ tsconfig.json
 # What ./start and ./check write down. Useful on this machine, meaningless in the
 # project, and they can contain a staff email address.
 .local-logs/
+
+# ── AND ANY LOG, ANYWHERE — 21 SEPTEMBER 2026 ──────────────────────────────
+#
+# The rule above named one directory, and the note on it already said logs "can
+# contain a staff email address". A security sweep before this repository was
+# first pushed found two that had walked straight past it:
+# docs/measured/2026-09-18/{metro-run,backend}.log — 909 lines of a live
+# shopping session on a real Zepto account, carrying the order handle, the order
+# code, the product bought, the price paid and the machine's LAN address, all in
+# one machine-readable file. They were removed; this is what stops the next one.
+#
+# A LOG IS A MEASUREMENT AND A MEASUREMENT BELONGS IN A COMMENT. This project
+# already quotes the ONE line that mattered, redacted, beside the code it
+# explains — that is the form a measurement takes here. A whole log file pasted
+# into the repository is a record of what one identifiable person bought.
+*.log
+
+# ── THE APP'S OWN .env, WHICH WAS TRACKED ─────────────────────────────────
+#
+# Found by the same sweep. The rule below was `.env*.local` only, so plain
+# `.env` was not ignored and WAS committed. It held one harmless line — a LAN
+# address — but the rule everybody assumes exists did not exist, so the next
+# person to put a key in it would have published it without being warned.
+#
+# backend/.env was always covered, by backend/.gitignore, and that is where the
+# real secrets live. This closes the same door on this side.
+#
+# NOTHING BREAKS BY UNTRACKING IT: src/backend/apiBase.js works the address out
+# from Metro at runtime and this file is only ever an override.
+.env
