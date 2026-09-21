@@ -230,6 +230,11 @@ console.log('\n=== the locked offer is DRAWN, still in the list, and not claimab
   // failed payment; without it the fix above is invisible.
   ok(/cardState\(c, claimed\)/.test(home),
     'CARD STATE IS ASKED ABOUT THIS PERSON, not only about the offer');
+  // AND THE FOOTER LINE TOO. "Comes back when a slot opens" is a sentence about
+  // somebody without a seat. To the person holding one it sat beside their own
+  // Continue button, saying the opposite of it.
+  ok(/\(claimed \? null : lockedLine\(c\)\)/.test(home),
+    'AND THE SLOT SENTENCE IS NOT SAID TO THE PERSON HOLDING THE SLOT');
   ok(/off \? live\.cta : locked \?/.test(home),
     'and the shop\u2019s own state is asked first');
   ok(/lockedBanner/.test(home) && /offBanner/.test(home),

@@ -366,10 +366,30 @@ console.log('\n=== 7. "Did you buy it?" is NOT deleted ===');
   ok(/YES, I HAVE BOUGHT IT/.test(tap), 'and its button still is');
   ok(/navigation\.navigate\('LookingForIt', \{ campaignId \}\)/.test(withoutComments(tap)),
     'and it still starts the same read');
-  // AND FOR EVERY SHOP, not only the ones outside the in-app list. Nothing in
-  // this phase made that screen conditional on anything.
-  ok(!/shopsInsideFayr|insideFayr/.test(tap),
-    'it has not been made conditional on which shop this is');
+  // AND FOR EVERY SHOP, not only the ones outside the in-app list. What this
+  // protects is that the CARD and its YES are unconditional — the way to say "I
+  // bought it" must never depend on which shop it was.
+  //
+  // ── NARROWED 21 SEPTEMBER 2026, and what it may not be narrowed past ────
+  //
+  // It used to refuse the file any mention of shopsInsideFayr at all. That was
+  // the rule standing in for the intent, and it caught the wrong thing: the
+  // card gained ONE EXTRA door — "Go back to <shop> and try again" — that only a
+  // shop shopped inside Fayr can have, because the other four are reached by
+  // leaving Fayr entirely. The door is an addition for some, never a condition
+  // on the question or the answer.
+  //
+  // So the intent is checked directly instead: the question and the Yes are
+  // outside every conditional.
+  const code = withoutComments(tap);
+  const yesAt = code.indexOf('YES, I HAVE BOUGHT IT');
+  const questionAt = code.indexOf('Did you buy it?');
+  const doorAt = code.indexOf('shopsInsideFayr(key)');
+  ok(yesAt !== -1 && questionAt !== -1, 'the question and the answer are both drawn');
+  ok(doorAt === -1 || doorAt > yesAt,
+    'AND NEITHER SITS INSIDE THE SHOP-SPECIFIC DOOR, which comes after them');
+  ok(!/shopsInsideFayr\(key\) \?[\s\S]{0,400}YES, I HAVE BOUGHT IT/.test(code),
+    'and the way to say "I bought it" never depends on which shop it was');
 }
 
 console.log('\n=== 8. the log carries what corrects the guess ===');

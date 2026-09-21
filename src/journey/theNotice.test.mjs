@@ -257,6 +257,26 @@ console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
     const no = screen.slice(screen.indexOf('Not yet'));
     ok(!/expireClaim|let-it-go|release|returnOnExpiry|ticket/i.test(no),
       'AND IT RELEASES NOTHING: no claim, no seat, no ticket moves on a No');
+
+    // ── AND THERE IS A WAY BACK INTO THE SHOP — 21 SEPTEMBER 2026 ────────
+    //
+    // THE DEAD END THIS REFUSES, and it shipped for an hour. When the buy
+    // step's fallback for a shop inside Fayr moved from the screenshot screen
+    // to this card, the screenshot screen's door back into the shop was left
+    // behind. Yes re-ran a read that finds nothing; No went back to the offer
+    // whose Continue lands here again. A person whose payment failed could not
+    // reach the shop to try again from anywhere in the app.
+    //
+    // The door had itself been added on 18 September after an adversarial
+    // review found the same dead end on the other screen. Losing it by moving
+    // a route is exactly the way a fix like that gets undone, so it is pinned
+    // here rather than trusted.
+    ok(/enterTheShop\(\{ campaignId, marketplace: key, navigation \}\)/.test(screen),
+      'THE CARD OFFERS THE SHOP AGAIN, through the same door the claim uses');
+    ok(/shopsInsideFayr\(key\) \?/.test(screen),
+      'and only for a shop whose shopping happens inside Fayr');
+    ok(!/openShop|Linking/.test(screen),
+      'and never by leaving Fayr, which is the other shops’ path and not this one');
   }
 
   ok(EVERY_SENTENCE.length === 53, `the list of them is complete (${EVERY_SENTENCE.length})`);

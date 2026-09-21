@@ -98,7 +98,14 @@ function CampaignRow({ c, claimed, onOpen }) {
               The banner above already carries "every slot is taken", so
               repeating it here would spend the one line this footer has on the
               thing the person can already see. */}
-          {lockedLine(c) || seats
+          {/* AND NEVER "comes back when a slot opens" TO THE PERSON IN THE
+              SEAT — 21 September 2026. The owner, holding the only seat on a
+              one-slot offer with a live claim: "It's showing Continue, but it
+              is still showing that it comes back when a slot opens." Two
+              sentences about one offer, one of them about somebody else. What
+              is true for him is that his claim is in progress, which is what
+              this line already says when it is allowed to. */}
+          {(claimed ? null : lockedLine(c)) || seats
             || (claimed ? 'In progress' : `Claim · ${c.ticketCost} tickets`)}
         </Text>
         <Text style={[styles.footerCta, (full || off) && styles.footerCtaOff]}>

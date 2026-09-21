@@ -34,16 +34,21 @@ import { StyleSheet, Text, View } from 'react-native';
 import * as campaignStore from '../backend/campaignStore';
 import { SAID_THEY_BOUGHT, markVisitedShop } from '../journey/shopVisits';
 import { COLOR, SPACE } from '../ui/theme';
-import { Pill, TextBtn, hSub, hTitle } from '../ui/brand';
+import { Ghost, Pill, TextBtn, hSub, hTitle } from '../ui/brand';
 import { Screen, ProductImage } from '../ui/primitives';
 import { WE_CANNOT_SEE_A_PURCHASE } from '../ui/journeyWords';
 import { goBackOrHome } from '../ui/nav';
+import { PLATFORMS } from '../platforms';
+import { enterTheShop } from '../shop/enterTheShop';
+import { shopsInsideFayr } from '../shop/insideFayr';
 
 export default function ReturnCatchScreen({ navigation, route }) {
   const params = (route && route.params) || {};
   const campaignId = params.campaignId || null;
   const campaign = campaignId ? campaignStore.getById(campaignId) : null;
   const product = campaign ? campaign.productName || campaign.title : null;
+  const key = campaign ? campaign.marketplace : null;
+  const shop = key && PLATFORMS[key] ? PLATFORMS[key].name : null;
 
   const yes = useCallback(() => {
     if (campaignId) markVisitedShop(campaignId, SAID_THEY_BOUGHT);
@@ -97,6 +102,31 @@ export default function ReturnCatchScreen({ navigation, route }) {
 
             AND IT LANDS ON THE OFFER RATHER THAN HOME. goBackOrHome put them a
             tap further away from the one thing they came back to do. */}
+        {/* ── AND THE WAY BACK INTO THE SHOP — 21 SEPTEMBER 2026 ──────────
+            THE DEAD END THIS CLOSES, and it was mine. Earlier today the buy
+            step's fallback for a shop inside Fayr was moved from the
+            screenshot screen to this card, because asking somebody whose
+            payment failed to photograph an order is asking for a thing that
+            does not exist. The screenshot screen carried a door back into the
+            shop — added 18 September after an adversarial review found exactly
+            this dead end — and moving the route left the door behind.
+
+            The owner, within the hour: "I can't continue and complete the
+            purchase from my end. When I click on 'Continue', it directly takes
+            me to the page where it asks, 'Did you buy it?'" Yes re-ran a read
+            that finds nothing, No went back to the offer whose Continue lands
+            here again. A loop with no way into the shop.
+
+            THE SAME DOOR, THROUGH THE SAME enterTheShop the claim itself uses,
+            and only for a shop whose shopping happens inside Fayr. The four
+            shops somebody leaves Fayr for keep their own path exactly as it
+            was — their buy step is buyinterstitial, which opens the shop's own
+            app, and nothing here changes it. */}
+        {shopsInsideFayr(key) ? (
+          <Ghost onPress={() => enterTheShop({ campaignId, marketplace: key, navigation })}>
+            Go back to {shop} and try again
+          </Ghost>
+        ) : null}
         <TextBtn onPress={() => (campaignId
           ? navigation.navigate('Detail', { campaignId })
           : goBackOrHome(navigation))}
