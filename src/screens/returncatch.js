@@ -127,8 +127,13 @@ export default function ReturnCatchScreen({ navigation, route }) {
             Go back to {shop} and try again
           </Ghost>
         ) : null}
+        {/* popTo, NOT navigate. On @react-navigation/native 7.3.16 a NAVIGATE
+            only reuses an existing route when the target name equals the CURRENT
+            route's name, or when the action carries `pop` — so navigate() pushed
+            a SECOND Detail on top of this screen and the arrow there came back
+            here instead of leaving. See the same note in delivery.js. */}
         <TextBtn onPress={() => (campaignId
-          ? navigation.navigate('Detail', { campaignId })
+          ? navigation.popTo('Detail', { campaignId })
           : goBackOrHome(navigation))}
         >
           Not yet — take me back

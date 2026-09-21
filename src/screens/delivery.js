@@ -551,10 +551,21 @@ export default function DeliveryScreen({ navigation, route }) {
 
             SO THE WAY OUT IS THE ONLY CONTROL, and it goes to the offer rather
             than to Home, because the offer is where the next thing happens —
-            the seat may be free again and the button may say Claim. */}
+            the seat may be free again and the button may say Claim.
+
+            popTo, NOT navigate. React Navigation 7 — this project is on
+            @react-navigation/native 7.3.16 — only reuses an existing route for a
+            NAVIGATE when the target name equals the CURRENT route's name, or
+            when the action carries `pop` (StackRouter.tsx:385-396). Neither
+            holds here, so navigate() PUSHED A SECOND Detail on top of this
+            screen: the arrow on that page came back here, and this control
+            pushed it again. Two screens and no way to Home from either, which is
+            the second half of what the owner reported. popTo returns to the
+            Detail already in the stack and drops this screen, which is what
+            "Back to the offer" says on the tin. */}
         {wentBack ? (
           <TextBtn onPress={() => (campaignId
-            ? navigation.navigate('Detail', { campaignId })
+            ? navigation.popTo('Detail', { campaignId })
             : goBackOrHome(navigation))}
           >
             Back to the offer

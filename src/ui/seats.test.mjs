@@ -153,7 +153,9 @@ console.log('\n=== the locked offer is DRAWN, still in the list, and not claimab
     'the tile draws the locked banner and the locked call to action');
   ok(/lockedLine\(c\)/.test(home), 'and the footer line');
   ok(!/'Full'/.test(home), 'and the word "Full" is gone from the tile');
-  ok(/lockedReason\(campaign\)/.test(detail), 'the detail screen draws the reason');
+  // NOW WITH THE VIEWER IN THE QUESTION — see the seat-holder section below for
+  // why the second argument exists.
+  ok(/lockedReason\(campaign, claimed\)/.test(detail), 'the detail screen draws the reason');
 
   // ── IT IS STILL IN THE LIST. PRESENT, NOT FILTERED OUT ──────────────────
   //
@@ -266,6 +268,58 @@ console.log('\n=== and a PAUSED campaign is a different fact entirely ===');
     'seats.js says nothing about paused, which is the honest amount to say');
   ok(!/status/.test(words),
     'and it never looks at a campaign status at all — that is the server\u2019s filter');
+}
+
+console.log('\n=== AND THE LOCK IS NOT ANNOUNCED TO THE PERSON SITTING IN THE SEAT ===');
+{
+  // ── THE RUN THIS COMES FROM — 21 SEPTEMBER 2026 ─────────────────────────
+  //
+  // The owner's one-slot Cadbury offer, opened by the one person holding its one
+  // slot: "All seats taken, 1 joined, locked for now" — and the 1 joined was
+  // him. The count was right and the sentence was right; it was simply not
+  // addressed to him. The home CARD had read it his way since 18 September
+  // (cardState) and the offer PAGE had not, so one offer said two things about
+  // the same viewer on two screens.
+  const fullOffer = { seatsLeft: 0, claimedCount: 1 };
+
+  ok(lockedReason(fullOffer) !== null, 'a full offer is still locked to somebody with no seat');
+  ok(lockedReason(fullOffer, false) !== null, 'and to somebody the app says has no claim');
+  ok(lockedReason(fullOffer, true) === null,
+    'BUT NOT TO THE PERSON HOLDING THE SEAT: they are not being kept out by it');
+  ok(lockedReason({ seatsLeft: 3 }, true) === null && lockedReason({ seatsLeft: 3 }) === null,
+    'and an offer with room says nothing either way, claim or no claim');
+  // AN EXACT true, the same rule cardState applies — `claimed` comes off the
+  // store and an undefined must not silently unlock the page.
+  ok(lockedReason(fullOffer, 'yes') !== null && lockedReason(fullOffer, 1) !== null,
+    'only an exact true holds a seat');
+
+  // AND THE PAGE READS IT THAT WAY. The words are useless if the screen asks the
+  // question without the viewer in it.
+  const detail = readFileSync(join(HERE, '..', 'DetailScreen.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  ok(/lockedReason\(campaign, claimed\)/.test(detail),
+    'the offer page asks lockedReason about the viewer, not only about the offer');
+  ok(/isFullCampaign\(campaign\) && !claimed/.test(detail),
+    'and the greyed "All seats taken" treatment is held back from them too');
+  ok(!/lockedReason\(campaign\)[^,]/.test(detail),
+    'and there is no second, viewer-blind call left on the page');
+}
+
+console.log('\n=== THE WORDS THEMSELVES: FULL IS NOT ENDED ===');
+{
+  // The owner, 21 September 2026: "the offer has NOT ended. The offer should
+  // become available again whenever a slot opens up. We do not know when that
+  // will happen, so we should not show the offer as ended or permanently
+  // closed." These are the sentences that have to carry that.
+  const lines = lockedReason({ seatsLeft: 0 });
+  const whole = lines.join(' ');
+  ok(/has not ended/i.test(whole), 'it says in so many words that the offer has not ended');
+  ok(/comes back when a slot opens/i.test(whole), 'and what brings it back');
+  ok(/nobody can say when/i.test(whole), 'and refuses to promise when, because nobody knows');
+  ok(!/\bsoon\b|\btomorrow\b|\blater today\b|check back/i.test(whole),
+    'and promises no timeframe at all — a promise we cannot keep is worse than silence');
+  ok(!/\bclosed\b|\bover\b|\bexpired\b|no longer/i.test(whole),
+    'and never uses a word that reads as permanent');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

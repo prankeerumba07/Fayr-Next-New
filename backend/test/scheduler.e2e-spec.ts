@@ -14,6 +14,7 @@ import {
 import { SchedulerService } from '../src/scheduler/scheduler.service';
 import type { SubmitEvidenceDto } from '../src/tasks/dto/submit-evidence.dto';
 import { TaskService } from '../src/tasks/task.service';
+import { CLAIMED_SEATS_WHERE } from '../src/campaigns/seats';
 import { TicketService } from '../src/tickets/ticket.service';
 import { WalletService } from '../src/wallet/wallet.service';
 import { resetDatabase } from './reset-db';
@@ -317,6 +318,139 @@ describe('Scheduler (e2e)', () => {
         where: { id: t.id },
       });
       expect(closed.closeReason).toBe('expired');
+    });
+
+    /**
+     * ── AND EVERY ORDER THE SHOP SENT BACK, LET GO ON THE TICK ──────────────
+     *
+     * THE ROW THIS COMES FROM, ON THE OWNER'S OWN DATABASE, 21 SEPTEMBER 2026:
+     *
+     *   1628de1a  DELIVERED  returned=true  closedAt=NULL  orderId set
+     *
+     * One slot, his slot, a Cadbury order the shop cancelled. The flag was on the
+     * row and the task never closed, so the offer read "All seats taken, 1
+     * joined, locked for now" to the one person who could have used it — and
+     * would have gone on reading that for ever.
+     *
+     * THE EVIDENCE PATH ALONE COULD NOT REACH IT. letGoBecauseTheOrderWentBack
+     * runs inside submitEvidence, and a cancelled order is exactly the case where
+     * the phone never looks again: there is nothing left to do on that task, so
+     * nothing brings anybody back to the screen that looks. That is why the close
+     * needs a second door that starts itself.
+     */
+    it('LETS GO OF AN ORDER THE SHOP SENT BACK, WITH NOBODY OPENING THE APP', async () => {
+      const userId = await createUser();
+      await ticketsSvc.grantSignup(userId);
+      const campaign = await makeCampaign({ totalSlots: 1 });
+      const t = await taskSvc.claim(userId, campaign.id, { terms: true });
+      expect(await ticketsSvc.getBalance(userId)).toBe(10);
+
+      // THE OWNER'S ROW, REPRODUCED EXACTLY: delivered, the shop says it went
+      // back, an order on it, and nothing closed.
+      await prisma.task.update({
+        where: { id: t.id },
+        data: {
+          state: 'DELIVERED', returned: true, orderId: 'OD-CANCELLED-1',
+          closedAt: null, closeReason: null,
+        },
+      });
+      expect(await prisma.task.count({ where: CLAIMED_SEATS_WHERE(campaign.id) })).toBe(1);
+
+      const report = await scheduler.runTick();
+      expect(report.letGo).toBe(1);
+
+      const closed = await prisma.task.findUniqueOrThrow({ where: { id: t.id } });
+      expect(closed.closedAt).not.toBeNull();
+      expect(closed.closeReason).toBe('returned');
+      // THE FIVE COME BACK, through the ledger and not by editing a balance.
+      expect(await ticketsSvc.getBalance(userId)).toBe(15);
+      // AND THE SEAT IS BACK IN THE POOL, which is the thing he could see.
+      expect(await prisma.task.count({ where: CLAIMED_SEATS_WHERE(campaign.id) })).toBe(0);
+    });
+
+    it('AND ONLY ONCE, however many ticks run', async () => {
+      // The tick runs on a timer for ever. Without the closedAt guard and the
+      // ticket key this would print five more tickets every minute.
+      const userId = await createUser();
+      await ticketsSvc.grantSignup(userId);
+      const campaign = await makeCampaign({ totalSlots: 1 });
+      const t = await taskSvc.claim(userId, campaign.id, { terms: true });
+      await prisma.task.update({
+        where: { id: t.id },
+        data: { state: 'DELIVERED', returned: true, orderId: 'OD-CANCELLED-2' },
+      });
+
+      const first = await scheduler.runTick();
+      const closedAt = (await prisma.task.findUniqueOrThrow({ where: { id: t.id } })).closedAt;
+      const second = await scheduler.runTick();
+      const third = await scheduler.runTick();
+
+      expect(first.letGo).toBe(1);
+      expect(second.letGo).toBe(0);
+      expect(third.letGo).toBe(0);
+      expect(await ticketsSvc.getBalance(userId)).toBe(15);
+      expect(await prisma.ticketEntry.count({
+        where: { userId, reason: 'CANCELLED_RETURN' },
+      })).toBe(1);
+      // And the moment it was let go is the first tick's, not the latest.
+      const again = await prisma.task.findUniqueOrThrow({ where: { id: t.id } });
+      expect(again.closedAt?.getTime()).toBe(closedAt?.getTime());
+    });
+
+    it('AND LEAVES ALONE AN ORDER THAT DID NOT GO BACK, AND ONE ALREADY CLOSED', async () => {
+      // The other half. Without this, the sweep could close every task with an
+      // order on it and both checks above would still pass.
+      //
+      // GUARDED TWICE ON PURPOSE, and that is worth saying plainly because it
+      // changes what this check can prove on its own. The sweep's own where
+      // clause never selects these rows, AND letGoBecauseTheOrderWentBack
+      // re-reads the row and refuses them anyway. Breaking either one alone
+      // leaves this passing; the where clause is a narrowing of what the guard
+      // already refuses, not a second rule. The guard itself is proven by
+      // mutation in orders-found.e2e-spec.ts, where submitEvidence reaches it
+      // with no where clause in front of it at all.
+      const userId = await createUser();
+      await ticketsSvc.grantSignup(userId);
+      const campaign = await makeCampaign();
+      const fine = await taskSvc.claim(userId, campaign.id, { terms: true });
+      await prisma.task.update({
+        where: { id: fine.id },
+        data: { state: 'DELIVERED', returned: false, orderId: 'OD-FINE-1' },
+      });
+      // A returned order with NO order on it is a flag about nothing.
+      const other = await createUser();
+      await ticketsSvc.grantSignup(other);
+      const bare = await taskSvc.claim(other, campaign.id, { terms: true });
+      await prisma.task.update({
+        where: { id: bare.id },
+        data: { returned: true, orderId: null },
+      });
+
+      // AND ONE THAT WENT BACK AND IS ALREADY CLOSED. The tick runs for ever, so
+      // the common case after the first sweep is a row in exactly this shape.
+      const third = await createUser();
+      await ticketsSvc.grantSignup(third);
+      const done = await taskSvc.claim(third, campaign.id, { terms: true });
+      await prisma.task.update({
+        where: { id: done.id },
+        data: {
+          state: 'DELIVERED', returned: true, orderId: 'OD-ALREADY-1',
+          closedAt: new Date('2026-09-20T10:00:00.000Z'), closeReason: 'returned',
+        },
+      });
+
+      const report = await scheduler.runTick();
+      expect(report.letGo).toBe(0);
+      for (const id of [fine.id, bare.id]) {
+        expect((await prisma.task.findUniqueOrThrow({ where: { id } })).closedAt).toBeNull();
+      }
+      expect(await ticketsSvc.getBalance(userId)).toBe(10);
+      // The closed one kept the moment it was closed, and was not paid again.
+      const untouched = await prisma.task.findUniqueOrThrow({ where: { id: done.id } });
+      expect(untouched.closedAt?.toISOString()).toBe('2026-09-20T10:00:00.000Z');
+      expect(await prisma.ticketEntry.count({
+        where: { userId: third, reason: 'CANCELLED_RETURN' },
+      })).toBe(0);
     });
   });
 

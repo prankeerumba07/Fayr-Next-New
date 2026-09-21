@@ -19,6 +19,8 @@ const TICK_TIMEOUT_MS = 120_000;
 
 export interface TickReport {
   expired: number;
+  /** Tasks the shop said went back, closed and their tickets handed back. */
+  letGo: number;
   rechecked: number;
   regressed: number;
   released: number;
@@ -131,6 +133,7 @@ export class SchedulerService implements OnModuleInit {
   async runTick(now: number = Date.now()): Promise<TickReport> {
     const report: TickReport = {
       expired: 0,
+      letGo: 0,
       rechecked: 0,
       regressed: 0,
       released: 0,
@@ -140,6 +143,23 @@ export class SchedulerService implements OnModuleInit {
     report.expired = (
       await this.tasks.sweepExpiredClaims(new Date(now))
     ).expired;
+
+    // ── AND EVERY ORDER THE SHOP SENT BACK, LET GO ─────────────────────────
+    //
+    // NEXT TO THE EXPIRY SWEEP BECAUSE IT IS THE SAME KIND OF WORK: a claim that
+    // cannot go anywhere, freed on a timer rather than waiting for somebody to
+    // open the app. The difference is that an expired claim has a person who
+    // might come back, and a cancelled order has nobody — which is why the
+    // evidence path alone was never going to be enough. See
+    // TaskService.sweepOrdersThatWentBack for the owner's own stuck row.
+    //
+    // BEFORE THE HOLDING RE-CHECKS, so a returned order is let go in the same
+    // tick it is noticed rather than the next one. It cannot interfere with them:
+    // a HOLDING task with `returned` true already fails refundEligibility, so
+    // nothing this closes was ever going to be released below.
+    report.letGo = (
+      await this.tasks.sweepOrdersThatWentBack(new Date(now))
+    ).letGo;
 
     const holding = await this.tasks.holdingTasksForRecheck();
     for (const task of holding) {

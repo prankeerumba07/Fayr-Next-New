@@ -877,6 +877,51 @@ export class OrderCandidatesService {
     const fragment = observedDelivered
       ? { delivery: { at: Date.now(), source: SOURCES.OBSERVED_DELIVERED } }
       : theDeliveryFragment({ deliveryDate, returnWindowEndsAt, returned });
+
+    // ── THE SHOP SAYING IT WENT BACK IS ITS OWN NEWS, AND DOES NOT WAIT ─────
+    //
+    // SENT BEFORE THE LINE BELOW, AND THAT IS THE WHOLE POINT. Everything from
+    // here down is the DELIVERY path, and it stops dead on an order with no
+    // delivery to report. A cancelled order is very often exactly that: on Zepto
+    // a cancellation before dispatch prints no delivery line at all, and on
+    // Amazon an order cancelled before it ships loses its "Delivered" row. So
+    // the one fact that frees the seat was being carried by the one message that
+    // is not sent in the most ordinary version of the case.
+    //
+    // THEY ARE TWO FACTS AND ONLY ONE OF THEM MAY GATE THE OTHER. "It arrived"
+    // and "it went back" are separate things the page says. A delivery may
+    // legitimately wait for the shop to state one; the return may not wait for
+    // anything, because until it lands the task cannot close, the seat cannot
+    // free and the five tickets cannot come back.
+    //
+    // A KEY OF ITS OWN, so a return posted here and a return riding along on the
+    // delivery below are two events and neither hides the other, and so the
+    // next look at the same cancelled page collapses to one event rather than a
+    // run of them.
+    //
+    // ONLY WHEN THE ROW DID NOT ALREADY KNOW. wentBackSinceTheLastLook is false
+    // on every ordinary look, so the ordinary look sends nothing extra.
+    if (wentBackSinceTheLastLook) {
+      await this.prisma.orderCandidate.update({
+        where: { id: chosen.id },
+        data: { returned: true },
+      });
+      this.log.log(
+        `orders-found task=${task.id} later-look the shop says this one went back`,
+      );
+      try {
+        await this.tasks.submitEvidence(userId, task.id, {
+          key: `returned:${chosen.id}`,
+          returned: true,
+        });
+      } catch (e) {
+        this.log.warn(
+          `orders-found task=${task.id} later-look return refused: `
+          + `${e instanceof Error ? e.message : 'unknown'}`,
+        );
+      }
+    }
+
     if (fragment.delivery == null) return;
 
     // AND ON A SHOP THAT CANNOT BE SENT BACK TO, THE DELIVERY IS THE ANSWER.

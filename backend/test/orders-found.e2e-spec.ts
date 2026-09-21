@@ -9,6 +9,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { CLAIMED_SEATS_WHERE } from '../src/campaigns/seats';
 import { TicketService } from '../src/tickets/ticket.service';
 import { resetDatabase } from './reset-db';
 
@@ -1177,6 +1178,72 @@ describe('The orders the phone found (e2e)', () => {
       expect(await prisma.ticketEntry.count({
         where: { userId, reason: 'CANCELLED_RETURN' },
       })).toBe(0);
+    });
+
+    /**
+     * ── AND A CANCELLATION WITH NO DELIVERY LINE STILL REACHES THE TASK ─────
+     *
+     * THE HOLE THIS CLOSES, found 21 September 2026 while checking the fix above.
+     * Everything in deliveryFromALaterLook after the fragment is the DELIVERY
+     * path, and it stops dead on "if (fragment.delivery == null) return;". A
+     * cancelled order is very often exactly that page: cancelled before dispatch,
+     * it prints no delivery line at all. So the one fact that frees the seat was
+     * riding on the one message that is not sent in the most ordinary version of
+     * the case — the task would never learn the order went back, and the slot
+     * would stay occupied for ever.
+     *
+     * "It arrived" and "it went back" are two things the page says, and only one
+     * of them may gate the other.
+     */
+    it('A CANCELLATION WITH NO DELIVERY LINE STILL CLOSES THE TASK AND FREES THE SEAT', async () => {
+      const { userId, token, taskId, campaign } =
+        await readyForYesterday({ platform: 'AMAZON', totalSlots: 1 });
+      const found = await post(token, taskId, [
+        orderPage('408-5094957-4481129', { delivered: null }),
+      ]);
+      const chosen = await chooseIt(token, taskId, found.body[0].id);
+      expect(chosen.body.state).toBe('PURCHASED');
+
+      // THE CANCELLED PAGE, AND IT NEVER SAYS DELIVERED. `delivered: null` drops
+      // the delivery line entirely; windowCloses is left off so no return-window
+      // date can stand in for one either.
+      await post(token, taskId, [
+        `${orderPage('408-5094957-4481129', { delivered: null })}\nReturned`,
+      ]);
+
+      const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      // The state never moved — there is no delivery to move it — and that is
+      // the point: the RETURN got through on its own.
+      expect(task.state).toBe('PURCHASED');
+      expect(task.returned).toBe(true);
+      expect(task.closedAt).not.toBeNull();
+      expect(task.closeReason).toBe('returned');
+      expect(await ticketsSvc.getBalance(userId)).toBe(15);
+      // AND THE ONE SLOT IS BACK, which is what the owner could see on the page.
+      expect(await prisma.task.count({
+        where: CLAIMED_SEATS_WHERE(campaign.id),
+      })).toBe(0);
+    });
+
+    it('and the row itself records it, so a later look does not re-post the same news', async () => {
+      const { token, taskId } = await readyForYesterday({ platform: 'AMAZON' });
+      const found = await post(token, taskId, [
+        orderPage('408-5094957-4481129', { delivered: null }),
+      ]);
+      await chooseIt(token, taskId, found.body[0].id);
+      const cancelled = `${orderPage('408-5094957-4481129', { delivered: null })}\nReturned`;
+      await post(token, taskId, [cancelled]);
+      const row = await prisma.orderCandidate.findFirstOrThrow({ where: { taskId } });
+      expect(row.returned).toBe(true);
+
+      // The phone re-reads the shop's list on every visit. wentBackSinceTheLastLook
+      // is false from here on, so nothing more is sent and nothing more is paid.
+      await post(token, taskId, [cancelled]);
+      await post(token, taskId, [cancelled]);
+      const events = await prisma.taskEvent.count({
+        where: { taskId, idempotencyKey: `returned:${row.id}` },
+      });
+      expect(events).toBe(1);
     });
 
     /**

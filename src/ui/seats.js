@@ -109,7 +109,23 @@ export function lockedLine(campaign) {
  *
  * Null for an offer that is not full.
  */
-export function lockedReason(campaign) {
+export function lockedReason(campaign, theyHoldASeat) {
+  // ── NOT TO THE PERSON SITTING IN ONE OF THE SEATS ────────────────────────
+  //
+  // 21 SEPTEMBER 2026, and the same defect the home card was fixed for three
+  // days earlier: "All seats taken ... locked for now", on a one-slot offer, to
+  // the one person holding that slot. The count is right and the sentence is
+  // right; it is simply not addressed to them. Somebody with a live claim has a
+  // seat, so nothing here is keeping them out, and telling them it is locked
+  // sends them away from a journey they are already in the middle of.
+  //
+  // THE SAME SHAPE cardState USES in src/livecheck.js, and for the same reason:
+  // only the SEATS answer is overridden by holding one. Nothing else about an
+  // offer changes because a person has a claim on it.
+  //
+  // AN EXACT true, never a truthy value. `claimed` is read straight off the
+  // store and an undefined must not silently free the page.
+  if (theyHoldASeat === true) return null;
   if (!isFullCampaign(campaign)) return null;
   return [
     'This offer was open and every slot is now taken, so it is locked.',

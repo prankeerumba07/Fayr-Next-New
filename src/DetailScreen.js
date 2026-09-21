@@ -36,7 +36,7 @@ import { enterTheShop } from './shop/enterTheShop';
 import { whereAClaimGoes, signInParams } from './journey/afterClaim.js';
 import { isConnected } from './backend/connectedShops';
 import { reachedBottom } from './ui/detailReveal';
-import { goBackOrHome } from './ui/nav';
+import { goHome } from './ui/nav';
 
 // Soft per-campaign hero tint (deterministic from the id) — the fayr palette's
 // pastels, standing in for the prototype's per-product theme colours.
@@ -330,7 +330,12 @@ export default function DetailScreen({ navigation, route }) {
   // Null whenever the server stated no figure — see src/ui/seats.js.
   const seats = seatsLine(campaign);
   const joined = joinedLine(campaign);
-  const full = isFullCampaign(campaign);
+  // THE PERSON, NOT ONLY THE OFFER. A full offer is not "locked" to somebody
+  // holding one of its seats — the home card has read it this way since 18
+  // September and this page did not, so one offer said two things about the
+  // same viewer. `claimed` is hasTask(), which is false once a claim is let go.
+  const full = isFullCampaign(campaign) && !claimed;
+  const locked = lockedReason(campaign, claimed);
 
   return (
     <View style={styles.root}>
@@ -363,8 +368,21 @@ export default function DetailScreen({ navigation, route }) {
           style={[styles.hero, { paddingTop: insets.top + 8 }]}
         >
           <TouchableOpacity
-            onPress={() => goBackOrHome(navigation)}
-            style={styles.back}
+            // ── HOME, NOT "BACK" ────────────────────────────────────────────
+            //
+            // The owner, 21 September 2026: "when I try to go from the offer
+            // page back to the homepage, I cannot do it... Please fix this so
+            // the Back option works properly and takes the user to the
+            // homepage."
+            //
+            // goBackOrHome would have obeyed the stack, and on the path he was
+            // on the stack is wrong: the cancelled-order screen pushes this page
+            // on top of itself, so "back" is the order page he just left, whose
+            // only control pushes this page again. Two screens, no way out.
+            // popTo below stops the duplicate; this makes the arrow mean what
+            // the label on it means on every other screen — leave.
+            onPress={() => goHome(navigation)}
+            style={[styles.back, { top: insets.top + 8 }]}
             activeOpacity={0.8}
             // The same slop every other back control on this app gets. A 40pt
             // circle is the drawn size, not the size of a thumb.
@@ -415,10 +433,10 @@ export default function DetailScreen({ navigation, route }) {
               offer was may look, which is why this is a note on the page rather
               than a wall in front of it. The words are src/ui/seats.js's and the
               reasoning for each of the three things they say is there. */}
-          {lockedReason(campaign) ? (
+          {locked ? (
             <View style={styles.lockedBox}>
               <Text style={styles.lockedTitle}>🔒 Locked for now</Text>
-              {lockedReason(campaign).map((line) => (
+              {locked.map((line) => (
                 <Text key={line} style={styles.lockedText}>{line}</Text>
               ))}
             </View>
@@ -720,11 +738,29 @@ const styles = StyleSheet.create({
     // target does not have to be in the same place. That is the shape of "the
     // button is right there and tapping it does nothing".
     //
-    // The parent already holds the notch (hero's paddingTop is insets.top + 8),
-    // so 0 here is the top of the content box, under the notch and inside the
-    // parent's bounds — which matters, because iOS does not deliver touches to a
-    // child drawn outside its parent.
-    position: 'absolute', top: 0, left: SPACE.lg, zIndex: 3, elevation: 3,
+    // ── NO `top` HERE. THE CONTROL CARRIES ITS OWN INSET ───────────────────
+    //
+    // THE BUG THIS REPLACES, 21 SEPTEMBER 2026. This used to be `top: 0`, with a
+    // note saying "the parent already holds the notch (hero's paddingTop is
+    // insets.top + 8), so 0 here is the top of the content box". That premise is
+    // false. React Native configures Yoga with YGErrataAll, and
+    // AbsolutePositionWithoutInsetsExcludesPadding is part of All — so an
+    // absolutely-positioned child is laid out from the parent's PADDING EDGE and
+    // the parent's paddingTop is never added. `top: 0` was screen y 0.
+    //
+    // The whole 40pt circle, and all of its 12pt hitSlop, therefore sat inside
+    // the status bar (insets.top is 47–59 on a notched iPhone). The system owns
+    // that strip: the owner's taps went to the status bar, not to this button,
+    // and the page did nothing. It looked exactly like a frozen app, which is
+    // the same class of bug src/ui/nav.js exists to prevent — a back control
+    // that looks like a button and is not one.
+    //
+    // `top` is set inline from insets at the call site instead, the same figure
+    // the hero pads by. Every other back arrow in the app avoids this by being
+    // an ordinary flow child of a padded header (WalletScreen, TaskScreen); this
+    // one is absolute so it can float over the product photo, so it has to hold
+    // its own inset.
+    position: 'absolute', left: SPACE.lg, zIndex: 3, elevation: 3,
     width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff',
     alignItems: 'center', justifyContent: 'center', ...SHADOW.chip,
   },

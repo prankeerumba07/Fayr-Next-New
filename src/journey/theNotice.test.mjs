@@ -252,8 +252,17 @@ console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
     // charge five again to re-claim — and on a one-slot offer it opens that seat
     // to everybody in the gap. So No moves nothing and lands on the offer, where
     // the button already says Continue.
-    ok(/navigation\.navigate\('Detail', \{ campaignId \}\)/.test(screen),
+    //
+    // popTo, NOT navigate — changed 21 September 2026 and it is the same
+    // destination, not a new one. On @react-navigation/native 7.3.16 a NAVIGATE
+    // reuses an existing route only when the target name equals the CURRENT
+    // route's name or the action carries `pop`, so navigate() from here PUSHED A
+    // SECOND offer page on top of this one and the arrow there came back here
+    // instead of leaving. See the section in src/ui/nav.test.mjs that walks it.
+    ok(/navigation\.popTo\('Detail', \{ campaignId \}\)/.test(screen),
       'NO LANDS ON THE OFFER, where Continue already is');
+    ok(!/navigation\.navigate\('Detail'/.test(screen),
+      'AND DOES NOT STACK A SECOND COPY OF IT, which is how the way home was lost');
     const no = screen.slice(screen.indexOf('Not yet'));
     ok(!/expireClaim|let-it-go|release|returnOnExpiry|ticket/i.test(no),
       'AND IT RELEASES NOTHING: no claim, no seat, no ticket moves on a No');

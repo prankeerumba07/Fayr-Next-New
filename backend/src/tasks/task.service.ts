@@ -1665,7 +1665,7 @@ export class TaskService {
       // already said `returned` before any of this existed would otherwise sit
       // closed-less for ever. Both the closedAt guard inside and the ticket
       // ledger's own key make running it every time cost nothing.
-      await this.letGoBecauseTheOrderWentBack(tx, userId, result.task, Date.now());
+      await this.letGoBecauseTheOrderWentBack(tx, userId, taskId, Date.now());
       const updated = await tx.task.findUniqueOrThrow({
         where: { id: taskId },
       });
@@ -1763,28 +1763,80 @@ export class TaskService {
    * by the server; an explicit true and an order are both required, because a
    * null means the page said nothing either way and a flag with no order behind
    * it is a flag about nothing.
+   *
+   * ── AND IT ASKS THE ROW, NOT THE CALLER ──────────────────────────────────
+   *
+   * It used to be handed the engine task and read `returned` off that. That made
+   * it usable from exactly one place — the middle of submitEvidence — and the
+   * cost of that showed up the same evening, on the owner's own Cadbury row:
+   *
+   *   1628de1a  DELIVERED  returned=true  closedAt=NULL  orderId set
+   *
+   * The shop had said the order went back, the flag was on the row, and nothing
+   * in the running system would ever close it, because the only door in was an
+   * evidence submission the phone had no reason left to make. Reading the three
+   * facts off the row instead means the sweep below can come in through the same
+   * one door, and there is still only one description of what letting go means.
    */
   private async letGoBecauseTheOrderWentBack(
     tx: Tx,
     userId: string,
-    task: EngineTask,
+    taskId: string,
     at: number,
   ): Promise<boolean> {
-    if (task.returned !== true || task.order == null) return false;
     const row = await tx.task.findUnique({
-      where: { id: task.id },
-      select: { closedAt: true },
+      where: { id: taskId },
+      select: { closedAt: true, returned: true, orderId: true },
     });
+    if (row == null) return false;
+    if (row.returned !== true || row.orderId == null) return false;
     // ALREADY CLOSED IS ALREADY DONE. The ticket return is idempotent on its own
     // key as well, so this is the cheap guard rather than the only one.
-    if (row == null || row.closedAt != null) return false;
+    if (row.closedAt != null) return false;
     await tx.task.update({
-      where: { id: task.id },
+      where: { id: taskId },
       data: { closedAt: new Date(at), closeReason: 'returned' },
     });
-    await this.tickets.returnOnCancelled(userId, task.id, tx);
-    this.logger.log(`task ${task.id} let go: the shop says the order went back`);
+    await this.tickets.returnOnCancelled(userId, taskId, tx);
+    this.logger.log(`task ${taskId} let go: the shop says the order went back`);
     return true;
+  }
+
+  /**
+   * EVERY ORDER THE SHOP SENT BACK THAT IS STILL OPEN, LET GO ON A TIMER.
+   *
+   * THE SECOND DOOR, AND THE REASON THERE HAS TO BE ONE. The first door is an
+   * evidence submission, and it only opens when the phone looks at the shop
+   * again. A cancelled order is precisely the case where it never will: there is
+   * nothing left for that person to do on that task, so nothing brings them back
+   * to the screen that looks. The owner's Cadbury seat stayed taken on a
+   * one-slot offer for exactly that reason, with the flag already on the row.
+   *
+   * SO THE SWEEP IS NOT A BACKFILL THAT RUNS ONCE. It is the same maintenance
+   * tick that already lets expired claims go, asking one more question, and it
+   * fixes the rows that exist today and every row that ever lands in this shape
+   * again — including one whose evidence arrived while the server was restarting.
+   *
+   * THE SAME ONE METHOD does the work, so the sweep cannot drift from the
+   * evidence path: same close, same reason, same ticket key, same guards. A task
+   * already closed costs one SELECT and nothing else.
+   */
+  async sweepOrdersThatWentBack(
+    now: Date = new Date(),
+  ): Promise<{ letGo: number }> {
+    const candidates = await this.prisma.task.findMany({
+      where: { returned: true, closedAt: null, orderId: { not: null } },
+      select: { id: true, userId: true },
+    });
+    let letGo = 0;
+    for (const c of candidates) {
+      // ONE TRANSACTION EACH, like sweepExpiredClaims: a task that cannot be let
+      // go must not take the rest of the sweep down with it.
+      const done = await this.prisma.$transaction((tx) =>
+        this.letGoBecauseTheOrderWentBack(tx, c.userId, c.id, now.getTime()));
+      if (done) letGo++;
+    }
+    return { letGo };
   }
 
   private async persist(
