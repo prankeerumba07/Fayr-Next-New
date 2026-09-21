@@ -183,6 +183,16 @@ export function readAccountName(text) {
   // together with no spaces to tell us where a heading starts, so "Hello, Manisha
   // Dahiya Orders" would otherwise read as a three word name. These are the words
   // that sit around a greeting on a real shop page.
+  //
+  // "MANISHA DAHIYA" IS INVENTED, and this line exists so nobody has to ask
+  // again. A security sweep before this project was first published flagged it
+  // across nine files as possibly a real person's account greeting copied out of
+  // a page — a fair thing to flag, since every other measurement in this
+  // codebase IS real and says so. The owner confirmed, 21 September 2026, that
+  // she is not a real person. It is a two-word fixture chosen because two words
+  // are what break a one-word name reader, and nothing about it is anybody's
+  // account. Every other name in these checks is the owner's own and is marked
+  // as such where it appears.
   const FURNITURE = new Set([
     'sign', 'signin', 'signout', 'guest', 'there', 'user', 'select', 'account',
     'accounts', 'welcome', 'friend', 'customer', 'and', 'the', 'your', 'orders',
