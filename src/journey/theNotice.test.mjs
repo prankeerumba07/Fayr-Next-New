@@ -244,6 +244,19 @@ console.log('\n=== 9. the words the SCREEN owns are all in one file ===');
     ok(/\{WE_CANNOT_SEE_A_PURCHASE\}/.test(screen), 'and draws it by name');
     ok(!screen.includes(WE_CANNOT_SEE_A_PURCHASE),
       'AND NEVER RETYPES IT, because a retyped sentence is one nothing walks');
+
+    // ── AND "NO" MOVES NOTHING — 21 SEPTEMBER 2026, THE OWNER'S CHOICE ────
+    //
+    // This card is for a payment that FAILED, not for somebody changing their
+    // mind. Releasing the claim would return five tickets, free the seat, then
+    // charge five again to re-claim — and on a one-slot offer it opens that seat
+    // to everybody in the gap. So No moves nothing and lands on the offer, where
+    // the button already says Continue.
+    ok(/navigation\.navigate\('Detail', \{ campaignId \}\)/.test(screen),
+      'NO LANDS ON THE OFFER, where Continue already is');
+    const no = screen.slice(screen.indexOf('Not yet'));
+    ok(!/expireClaim|let-it-go|release|returnOnExpiry|ticket/i.test(no),
+      'AND IT RELEASES NOTHING: no claim, no seat, no ticket moves on a No');
   }
 
   ok(EVERY_SENTENCE.length === 53, `the list of them is complete (${EVERY_SENTENCE.length})`);

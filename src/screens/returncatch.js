@@ -81,8 +81,27 @@ export default function ReturnCatchScreen({ navigation, route }) {
       </View>
       <View style={styles.foot}>
         <Pill onPress={yes} color={COLOR.greenDeep}>YES, I HAVE BOUGHT IT ✓</Pill>
-        <TextBtn onPress={() => goBackOrHome(navigation)}>
-          Not yet — remind me later
+        {/* ── NO GOES BACK TO THE OFFER, AND THE CLAIM KEEPS RUNNING ──────
+            21 September 2026, the owner's choice between two designs. The case
+            this card is for is A PAYMENT THAT FAILED, not somebody changing
+            their mind: a bank that timed out wants to try again in the next
+            minute. So No moves nothing — no tickets, no seat, no claim — and
+            lands on the offer, where the button already says Continue and walks
+            straight back into the shop with the marketplace session untouched.
+
+            THE OTHER DESIGN WAS CONSIDERED AND REFUSED: releasing the claim
+            would return the five tickets and free the seat, then charge five
+            again to re-claim, and on a one-slot offer it opens that seat to
+            everybody in the gap. That punishes a failed payment as though it
+            were abandonment.
+
+            AND IT LANDS ON THE OFFER RATHER THAN HOME. goBackOrHome put them a
+            tap further away from the one thing they came back to do. */}
+        <TextBtn onPress={() => (campaignId
+          ? navigation.navigate('Detail', { campaignId })
+          : goBackOrHome(navigation))}
+        >
+          Not yet — take me back
         </TextBtn>
       </View>
     </Screen>
