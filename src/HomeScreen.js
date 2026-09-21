@@ -38,7 +38,10 @@ function CampaignRow({ c, claimed, onOpen }) {
   // Both decided server-side; this only draws the answer. An offer that cannot be
   // used is GREYED OUT AND STILL THERE — somebody who saw it yesterday has to be
   // able to find it, with a reason, or they conclude the app lost it.
-  const live = cardState(c);
+  // THE PERSON, NOT ONLY THE OFFER. A full offer is not greyed out to somebody
+  // holding one of its seats — see cardState for the reason and for why only the
+  // seats reason is overridden.
+  const live = cardState(c, claimed);
   const off = live.greyedOut;
   // ── LOCKED, WHICH IS NOT THE SAME AS "NOT RIGHT NOW" ──────────────────────
   //

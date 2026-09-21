@@ -198,10 +198,30 @@ export function summariseRun(results) {
  * somebody who saw it yesterday and comes back looking for it has to find it, with
  * a reason, or they conclude the app lost it.
  */
-export function cardState(campaign) {
+export function cardState(campaign, theyHoldASeat) {
   const c = campaign && typeof campaign === 'object' ? campaign : {};
   const a = c.availability && typeof c.availability === 'object' ? c.availability : null;
-  const greyed = a ? a.greyedOut === true : false;
+  // ── A FULL OFFER IS NOT GREYED OUT TO SOMEBODY SITTING IN ONE OF ITS
+  //    SEATS — 21 SEPTEMBER 2026 ────────────────────────────────────────────
+  //
+  // The owner made a one-slot offer, claimed it, went to Zepto, and his payment
+  // failed. Back on his home screen the offer was greyed out and unusable, so
+  // he could not walk back in and try again. His claim was still live with over
+  // an hour to pay, and he found it only through My Products.
+  //
+  // THE SERVER IS NOT WRONG AND IS NOT CHANGED. offerAvailability greys an offer
+  // whose seats are gone, and that is the right answer ABOUT THE OFFER — it is
+  // the first rule in that function and its comment says why: "Places first: it
+  // is the more certain of the two, and it is ours to know." What the server
+  // cannot know from a campaign row is whether the person reading it is the one
+  // holding the seat. That fact lives here, so the correction lives here.
+  //
+  // AND ONLY THE SEATS REASON IS OVERRIDDEN. `reason` is the server's own word
+  // for why it greyed the card. A dead shop page — reason 'page' — stays greyed
+  // for everybody, claim or no claim, because a seat does not fix a page that
+  // will not open. Overriding on greyedOut alone would have thrown that away.
+  const seatsOnly = a != null && a.reason === 'seats' && theyHoldASeat === true;
+  const greyed = a ? a.greyedOut === true && !seatsOnly : false;
   const label = a && typeof a.label === 'string' && a.label.trim() !== '' ? a.label : null;
   return {
     greyedOut: greyed,

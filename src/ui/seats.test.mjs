@@ -221,6 +221,15 @@ console.log('\n=== the locked offer is DRAWN, still in the list, and not claimab
     'the row is told whether this person holds a claim');
   ok(/function CampaignRow\(\{ c, claimed, onOpen \}\)/.test(home),
     'and takes it, so the locked line can ask');
+  // ── AND IT IS HANDED TO cardState TOO, WHICH IS THE ONE THAT MATTERS ────
+  //
+  // The server greys a full offer out for everybody — offerAvailability's first
+  // rule, and right ABOUT THE OFFER. `off` outranks `locked` in this row, so a
+  // greyed card is unusable whatever the locked line decides. Passing the claim
+  // to cardState is what actually let the owner back into his own seat after a
+  // failed payment; without it the fix above is invisible.
+  ok(/cardState\(c, claimed\)/.test(home),
+    'CARD STATE IS ASKED ABOUT THIS PERSON, not only about the offer');
   ok(/off \? live\.cta : locked \?/.test(home),
     'and the shop\u2019s own state is asked first');
   ok(/lockedBanner/.test(home) && /offBanner/.test(home),

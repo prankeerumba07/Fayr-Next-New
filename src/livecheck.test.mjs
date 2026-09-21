@@ -230,5 +230,39 @@ test('a greyed offer with no words still greys out, silently', () => {
   assert.equal(out.label, null);
 });
 
+console.log('\na full offer is not greyed out to somebody sitting in one of its seats');
+// ── THE RUN THIS COMES FROM — 21 SEPTEMBER 2026 ───────────────────────────
+//
+// The owner made a one-slot offer, claimed it, went to Zepto, and his payment
+// failed at the bank. Back on his home screen the offer was greyed out and he
+// could not walk back in and try again — with over an hour still on his claim.
+// He found it only through My Products, so one offer said two things.
+const fullOffer = { availability: { greyedOut: true, label: 'All seats taken', reason: 'seats' } };
+const deadPage = { availability: { greyedOut: true, label: 'Not available', reason: 'page' } };
+
+test('a full offer is still greyed out to somebody with no seat', () => {
+  assert.equal(cardState(fullOffer).greyedOut, true);
+  assert.equal(cardState(fullOffer, false).greyedOut, true);
+});
+
+test('BUT NOT TO THE PERSON HOLDING THE SEAT', () => {
+  assert.equal(cardState(fullOffer, true).greyedOut, false);
+  assert.equal(cardState(fullOffer, true).canClaim, true);
+  assert.equal(cardState(fullOffer, true).cta, null);
+});
+
+test('A DEAD SHOP PAGE STAYS GREY, claim or no claim', () => {
+  // A seat does not fix a shop page that will not open. Overriding on greyedOut
+  // alone would have thrown that away, which is why the reason is read.
+  assert.equal(cardState(deadPage, true).greyedOut, true);
+  assert.equal(cardState(deadPage, true).label, 'Not available');
+});
+
+test('and silence is still silence, and only an exact true holds a seat', () => {
+  assert.equal(cardState({}, true).greyedOut, false);
+  assert.equal(cardState({}).greyedOut, false);
+  assert.equal(cardState(fullOffer, 'yes').greyedOut, true);
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);
