@@ -167,7 +167,7 @@ console.log('\n=== 4. THE DELIVERY READ OPENS THE SAME ONE PAGE, AND OFFERS NO P
   // did not change — so the two were split onto two flags and only this one is
   // still asksNothing. The reversal itself is pinned, with his words, in
   // src/journey/deliveryCadence.test.mjs section 4.
-  ok(/const asking = \(where === 'asking' \|\| mustAsk\) && !delivered\s*&& !theShopLooksWithoutBeingAsked;/.test(code),
+  ok(/const asking = \(where === 'asking' \|\| mustAsk\) && !delivered && !wentBack\s*&& !theShopLooksWithoutBeingAsked;/.test(code),
     'while the question is governed by its own flag, not by the photograph\u2019s');
   ok(!/&& !delivered && !asksNothing;/.test(code),
     'AND THE TWO ARE NOT ONE FLAG AGAIN, which is how the camera door would reopen');

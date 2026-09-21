@@ -832,5 +832,47 @@ console.log('\nA NOTE ABOUT A PURCHASE BELONGS TO THE CLAIM, NOT THE OFFER');
   }) === 'purchase-shot', 'somebody who really said it still gets the screenshot step');
 }
 
+console.log('\na returned or cancelled order stops, it is not walked to a refusal');
+{
+  const at = (state) => journeyStepFor(state);
+  const inFayr = { inFayrShop: true };
+  // ── THE RUN THIS COMES FROM — 21 SEPTEMBER 2026 ─────────────────────────
+  //
+  // The owner cancelled a real Zepto order on purpose, to see what Fayr would
+  // do. Fayr read it correctly: returned true on the record, and
+  // refundEligibility refuses it in its own words — "order was returned or
+  // cancelled". Nothing between DELIVERED and the payout looked at it, so he
+  // was about to be walked through the delivered screen, the review composer, a
+  // Fayr score, a copy to the shop and a hold, for money the gate had already
+  // refused before he began.
+  //
+  // The gate is right and is untouched. What was wrong is a journey that asks
+  // for work after the answer is known.
+  const back = { returned: true, order: { id: 'SPJVJGSNM65882' } };
+  for (const st of [STATES.PURCHASED, STATES.DELIVERED, STATES.REVIEWED, STATES.HOLDING]) {
+    ok(at({ task: { state: st, ...back }, ...inFayr }) === 'delivered',
+      `${st} with a returned order stops on the delivery step, not the review`);
+    ok(at({ task: { state: st, ...back } }) === 'delivered',
+      `and so does ${st} on a shop outside Fayr`);
+  }
+
+  // AND A REFUND ALREADY PAID IS STILL A REFUND. Nothing goes backwards.
+  ok(at({ task: { state: STATES.REFUNDED, ...back }, ...inFayr }) === 'refund',
+    'a task already paid still shows its refund');
+
+  // ── ONLY AN EXPLICIT TRUE, AND ONLY WITH AN ORDER ──────────────────────
+  //
+  // The tri-state's null means the page said nothing either way, which is not a
+  // statement that anything went back. And without an order, `returned` is a
+  // flag about nothing — a claim nobody has bought against must keep walking to
+  // the shop.
+  ok(at({ task: { state: STATES.DELIVERED, returned: null, order: { id: 'o' } }, ...inFayr }) === 'review',
+    'a page that said nothing either way does not stop anybody');
+  ok(at({ task: { state: STATES.DELIVERED, returned: false, order: { id: 'o' } }, ...inFayr }) === 'review',
+    'and neither does an explicit not-returned');
+  ok(at({ task: { state: STATES.CLAIMED, returned: true }, ...inFayr, lookedForTheOrder: false }) === 'shop',
+    'AND A CLAIM WITH NO ORDER KEEPS WALKING TO THE SHOP');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

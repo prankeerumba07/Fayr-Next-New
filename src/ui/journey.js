@@ -298,6 +298,30 @@ export function journeyStepFor(state) {
   const st = task.state || STATES.CLAIMED;
 
   if (st === STATES.REFUNDED) return 'refund';
+  // ── A RETURNED OR CANCELLED ORDER STOPS, IT IS NOT WALKED TO A REFUSAL ───
+  //
+  // 21 September 2026. The owner cancelled a Zepto order on purpose to see what
+  // Fayr would do. Fayr read it correctly — returned: true on the record, and
+  // refundEligibility refuses it in its own words, "order was returned or
+  // cancelled". Nothing between DELIVERED and the payout looked at it, so he was
+  // about to be walked through the delivered screen, the review composer, a Fayr
+  // score, a copy to the shop and a hold, for money the gate had already refused
+  // before he started.
+  //
+  // AN HONEST REFUSAL AT THE WRONG MOMENT IS NOT AN HONEST REFUSAL. The gate is
+  // right and is untouched; what was wrong is the journey asking for work after
+  // the answer is known.
+  //
+  // IT STOPS ON THE DELIVERY STEP, which is the last one that was true, rather
+  // than on a step of its own: JOURNEY_KEYS is twelve and every tracker in the
+  // app counts them. The screen there says why — see the returned face in
+  // src/screens/delivery.js — and offers nothing, because there is nothing left
+  // that the person can do about it.
+  //
+  // AND ONLY WITH AN ORDER TO BE RETURNED. `returned` is a fact read off an
+  // order's page; without one it is a flag about nothing, and a claim nobody has
+  // bought against must keep walking to the shop.
+  if (task.returned === true && task.order) return 'delivered';
   if (st === STATES.HOLDING) return 'window';
 
   // ── THE ORDER FAYR WATCHED, AND THE FOUR STEPS IT NEVER WALKS — PHASE 8A ──

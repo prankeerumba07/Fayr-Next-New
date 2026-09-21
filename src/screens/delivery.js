@@ -364,8 +364,21 @@ export default function DeliveryScreen({ navigation, route }) {
   // Fayr the journey sends a DELIVERED claim straight to the review, so this
   // screen is not drawn with `known` at all for one; what it draws is the wait
   // between looks, and the look is started by the screen on its own cadence.
-  const reading = where === 'reading' && !delivered && !mustAsk;
-  const asking = (where === 'asking' || mustAsk) && !delivered
+  // ── AND AN ORDER THAT WENT BACK IS THE END OF IT — 21 SEPTEMBER 2026 ────
+  //
+  // The owner cancelled a Zepto order to see what Fayr would do. It read the
+  // cancellation correctly and the refund gate had already refused it — "order
+  // was returned or cancelled" — while the journey was about to ask him for a
+  // review, a score and a two minute wait for money that could never come.
+  //
+  // `returned` IS THE SERVER'S WORD AND ONLY THE SERVER'S. It is read off the
+  // shop's own page by backend/src/ocr/order-text.ts and nothing on this side
+  // decides it, exactly as `known` next door is the shop's word about delivery.
+  // Only an explicit true stops anybody: the tri-state's null means the page
+  // said nothing either way, which is not a statement that anything went back.
+  const wentBack = task != null && task.returned === true;
+  const reading = where === 'reading' && !delivered && !mustAsk && !wentBack;
+  const asking = (where === 'asking' || mustAsk) && !delivered && !wentBack
     && !theShopLooksWithoutBeingAsked;
 
   return (
@@ -434,14 +447,20 @@ export default function DeliveryScreen({ navigation, route }) {
         ) : null}
 
         <Text style={[hTitle, styles.title]}>
-          {delivered
-            ? 'It arrived'
-            : asking
-              ? IS_THE_PRODUCT_DELIVERED
-              : reading ? 'Checking' : 'Not yet'}
+          {wentBack
+            ? 'This order went back'
+            : delivered
+              ? 'It arrived'
+              : asking
+                ? IS_THE_PRODUCT_DELIVERED
+                : reading ? 'Checking' : 'Not yet'}
         </Text>
         <Text style={[hSub, styles.sub]}>
-          {delivered
+          {wentBack
+            ? `${shop} says this order was cancelled or returned, so this offer `
+              + 'cannot be paid. Nothing else is needed from you, and no tickets '
+              + 'were spent on the order itself.'
+            : delivered
             ? `${shop} has told us it arrived. The review step is open.`
             : asking
               ? `Tell us and we will read it off your own ${shop} orders. `

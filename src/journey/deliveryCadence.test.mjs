@@ -96,8 +96,20 @@ console.log('\n=== 4. THE DELIVERY SCREEN ASKS AGAIN, AND LOOKS ONLY WHEN ASKED 
   ok(/const theShopLooksWithoutBeingAsked = false;/.test(code),
     'THE SCREEN NO LONGER LOOKS BY ITSELF, and says so in one place');
 
-  ok(/const asking = \(where === 'asking' \|\| mustAsk\) && !delivered\s*&& !theShopLooksWithoutBeingAsked;/.test(code),
+  ok(/const asking = \(where === 'asking' \|\| mustAsk\) && !delivered && !wentBack\s*&& !theShopLooksWithoutBeingAsked;/.test(code),
     'and the question IS up for every shop, including one inside Fayr');
+  // ── AND NEVER FOR AN ORDER THAT WENT BACK — 21 SEPTEMBER 2026 ──────────
+  //
+  // The owner cancelled a Zepto order on purpose. Fayr read it, the refund gate
+  // had already refused it in its own words, and the journey was still about to
+  // ask him whether it had been delivered. Asking anybody anything about an
+  // order the shop says went back is asking for work towards money that cannot
+  // come. `returned` is the SERVER's word, read off the shop's own page; only an
+  // explicit true stops anybody, because the tri-state's null means the page
+  // said nothing either way.
+  ok(/const wentBack = task != null && task\.returned === true;/.test(code),
+    'the screen knows when the shop says the order went back');
+  ok(/'This order went back'/.test(code), 'and says so instead of asking');
 
   // THE AUTOMATIC LOOK IS STILL THERE AND STILL CORRECT, and it is gated on the
   // same flag — so it is dead today and would come back whole, cadence and all,
