@@ -1690,6 +1690,27 @@ export function whichMarkersAppear(text: string | null | undefined): string {
     ['placed-at', /\bplaced\s+at\b/i],
     ['ordered-on', /\border(?:ed)?\s+on\b/i],
     ['a-day-and-month', /\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i],
+    // ── AND THE FOUR WORDS THAT DECIDED A CANCELLED ORDER — 21 SEP 2026 ───
+    //
+    // The owner cancelled a Zepto order on purpose. Fayr recorded it as
+    // DELIVERED, with an instant of 12:23, off a page that the probe said did
+    // not contain the word "delivered" at all. DELIVERY_LABEL accepts one other
+    // word — "arrived" — so that is what must have matched, and nobody has yet
+    // seen the line it matched on.
+    //
+    // RETURN_COMPLETED accepts four words and the log said only that one of them
+    // was there. Which one matters: "cancelled" on a cancelled order is the shop
+    // stating a fact, and "refunded" beside a bill line may be the shop's own
+    // chrome about a refund that has nothing to do with this order.
+    //
+    // So each word is asked for by name. Still six-plus names and yes/no, still
+    // not a character of the page — and between them they turn "the page said
+    // something" into "the page said THIS", which is the difference between a
+    // fix and a guess.
+    ['arrived', /\barrived\b/i],
+    ['cancelled', /\b(?:cancelled|canceled)\b/i],
+    ['refunded', /\brefunded\b/i],
+    ['the-word-returned', /\breturned\b/i],
   ];
   return probes.map(([name, probe]) => `${name}=${probe.test(whole) ? 'yes' : 'no'}`).join(' ');
 }

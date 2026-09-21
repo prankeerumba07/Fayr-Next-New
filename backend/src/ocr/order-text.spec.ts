@@ -1819,6 +1819,36 @@ describe('telling a page that arrived half drawn from one whose wording moved', 
     expect(said).toContain('a-day-and-month=no');
   });
 
+  it('THE WORDS THAT DECIDED A CANCELLED ORDER ARE EACH ASKED FOR BY NAME', () => {
+    // ── THE RUN THIS COMES FROM — 21 SEPTEMBER 2026 ────────────────────────
+    //
+    // The owner cancelled a Zepto order on purpose. Fayr recorded it DELIVERED,
+    // with an instant, off a page the probe said did not contain the word
+    // "delivered". DELIVERY_LABEL accepts one other word, and RETURN_COMPLETED
+    // accepts four — the log could only say that SOMETHING matched, which is
+    // not enough to fix anything by.
+    const arrivedOnly = 'Arrived at 5:53 pm';
+    expect(whichMarkersAppear(arrivedOnly)).toContain('arrived=yes');
+    expect(whichMarkersAppear(arrivedOnly)).toContain('the-word-delivered=no');
+    // AND THAT PAIR IS EXACTLY THE SHAPE THAT CONFUSED THE OWNER'S PAGE: no
+    // "delivered" anywhere, and a delivery instant read all the same.
+    expect(parseOrderText(`${arrivedOnly}`).deliveredSaid).toBeNull();
+
+    const cancelled = 'Order cancelled\nRefunded to your bank';
+    const said = whichMarkersAppear(cancelled);
+    expect(said).toContain('cancelled=yes');
+    expect(said).toContain('refunded=yes');
+    expect(said).toContain('the-word-returned=no');
+    // The four RETURN_COMPLETED words are now told apart, and the reader still
+    // answers the same thing about all of them.
+    expect(parseOrderText(cancelled).returned).toBe(true);
+
+    const clean = 'Order #ABC123\nBill Summary\nItem Total ₹120';
+    for (const quiet of ['arrived=no', 'cancelled=no', 'refunded=no', 'the-word-returned=no']) {
+      expect(whichMarkersAppear(clean)).toContain(quiet);
+    }
+  });
+
   it('and it carries no word of the page itself', () => {
     const said = whichMarkersAppear(WHOLE);
     expect(said).not.toContain('RGTLJGSNT54558');
