@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   applyProfile, configure, forget, forgetTheReader, haveWeAsked, isConnected,
-  list, load, markConnected, subscribe,
+  list, load, markConnected, markSignedOut, subscribe,
 } from './connectedShops.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -262,6 +262,60 @@ console.log('\n=== 10. ASKING OUR SIDE, AND EVERY WAY IT CAN GO WRONG ===');
   configure(() => { throw new Error('threw before any promise'); });
   ok(await load() === false, 'and one that throws before it even returns a promise');
   forgetTheReader(); forget();
+}
+
+console.log('\nthe shop’s own word outranks a record that can never be un-written');
+{
+  // ── THE DEFECT — 21 SEPTEMBER 2026 ──────────────────────────────────────
+  //
+  // The owner signed OUT of Zepto and claimed a campaign. He landed on Zepto's
+  // homepage instead of its sign in page. Our side's record said connected and
+  // always would: the row carries a firstAt and a howWeKnew and no third state,
+  // and the server's upsert says `update: {}` in as many words. It records that
+  // somebody signed in ON SOME DAY — which is true, and is NOT the question
+  // isConnected is asked. That question is "are they signed in NOW".
+  forget();
+  applyProfile({ connectedShops: ['zepto', 'amazon'] });
+  ok(isConnected('zepto'), 'our side says connected, as it always will');
+
+  markSignedOut('zepto');
+  ok(!isConnected('zepto'),
+    'AND THE SHOP SAYING OTHERWISE OUTRANKS IT');
+  ok(isConnected('amazon'),
+    'and only that shop — one shop’s login form says nothing about another');
+
+  // IT SUBTRACTS AND NEVER ADDS. The record itself is untouched, because it is
+  // still true; what changes is only what isConnected answers while this app is
+  // open. So the list our side sent is still the list our side sent.
+  ok(list().includes('zepto'),
+    'the record is left exactly as our side sent it');
+
+  // AND OUR SIDE PUTS IT BACK ON EVERY FOREGROUND. applyProfile REPLACES the
+  // list wholesale, so without the override surviving that, the stale yes would
+  // return within seconds of being corrected — which is the whole bug again.
+  applyProfile({ connectedShops: ['zepto', 'amazon'] });
+  ok(!isConnected('zepto'),
+    'AND A PROFILE READ DOES NOT PUT THE STALE YES BACK');
+
+  // SIGNING IN AGAIN, IN FRONT OF US, CLEARS IT. Whichever the shop said last is
+  // the one that is true; leaving the older reading standing would send somebody
+  // who has just signed in to sign in again.
+  markConnected('zepto');
+  ok(isConnected('zepto'), 'and the shop saying they are in clears it again');
+
+  // AND IT DOES NOT SURVIVE ONE PERSON INTO THE NEXT. A leftover "signed out"
+  // would send somebody to sign in at a shop they are signed in at, just as
+  // surely as a leftover "connected" would do the reverse.
+  markSignedOut('zepto');
+  forget();
+  applyProfile({ connectedShops: ['zepto'] });
+  ok(isConnected('zepto'), 'signing out of Fayr forgets it too');
+
+  // JUNK IS NOT A SHOP.
+  for (const junk of [null, undefined, '', 0, {}, []]) {
+    ok(markSignedOut(junk) === false, `${String(junk)} is not a shop`);
+  }
+  forget();
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

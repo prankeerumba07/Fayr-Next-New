@@ -55,7 +55,7 @@ import { WebView } from 'react-native-webview';
 
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
-import { markConnected } from '../backend/connectedShops';
+import { markConnected, markSignedOut } from '../backend/connectedShops';
 import { reportShopSignIn } from '../backend/shopApi';
 import { LOOKED_FOR_THE_ORDER, SIGNED_IN, markVisitedShop } from '../journey/shopVisits';
 import { countdownFor } from '../journey/theNotice';
@@ -83,7 +83,7 @@ import {
 import { whatToTellOurSide, whereToHandOver } from './theWatchedOrder';
 import {
   HOW_WE_KNEW_INSIDE_THE_SHOP, nowRememberTheSignInWasUp, shouldRecordTheSignIn,
-  watchSignInScript, whatTheShopShowed,
+  theyAreSignedOutHere, watchSignInScript, whatTheShopShowed,
 } from './theSignIn';
 import { whatThePageIs } from './theRightProduct';
 import { theOrderPage } from './theOrderPage';
@@ -298,6 +298,29 @@ export default function ShopScreen({ navigation, route }) {
     if (showed == null) return;
     signInWasUp.current = nowRememberTheSignInWasUp(showed, signInWasUp.current);
     logShop('THE SHOP\u2019S OWN PAGE SAID', signInDetail(showed));
+    // ── AND THE OTHER HALF OF THE SAME OBSERVATION, WHICH NOTHING READ ─────
+    //
+    // 21 September 2026. The owner signed out of Zepto, claimed, and was sent to
+    // the shop's homepage instead of its sign in page — because our side's
+    // record of a sign in is written once and can never be un-written, and
+    // isConnected had nothing else to go on. This exact line was already in his
+    // log at the moment it went wrong:
+    //
+    //   THE SHOP'S OWN PAGE SAID signInIsUp=true theyAreIn=false
+    //
+    // The answer was on the screen and one line below it was dropped. So it is
+    // read now, before the sign IN test below, because the two are opposite
+    // readings of one `showed` and reading only one of them is how a record
+    // from yesterday got to outrank a page from this second.
+    //
+    // IT TELLS ONLY THIS DEVICE AND IT ADDS NO REQUEST. There is no route for
+    // "signed out" and this deliberately does not invent one — our side's record
+    // is a true thing about a past day and stays exactly as it is. See
+    // markSignedOut in src/backend/connectedShops.js for what it does change and
+    // for how long.
+    if (theyAreSignedOutHere(showed) && markSignedOut(platform.key)) {
+      logShop('THEY ARE NOT SIGNED IN HERE', signInDetail(showed));
+    }
     if (!shouldRecordTheSignIn(showed, toldOurSide.current)) return;
     toldOurSide.current = true;
     // ── THE SAME THREE THINGS THE CONNECT SCREEN DOES, AND NOTHING WAITS ────

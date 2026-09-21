@@ -17,7 +17,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  HOW_WE_KNEW_INSIDE_THE_SHOP, nowRememberTheSignInWasUp, shouldRecordTheSignIn,
+  HOW_WE_KNEW_INSIDE_THE_SHOP, theyAreSignedOutHere, nowRememberTheSignInWasUp, shouldRecordTheSignIn,
   watchSignInScript, whatTheShopShowed,
 } from './theSignIn.js';
 import { shopsInsideFayr, whereToLand } from './insideFayr.js';
@@ -223,6 +223,78 @@ console.log('\n=== 5. the frozen files are read and not written ===');
   const mine = withoutComments(read('src/shop/theSignIn.js'));
   ok((mine.match(/from '\.\.\/connect\//g) || []).length === 2,
     'and exactly two frozen connect files are imported, both of them read-only');
+}
+
+console.log('\nthe other half of the same observation: the shop saying they are NOT in');
+{
+  // ── THE RUN THIS COMES FROM ─────────────────────────────────────────────
+  //
+  // 21 September 2026. The owner signed out of Zepto and claimed a campaign. He
+  // landed on Zepto's homepage instead of its sign in page, because our side's
+  // record of a sign in is written once and can never be un-written. This exact
+  // reading was in his log at the moment it went wrong, and nothing read it:
+  //
+  //   THE SHOP'S OWN PAGE SAID signInIsUp=true theyAreIn=false
+  ok(theyAreSignedOutHere({ signInIsUp: true, theyAreIn: false }),
+    'A SHOP DRAWING A LOGIN FORM IS THE SHOP SAYING THEY ARE SIGNED OUT');
+  ok(theyAreSignedOutHere({ signInIsUp: true }),
+    'and a box with nothing said about a greeting is still a box');
+
+  // theyAreIn OUTRANKS IT, exactly as it does in the frozen gate. A page
+  // mid-sign-in can carry both at once, and believing the box over the greeting
+  // there would send somebody to sign in at the instant they finished.
+  ok(!theyAreSignedOutHere({ signInIsUp: true, theyAreIn: true }),
+    'AND theyAreIn OUTRANKS IT: both at once is somebody who has just signed in');
+  ok(!theyAreSignedOutHere({ theyAreIn: true }), 'and a greeting alone is not signed out');
+
+  // AN ABSENCE IS NEVER READ AS SIGNED OUT, which is the rule next door:
+  // shouldRecordTheSignIn's own note says a sign in box GOING is worth nothing,
+  // because it is somebody navigating away as often as it is somebody signing
+  // in. That warning is about an absence, and this must never act on one.
+  for (const nothingSaid of [
+    {}, { signInIsUp: false }, { signInIsUp: false, theyAreIn: false },
+    { signInIsGone: true }, { signInIsGone: true, theyAreIn: false },
+    { greetedByName: false },
+    null, undefined, '', 0, false, [], 'signed out',
+  ]) {
+    ok(!theyAreSignedOutHere(nothingSaid),
+      `an absence says nothing, so it says nothing: ${JSON.stringify(nothingSaid)}`);
+  }
+
+  // ── AND IT IS ACTUALLY CALLED, BEFORE THE EARLY RETURN ────────────────
+  //
+  // A correct reading nothing reads is the defect all over again — the owner's
+  // log already CONTAINED the right answer and nothing acted on it. So the call
+  // site is pinned, and so is its ORDER, which is load-bearing:
+  // shouldRecordTheSignIn returns early on every page that is not a sign IN, so
+  // a signed-out reading placed after it would never run on the one kind of
+  // page it exists for.
+  const shop = read('src/shop/ShopScreen.js');
+  ok(/import \{ markConnected, markSignedOut \} from '\.\.\/backend\/connectedShops';/.test(shop),
+    'ShopScreen takes markSignedOut from the store that owns it');
+  ok(/theyAreSignedOutHere,/.test(shop), 'and the reading from the file that owns it');
+  const outAt = shop.indexOf('theyAreSignedOutHere(showed)');
+  const inAt = shop.indexOf('shouldRecordTheSignIn(showed');
+  ok(outAt !== -1, 'THE SIGNED-OUT READING IS ACTUALLY CALLED');
+  ok(inAt !== -1 && outAt < inAt,
+    'AND BEFORE the early return, or it never runs on a signed-out page');
+  ok(/theyAreSignedOutHere\(showed\) && markSignedOut\(platform\.key\)/.test(shop),
+    'and it tells the store, rather than only logging');
+
+  // AND IT ADDS NO REQUEST. There is no route for "signed out" and this must not
+  // invent one: our side's record is a true thing about a past day and stays.
+  const outLine = shop.slice(outAt, shop.indexOf('\n', shop.indexOf('}', outAt)));
+  ok(!/reportShop|fetch\(|post/i.test(outLine),
+    'and it asks our side for nothing at all');
+
+  // AND IT ASKS THE PAGE NOTHING. It reads what the frozen gate already said,
+  // the same rule the whole of this file is held to above.
+  const whole = read('src/shop/theSignIn.js');
+  const fn = whole.slice(whole.indexOf('export function theyAreSignedOutHere'));
+  const body = fn.slice(0, fn.indexOf('\n}') + 2);
+  for (const ownIdea of ['querySelector', 'document.', 'location.', 'fetch(', 'RegExp']) {
+    ok(!body.includes(ownIdea), `it has no "${ownIdea}" of its own`);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

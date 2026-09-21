@@ -101,6 +101,65 @@ export function shouldRecordTheSignIn(showed, alreadyRecorded) {
 }
 
 /**
+ * IS THE SHOP ACTIVELY TELLING US THEY ARE NOT SIGNED IN HERE?
+ *
+ * ── THE DEFECT THIS ANSWERS — MEASURED 21 SEPTEMBER 2026 ──────────────────
+ *
+ * The owner signed OUT of Zepto and claimed a campaign. He should have landed
+ * on Zepto's sign in page. He landed on its homepage, because our side's record
+ * still said he was connected — and it always will, because that record is
+ * written once and has no way of ever being un-written. His own line:
+ *
+ *   14:51:14 THE SHOP'S OWN PAGE SAID signInIsUp=true theyAreIn=false
+ *   14:51:16 HANDING OVER to=LookingForIt
+ *
+ * Fayr had the answer on the screen in front of it and routed on a record from
+ * the day before. shouldRecordTheSignIn above reads the same `showed` and drops
+ * this case on the floor, correctly — it is about recording a sign IN. This is
+ * the other half of the same observation, and nothing was reading it.
+ *
+ * ── IT IS POSITIVE EVIDENCE, WHICH IS THE WHOLE REASON IT IS ALLOWED ──────
+ *
+ * The note on shouldRecordTheSignIn warns that a sign in box GOING is worth
+ * nothing: a box that disappears is somebody who navigated away as often as it
+ * is somebody who signed in. That warning is about an ABSENCE, and this is not
+ * one. A shop actively drawing a login form is the shop saying, in its own
+ * markup, that whoever is looking at it is not signed in. It is the same kind
+ * of statement as `theyAreIn`, pointing the other way.
+ *
+ * ── AND IT IS MEASURED, NOT ASSUMED ──────────────────────────────────────
+ *
+ * Every Zepto page this project has ever observed, counted off the logs:
+ *
+ *   /account/orders   signInControlIsThere false   x51   signed in
+ *   /account/orders   signInControlIsThere true    x1    signed out, and the
+ *                     page read "Please Login / Please login to check orders."
+ *   /            (homepage)  signInControlIsThere false  x2
+ *
+ * So on this shop a visible sign in control has only ever appeared when
+ * somebody really was signed out, and the homepage has never raised one at all.
+ * That is what makes acting on it safe. It is also a thin base — nobody has yet
+ * watched a signed-IN Zepto homepage — so the cost of being wrong is written
+ * down next: a false "signed out" costs ONE unnecessary visit to a sign in page,
+ * and connectedShops.js records what unnecessary visits cost. A false "signed
+ * in" is the bug above, which has no way forward at all. The asymmetry is why
+ * this errs toward asking.
+ */
+export function theyAreSignedOutHere(showed) {
+  // BOTH HALVES, and the second is not redundant. A page mid-sign-in can carry
+  // a box and a greeting at once; `theyAreIn` outranks, exactly as it does in
+  // the frozen gate this reads from.
+  //
+  // NO typeof AND NO STRING ANYWHERE IN HERE, the same shape as
+  // shouldRecordTheSignIn above. theSignIn.test.mjs walks every string literal
+  // in this file against a list of three, on the rule that a file which is
+  // allowed to hold no pattern of its own should not be allowed to grow one
+  // quietly. A guard that only restates what `=== true` already does is not
+  // worth spending that allowance on.
+  return !!(showed && showed.theyAreIn !== true && showed.signInIsUp === true);
+}
+
+/**
  * SHOULD OUR SIDE'S MEMORY OF A SIGN IN BOX BE TURNED ON?
  *
  * Only ever turned ON here, never off, and that asymmetry is gate.js's: the

@@ -67,6 +67,32 @@ let connected = [];
 let asked = false;
 let listeners = [];
 
+/**
+ * SHOPS THE SHOP ITSELF HAS TOLD US THEY ARE SIGNED OUT OF, on this device.
+ *
+ * ── WHY THIS HAS TO EXIST ON THE PHONE AT ALL ────────────────────────────
+ *
+ * Our side's record of a sign in is written ONCE and can never be un-written:
+ * the row has a firstAt and a howWeKnew and no third state, and the server's
+ * upsert says `update: {}` in as many words. It is a record that somebody signed
+ * in on some day, which is a true and useful thing — and it is NOT the question
+ * isConnected is asked. That question is "are they signed in now".
+ *
+ * So when the shop's own page says otherwise, the answer has to be held
+ * somewhere, and the only somewhere available is here. applyProfile REPLACES
+ * this list wholesale on every return to the foreground, so without this the
+ * server would put the stale yes back within seconds of it being corrected.
+ *
+ * ── ITS HONEST LIFETIME IS THIS APP BEING OPEN ───────────────────────────
+ *
+ * Not written down, not sent anywhere, gone on restart. That is the truth about
+ * what it holds: "the shop told us so, while we were watching". Somebody who
+ * signs in at Zepto's own app, outside Fayr, is not seen doing it — and the
+ * cost of that is one unnecessary sign in visit, which is the direction this
+ * whole file already errs in and says why at isConnected.
+ */
+let saidSignedOut = [];
+
 function notify() {
   for (const fn of listeners) {
     try { fn(list()); } catch (e) { /* a bad listener must not break the store */ }
@@ -101,7 +127,13 @@ export function haveWeAsked() {
  */
 export function isConnected(shopKey) {
   if (typeof shopKey !== 'string' || shopKey === '') return false;
-  return connected.includes(shopKey.toLowerCase());
+  const key = shopKey.toLowerCase();
+  // THE SHOP'S OWN WORD OUTRANKS OUR RECORD OF A DAY LAST WEEK. See
+  // saidSignedOut: the record cannot say "not any more", and this is the only
+  // place that can. It subtracts and never adds, so it can lose somebody a
+  // sign in step they did not need and can never skip one they did.
+  if (saidSignedOut.includes(key)) return false;
+  return connected.includes(key);
 }
 
 /**
@@ -136,8 +168,39 @@ export function applyProfile(profile) {
 export function markConnected(shopKey) {
   if (typeof shopKey !== 'string' || shopKey === '') return false;
   const key = shopKey.toLowerCase();
-  if (connected.includes(key)) return false;
+  // AND IT CLEARS THE SHOP'S OWN "NOT SIGNED IN", because this is the shop
+  // saying the opposite, later, about the same person. Whichever was seen last
+  // is the one that is true; leaving the older one standing would mean somebody
+  // who has just signed in, in front of us, still being sent to sign in again.
+  const wasSaidOut = saidSignedOut.includes(key);
+  if (wasSaidOut) saidSignedOut = saidSignedOut.filter((s) => s !== key);
+  if (connected.includes(key)) {
+    if (wasSaidOut) notify();
+    return wasSaidOut;
+  }
   connected = connected.concat([key]);
+  notify();
+  return true;
+}
+
+/**
+ * THE SHOP SHOWED THEM A SIGN IN BOX, SO THEY ARE NOT SIGNED IN AT IT.
+ *
+ * The mirror of markConnected, and deliberately not its opposite: this does not
+ * remove anything from `connected`. Our side's record stays exactly as it is,
+ * because it is still true — they DID sign in once, and the next profile read
+ * will say so again. What changes is only what isConnected answers while this
+ * app is open.
+ *
+ * KEEPING THEM SEPARATE IS THE POINT. A record of a past fact and a reading of
+ * the present are different things, and the bug this fixes was one standing in
+ * for the other.
+ */
+export function markSignedOut(shopKey) {
+  if (typeof shopKey !== 'string' || shopKey === '') return false;
+  const key = shopKey.toLowerCase();
+  if (saidSignedOut.includes(key)) return false;
+  saidSignedOut = saidSignedOut.concat([key]);
   notify();
   return true;
 }
@@ -164,6 +227,11 @@ export async function load() {
 export function forget() {
   connected = [];
   asked = false;
+  // INCLUDING WHAT THE SHOP SAID, for the reason the line above exists: one
+  // person's shops must not survive into the next person's session, and a
+  // leftover "signed out" would send somebody to sign in at a shop they are
+  // signed in at just as surely as a leftover "connected" would do the reverse.
+  saidSignedOut = [];
   notify();
 }
 
