@@ -148,6 +148,24 @@ export function dayFromMillis(ms: number | null | undefined): string | null {
  * are the shapes marketplace order pages actually print. Anything else returns
  * null, and a null is shown as "we could not read a date" rather than guessed at —
  * a date guessed wrongly would make two agreeing documents look like a mismatch.
+ *
+ * ── AND A DAY MAY WEAR AN ORDINAL, WHICH IS HOW ZEPTO WRITES ONE ───────────
+ *
+ * MEASURED 21 SEPTEMBER 2026, and it had been showing the owner "Order date:
+ * Not available" on an order whose date was printed on its own page:
+ *
+ *   "Placed at 20 Sep 2026"    -> 2026-09-20
+ *   "Placed at 20th Sep 2026"  -> null
+ *
+ * Two characters. Zepto prints "20th Sep 2026, 07:45 pm" and "21st Sep 2026,
+ * 12:37 am" — every day it writes carries st, nd, rd or th — so every order
+ * date on that shop was refused, silently, and shown to the person who bought
+ * it as a date nobody could read.
+ *
+ * IT CANNOT MAKE A WRONG DAY, only a read one. The suffix is dropped from the
+ * DAY NUMBER and from nowhere else, the month and year are matched exactly as
+ * before, and a suffix that is not one of the four is still not a date. This
+ * widens what is understood; it does not loosen what is believed.
  */
 export function dayFromText(text: string | null | undefined): string | null {
   if (typeof text !== 'string') return null;
@@ -157,8 +175,8 @@ export function dayFromText(text: string | null | undefined): string | null {
   const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
 
-  // "2 jul 2026" and "2 july 2026"
-  const dmy = t.match(/^(\d{1,2})\s+([a-z]{3,})\s+(\d{4})$/);
+  // "2 jul 2026", "2 july 2026" and "2nd jul 2026"
+  const dmy = t.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3,})\s+(\d{4})$/);
   if (dmy) {
     const m = MONTHS.indexOf(dmy[2].slice(0, 3));
     if (m >= 0) {
@@ -166,8 +184,8 @@ export function dayFromText(text: string | null | undefined): string | null {
     }
   }
 
-  // "jul 2, 2026" and "july 2 2026"
-  const mdy = t.match(/^([a-z]{3,})\s+(\d{1,2}),?\s+(\d{4})$/);
+  // "jul 2, 2026", "july 2 2026" and "jul 2nd, 2026"
+  const mdy = t.match(/^([a-z]{3,})\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/);
   if (mdy) {
     const m = MONTHS.indexOf(mdy[1].slice(0, 3));
     if (m >= 0) {

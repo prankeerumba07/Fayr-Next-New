@@ -1672,6 +1672,24 @@ export function whichMarkersAppear(text: string | null | undefined): string {
     ['the-word-delivered', /\bdelivered\b/i],
     ['bill-heading', /\bbill\s+summary\b/i],
     ['item-total', /\bitem\s+total\b/i],
+    // ── AND THREE ABOUT THE ORDER'S OWN DATE, WHICH IS THE OPEN QUESTION ────
+    //
+    // 21 September 2026. The owner's order card shows "Order date: Not
+    // available" while the SAME page gave up a delivery instant of 00:57 am.
+    // A page that dates the arrival very likely dates the purchase, so the
+    // question is not "is the date there" but "is it there in a shape the
+    // reader accepts" — ORDER_DATE_LABEL is anchored to the START of a line,
+    // and Zepto's list writes "Placed at 20th Sep 2026, 07:45 pm" in the MIDDLE
+    // of one, after the amount.
+    //
+    // THESE THREE SEPARATE THE TWO ANSWERS. placed-at or ordered-on saying yes
+    // while the stored orderDate is still null means the words are on the page
+    // and the anchor is what refused them — one expression, not a second read
+    // of a second page. All three saying no means the page really is silent
+    // about when the order was made, and the date has to come off the list.
+    ['placed-at', /\bplaced\s+at\b/i],
+    ['ordered-on', /\border(?:ed)?\s+on\b/i],
+    ['a-day-and-month', /\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i],
   ];
   return probes.map(([name, probe]) => `${name}=${probe.test(whole) ? 'yes' : 'no'}`).join(' ');
 }

@@ -159,8 +159,18 @@ console.log('\n=== 4. THE DELIVERY READ OPENS THE SAME ONE PAGE, AND OFFERS NO P
   const guard = code.slice(code.lastIndexOf('{', code.lastIndexOf('<Ghost', offer)), code.lastIndexOf('?', code.lastIndexOf('<Ghost', offer)) + 1);
   ok(/!asksNothing/.test(guard), `and is shut for a shop inside Fayr: ${guard.trim()}`);
   ok((code.match(/<Ghost\b/g) || []).length === 1, 'and there is still exactly one quiet door');
-  ok(/const asking = \(where === 'asking' \|\| mustAsk\) && !delivered && !asksNothing;/.test(code),
-    'while the question is still never up for one');
+  // ── AND THE QUESTION IS UP AGAIN, WHICH IS A DIFFERENT FLAG — 21 Sep 2026 ─
+  //
+  // This line used to read `&& !asksNothing`, pinning "the question is never up
+  // for a shop inside Fayr". The owner reversed that on 21 September: the tap is
+  // the trigger again. What THIS section is about is the PHOTOGRAPH, and that
+  // did not change — so the two were split onto two flags and only this one is
+  // still asksNothing. The reversal itself is pinned, with his words, in
+  // src/journey/deliveryCadence.test.mjs section 4.
+  ok(/const asking = \(where === 'asking' \|\| mustAsk\) && !delivered\s*&& !theShopLooksWithoutBeingAsked;/.test(code),
+    'while the question is governed by its own flag, not by the photograph\u2019s');
+  ok(!/&& !delivered && !asksNothing;/.test(code),
+    'AND THE TWO ARE NOT ONE FLAG AGAIN, which is how the camera door would reopen');
   // THE CARD'S SENTENCE GOES WITH THE DOOR.
   ok(/\{!asksNothing\s*\?\s*` If it has arrived and \$\{shop\} is slow to say so, send us a `/.test(code),
     'and the card offers a picture only where a picture is offered');

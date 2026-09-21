@@ -70,42 +70,84 @@ console.log('\n=== 3. DELIVERY ARRIVING ADVANCES THE JOURNEY WITH NO TAP ===');
     'while the four other shops still see the question');
 }
 
-console.log('\n=== 4. THE DELIVERY SCREEN ASKS NOTHING FOR A SHOP INSIDE FAYR ===');
+console.log('\n=== 4. THE DELIVERY SCREEN ASKS AGAIN, AND LOOKS ONLY WHEN ASKED ===');
 {
+  // ── THE REVERSAL THIS SECTION NOW PINS — 21 SEPTEMBER 2026 ──────────────
+  //
+  // It used to pin the opposite: "THE DELIVERY SCREEN ASKS NOTHING FOR A SHOP
+  // INSIDE FAYR", on the owner's instruction of 18 September ("delivery fetches
+  // itself. No screen, no tap."). He reversed it in his own words:
+  //
+  //   "there should be a trigger ... 'We can see that you have completed your
+  //    purchase. Once your order is delivered, please confirm yes or no.' Once
+  //    someone clicks on yes, the backend actually goes and checks if the
+  //    product is delivered or not."
+  //
+  // WHAT IS PINNED IS THE SHAPE OF THE REVERSAL, not merely that it happened:
+  // the question is drawn, the screen no longer looks by itself, the tap is a
+  // TRIGGER and never a verdict, and the camera door stays shut for a shop
+  // inside Fayr. Those four together are what make a tap safe to allow.
   const code = withoutComments(read('src/screens/delivery.js'));
-  ok(/const asksNothing = shopsInsideFayr\(key\);/.test(code), 'the screen knows which shop it is drawing for');
-  // THE QUESTION IS GATED WHERE THE FACE IS DECIDED, and nowhere else. The two
-  // lines the frozen deliveryCheck.test.mjs pins — `looked ? 'nothing' :
-  // 'asking'` and `const delivered = known && saidSo;` — are untouched; a shop
-  // inside Fayr simply never has `asking` true, whatever `where` says.
-  ok(/const asking = \(where === 'asking' \|\| mustAsk\) && !delivered && !asksNothing;/.test(code),
-    'and the question is never up for one, whatever the screen\u2019s own state says');
-  ok(/const delivered = known && saidSo;/.test(code) && /looked \? 'nothing' : 'asking'/.test(code),
-    'while the two lines the frozen check pins are exactly as they were');
-  ok(/if \(!asksNothing \|\| known \|\| taskId == null\) return;\s*if \(!mayLookForDeliveryNow\(taskId, Date\.now\(\)\)\) return;\s*rememberTheDeliveryLook\(taskId, Date\.now\(\)\);\s*setWhere\('reading'\);/.test(code),
-    'THE READ IS STARTED BY THE SCREEN, on the cadence, with the note written before the move');
-  // AND NOT THROUGH THE TAP'S PATH, whose once-per-sitting note would refuse the
-  // ten minute re-look — the defect an adversarial review found on the first
-  // writing of this effect.
-  // BOTH ANCHORS MUST BE FOUND. An end anchor that is missing reads as -1, and
-  // slice(start, -1) is the whole rest of the file — which passed, on 19
-  // September 2026, for the wrong reason when the dependency list changed.
-  // `tick` joined it with Phase 8A: an open screen asks the cadence again every
-  // half minute, and the effect has to re-run for the ask to happen.
-  const autoStart = code.indexOf('if (!asksNothing || known || taskId == null) return;');
-  const autoEnd = code.indexOf('}, [asksNothing, known, taskId, campaignId, navigation, tick]);', autoStart);
+
+  // ONE FLAG HOLDS BOTH HALVES. The question being drawn and the screen not
+  // looking by itself are two faces of one decision; split across two flags,
+  // one can be flipped without the other and the screen asks a question it then
+  // navigates away from before anybody can answer it.
+  ok(/const theShopLooksWithoutBeingAsked = false;/.test(code),
+    'THE SCREEN NO LONGER LOOKS BY ITSELF, and says so in one place');
+
+  ok(/const asking = \(where === 'asking' \|\| mustAsk\) && !delivered\s*&& !theShopLooksWithoutBeingAsked;/.test(code),
+    'and the question IS up for every shop, including one inside Fayr');
+
+  // THE AUTOMATIC LOOK IS STILL THERE AND STILL CORRECT, and it is gated on the
+  // same flag — so it is dead today and would come back whole, cadence and all,
+  // if anybody ever sets the flag true. Deleting it would throw away the ten
+  // minute floor that exists because repeated shop visits get accounts blocked.
+  ok(/if \(!theShopLooksWithoutBeingAsked \|\| known \|\| taskId == null\) return;\s*if \(!mayLookForDeliveryNow\(taskId, Date\.now\(\)\)\) return;\s*rememberTheDeliveryLook\(taskId, Date\.now\(\)\);\s*setWhere\('reading'\);/.test(code),
+    'the automatic look is kept whole, and gated on that one flag');
+  const autoStart = code.indexOf('if (!theShopLooksWithoutBeingAsked || known || taskId == null) return;');
+  const autoEnd = code.indexOf('}, [theShopLooksWithoutBeingAsked, known, taskId, campaignId, navigation, tick]);', autoStart);
   ok(autoStart > -1 && autoEnd > autoStart, 'the automatic look and its dependency list are both where expected');
   const auto = code.slice(autoStart, autoEnd);
   ok(auto.length > 50 && !/theySaidYes\(\)|alreadyLookedForDelivery|rememberWeLookedForDelivery/.test(auto),
-    'and the automatic look is governed by the cadence alone, never by the per-sitting note');
-  ok(/setInterval\(\(\) => setTick\(\(n\) => n \+ 1\), 30000\)/.test(code),
-    'AND AN OPEN SCREEN ASKS AGAIN, every half minute, so the floor passing is noticed without a tap');
+    'and it is still governed by the cadence alone, never by the per-sitting note');
   ok(/navigation\.navigate\('LookingForIt', \{ campaignId, onlyThisOrder: itsOrder \}\)/.test(auto),
-    'and it names the order, exactly as the tap\u2019s path does');
-  // The two answer buttons are still drawn only under `asking`, which is false
-  // for such a shop, so nothing is tapped — and the four other shops keep them.
+    'and it still names the order, exactly as the tap’s path does');
+
+  // THE TWO LINES THE FROZEN CHECK PINS ARE UNTOUCHED, as they were before.
+  ok(/const delivered = known && saidSo;/.test(code) && /looked \? 'nothing' : 'asking'/.test(code),
+    'while the two lines the frozen check pins are exactly as they were');
+
+  // THE CAMERA DOOR IS A DIFFERENT QUESTION AND IT STAYS SHUT. A photograph is
+  // the same question asked of a camera, and for a shop inside Fayr the watched
+  // order's own page is read again instead — that page is the only evidence
+  // there is. This is why the reversal needed a SECOND flag and not an edit to
+  // this one.
+  ok(/const asksNothing = shopsInsideFayr\(key\);/.test(code),
+    'the screen still knows which shop it is drawing for');
+  ok(/\{!reading && !asking && !delivered && !asksNothing \? \(\s*<Ghost/.test(code),
+    'AND NO PICTURE IS ASKED OF A SHOP INSIDE FAYR, which the tap does not change');
+
   ok(/\{asking \? \(\s*<>\s*<Pill onPress=\{theySaidYes\}/.test(code),
     'and the two answers are drawn only when the question is up');
+
+  // THE TAP IS A TRIGGER AND NEVER A VERDICT. deliveryCheck.test.mjs owns this
+  // rule in full; this line is here so that a change made in THIS section
+  // cannot quietly hand the tap a verdict without that file being opened.
+  const yesStart = code.indexOf('const theySaidYes = useCallback(');
+  const yesEnd = code.indexOf('}, [', yesStart);
+  const yes = code.slice(yesStart, yesEnd);
+  ok(yesStart > -1 && yesEnd > yesStart, 'the answer handler is where expected');
+  ok(!/submitEvidence|sendFoundOrders|markReviewed|applyAuthoritative|delivery:/.test(yes),
+    'AND THE TAP SETTLES NOTHING: it writes a note and opens the read, and that is all');
+
+  // AND WHAT FAYR ALREADY KNOWS IS SAID BEFORE IT ASKS. Named from
+  // journeyWords.js, never retyped into the screen — the plain-language walk
+  // reads that file off disk and cannot see a sentence typed here.
+  ok(/\{asking \? `\$\{ORDER_PLACED_WE_SAW_IT\} ` : null\}/.test(code),
+    'and the screen says what it already knows before it asks anything');
+  ok(!/We can see that you have completed your purchase/.test(code),
+    'with no sentence typed into the screen itself');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

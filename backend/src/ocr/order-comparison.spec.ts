@@ -264,6 +264,42 @@ describe('the user’s own screenshot against the user’s own order', () => {
         expect(dayFromText(bad as never)).toBeNull();
       }
     });
+
+    it('AND A DAY WEARING AN ORDINAL, which is the only way Zepto writes one', () => {
+      // ── TWO CHARACTERS, AND EVERY ZEPTO ORDER DATE WAS REFUSED ────────────
+      //
+      // Measured 21 September 2026. The owner's order card read "Order date:
+      // Not available" beside a page that prints "Placed at 20th Sep 2026,
+      // 07:45 pm". "20 Sep 2026" parsed; "20th Sep 2026" did not, and every
+      // day that shop writes carries st, nd, rd or th.
+      expect(dayFromText('20th Sep 2026')).toBe('2026-09-20');
+      expect(dayFromText('21st Sep 2026')).toBe('2026-09-21');
+      expect(dayFromText('22nd Sep 2026')).toBe('2026-09-22');
+      expect(dayFromText('23rd September 2026')).toBe('2026-09-23');
+      expect(dayFromText('1st Jan 2027')).toBe('2027-01-01');
+      // AND THE OTHER WAY ROUND, for a shop that puts the month first.
+      expect(dayFromText('Sep 20th, 2026')).toBe('2026-09-20');
+      expect(dayFromText('September 3rd 2026')).toBe('2026-09-03');
+
+      // ── AND IT STILL REFUSES EVERYTHING IT REFUSED BEFORE ────────────────
+      //
+      // The suffix is dropped from the DAY NUMBER and nowhere else. This widens
+      // what is understood; it must not loosen what is believed.
+      for (const bad of [
+        '20xx Sep 2026',      // not one of the four suffixes
+        '20th Sept-ember 2026',
+        'th Sep 2026',        // no day at all
+        '20th 09 2026',       // a month has to be a month
+        '20th Sep',           // a year is never borrowed here
+        '20th Sep 26',
+      ]) {
+        expect(dayFromText(bad)).toBeNull();
+      }
+      // AND THE PLAIN SHAPES ARE UNTOUCHED.
+      expect(dayFromText('31 Dec 2026')).toBe('2026-12-31');
+      expect(dayFromText('Dec 31, 2026')).toBe('2026-12-31');
+      expect(dayFromText('02/07/2026')).toBe('2026-07-02');
+    });
   });
 });
 

@@ -1786,6 +1786,39 @@ describe('telling a page that arrived half drawn from one whose wording moved', 
     expect(parseOrderText(WHOLE).deliveredSaid).toBeNull();
   });
 
+  it('THE OPEN QUESTION: whether the page dates the order, told apart from how it says it', () => {
+    // ── WHY THESE THREE ARE WORTH A PROBE ───────────────────────────────────
+    //
+    // The owner's card said "Order date: Not available" beside an order whose
+    // own page gave up a delivery instant. Two very different causes:
+    //
+    //   THE PAGE IS SILENT     nothing on it says when the order was made, and
+    //                          the date has to come off the LIST instead.
+    //   THE ANCHOR REFUSED IT  the words are there, mid-line, and
+    //                          ORDER_DATE_LABEL only reads them at the start of
+    //                          a line. One expression fixes it.
+    //
+    // Zepto's list writes exactly that mid-line shape, so this is not
+    // hypothetical. These three say which it is without printing a word.
+    const MID_LINE = 'Order delivered ₹360 Placed at 20th Sep 2026, 07:45 pm';
+    const said = whichMarkersAppear(MID_LINE);
+    expect(said).toContain('placed-at=yes');
+    expect(said).toContain('a-day-and-month=yes');
+    // AND THE READER REALLY DOES REFUSE IT, which is the half a probe cannot
+    // prove on its own. If this ever starts passing, the probe has done its job
+    // and this line is what says so.
+    expect(parseOrderText(MID_LINE).orderDate).toBeNull();
+    // ON ITS OWN LINE IT IS READ, which is what makes the anchor the suspect.
+    expect(parseOrderText('Placed at 20th Sep 2026').orderDate).not.toBeNull();
+  });
+
+  it('and a page that never mentions a date says no to all three', () => {
+    const said = whichMarkersAppear('Order #RGTLJGSNT54558\nDelivered\nBill Summary');
+    expect(said).toContain('placed-at=no');
+    expect(said).toContain('ordered-on=no');
+    expect(said).toContain('a-day-and-month=no');
+  });
+
   it('and it carries no word of the page itself', () => {
     const said = whichMarkersAppear(WHOLE);
     expect(said).not.toContain('RGTLJGSNT54558');

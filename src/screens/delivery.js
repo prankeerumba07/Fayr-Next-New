@@ -83,7 +83,7 @@ import { COLOR, FONT, RADIUS, SPACE } from '../ui/theme';
 import { Ghost, Pill, TextBtn, hSub, hTitle } from '../ui/brand';
 import { Screen } from '../ui/primitives';
 import {
-  IS_THE_PRODUCT_DELIVERED, NO, THANK_YOU_FOR_CONFIRMING,
+  IS_THE_PRODUCT_DELIVERED, NO, ORDER_PLACED_WE_SAW_IT, THANK_YOU_FOR_CONFIRMING,
   USE_IT_AND_REVIEW_FAIRLY, YES,
 } from '../ui/journeyWords';
 import { goBackOrHome } from '../ui/nav';
@@ -138,7 +138,34 @@ export default function DeliveryScreen({ navigation, route }) {
   // src/journey/deliveryCadence.js decides, and what is drawn is only "checking"
   // or "not yet". The four other shops keep the question and everything under
   // it, for the reason the long note at the top of this file gives.
+  // A PHOTOGRAPH IS STILL NEVER ASKED OF A SHOP INSIDE FAYR. The watched order's
+  // own page is read again instead, and that page is the only evidence there is.
+  // This flag keeps the camera door shut; it no longer decides whether anybody is
+  // ASKED anything — see theShopLooksWithoutBeingAsked directly below.
   const asksNothing = shopsInsideFayr(key);
+
+  // ── AND THE QUESTION IS BACK FOR EVERY SHOP — 21 SEPTEMBER 2026 ─────────
+  //
+  // This was `shopsInsideFayr(key)`, on the owner's instruction of 18 September:
+  // "delivery fetches itself. No screen, no tap." He reversed it on 21 September,
+  // in his own words: "there should be a trigger ... 'We can see that you have
+  // completed your purchase. Once your order is delivered, please confirm yes or
+  // no.' Once someone clicks on yes, the backend actually goes and checks if the
+  // product is delivered or not."
+  //
+  // WHAT THE REVERSAL DOES AND DOES NOT CHANGE. It changes WHO STARTS the read:
+  // a tap, instead of this screen opening on a ten minute cadence. It changes
+  // nothing about what the read means. The tap writes one device-local note and
+  // opens the same read of the same page; the record's delivery still comes only
+  // from the server reading the page text the read posts. A Yes on a parcel that
+  // has not arrived comes back "Not yet" and moves nothing, which is the whole
+  // reason a tap is allowed to be a trigger at all.
+  //
+  // FALSE AND NOT DELETED, on purpose: the automatic look below and the question
+  // further down are two halves of one decision, and a reader who finds only one
+  // of them changed would reasonably think the other had been forgotten. One flag
+  // holds both halves together and says which way it is set and why.
+  const theShopLooksWithoutBeingAsked = false;
   const [where, setWhere] = useState(looked ? 'nothing' : 'asking');
   const started = useRef(false);
 
@@ -265,7 +292,7 @@ export default function DeliveryScreen({ navigation, route }) {
   // directly, names the order exactly as the tap's path does, and lets the
   // cadence alone decide when it may run again.
   useEffect(() => {
-    if (!asksNothing || known || taskId == null) return;
+    if (!theShopLooksWithoutBeingAsked || known || taskId == null) return;
     if (!mayLookForDeliveryNow(taskId, Date.now())) return;
     rememberTheDeliveryLook(taskId, Date.now());
     setWhere('reading');
@@ -280,7 +307,7 @@ export default function DeliveryScreen({ navigation, route }) {
     // when the record carries its key — whichRead.js decides that inside
     // LookingForIt, from the record, so the order named here is the fallback
     // for a shop whose pages are addressed by their number.
-  }, [asksNothing, known, taskId, campaignId, navigation, tick]);
+  }, [theShopLooksWithoutBeingAsked, known, taskId, campaignId, navigation, tick]);
 
   // ── AND NOBODY IS LEFT WATCHING A WORD THAT NEVER CHANGES ───────────────
   //
@@ -325,7 +352,8 @@ export default function DeliveryScreen({ navigation, route }) {
   // screen is not drawn with `known` at all for one; what it draws is the wait
   // between looks, and the look is started by the screen on its own cadence.
   const reading = where === 'reading' && !delivered && !mustAsk;
-  const asking = (where === 'asking' || mustAsk) && !delivered && !asksNothing;
+  const asking = (where === 'asking' || mustAsk) && !delivered
+    && !theShopLooksWithoutBeingAsked;
 
   return (
     <Screen bg={COLOR.cream}>
@@ -341,6 +369,18 @@ export default function DeliveryScreen({ navigation, route }) {
             then it is about a thing that has already happened. */}
         {!delivered ? (
           <Text style={[hSub, styles.thanks]}>
+            {/* ── WHAT FAYR ALREADY KNOWS, SAID BEFORE ANYTHING IS ASKED ───
+                21 September 2026, the owner: "you are saying that we can see
+                that you have purchased your order, so there should be a
+                trigger". Asking "is it delivered?" of somebody Fayr watched pay
+                reads as if Fayr had lost track of them. Saying what we already
+                know first is what makes the question a next step rather than a
+                doubt.
+
+                THE SENTENCE IS NOT A NEW ONE. ORDER_PLACED_WE_SAW_IT already
+                lives in src/ui/journeyWords.js and already passes the plain
+                language walk; it is named here, never retyped. */}
+            {asking ? `${ORDER_PLACED_WE_SAW_IT} ` : null}
             {THANK_YOU_FOR_CONFIRMING} {USE_IT_AND_REVIEW_FAIRLY}
           </Text>
         ) : null}
@@ -380,7 +420,12 @@ export default function DeliveryScreen({ navigation, route }) {
               {!asksNothing
                 ? ` If it has arrived and ${shop} is slow to say so, send us a `
                   + 'picture and a person will take it from there.'
-                : ' We look again by ourselves while this is open.'}
+                // AND THIS SENTENCE CHANGED WITH THE TRIGGER, 21 September 2026.
+                // It used to promise "We look again by ourselves while this is
+                // open", which stopped being true the moment the tap became what
+                // starts the read. A screen that promises a thing it no longer
+                // does is worse than one that says nothing.
+                : ' Open this again when it has arrived and we will look.'}
             </Text>
           </View>
         ) : null}
