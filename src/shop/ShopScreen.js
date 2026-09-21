@@ -55,7 +55,7 @@ import { WebView } from 'react-native-webview';
 
 import * as campaignStore from '../backend/campaignStore';
 import { PLATFORMS } from '../platforms';
-import { markConnected, markSignedOut } from '../backend/connectedShops';
+import { isConnected, markConnected, markSignedOut } from '../backend/connectedShops';
 import { reportShopSignIn } from '../backend/shopApi';
 import { LOOKED_FOR_THE_ORDER, SIGNED_IN, markVisitedShop } from '../journey/shopVisits';
 import { countdownFor } from '../journey/theNotice';
@@ -630,12 +630,42 @@ export default function ShopScreen({ navigation, route }) {
       // was seen goes, so a tap and the pause cannot disagree. See above.
       const handOff = whereToHandOver({ orderKey });
       logShop('HANDING OVER', handoffDetail({ to: handOff.to, campaignId }));
-      if (handOff.writesTheLookedNote) markVisitedShop(campaignId, LOOKED_FOR_THE_ORDER);
+      // ── AND "WE LOOKED" IS ONLY TRUE IF THEY WERE EVER IN THE SHOP ───────
+      //
+      // 21 September 2026. The owner tapped Continue on an Instamart claim and
+      // landed on "send us a picture of your order", having bought nothing. His
+      // session was: Fayr opens Instamart, Swiggy bounces him to its own login,
+      // he backs out. He never shopped — and this line had already recorded that
+      // Fayr looked for his order and found none, which is the one note that
+      // turns the journey's shop door into the screenshot fallback.
+      //
+      // THE TWO FACTS THIS NOTE EXISTS TO SEPARATE are "we have not looked yet"
+      // and "we looked and found nothing". A third was being folded into the
+      // second: "there was nothing to look at, because they never got in". That
+      // is not a finding about somebody's orders. It is a finding about a login.
+      //
+      // isConnected IS THE RIGHT QUESTION AND IT IS NOW ABLE TO ANSWER IT. Until
+      // this morning it could only ever say yes — our side's record is written
+      // once and never un-written. It now also carries what the shop itself said
+      // during this very session, so a shop that drew a login form has already
+      // made this false by the time we get here. See markSignedOut in
+      // src/backend/connectedShops.js.
+      //
+      // AND THE DIRECTION OF THE MISTAKE IS CHOSEN. A wrong `false` skips the
+      // note, so the journey offers the shop again instead of a camera — which
+      // is where somebody who has not bought anything should be sent anyway. A
+      // wrong `true` is what put him on the screenshot screen with nothing to
+      // photograph and no way forward.
+      const theyWereInTheShop = isConnected(platform.key);
+      if (handOff.writesTheLookedNote && theyWereInTheShop) {
+        markVisitedShop(campaignId, LOOKED_FOR_THE_ORDER);
+      }
       navigation.replace(handOff.to, { campaignId });
       return;
     }
     goBackOrHome(navigation);
-  }, [saveSession, navigation, landingOnAnOrder, campaignId, task, orderSeen, orderKey]);
+  }, [saveSession, navigation, landingOnAnOrder, campaignId, task, orderSeen, orderKey,
+    platform]);
 
   // A shop that does not shop inside Fayr, or a campaign with nowhere honest to
   // go. Nothing is invented to fill the hole and no shop page is shown.

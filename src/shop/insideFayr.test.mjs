@@ -601,5 +601,50 @@ console.log('\na shop that is a SECTION of a bigger site lands on its own door')
   ok(!/https?:\/\//.test(code), 'and insideFayr.js still holds no http address of its own');
 }
 
+console.log('\n"we looked and found nothing" is only said about somebody who got in');
+{
+  // ── THE RUN THIS COMES FROM — 21 SEPTEMBER 2026 ─────────────────────────
+  //
+  // The owner tapped Continue on an Instamart claim and landed on "send us a
+  // picture of your order", having bought nothing. His session was: Fayr opens
+  // Instamart, Swiggy bounces him to its own login, he backs out. He never
+  // shopped — and ShopScreen had already written LOOKED_FOR_THE_ORDER, the one
+  // note that turns the journey's shop door into the screenshot fallback.
+  //
+  // THE NOTE EXISTS to separate "we have not looked yet" from "we looked and
+  // found nothing". A third fact was being folded into the second: "there was
+  // nothing to look at, because they never got in" — which is a finding about a
+  // login, not about anybody's orders.
+  const shop = read('src/shop/ShopScreen.js');
+  const code = shop.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+
+  ok(/const theyWereInTheShop = isConnected\(platform\.key\);/.test(code),
+    'THE SHOP ASKS WHETHER THEY WERE EVER IN IT');
+  ok(/if \(handOff\.writesTheLookedNote && theyWereInTheShop\) \{\s*markVisitedShop\(campaignId, LOOKED_FOR_THE_ORDER\);/.test(code),
+    'AND ONLY THEN DOES IT SAY IT LOOKED');
+  // AND THE ANSWER COMES FROM THE STORE THAT NOW KNOWS BOTH WAYS. Until this
+  // morning isConnected could only ever say yes: our side's record is written
+  // once and never un-written. It now also carries what the shop itself said
+  // during this session, which is what makes it able to answer this at all.
+  ok(/import \{[^}]*\bisConnected\b[^}]*\} from '\.\.\/backend\/connectedShops';/.test(shop),
+    'from the store that carries the shop’s own word as well as the record');
+
+  // ── TWO PLACES WRITE IT, AND ONLY ONE NEEDS THE GUARD ─────────────────
+  //
+  // The other is the ORDER-PLACED effect, which runs only when Fayr watched an
+  // order be placed. Somebody who placed an order was in the shop by
+  // definition, so guarding that one would be asking a question already
+  // answered. Both are named here so a third can never appear unnoticed.
+  const sites = (code.match(/markVisitedShop\(campaignId, LOOKED_FOR_THE_ORDER\)/g) || []);
+  ok(sites.length === 2, `two places say it, found ${sites.length}`);
+  const placedAt = code.indexOf('LET_THEM_SEE_IT_MS');
+  const guardedAt = code.indexOf('theyWereInTheShop');
+  ok(placedAt !== -1 && guardedAt !== -1,
+    'the order-placed pause and the guarded leave are both where expected');
+  ok(guardedAt > placedAt,
+    'AND THE GUARDED ONE IS THE LEAVE PATH, the only one that can run with no order');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

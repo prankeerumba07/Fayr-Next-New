@@ -292,7 +292,7 @@ console.log('\nthe other half of the same observation: the shop saying they are 
   // a signed-out reading placed after it would never run on the one kind of
   // page it exists for.
   const shop = read('src/shop/ShopScreen.js');
-  ok(/import \{ markConnected, markSignedOut \} from '\.\.\/backend\/connectedShops';/.test(shop),
+  ok(/import \{[^}]*\bmarkSignedOut\b[^}]*\} from '\.\.\/backend\/connectedShops';/.test(shop),
     'ShopScreen takes markSignedOut from the store that owns it');
   ok(/theyAreSignedOutHere,/.test(shop), 'and the reading from the file that owns it');
   const outAt = shop.indexOf('theyAreSignedOutHere(showed)');
