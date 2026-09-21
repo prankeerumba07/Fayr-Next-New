@@ -320,5 +320,51 @@ it('and the log says one was named, but never which', () => {
     'the log must never carry the order number itself');
 });
 
+console.log('\nthe order it read is shown before the question is asked');
+// ── THE RUN THIS COMES FROM — 21 SEPTEMBER 2026 ───────────────────────────
+//
+// The owner completed a real Zepto purchase. Fayr watched it, matched it, and
+// stored order SPJVJGSNM65882 dated 21 September for ₹120. He came back and the
+// screen asked "Is the product delivered?" with nothing else on it: "No, it is
+// not showing the order details."
+//
+// A WATCHED ORDER STILL SKIPS THE ORDER-DETAILS STEP, and that is still right:
+// that screen ASKS whether the order is theirs, and Fayr watched this one being
+// placed from this claim. Only the question was meant to go, not the facts.
+const deliveryScreen = read('../screens/delivery.js');
+const deliveryCode = withoutComments(deliveryScreen);
+
+it('THE FOUR THINGS HE HAS ASKED FOR SINCE THE FIRST DAY ARE ON IT', () => {
+  for (const label of ['Product', 'Order ID', 'Order date', 'Order amount']) {
+    assert.ok(deliveryCode.includes(`'${label}'`), `the card names ${label}`);
+  }
+});
+
+it('and they are read off the record, never off the campaign alone', () => {
+  assert.ok(/order\.id/.test(deliveryCode), 'the order number comes from the order');
+  assert.ok(/order\.itemPaise/.test(deliveryCode), 'and so does the amount');
+});
+
+it('NOTHING IS INVENTED: a figure the shop did not print is shown as blank', () => {
+  assert.ok(/Not shown by the shop/.test(deliveryCode));
+});
+
+it('and the money and the day are formatted by the file that owns them', () => {
+  // Two screens must not disagree about one figure, which is why neither is
+  // formatted by hand here.
+  assert.ok(/import \{ amountInWords, dayInWords \} from '\.\.\/ui\/orderCard'/
+    .test(deliveryScreen));
+  assert.ok(!/₹\$\{/.test(deliveryCode), 'no rupee sign is assembled on this screen');
+});
+
+it('AND THE AMOUNT IS WHAT THE ORDER SAYS, never a promise about the refund', () => {
+  // Those are two different numbers, and the refund step is the one that states
+  // its own. A screen that promised a payout here would be promising a figure
+  // the payout is free to refuse.
+  const at = deliveryCode.indexOf("'Order amount'");
+  assert.ok(at > -1);
+  assert.ok(!/refund|payout/i.test(deliveryCode.slice(at - 200, at + 200)));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

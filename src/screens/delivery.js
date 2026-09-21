@@ -72,6 +72,11 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 import * as campaignStore from '../backend/campaignStore';
 import { getTask as getTaskFromServer } from '../backend/tasksApi';
 import { getAuthoritative, getTaskId, subscribe } from '../taskStore';
+// THE TWO FORMATTERS, from the file that owns them. Both pure, both already
+// walked — see src/ui/orderCard.test.mjs. Nothing here formats money or a day
+// by hand, which is the rule that keeps two screens from disagreeing about one
+// figure.
+import { amountInWords, dayInWords } from '../ui/orderCard';
 import { PLATFORMS } from '../platforms';
 import {
   alreadyLookedForDelivery, rememberWeLookedForDelivery,
@@ -177,6 +182,14 @@ export default function DeliveryScreen({ navigation, route }) {
   // asked anything, which is the ordinary case for an order whose return window
   // has already closed.
   const task = campaignId ? getAuthoritative(campaignId) : null;
+  // THE ORDER AS OUR SIDE HOLDS IT, for the card above the question.
+  const order = task && task.order && typeof task.order === 'object' ? task.order : null;
+  // The day, as a day, from the instant our side sent. dayInWords wants the
+  // "2026-09-21" shape and answers null for anything else, so a date we could
+  // not read falls through to whatever the shop printed.
+  const orderDay = order && typeof order.date === 'string' && order.date.length >= 10
+    ? order.date.slice(0, 10)
+    : null;
   const known = !!(task && task.delivery);
   const saidSo = campaignId ? hasVisitedShop(campaignId, SAID_IT_ARRIVED) : false;
 
@@ -367,6 +380,41 @@ export default function DeliveryScreen({ navigation, route }) {
 
             IT GOES AS SOON AS THE PARCEL IS KNOWN TO HAVE ARRIVED, because by
             then it is about a thing that has already happened. */}
+        {/* ── WHAT FAYR READ OFF THE ORDER, BEFORE IT ASKS ANYTHING ───────
+            21 September 2026. The owner watched a purchase complete, came back,
+            and was asked "Is the product delivered?" with nothing else on the
+            screen: "No, it is not showing the order details."
+
+            A WATCHED ORDER SKIPS THE ORDER-DETAILS STEP ON PURPOSE, and that is
+            still right — that screen ASKS "is this your order?", and Fayr
+            watched this one being placed from this claim, so the question is
+            already answered. Seeing the order and being asked about it are
+            different things, and only the question was meant to go.
+
+            THE FOUR THINGS HE ASKED FOR, since the first day: order ID, order
+            date, order amount, product name. Every one is read off the record
+            and shown as blank when the shop did not print it — nothing here
+            invents a figure, and the amount is what the ORDER says rather than
+            what the refund will be, which is a different number and is the
+            refund step's to state. */}
+        {order ? (
+          <View style={styles.order}>
+            {[
+              ['Product', order.product || (campaign ? campaign.productName : null)],
+              ['Order ID', order.id],
+              ['Order date', dayInWords(orderDay) || order.dateRaw],
+              ['Order amount', amountInWords(order.itemPaise)],
+            ].map(([label, value]) => (
+              <View key={label} style={styles.orderRow}>
+                <Text style={styles.orderLabel}>{label}</Text>
+                <Text style={styles.orderValue} numberOfLines={2}>
+                  {value || 'Not shown by the shop'}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {!delivered ? (
           <Text style={[hSub, styles.thanks]}>
             {/* ── WHAT FAYR ALREADY KNOWS, SAID BEFORE ANYTHING IS ASKED ───
@@ -493,5 +541,19 @@ const styles = StyleSheet.create({
     fontFamily: FONT.bodyMed, fontSize: 12, lineHeight: 18, color: '#7A5A10',
     marginTop: 4,
   },
+  order: {
+    alignSelf: 'stretch', marginTop: 18, borderRadius: 14,
+    backgroundColor: COLOR.white, paddingVertical: 4, paddingHorizontal: 14,
+  },
+  orderRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    gap: 12, paddingVertical: 7,
+  },
+  orderLabel: { fontFamily: FONT.body, fontSize: 12.5, color: COLOR.ink2 },
+  orderValue: {
+    fontFamily: FONT.bodyMed, fontSize: 12.5, color: COLOR.ink,
+    flexShrink: 1, textAlign: 'right',
+  },
+
   foot: { paddingHorizontal: 28, paddingBottom: 28, gap: 8 },
 });
