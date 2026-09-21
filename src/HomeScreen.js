@@ -46,7 +46,21 @@ function CampaignRow({ c, claimed, onOpen }) {
   // rule. A dead shop page is a problem a freed slot would not fix, so when both
   // are true the person is told the one that matters. See src/ui/seats.js for
   // the three facts and why they must not collide.
-  const locked = full && !off;
+  //
+  // ── AND IT IS NEVER LOCKED TO SOMEBODY WHO HOLDS ONE OF THE SEATS ───────
+  //
+  // 21 September 2026. The owner made a one-slot offer, claimed it, and his own
+  // home screen told him "Come back when a slot opens" — about the seat he was
+  // sitting in. He found his claim only by going to My Products, where the card
+  // was correct, so one offer was saying two different things in two places.
+  //
+  // `claimed` was already handed to this row and simply never consulted. A full
+  // offer is full FOR PEOPLE WHO HAVE NO SEAT; to the person holding one the
+  // true word is Continue, which is exactly what the card draws when it is not
+  // locked. seats.js is untouched — the server's count is right, and so is
+  // "All seats taken" as a count. What was wrong was reading a count about
+  // everybody as a sentence about this one person.
+  const locked = full && !off && !claimed;
   return (
     <Card onPress={onOpen} style={[styles.campaignCard, off && styles.campaignCardOff]}>
       {live.label ? (

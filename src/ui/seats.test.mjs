@@ -205,8 +205,22 @@ console.log('\n=== the locked offer is DRAWN, still in the list, and not claimab
   //
   // A dead shop page is a problem a freed slot would not fix, so when both are
   // true the person is told the one that matters.
-  ok(/const locked = full && !off;/.test(home),
+  ok(/const locked = full && !off && !claimed;/.test(home),
     'a locked banner is not drawn over a shop whose page has died');
+  // ── AND NEVER OVER A SEAT THE PERSON IS SITTING IN — 21 SEPTEMBER 2026 ──
+  //
+  // The owner made a one-slot offer, claimed it, and his home screen told him
+  // "Come back when a slot opens" about the seat he was holding. His claim was
+  // only findable through My Products, so one offer said two different things in
+  // two places. `claimed` was already handed to the row and never consulted.
+  //
+  // seats.js IS UNTOUCHED BY THIS. The server's count is right and "All seats
+  // taken" is a true sentence about a count. What was wrong was reading a count
+  // about everybody as a sentence about this one person.
+  ok(/claimed={hasTask\(c\.id\)}/.test(home),
+    'the row is told whether this person holds a claim');
+  ok(/function CampaignRow\(\{ c, claimed, onOpen \}\)/.test(home),
+    'and takes it, so the locked line can ask');
   ok(/off \? live\.cta : locked \?/.test(home),
     'and the shop\u2019s own state is asked first');
   ok(/lockedBanner/.test(home) && /offBanner/.test(home),
