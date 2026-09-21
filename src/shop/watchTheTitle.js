@@ -82,10 +82,28 @@ export function watchTheTitleScript() {
     window.addEventListener('hashchange', function(){ setTimeout(tell, 0); });
     function watchTitle(){
       try {
-        var el = document.querySelector('title');
-        if (!el || !window.MutationObserver) return false;
+        // ── THE HEAD, NOT THE TITLE NODE — 21 SEPTEMBER 2026 ──────────────
+        //
+        // This used to observe document.querySelector('title'). A single-page
+        // shop that REPLACES that node rather than editing it leaves the
+        // observer watching an element no longer in the document, and it never
+        // fires again — so the first title the view ever had is the only one
+        // Fayr hears, for the whole session.
+        //
+        // MEASURED: the owner scrolled to a Zepto product and the bar never
+        // turned green. Every report in his log carried the shell title,
+        // "Everything delivered in minutes* | Zepto", while an earlier session
+        // on the same shop proves the real one exists and is exactly what the
+        // matcher wants: "Lakme 9 To 5 Cc Cream … - Buy at ₹366 Online |
+        // Instant Delivery - Zepto". The product name is right there in it.
+        //
+        // The head is always the same node, so observing IT with subtree on
+        // catches a <title> that is edited, replaced, removed or added later.
+        // Strictly more than before and never less.
+        var head = document.head || document.querySelector('head');
+        if (!head || !window.MutationObserver) return false;
         new MutationObserver(function(){ tell(); })
-          .observe(el, { childList: true, characterData: true, subtree: true });
+          .observe(head, { childList: true, characterData: true, subtree: true });
         return true;
       } catch(e){ return false; }
     }

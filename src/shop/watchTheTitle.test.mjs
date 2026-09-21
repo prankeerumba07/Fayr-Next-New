@@ -141,5 +141,39 @@ console.log('\n=== 5. THE SCREEN FEEDS BOTH SOURCES INTO THE SAME TWO SETTERS ==
     'and nothing about the address decides the product verdict — none has been measured');
 }
 
+console.log('\nthe title watcher survives a shop that replaces its title node');
+{
+  // ── THE RUN THIS COMES FROM — 21 SEPTEMBER 2026 ─────────────────────────
+  //
+  // The owner scrolled to a Zepto product inside Fayr and the bar never turned
+  // green. Every report in his log carried the SHELL title:
+  //
+  //   "Everything delivered in minutes* | Zepto"   share=0 words=0/5
+  //
+  // while an earlier session on the same shop recorded the real one, and it is
+  // exactly what the matcher wants — the product's whole name is in it:
+  //
+  //   "Lakme 9 To 5 Cc Cream Beige … - Buy at ₹366 Online | Instant Delivery - Zepto"
+  //
+  // So the matcher was never the problem. The observer was: it was installed on
+  // the <title> NODE, and a single-page shop that replaces that node rather than
+  // editing it leaves the observer watching an element no longer in the
+  // document. It never fires again, and the first title of the session is the
+  // only one Fayr ever hears.
+  const script = watchTheTitleScript();
+  ok(/document\.head \|\| document\.querySelector\('head'\)/.test(script),
+    'IT OBSERVES THE HEAD, which is one node and is never replaced');
+  ok(!/observe\(el,/.test(script), 'and never the title node, which can be');
+  ok(/childList: true, characterData: true, subtree: true/.test(script),
+    'with subtree on, so a title edited, replaced, removed or added is all seen');
+
+  // AND IT STILL READS NOTHING IT MAY NOT. Observing the head is not reading the
+  // page: the rules this file is held to above are unchanged, and this line is
+  // here so that widening the observer can never quietly widen what is read.
+  for (const forbidden of ['innerText', 'textContent', 'outerHTML', 'document.cookie']) {
+    ok(!script.includes(forbidden), `and still no ${forbidden}`);
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

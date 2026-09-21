@@ -458,8 +458,7 @@ export default function DeliveryScreen({ navigation, route }) {
         <Text style={[hSub, styles.sub]}>
           {wentBack
             ? `${shop} says this order was cancelled or returned, so this offer `
-              + 'cannot be paid. Nothing else is needed from you, and no tickets '
-              + 'were spent on the order itself.'
+              + 'cannot be paid. There is nothing else for you to do here.'
             : delivered
             ? `${shop} has told us it arrived. The review step is open.`
             : asking
