@@ -241,7 +241,7 @@ const MEESHO_CAMPAIGN: SeededCampaign = {
  * adds. ONE list, because the journeys look offers up by title and a second list
  * meant the added offer was writable but not findable.
  */
-const ALL_SEEDED_CAMPAIGNS: SeededCampaign[] = [...DEMO_CAMPAIGNS, MEESHO_CAMPAIGN];
+export const ALL_SEEDED_CAMPAIGNS: SeededCampaign[] = [...DEMO_CAMPAIGNS, MEESHO_CAMPAIGN];
 
 /**
  * THE GUARD, at module scope so it can be tested without a database.
@@ -379,11 +379,47 @@ export async function seedDemo(
   };
 
   // ── 1. the catalogue ──────────────────────────────────────────────────────
+  //
+  // ── WHAT THE SEED OWNS, AND WHAT IT MUST NOT TOUCH — 22 SEPTEMBER 2026 ────
+  //
+  // MEASURED. The owner ended a number of campaigns from the admin panel on 21
+  // September. The next morning ./start ran, which runs this, and every one of
+  // them was ACTIVE again — with no record of who reactivated them, because
+  // nothing did: the update below simply wrote `status: 'ACTIVE'` back over the
+  // top. He could not work out why ending a campaign would not stick.
+  //
+  // THE LINE IS OWNERSHIP, AND IT IS WORTH STATING. This seed owns the
+  // CATALOGUE: the title, the product, the price, the image, the terms — copy a
+  // developer edits in this file and expects to see refreshed on the next start.
+  // An OPERATOR owns the offer's life: whether it is running, and the one field
+  // the panel lets them change while it is. Those are different people making
+  // different decisions, and a seed that overwrites the second is a seed that
+  // silently undoes somebody's work.
+  //
+  // `status` — ending or pausing an offer is a decision, and admin-campaign
+  //   .service.ts records it in the audit log with from→to. Overwriting an
+  //   audited decision with an unaudited one is the worst shape of this bug:
+  //   the record says the campaign was ended and the campaign is running.
+  //
+  // `searchKeyword` — EDITABLE_WHILE_LIVE in admin-campaign.service.ts is
+  //   exactly ['searchKeyword'], so it is the ONE thing an operator can fix on a
+  //   running offer. It is also the field that decides whether a person can find
+  //   the product at all (see src/shop/theBar.js, 22 September). A keyword fixed
+  //   at 18:00 and silently reverted by the next ./start is a bug nobody would
+  //   ever catch by reading the panel.
+  //
+  // EVERYTHING ELSE IS STILL REFRESHED, deliberately. A developer who edits the
+  // copy in this file still sees it on the next start, which is the whole point
+  // of a seed. And a campaign that does not exist yet is created in full,
+  // status and keyword included — there is no operator decision to protect on a
+  // row that has never existed.
   for (const campaign of ALL_SEEDED_CAMPAIGNS) {
-    const { id, ...data } = campaign;
+    const {
+      id, status: _seededStatus, searchKeyword: _seededKeyword, ...refreshable
+    } = campaign;
     await prisma.campaign.upsert({
       where: { id },
-      update: data,
+      update: refreshable,
       create: campaign,
     });
     report.campaigns += 1;

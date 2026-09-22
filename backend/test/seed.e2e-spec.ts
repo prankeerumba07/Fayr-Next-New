@@ -22,6 +22,7 @@ import {
   PRACTICE_TICKETS,
   RESERVED_FOR_LIVE_CLAIM,
   assertCandidatesNotReserved,
+  ALL_SEEDED_CAMPAIGNS,
 } from '../prisma/demo-seed';
 import { TICKETS } from '../src/tickets/ticket.constants';
 import { resetDatabase } from './reset-db';
@@ -177,6 +178,97 @@ describe('Demo seed (e2e)', () => {
         where: { status: { not: 'ACTIVE' } },
       });
       expect(notLive).toBeGreaterThanOrEqual(1);
+    });
+
+    /**
+     * ── A SECOND SEED DOES NOT UNDO AN OPERATOR — 22 SEPTEMBER 2026 ────────
+     *
+     * MEASURED. The owner ended several campaigns from the admin panel on 21
+     * September. The next morning ./start ran — which runs seedDemo — and every
+     * one of them was ACTIVE again, with nothing in the audit log to say who did
+     * it, because nothing did: the upsert wrote the seeded status back over the
+     * top. He reported it as "I am not able to end the campaign."
+     *
+     * THE SAME UPSERT ALSO REVERTED searchKeyword, which is the single field
+     * EDITABLE_WHILE_LIVE allows on a running offer, and the field that decides
+     * whether a person can find the product in the shop at all.
+     *
+     * WHAT THIS PINS IS THE OWNERSHIP LINE, not the mechanism: the seed refreshes
+     * catalogue copy on every run, and never touches the two things an operator
+     * decided.
+     */
+    describe('a second seed leaves an operator’s decisions alone', () => {
+      const ID = 'd0000000-0000-4000-8000-00000000e001'; // the Meesho offer
+
+      it('AN ENDED CAMPAIGN IS STILL ENDED AFTER THE NEXT ./start', async () => {
+        const before = await prisma.campaign.findUniqueOrThrow({ where: { id: ID } });
+        expect(before.status).toBe('ACTIVE'); // the seed created it live
+
+        // The operator ends it, exactly as adminCampaignService.transition does.
+        await prisma.campaign.update({ where: { id: ID }, data: { status: 'ENDED' } });
+
+        await seedDemo(app, { quiet: true });
+
+        const after = await prisma.campaign.findUniqueOrThrow({ where: { id: ID } });
+        expect(after.status).toBe('ENDED');
+      });
+
+    it('AND THE KEYWORD GUARD IS REAL, THOUGH NOTHING EXERCISES IT YET', () => {
+      // ── SAID PLAINLY, BECAUSE THE OBVIOUS TEST HERE IS A VACUOUS ONE ──────
+      //
+      // The first writing of this was a behavioural check: set a keyword, seed
+      // again, expect it to survive. It passed — and it passed with the guard
+      // REMOVED too, which is the definition of proving nothing. The reason is
+      // that no seeded campaign carries a searchKeyword at all, so the field is
+      // never in the update payload and there is nothing to overwrite.
+      //
+      // The guard is still worth having: searchKeyword is the single field
+      // EDITABLE_WHILE_LIVE allows on a running offer, and it decides whether a
+      // person can find the product in the shop (see src/shop/theBar.js, 22
+      // September). The day somebody adds a keyword to a seeded campaign — which
+      // is likely, since the Instamart offer needs one — the bug would come back
+      // silently and no behavioural test would catch it, because the test would
+      // have to know the seed had changed.
+      //
+      // SO THIS PINS THE GUARD ITSELF, and says out loud that it is a source
+      // check standing in for a behavioural one that cannot exist yet.
+      const src = readFileSync(
+        join(__dirname, '..', 'prisma', 'demo-seed.ts'), 'utf8',
+      );
+      expect(src).toMatch(
+        /const \{\s*id,\s*status: _seededStatus,\s*searchKeyword: _seededKeyword,\s*\.\.\.refreshable\s*\} = campaign;/,
+      );
+      expect(src).toMatch(/update: refreshable,/);
+      // And nothing seeded carries one today, which is WHY this is a source
+      // check. If this ever fails, delete this test and write the real one.
+      expect(ALL_SEEDED_CAMPAIGNS.every((c) => !('searchKeyword' in c))).toBe(true);
+    });
+
+      it('BUT THE CATALOGUE COPY IS STILL REFRESHED, which is what a seed is for', async () => {
+        // The other half. Without this, "does not overwrite" could be written as
+        // "does not update anything" and both checks above would still pass.
+        await prisma.campaign.update({
+          where: { id: ID }, data: { title: 'Something a developer did not write' },
+        });
+
+        await seedDemo(app, { quiet: true });
+
+        const after = await prisma.campaign.findUniqueOrThrow({ where: { id: ID } });
+        expect(after.title).toBe('Rate a Cotton Kurta Set, Get 90% Back');
+      });
+
+      it('AND A CAMPAIGN THAT DOES NOT EXIST YET IS CREATED IN FULL, status and keyword included', async () => {
+        // There is no operator decision to protect on a row that has never
+        // existed, so create must still carry everything.
+        await prisma.task.deleteMany({ where: { campaignId: ID } });
+        await prisma.campaign.delete({ where: { id: ID } });
+
+        await seedDemo(app, { quiet: true });
+
+        const made = await prisma.campaign.findUniqueOrThrow({ where: { id: ID } });
+        expect(made.status).toBe('ACTIVE');
+        expect(made.title).toBe('Rate a Cotton Kurta Set, Get 90% Back');
+      });
     });
 
     it('Catalogue → Staff: one account per role, so every tab can be shown signed in as its real owner', async () => {
