@@ -6,6 +6,7 @@ import type { Env } from '../config/env.validation';
 import { ScreenshotRetentionService } from '../ocr/screenshot-retention.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaskService } from '../tasks/task.service';
+import { cannotBeSentBack } from '../tasks/engine/return-policy';
 import {
   REVIEW_VISIBILITY_CHECKER,
   type ReviewVisibilityChecker,
@@ -21,6 +22,13 @@ export interface TickReport {
   expired: number;
   /** Tasks the shop said went back, closed and their tickets handed back. */
   letGo: number;
+  /**
+   * Of `released`, how many went out with NO re-check of the review, because the
+   * shop publishes none that a server can read. Counted separately so that
+   * "released" is never mistaken for "checked and released". See the branch in
+   * runTick and the note above it.
+   */
+  releasedUnverified: number;
   rechecked: number;
   regressed: number;
   released: number;
@@ -134,6 +142,7 @@ export class SchedulerService implements OnModuleInit {
     const report: TickReport = {
       expired: 0,
       letGo: 0,
+      releasedUnverified: 0,
       rechecked: 0,
       regressed: 0,
       released: 0,
@@ -163,6 +172,42 @@ export class SchedulerService implements OnModuleInit {
 
     const holding = await this.tasks.holdingTasksForRecheck();
     for (const task of holding) {
+      // ── THE SHOP WITH NO PUBLIC REVIEW, SAID OUT LOUD — 22 SEPTEMBER 2026 ──
+      //
+      // THE DEFECT THIS REPLACES. This loop used to be `if (task.permalink)
+      // { ...re-check... }` with autoRelease OUTSIDE it. Quick commerce publishes
+      // no permalink, so every Zepto, Blinkit and Instamart task fell straight
+      // past the re-check into the payout. Measured on the owner's own completed
+      // Cadbury journey, 22 September: VISIBILITY_CHECK events on that task, 0.
+      // Not "ran and passed" — never ran. CLAUDE.md calls this check the direct
+      // countermeasure to loophole 3 and says do not weaken or shortcut it; on
+      // three of the seven shops it was simply absent.
+      //
+      // AND THE HONEST FIX IS NOT A GATE. The server CANNOT read a Zepto order
+      // page: it sits behind the buyer's own session, on their device. There is
+      // no push, no background fetch and no server-to-device channel anywhere in
+      // this repo, so "hold the money until the device looks" has no way to ask —
+      // it would silently become "hold until they next open Fayr for their own
+      // reasons", which withholds an honest person's money to catch an attacker
+      // who need only not open the app. That is a worse failure, not a safer one.
+      //
+      // SO THE BRANCH IS MADE EXPLICIT AND THE RELEASE IS RECORDED AS UNVERIFIED.
+      // It buys no fraud resistance by itself and is not pretended to. What it
+      // buys is that the number is visible: a quick-commerce payout is now
+      // counted separately from a checked one, in the tick's own report, so
+      // nobody reads "released: 12" again and assumes twelve reviews were
+      // re-checked. The catch itself lives where it can actually work — on the
+      // device's own next look, and after payout. See the note in
+      // ratedFromALaterLook.
+      if (!task.permalink && cannotBeSentBack(task.platform)) {
+        const released = await this.tasks.autoRelease(task.id, now);
+        if (released) {
+          report.released++;
+          report.releasedUnverified++;
+        }
+        continue;
+      }
+
       // Re-check public visibility first, so a review that just vanished is
       // caught BEFORE we'd otherwise release its refund.
       if (task.permalink) {

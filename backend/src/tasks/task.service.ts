@@ -1405,15 +1405,19 @@ export class TaskService {
    * soonest window end so the most time-sensitive holds are processed first.
    */
   async holdingTasksForRecheck(): Promise<
-    { id: string; permalink: string | null }[]
+    { id: string; permalink: string | null; platform: string }[]
   > {
     const rows = await this.prisma.task.findMany({
       where: { state: 'HOLDING', closedAt: null },
       orderBy: { windowEndsAt: 'asc' },
     });
+    // THE PLATFORM COMES BACK TOO, since 22 September 2026. The row was already
+    // being read in full; the caller needs it to tell a shop whose review can be
+    // re-read from one whose cannot. See the scheduler's release branch.
     return rows.map((row) => ({
       id: row.id,
       permalink: toEngineTask(row, []).review?.permalink ?? null,
+      platform: row.platform,
     }));
   }
 

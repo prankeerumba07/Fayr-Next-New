@@ -497,10 +497,38 @@ it('AND THE OPERATOR\u2019S OWN PATH IS UNTOUCHED, which is what actually moves 
   // AND IT RE-CHECKS BEFORE IT PAYS. Section C: "When the return window closes,
   // the backend runs the SAME check again to see the review is still on the
   // product page." Do not weaken either check.
+  //
+  // ── SHARPENED 22 SEPTEMBER 2026, AND THE REASON MATTERS ─────────────────
+  //
+  // This used to compare indexOf('recordVisibilityCheck') against
+  // indexOf('autoRelease') — file order standing in for the rule. That was fine
+  // while there was exactly one release site. There are now two, because quick
+  // commerce publishes no review a server can read, and the branch for it sits
+  // ABOVE the re-check. Under the old assertion that read as a violation while
+  // the rule itself was intact.
+  //
+  // The rule is unchanged and is now asserted directly: WHEREVER A REFUND IS
+  // RELEASED AFTER A RE-CHECK, THE RE-CHECK COMES FIRST — and the one release
+  // that happens WITHOUT a re-check must count itself as unverified, so that a
+  // payout on unchecked evidence can never again be invisible. Measured on the
+  // owner's own completed Cadbury journey, 22 September: VISIBILITY_CHECK events
+  // on that task, 0, and nothing anywhere said so.
   const recheck = scheduler.indexOf('recordVisibilityCheck');
-  const release = scheduler.indexOf('autoRelease');
-  ok(recheck > -1 && release > recheck,
-    'the visibility re-check must happen BEFORE the refund is released');
+  ok(recheck > -1, 'the scheduler must still re-check a review it can read');
+  const sites = [...scheduler.matchAll(/this\.tasks\.autoRelease\(task\.id, now\)/g)]
+    .map((m) => m.index);
+  ok(sites.length >= 1, 'the scheduler must still be the thing that releases a refund');
+  const afterTheCheck = sites.filter((i) => i > recheck);
+  ok(afterTheCheck.length === 1,
+    'exactly one release site sits after the re-check — the shops whose review can be read');
+  // AND EVERY RELEASE SITE THAT DOES NOT IS ACCOUNTED FOR IN WORDS.
+  for (const i of sites.filter((x) => x < recheck)) {
+    const branch = scheduler.slice(Math.max(0, i - 400), i + 400);
+    ok(/releasedUnverified\+\+/.test(branch),
+      'a refund released with NO re-check must be counted as unverified, never as a checked one');
+    ok(/cannotBeSentBack\(task\.platform\)/.test(branch),
+      'and that path is only ever the shop that publishes no readable review');
+  }
   const panel = read('admin-panel/index.html');
   ok(!/release-refund/.test(panel),
     'the panel has grown a release action, so this note is out of date');

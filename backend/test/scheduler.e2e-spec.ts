@@ -669,6 +669,23 @@ describe('Scheduler (e2e)', () => {
       expect(await walletSvc.getUserBalance(who.id)).toBe(14900n);
     });
 
+    it('AND A SHOP WHOSE REVIEW CAN BE READ IS NEVER COUNTED AS UNVERIFIED', async () => {
+      // The other half of the counter. Without this, releasedUnverified could be
+      // incremented on every release and the check above would still pass — the
+      // number would then be as useless as the one it replaced.
+      const userId = await createUser();
+      await ticketsSvc.grantSignup(userId);
+      const campaign = await makeCampaign();               // AMAZON, has a permalink
+      const url = 'https://www.amazon.in/review/still-there';
+      checker.results.set(url, true);
+      await holdingTask(userId, campaign, Date.now() - 30 * DAY, url);
+
+      const report = await scheduler.runTick();
+      expect(report.released).toBeGreaterThanOrEqual(1);
+      expect(report.releasedUnverified).toBe(0);
+      expect(report.rechecked).toBeGreaterThanOrEqual(1);
+    });
+
     it('RELEASES ON ITS OWN on all three shops that cannot be sent back to', async () => {
       for (const platform of ['ZEPTO', 'BLINKIT', 'INSTAMART'] as const) {
         const who = await signedIn();
@@ -680,6 +697,16 @@ describe('Scheduler (e2e)', () => {
 
         const report = await scheduler.runTick();
         expect(report.released).toBeGreaterThanOrEqual(1);
+        // ── AND IT IS COUNTED AS UNVERIFIED — 22 SEPTEMBER 2026 ────────────
+        //
+        // It still releases, and that is the deliberate choice: the server
+        // cannot read a Zepto order page, so withholding the money would punish
+        // an honest person to catch an attacker who need only not open the app.
+        // What changed is that the payout is no longer indistinguishable from a
+        // checked one in the tick's own report. Measured on the owner's own
+        // completed Cadbury journey: VISIBILITY_CHECK events on that task, 0 —
+        // and nothing anywhere said so.
+        expect(report.releasedUnverified).toBeGreaterThanOrEqual(1);
 
         const task = await theTask(taskId);
         expect(task.state).toBe('REFUNDED');
