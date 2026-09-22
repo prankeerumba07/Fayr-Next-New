@@ -10,6 +10,7 @@ import {
 } from './states';
 import type { EngineTask } from './task-state';
 import { windowDaysFor, type ReturnPolicy } from './return-policy';
+import { watchingTheReviewIsWorthIt } from './rating-mutability';
 
 /**
  * The atomic, idempotent task state machine — ported semantics-for-semantics
@@ -464,7 +465,21 @@ export function refundEligibility(
   // NULL IS NOT A FAILURE. A task written before holdStartedAt existed has none
   // to satisfy, and its refund falls due exactly when it did before — this
   // change moves no refund that was already computed.
-  if (task.holdStartedAt != null) {
+  //
+  // ── AND NOT AT ALL WHERE THE RATING CANNOT CHANGE — 22 SEPTEMBER 2026 ────
+  //
+  // The owner measured the three quick-commerce apps: "On ZEPTO, once the user
+  // gives a review and rating, they cannot edit it or remove it later." If it
+  // cannot change, watching it protects nothing, and a hold that protects
+  // nothing is not a safeguard — it is a delay with a safeguard's name on it,
+  // paid for by somebody waiting for their own money. Loophole 3 is
+  // structurally absent on that shop and this clock says so by not running.
+  //
+  // THE OTHER CLOCK STILL RUNS. windowEnd is untouched and still holds every
+  // Zepto task for its three hours, because the risk it answers is different
+  // and real: the owner's own Cadbury order was CANCELLED after delivery. What
+  // is being skipped is the watch on the review, not the hold.
+  if (task.holdStartedAt != null && watchingTheReviewIsWorthIt(task.platform)) {
     const holdMs = typeof policy?.holdMs === 'number' && Number.isFinite(policy.holdMs)
       ? policy.holdMs
       : null;

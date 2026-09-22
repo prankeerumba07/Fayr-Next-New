@@ -183,10 +183,19 @@ describe('every word said about somebody’s own money', () => {
     // six machine names in PRICE_GAP_REASONS, and the test below this one is what
     // holds them to being machine names rather than sentences — which is the real
     // version of the question this tripwire is asking.
+    //
+    // AND rating-mutability.ts JOINED THE LIST ON 22 SEPTEMBER 2026, carrying
+    // exactly one sentence a person may read: WRITTEN_REVIEW_IS_PRIVATE, which
+    // says out loud that on quick commerce nobody — Fayr included — can read the
+    // written review or tell whether its words changed. It is here deliberately:
+    // an absent check looks exactly like a check that passed, and that sentence
+    // is what stops a reader assuming the second. The test below this one holds
+    // it to being a sentence and not a machine name.
     expect(wordFiles).toEqual([
       'hold-reasons.ts',
       'journey-message.ts',
       'order-window.ts',
+      'rating-mutability.ts',
       'refusal-words.ts',
       'shop-visit-words.ts',
       'states.ts',

@@ -41,6 +41,37 @@ review-submission moment, and should not build toward that.
 3. **Review deletion after payout** → holding period aligned to marketplace
    return windows, plus clawback rights in the T&Cs.
 
+### What each quick-commerce shop actually allows (measured 22 Sep 2026)
+
+Loophole 3 is only worth what the shop makes possible, and the three are not the
+same. Measured by the owner on the apps themselves:
+
+| shop | the rating, once given | so loophole 3 is |
+|---|---|---|
+| **Zepto** | cannot be edited, cannot be removed | **structurally absent** |
+| **Blinkit** | can be **edited**, cannot be deleted | present, as *change* not deletion |
+| **Instamart** | can be **edited**, cannot be deleted | present, as *change* not deletion |
+
+Two consequences, both load-bearing:
+
+- On Zepto a hold that watches the review protects nothing. It is a delay with a
+  safeguard's name on it, paid for by somebody waiting for their own money. The
+  delivery-anchored window still applies — an order can still be cancelled, and
+  the owner's own Cadbury order was.
+- On Blinkit and Instamart "is it rated?" is **always true** and is the wrong
+  question. The right one is whether it is *still* the rating they gave, so the
+  **value** must be recorded and compared, not the presence.
+
+The single source is `backend/src/tasks/engine/rating-mutability.ts`. A shop
+nobody has measured is assumed to be the **most** mutable, never the least.
+
+### And the written review on these three cannot be checked at all
+
+It is private — invisible to other shoppers and unreadable by Fayr. Do not build
+toward reading it, and do not let a report imply it was checked. The sentence
+`WRITTEN_REVIEW_IS_PRIVATE` exists so the limit can be stated rather than left as
+a silence, because an absent check looks exactly like a check that passed.
+
 `VISIBILITY_CHECK` during `HOLDING` in `src/taskflow.js` is the direct
 countermeasure to loophole 3 — it re-runs the public-visibility check so a
 review deleted mid-hold is caught **before** the refund releases. Do not weaken

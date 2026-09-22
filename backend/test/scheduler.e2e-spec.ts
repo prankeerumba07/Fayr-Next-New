@@ -703,9 +703,18 @@ describe('Scheduler (e2e)', () => {
      * these are the checks that keep it moved.
      */
     it('A REVIEW IS WATCHED FOR THE WHOLE HOLD, EVEN WHEN DELIVERY IS LONG PAST', async () => {
+      // ── ON BLINKIT, AND THE SHOP IS NOT INCIDENTAL — 22 SEPTEMBER 2026 ────
+      //
+      // This was first written on ZEPTO and then contradicted itself the same
+      // afternoon, when the owner's own measurement landed: on Zepto a rating
+      // cannot be edited or removed, so watching it protects nothing and the
+      // watch is deliberately skipped there. The check went red, correctly, and
+      // is kept on a shop where the watch is real. Blinkit and Instamart allow
+      // the rating to be EDITED — see rating-mutability.ts — so a review first
+      // seen this instant genuinely has not been watched yet.
       const who = await signedIn();
       await ticketsSvc.grantSignup(who.id);
-      const campaign = await quickCommerce('ZEPTO');
+      const campaign = await quickCommerce('BLINKIT');
       // Delivered four hours ago: the three-hour quick-commerce window closed an
       // hour before the review. Under the old rule this paid immediately.
       const { taskId } = await holdingFromTheShopsOwnPage(
@@ -737,6 +746,29 @@ describe('Scheduler (e2e)', () => {
       });
       const after = await scheduler.runTick();
       expect(after.released).toBeGreaterThanOrEqual(1);
+      expect((await theTask(taskId)).state).toBe('REFUNDED');
+    });
+
+    it('BUT ZEPTO IS NOT, BECAUSE ITS RATING CANNOT BE CHANGED', async () => {
+      // The owner, 22 September 2026: "On ZEPTO, once the user gives a review and
+      // rating, they cannot edit it or remove it later." Holding his money to
+      // watch something that cannot move is a delay wearing a safeguard's name.
+      // The delivery-anchored window still applies — an order can still be
+      // cancelled, and his own Cadbury order was.
+      const who = await signedIn();
+      await ticketsSvc.grantSignup(who.id);
+      const campaign = await quickCommerce('ZEPTO');
+      const { taskId } = await holdingFromTheShopsOwnPage(
+        who, campaign, onTheMinute(Date.now() - 4 * HOUR),
+      );
+      // The review was seen THIS INSTANT — the same shape that holds a Blinkit
+      // task above. Zepto pays anyway.
+      await prisma.task.update({
+        where: { id: taskId }, data: { holdStartedAt: new Date() },
+      });
+
+      const report = await scheduler.runTick();
+      expect(report.released).toBeGreaterThanOrEqual(1);
       expect((await theTask(taskId)).state).toBe('REFUNDED');
     });
 
