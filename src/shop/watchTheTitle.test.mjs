@@ -57,19 +57,46 @@ console.log('=== 1. THE BAR CARRIES THE PRODUCT NAME, ALWAYS, IN EVERY STATE ===
     'a missing keyword stays missing, whatever the product is called');
 }
 
-console.log('\n=== 2. THE SCREEN DRAWS IT, FIRST AND LARGEST ===');
+console.log('\n=== 2. THE SCREEN DRAWS BOTH, AND THE KEYWORD IS THE LOUD ONE ===');
 {
+  // ── REVERSED 22 SEPTEMBER 2026, FROM A MEASURED RUN ───────────────────────
+  //
+  // This section used to be called "THE SCREEN DRAWS IT, FIRST AND LARGEST" and
+  // pinned the PRODUCT NAME as the headline in semibold 14 with the keyword
+  // smaller underneath. That was the 18 September decision and it had a real run
+  // behind it: the owner could not tell which product the verdict was about.
+  //
+  // It then produced a second real failure, on 21 September. He spent ninety
+  // seconds on Swiggy Instamart typing the HEADLINE into the shop's search box —
+  // sixteen variations, one of them empty — found nothing, and reported the
+  // product as missing from the shop. The keyword "bla bli blu perfume" was on
+  // the bar the whole time, two points smaller and dimmer, and was never typed.
+  //
+  // Both runs are satisfied by the current layout: the keyword is the loudest
+  // thing on the bar because it is the string to type, and the product name is
+  // still there, in every state, directly under it and saying what it is for.
+  // The order and the weight are the fix; nothing else about the bar changed.
   const screen = withoutComments(read('src/shop/ShopScreen.js'));
   const bar = screen.slice(screen.indexOf('<View style={styles.barWords}>'),
     screen.indexOf('</View>', screen.indexOf('<View style={styles.barWords}>')));
   const product = bar.indexOf('{bar.product}');
   const keyword = bar.indexOf('{bar.keyword}');
   const line = bar.indexOf('{bar.line}');
-  ok(product > -1, 'the product headline is drawn');
-  ok(product < keyword && keyword < line, 'above the keyword, which is above the verdict line');
-  ok(/barProduct: \{ fontFamily: FONT\.bodySemi, fontSize: 14/.test(screen)
-    && /barKeyword: \{ fontFamily: FONT\.body, fontSize: 12/.test(screen),
-    'and the keyword is the smaller of the two now');
+  ok(product > -1, 'the product is still drawn, in every state — the 18 September decision stands');
+  ok(keyword > -1, 'and so is the keyword');
+  ok(keyword < product && product < line,
+    'THE KEYWORD IS FIRST, the product under it, and the verdict line under both');
+  ok(/barKeyword: \{ fontFamily: FONT\.bodySemi, fontSize: 15/.test(screen),
+    'THE KEYWORD IS THE LOUDEST THING ON THE BAR: semibold, and the largest of the three');
+  ok(/barProduct: \{ fontFamily: FONT\.body, fontSize: 12/.test(screen),
+    'and the product name is quieter than it — it identifies, it is not typed');
+  // AND IT SAYS WHICH JOB IT IS DOING, so size is not the only thing carrying it.
+  ok(/\{WHAT_IT_IS_FOR\}: \{bar\.product\}/.test(bar),
+    'the product line names its own job, so the two strings cannot be confused by somebody skimming');
+  ok(/export const WHAT_IT_IS_FOR = 'Buying';/.test(read('src/shop/theBar.js')),
+    'and that word lives in theBar.js with the rest of the bar\u2019s words');
+  ok(/import \{ WHAT_IT_IS_FOR, whatTheBarSays \}/.test(read('src/shop/ShopScreen.js')),
+    'which the screen imports rather than retyping');
 }
 
 console.log('\n=== 3. THE PAGE REPORTS ITSELF ON EVERY CHANGE, NAVIGATION OR NOT ===');

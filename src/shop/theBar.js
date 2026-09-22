@@ -18,6 +18,37 @@
 // nothing about the verdict changed. What changed is that the person can now see
 // which product the verdict is about.
 //
+// ── AND THE KEYWORD IS THE LOUDER OF THE TWO — 22 SEPTEMBER 2026 ───────────
+//
+// THE RUN THAT DECIDED IT. The owner spent ninety seconds on Swiggy Instamart
+// hand-typing the bar's HEADLINE into the shop's search box, sixteen times, in
+// sixteen variations, and found nothing:
+//
+//   20:40:31  BLA BLI BLU men
+//   20:40:48  BLA BLI BLU perfumes
+//   20:41:07  BLA BLI BLU perfume women
+//   20:41:17  BLA BLI BLU perfume men
+//   20:41:29  BLA BLI BLU perfumes for men
+//   20:41:34  (empty)
+//   20:42:03  BLA BLI BLU selfmade perfume for men
+//
+// The campaign's hand-written keyword — "bla bli blu perfume" — was on the bar
+// the whole time, underneath, two points smaller and dimmer. He never typed it.
+// Then he reported the product as missing from Instamart.
+//
+// THE PARAGRAPH BELOW PREDICTED THIS IN WRITING: "a catalogue name pasted into a
+// quick-commerce search box very often finds nothing at all." The reasoning was
+// right and the LAYOUT defeated it, by making the string that must not be typed
+// the biggest thing on the bar and the string to type the smallest.
+//
+// SO THE ORDER AND THE WEIGHT ARE REVERSED, AND NOTHING ELSE IS. The keyword is
+// first and largest; the product name stays on the bar in every state, directly
+// under it, prefixed so its job is unmistakable. The 18 September decision is
+// kept in full — he can still see which product the verdict is about, which is
+// the thing whose absence stopped a purchase that day. What changed is which of
+// the two strings looks like the one to type, because that was never stated and
+// a person answered it by size.
+//
 // ── THE KEYWORD IS NOT THE PRODUCT NAME, AND THAT IS STILL THE POINT ───────
 //
 // Phase 1 put the campaign's productName on this bar. The design does not: it
@@ -53,6 +84,20 @@
 // The extension is written out because this file is checked under node, and
 // node's own module resolution does not add one. Metro is happy either way.
 import { CANNOT_TELL, RIGHT, WRONG } from './theRightProduct.js';
+
+/**
+ * WHAT THE PRODUCT LINE IS FOR, IN A WORD.
+ *
+ * The bar carries two strings and they do two different jobs — one is typed into
+ * the shop, one identifies what is being bought. Until 22 September 2026 nothing
+ * said which was which, and a person settled it by size and typed the wrong one
+ * for ninety seconds. Size now says it, and so does this: the product line names
+ * its own job, so the two can never be confused again by somebody skimming.
+ *
+ * Lives here rather than in the screen because it is a word, and the words on
+ * this bar are all in this file.
+ */
+export const WHAT_IT_IS_FOR = 'Buying';
 
 /**
  * The five states.

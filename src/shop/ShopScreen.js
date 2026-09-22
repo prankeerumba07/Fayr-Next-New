@@ -95,7 +95,7 @@ import {
   whatTheMeasurerSaid,
 } from './measureLog';
 import { PLACED, whatTheOrderPageSays } from './theOrderPlaced';
-import { whatTheBarSays } from './theBar';
+import { WHAT_IT_IS_FOR, whatTheBarSays } from './theBar';
 
 /** Not oftener than this, however many times a navigation fires. Cookies go to a file. */
 const SAVE_NOT_OFTENER_THAN_MS = 1500;
@@ -713,13 +713,23 @@ export default function ShopScreen({ navigation, route }) {
           <Text style={styles.backText}>‹</Text>
         </TouchableOpacity>
         <View style={styles.barWords}>
-          {/* THE PRODUCT, FIRST AND LARGEST. Reversed from Phase 2 on the
-              owner's own run of 18 September 2026 — see theBar.js. */}
-          {bar.product ? (
-            <Text style={styles.barProduct} numberOfLines={2}>{bar.product}</Text>
-          ) : null}
+          {/* THE KEYWORD, FIRST AND LARGEST — 22 September 2026. This is the
+              string a person types, and until that day it was the SMALLER of the
+              two, under a product name in semibold. The owner typed the product
+              name into Swiggy sixteen times in ninety seconds, found nothing,
+              and reported the product as missing. See theBar.js for the run.
+
+              THE PRODUCT STAYS, directly under it and in every state, because
+              the 18 September decision that put it here stands in full: he has
+              to see which product the verdict is about. It simply no longer
+              looks like the thing to type, and it says what it is for. */}
           {bar.keyword ? (
-            <Text style={styles.barKeyword} numberOfLines={1}>{bar.keyword}</Text>
+            <Text style={styles.barKeyword} numberOfLines={2}>{bar.keyword}</Text>
+          ) : null}
+          {bar.product ? (
+            <Text style={styles.barProduct} numberOfLines={2}>
+              {WHAT_IT_IS_FOR}: {bar.product}
+            </Text>
           ) : null}
           <Text style={styles.barLine} numberOfLines={2}>{bar.line}</Text>
           {/* THE CLOCK, off the record and only when the record has one. */}
@@ -810,8 +820,12 @@ const styles = StyleSheet.create({
   back: { paddingRight: 4 },
   backText: { fontFamily: FONT.bodyMed, fontSize: 28, lineHeight: 30, color: '#fff' },
   barWords: { flex: 1 },
-  barProduct: { fontFamily: FONT.bodySemi, fontSize: 14, color: '#fff' },
-  barKeyword: { fontFamily: FONT.body, fontSize: 12, color: '#fff', opacity: 0.92, marginTop: 1 },
+  // THE TWO SWAPPED ON 22 SEPTEMBER 2026, AND THE WEIGHT IS THE WHOLE FIX. The
+  // keyword is what a person types, so it is the loudest thing on the bar; the
+  // product identifies what is being bought, so it sits under it, quieter. It
+  // was the other way round and a person typed the wrong one for ninety seconds.
+  barKeyword: { fontFamily: FONT.bodySemi, fontSize: 15, color: '#fff' },
+  barProduct: { fontFamily: FONT.body, fontSize: 12, color: '#fff', opacity: 0.92, marginTop: 1 },
   barLine: { fontFamily: FONT.body, fontSize: 11.5, color: '#fff', opacity: 0.92, marginTop: 1 },
   barClock: { fontFamily: FONT.bodySemi, fontSize: 11.5, color: '#fff', marginTop: 2 },
   web: { flex: 1, backgroundColor: '#fff' },
