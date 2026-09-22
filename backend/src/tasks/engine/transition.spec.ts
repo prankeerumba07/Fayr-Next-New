@@ -74,6 +74,51 @@ describe('transition — forward progression', () => {
     expect(t.state).toBe(STATES.HOLDING);
   });
 
+  /**
+   * ── THE WATCH ON THE REVIEW, WRITTEN ONCE — 22 SEPTEMBER 2026 ────────────
+   *
+   * MEASURED, on the owner's own completed Cadbury journey: delivered 09:30:00,
+   * two-minute window closed 09:32:00, review first seen 09:37:44, refund
+   * 09:38:00. The hold ran from DELIVERY and had expired five minutes before
+   * the review existed, so his review was never watched at all.
+   *
+   * holdStartedAt is the instant the watch began. It is a different clock from
+   * windowEnd, which asks when the order may no longer be sent back and rightly
+   * runs from delivery. refundEligibility now requires BOTH.
+   */
+  it('START_HOLD RECORDS WHEN THE WATCH BEGAN', () => {
+    let t = drive(fresh(), [orderEvidence, deliveryEvidence,
+      { type: 'MARK_REVIEWED', at: T0 }]);
+    expect(t.holdStartedAt).toBeNull();
+
+    t = transition(t, { type: 'START_HOLD', at: T0 + 500 }).task;
+    expect(t.state).toBe(STATES.HOLDING);
+    expect(t.holdStartedAt).toBe(T0 + 500);
+  });
+
+  it('AND NEVER MOVES IT, so a review that vanishes and returns cannot reset the clock', () => {
+    // A clock that restarts is a clock a claimant can reset at will: let the
+    // review disappear, put it back, and the watch begins again from zero. The
+    // `?? at` in onStartHold is the whole of that rule, and this is the only
+    // place it can be driven twice — recordVisibilityCheck(true) does NOT
+    // re-enter the hold, so an e2e written that way could never fail.
+    let t = drive(fresh(), [orderEvidence, deliveryEvidence,
+      { type: 'MARK_REVIEWED', at: T0 }]);
+    t = transition(t, { type: 'START_HOLD', at: T0 + 500 }).task;
+    const first = t.holdStartedAt;
+    expect(first).toBe(T0 + 500);
+
+    // Out of the hold — the review went.
+    t = transition(t, { type: 'VISIBILITY_CHECK', published: false, at: T0 + 900 }).task;
+    expect(t.state).toBe(STATES.REVIEWED);
+    // And back: the review is visible again, and the hold is re-entered.
+    t = transition(t, { type: 'VISIBILITY_CHECK', published: true, at: T0 + 1200 }).task;
+    t = transition(t, { type: 'START_HOLD', at: T0 + 9999 }).task;
+    expect(t.state).toBe(STATES.HOLDING);
+
+    expect(t.holdStartedAt).toBe(first);
+  });
+
   it('records a blocker without advancing, keeping prior state', () => {
     const t = transition(fresh(), {
       type: 'EVIDENCE',

@@ -373,6 +373,19 @@ model Task {
   statedReturnWindowEndsAt DateTime?
   reviewPublished          Boolean?
   windowEndsAt             DateTime? // delivery + return window; anchors the hold AND the 1.6 scheduler
+
+  /// WHEN THE WATCH ON THE REVIEW BEGAN — written once, when START_HOLD fires.
+  ///
+  /// NOT the same clock as windowEndsAt, and the two answer different questions.
+  /// windowEndsAt asks "when may this be sent back no longer?", which genuinely
+  /// runs from delivery. This asks "how long have we watched the review?", which
+  /// cannot run from delivery: on the owner's own Cadbury journey the two-minute
+  /// window expired five minutes BEFORE the review existed, so the review was
+  /// never held at all. A release now waits for the later of the two.
+  ///
+  /// Null on every task written before this existed, and on any task that never
+  /// entered a hold. Null means "no review-anchored watch to satisfy".
+  holdStartedAt            DateTime?
   claimExpiresAt           DateTime? // deadline to purchase; past it with no purchase -> tickets returned
 
   /// THEY TAPPED BUY AND WENT TO THE SHOP. The moment our side recorded it.

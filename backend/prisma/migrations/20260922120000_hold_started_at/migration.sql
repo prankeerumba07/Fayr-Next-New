@@ -1,0 +1,18 @@
+-- WHEN THE WATCH ON THE REVIEW BEGAN.
+--
+-- MEASURED, on the owner's own completed Cadbury journey, 22 September 2026:
+--
+--   deliveredAt   09:30:00
+--   windowEndsAt  09:32:00   <- the two-minute hold, anchored to DELIVERY
+--   review seen   09:37:44   <- already five minutes past the window
+--   refund        09:38:00   <- sixteen seconds later
+--
+-- The hold ran from delivery, so it had expired before the review existed. The
+-- review was never held at all, and no re-check could ever have happened inside
+-- a window that was already over.
+--
+-- ADDITIVE AND NULLABLE, with no default. Every task written before this column
+-- existed has no hold start to state, and "we do not know" is the honest value.
+-- The release rule treats null as "no review-anchored watch to satisfy", so no
+-- refund already computed changes its due date because of this migration.
+ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "holdStartedAt" TIMESTAMP(3);

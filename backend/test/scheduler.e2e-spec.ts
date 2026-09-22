@@ -636,6 +636,25 @@ describe('Scheduler (e2e)', () => {
       await post(who.token, t.id, [
         shopPage({ orderNumber, arrivedAt, rated: true, ...opts }),
       ]);
+
+      // ── AND THE WATCH ON THE REVIEW IS AGED TO MATCH — 22 SEPTEMBER 2026 ──
+      //
+      // This helper's whole premise is "all of this happened `arrivedAt` ago",
+      // and it backdates the delivery to say so. Since refundEligibility also
+      // requires the review to have been WATCHED for the hold — a second clock,
+      // anchored to the review rather than the delivery, because a hold that
+      // runs from delivery can expire before the review exists — the watch has
+      // to be aged the same way or the helper would be simulating a four-hour-old
+      // delivery with a review first seen this instant, which is a different
+      // story and not the one any caller here is telling.
+      //
+      // NOT A WEAKENING. Every caller that wants an unelapsed watch sets it
+      // explicitly; see "A REVIEW IS WATCHED FOR THE WHOLE HOLD", which puts it
+      // back to now and asserts the refund is held.
+      await prisma.task.update({
+        where: { id: t.id },
+        data: { holdStartedAt: new Date(arrivedAt) },
+      });
       return { taskId: t.id, orderNumber };
     }
 
@@ -667,6 +686,77 @@ describe('Scheduler (e2e)', () => {
       expect(after.state).toBe('REFUNDED');
       // ₹149, the price the page printed and the price the offer states.
       expect(await walletSvc.getUserBalance(who.id)).toBe(14900n);
+    });
+
+    /**
+     * ── THE WATCH RUNS FROM THE REVIEW, NOT FROM THE DELIVERY ──────────────
+     *
+     * MEASURED, on the owner's own completed Cadbury journey, 22 September 2026:
+     *
+     *   deliveredAt   09:30:00
+     *   windowEndsAt  09:32:00   the two-minute hold, anchored to DELIVERY
+     *   review seen   09:37:44   already five minutes past the window
+     *   refund        09:38:00   sixteen seconds after the review
+     *
+     * His review was never held at all. The hold existed to watch a review and
+     * had expired before the review did. He asked for the anchor to move, and
+     * these are the checks that keep it moved.
+     */
+    it('A REVIEW IS WATCHED FOR THE WHOLE HOLD, EVEN WHEN DELIVERY IS LONG PAST', async () => {
+      const who = await signedIn();
+      await ticketsSvc.grantSignup(who.id);
+      const campaign = await quickCommerce('ZEPTO');
+      // Delivered four hours ago: the three-hour quick-commerce window closed an
+      // hour before the review. Under the old rule this paid immediately.
+      const { taskId } = await holdingFromTheShopsOwnPage(
+        who, campaign, onTheMinute(Date.now() - 4 * HOUR),
+      );
+
+      // THE HELPER AGES THE WATCH TO MATCH THE DELIVERY; this test is about the
+      // case it does not cover, so it puts the watch back to now — a review
+      // first seen this instant, on an order delivered four hours ago. That is
+      // exactly the owner's Cadbury journey.
+      await prisma.task.update({
+        where: { id: taskId }, data: { holdStartedAt: new Date() },
+      });
+      const before = await theTask(taskId);
+      expect(before.state).toBe('HOLDING');
+      expect(before.holdStartedAt).not.toBeNull();
+      // The delivery window really has closed — this is not a test of that.
+      expect(before.windowEndsAt!.getTime()).toBeLessThan(Date.now());
+
+      // THE REVIEW HAS ONLY JUST BEEN SEEN, so the watch has not run.
+      const report = await scheduler.runTick();
+      expect(report.released).toBe(0);
+      expect((await theTask(taskId)).state).toBe('HOLDING');
+
+      // AND ONCE IT HAS, IT PAYS. Move the watch's own start back past the hold.
+      await prisma.task.update({
+        where: { id: taskId },
+        data: { holdStartedAt: new Date(Date.now() - 4 * HOUR) },
+      });
+      const after = await scheduler.runTick();
+      expect(after.released).toBeGreaterThanOrEqual(1);
+      expect((await theTask(taskId)).state).toBe('REFUNDED');
+    });
+
+    it('AND A TASK WITH NO WATCH RECORDED IS NOT HELD BY THIS AT ALL', async () => {
+      // Every task written before the column existed has holdStartedAt null.
+      // Null must mean "no review-anchored watch to satisfy", or this migration
+      // would silently postpone refunds that were already due.
+      const who = await signedIn();
+      await ticketsSvc.grantSignup(who.id);
+      const campaign = await quickCommerce('ZEPTO');
+      const { taskId } = await holdingFromTheShopsOwnPage(
+        who, campaign, onTheMinute(Date.now() - 4 * HOUR),
+      );
+      await prisma.task.update({
+        where: { id: taskId }, data: { holdStartedAt: null },
+      });
+
+      const report = await scheduler.runTick();
+      expect(report.released).toBeGreaterThanOrEqual(1);
+      expect((await theTask(taskId)).state).toBe('REFUNDED');
     });
 
     it('AND A SHOP WHOSE REVIEW CAN BE READ IS NEVER COUNTED AS UNVERIFIED', async () => {

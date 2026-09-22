@@ -37,6 +37,18 @@ export interface EngineTask {
   delivery: EvidenceDelivery | null;
   review: EvidenceReview | null;
   returned: boolean | null;
+  /**
+   * WHEN THE WATCH ON THE REVIEW BEGAN — epoch ms, written once by START_HOLD.
+   *
+   * NOT the delivery and NOT the return window; those answer "when may this be
+   * sent back no longer?", which genuinely runs from delivery. This answers "how
+   * long have we watched the review?", which cannot: on the owner's own Cadbury
+   * journey the two-minute window expired five minutes BEFORE the review
+   * existed, so the review was never held at all. See refundEligibility.
+   *
+   * Null before a hold starts, and on every task written before this existed.
+   */
+  holdStartedAt: number | null;
   orderConfirmed: boolean;
   blocker: BlockerName | null;
   blockerReason: string | null;
@@ -72,6 +84,7 @@ export function createTask(init: CreateTaskInit): EngineTask {
     delivery: null,
     review: null,
     returned: null,
+    holdStartedAt: null,
     orderConfirmed: false,
     blocker: null,
     blockerReason: null,

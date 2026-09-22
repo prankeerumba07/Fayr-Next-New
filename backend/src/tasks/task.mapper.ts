@@ -118,6 +118,10 @@ export function toEngineTask(row: Task, appliedKeys: string[]): EngineTask {
     delivery: stored?.delivery ?? null,
     review: stored?.review ?? null,
     returned: row.returned,
+    // The instant the watch on the review began, read off the promoted column
+    // rather than the evidence JSON — it is a fact about the hold, not about
+    // anything a page said.
+    holdStartedAt: row.holdStartedAt ? row.holdStartedAt.getTime() : null,
     orderConfirmed: stored?.orderConfirmed ?? false,
     blocker: row.blocker as BlockerName | null,
     blockerReason: row.blockerReason,
@@ -145,6 +149,8 @@ export function toPromotedColumns(
     // gate treats an unknown line as indistinguishable rather than as different.
     itemId: task.order?.itemId ?? null,
     returned: task.returned,
+    holdStartedAt:
+      task.holdStartedAt != null ? new Date(task.holdStartedAt) : null,
     itemPaise: task.order?.itemPaise ?? null,
     deliveredAt: task.delivery ? new Date(task.delivery.at) : null,
     // WHAT THE SHOP SAID, NOT WHAT THE HOLD IS. windowEndsAt below is the

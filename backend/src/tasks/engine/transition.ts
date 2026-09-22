@@ -146,7 +146,7 @@ function handle(
     case 'MARK_REVIEWED':
       return onMarkReviewed(task);
     case 'START_HOLD':
-      return onStartHold(task);
+      return onStartHold(task, at);
     case 'VISIBILITY_CHECK':
       return onVisibilityCheck(task, event.published === true, at);
     case 'RELEASE_REFUND':
@@ -276,7 +276,7 @@ function onMarkReviewed(task: EngineTask): HandlerOutput {
 }
 
 /** Entering the hold requires the review to be publicly visible NOW. */
-function onStartHold(task: EngineTask): HandlerOutput {
+function onStartHold(task: EngineTask, at: number): HandlerOutput {
   if (task.state !== STATES.REVIEWED) {
     return { reject: `cannot start hold from ${task.state}` };
   }
@@ -291,7 +291,17 @@ function onStartHold(task: EngineTask): HandlerOutput {
     };
   }
   return {
-    patch: { blocker: null, blockerReason: null },
+    // ── AND THE MOMENT THE WATCH BEGAN IS WRITTEN DOWN ────────────────────
+    //
+    // WRITTEN ONCE AND NEVER MOVED. A task that regresses out of HOLDING and
+    // comes back keeps the first instant, for the same reason windowEnd keeps
+    // the delivery: a clock that restarts is a clock a claimant can reset by
+    // making the review vanish and reappear. `?? at` is the whole of that rule.
+    patch: {
+      blocker: null,
+      blockerReason: null,
+      holdStartedAt: task.holdStartedAt ?? at,
+    },
     to: STATES.HOLDING,
     reason: 'hold started',
   };
@@ -422,6 +432,51 @@ export function refundEligibility(
     reasons.push(
       `return window ends ${new Date(w).toISOString().slice(0, 10)}`,
     );
+  }
+
+  // ── AND THE WATCH ON THE REVIEW, WHICH IS A DIFFERENT CLOCK ──────────────
+  //
+  // MEASURED, on the owner's own completed Cadbury journey, 22 September 2026:
+  //
+  //   deliveredAt   09:30:00
+  //   windowEndsAt  09:32:00   the two-minute hold, anchored to DELIVERY
+  //   review seen   09:37:44   already five minutes past the window
+  //   refund        09:38:00   sixteen seconds after the review
+  //
+  // The hold had expired before the review existed. His review was never held
+  // at all, and no re-check could have happened inside a window already over.
+  // He asked for the anchor to start from the review, and he is right.
+  //
+  // BOTH CLOCKS, AND THE LATER OF THE TWO — never one instead of the other.
+  // They answer different questions and both must be satisfied:
+  //
+  //   windowEnd      when may this no longer be sent back?  runs from DELIVERY,
+  //                  because that is genuinely when a return window starts. On
+  //                  Amazon it is the shop's own printed date.
+  //   this one       how long have we watched the review?   runs from the review,
+  //                  because a watch that starts before the thing it watches is
+  //                  not a watch.
+  //
+  // IT CAN ONLY EVER LENGTHEN A HOLD. Taking the later of two instants is the
+  // same rule windowEnd already applies to the shop's stated date, and for the
+  // same reason: the worst this can do is make somebody wait, never pay early.
+  //
+  // NULL IS NOT A FAILURE. A task written before holdStartedAt existed has none
+  // to satisfy, and its refund falls due exactly when it did before — this
+  // change moves no refund that was already computed.
+  if (task.holdStartedAt != null) {
+    const holdMs = typeof policy?.holdMs === 'number' && Number.isFinite(policy.holdMs)
+      ? policy.holdMs
+      : null;
+    if (holdMs != null) {
+      const watchedUntil = task.holdStartedAt + holdMs;
+      if (now < watchedUntil) {
+        reasons.push(
+          `the review has been watched for ${Math.round((now - task.holdStartedAt) / 1000)}s `
+          + `of the required ${Math.round(holdMs / 1000)}s`,
+        );
+      }
+    }
   }
 
   return { eligible: reasons.length === 0, reasons, windowEndsAt: w };
