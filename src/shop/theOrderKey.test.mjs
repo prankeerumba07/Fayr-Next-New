@@ -149,9 +149,21 @@ console.log('\n=== 5. A MARK IS A FRAGMENT OR A SHAPE, AND NEVER AN ADDRESS ==='
     'and it reads neither the frozen platforms.js nor the order reader');
 }
 
-console.log('\n=== 6. BLINKIT AND INSTAMART: CANNOT TELL, EVERYWHERE, AND THEIR TABLES STAY EMPTY ===');
+console.log('\n=== 6. BLINKIT: CANNOT TELL, EVERYWHERE, AND ITS TABLE STAYS EMPTY ===');
 {
-  for (const key of ['blinkit', 'instamart']) {
+  // ── INSTAMART LEFT THIS SECTION ON 22 SEPTEMBER 2026 ────────────────────
+  //
+  // The line below says of itself that it "fails the day it is not", and this is
+  // that day: the owner bought the BLA BLI BLU perfume through this screen and
+  // the whole purchase was measured — /instamart/item/<id>, /instamart/cart,
+  // /instamart/payment, then /instamart/timeline?orderId=<n>. Keeping Instamart
+  // here would be asserting the bug he reported, which is that Fayr never
+  // brought him back.
+  //
+  // BLINKIT REMAINS, and its table stays empty until somebody buys through it.
+  // The rule this section protects is unchanged and is the important one: a shop
+  // nobody has watched may never CLAIM anything about a page.
+  for (const key of ['blinkit']) {
     ok(Object.keys(SHOPS_INSIDE_FAYR[key].orderPlaced).length === 0,
       `${key}’S ORDER TABLE IS EMPTY — this is the line that fails the day it is not`);
     ok(anybodyHasMeasured(key) === false, `and nobody has measured ${key}`);
@@ -168,6 +180,22 @@ console.log('\n=== 6. BLINKIT AND INSTAMART: CANNOT TELL, EVERYWHERE, AND THEIR 
   for (const key of ['amazon', 'flipkart', 'meesho', 'myntra', 'ebay', null]) {
     ok(theOrderKeyInTheAddress(key, LIVE) === null, `${JSON.stringify(key)} has no key to give`);
   }
+
+  // ── AND INSTAMART GIVES UP ITS KEY, FROM A QUERY PARAMETER ──────────────
+  //
+  // Zepto's key is a path segment; Instamart's is `?orderId=`. The one
+  // structural difference between the two tables, and the reason it is pinned
+  // here rather than assumed to be the same shape.
+  const TIMELINE = 'https://www.swiggy.com/instamart/timeline?orderId=987654321';
+  ok(theOrderKeyInTheAddress('instamart', TIMELINE) === '987654321',
+    'instamart yields the order key out of the query parameter');
+  ok(whatTheOrderPageSays('instamart', { title: 'Instamart', url: TIMELINE }).orderKey === '987654321',
+    'and the same key comes back through the page reader');
+  // AND NOT FROM A PAGE THAT MERELY MENTIONS ONE.
+  ok(whatTheOrderPageSays('instamart', {
+    title: 'Instamart',
+    url: 'https://www.swiggy.com/support/issues/dash_order?orderId=987654321&orderType=INSTAMART',
+  }).said !== PLACED, 'a support page carrying the same id is still not a purchase');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

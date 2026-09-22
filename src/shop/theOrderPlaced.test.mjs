@@ -147,7 +147,10 @@ console.log('\n=== 3. it leans shy: nothing is guessed upward ===');
   // A SHOP THAT HAS NOT BEEN TAUGHT CAN NEVER HAVE PLACED AN ORDER, however
   // loudly its page says so. Blinkit and Instamart are not in the list, and
   // neither is Amazon.
-  for (const key of ['amazon', 'flipkart', 'meesho', 'myntra', 'blinkit', 'instamart',
+  // INSTAMART LEFT THIS LIST ON 22 SEPTEMBER 2026, because the owner bought
+  // through it and the purchase was measured. Blinkit is still here, and stays
+  // until somebody watches one.
+  for (const key of ['amazon', 'flipkart', 'meesho', 'myntra', 'blinkit',
     null, undefined, '', 'ebay']) {
     const out = whatTheOrderPageSays(key, {
       title: 'Order Placed', url: 'https://x.in/order-success',
@@ -193,13 +196,28 @@ console.log('\n=== 3. it leans shy: nothing is guessed upward ===');
   // `{}` means "it does, and nobody has ever watched it place an order". Those
   // two must not collapse into one, or the reason Blinkit says nothing becomes
   // invisible.
-  for (const key of ['blinkit', 'instamart']) {
+  for (const key of ['blinkit']) {
     const empty = orderMarksFor(key);
     ok(empty !== null, `${key} shops inside Fayr, so it has a table`);
     ok(Object.keys(empty).length === 0, `and ${key}'s table is empty`);
     ok(anybodyHasMeasured(key) === false, `and nobody has measured ${key}`);
   }
   ok(anybodyHasMeasured('zepto') === true, 'while zepto has marks, and they are measured');
+  // ── AND INSTAMART JOINED IT ON 22 SEPTEMBER 2026 ────────────────────────
+  //
+  // The owner bought the perfume through this screen and the whole purchase was
+  // in the log: /instamart/item/<id>, /instamart/cart, /instamart/payment, then
+  // /instamart/timeline?orderId=<n>. Until that run the table was `{}` and the
+  // log said so on every page — which is why he was never brought back to Fayr.
+  ok(anybodyHasMeasured('instamart') === true, 'and instamart is measured now, from a real purchase');
+  ok(orderMarksFor('instamart').pathSays.includes('/instamart/timeline'),
+    'the confirmation is the timeline page, which is only reached by paying');
+  ok(orderMarksFor('instamart').titleSays.length === 0,
+    'AND ITS TITLE LIST IS MEASURED EMPTY: every page on this shop, the product page included, reports the same generic title');
+  ok(orderMarksFor('instamart').orderKeyFollows === 'orderId=',
+    'and the key is in a QUERY PARAMETER, which is the one structural difference from zepto');
+  ok(orderMarksFor('instamart').notAFreshOrder.some((m) => String(m).includes('/support/')),
+    'and a support page carrying an orderId is not a purchase — he reached two of them');
   for (const key of ['amazon', 'flipkart', 'meesho', 'myntra']) {
     ok(orderMarksFor(key) === null, `${key} has no table, because it is not inside Fayr`);
     ok(anybodyHasMeasured(key) === false, `and ${key} is not "measured" either`);
@@ -210,8 +228,13 @@ console.log('\n=== 3. it leans shy: nothing is guessed upward ===');
   // THE CHECK THE PHASE ASKED FOR, and it is the one that matters: NOT_PLACED is
   // a CLAIM about a page, and a claim about a page nobody has ever seen is not
   // something this app may make. Every page shape that makes zepto answer
-  // something is walked against both new shops.
-  for (const key of ['blinkit', 'instamart']) {
+  // something is walked against the shop nobody has watched.
+  //
+  // INSTAMART LEFT THIS WALK ON 22 SEPTEMBER 2026 — it has been watched now, and
+  // asserting it still says nothing would be asserting the bug. Its own measured
+  // behaviour is pinned in the section above and in the block below this one.
+  // BLINKIT REMAINS, and remains until somebody buys through it.
+  for (const key of ['blinkit']) {
     for (const page of [
       { title: 'Order Placed', url: 'https://x.in/order-confirmation' },
       { title: 'Order Confirmed', url: 'https://x.in/checkout/success' },
@@ -229,6 +252,34 @@ console.log('\n=== 3. it leans shy: nothing is guessed upward ===');
     ok(whatTheOrderPageSays(key, { title: 'Order Placed', url: 'https://x.in/order-success' })
       .because === BECAUSE_ORDER.NOTHING_MEASURED_YET,
       `and ${key} says WHY: nobody has watched it place an order`);
+  }
+
+  // ── AND INSTAMART NOW ANSWERS FROM ITS OWN MEASUREMENT ──────────────────
+  //
+  // The addresses are the owner's, off his own purchase on 22 September 2026.
+  ok(whatTheOrderPageSays('instamart', {
+    title: 'Instamart', url: 'https://www.swiggy.com/instamart/timeline?orderId=123456',
+  }).said === PLACED, 'the timeline page IS the confirmation, and it is only reached by paying');
+  // AND THE PAGES THAT CARRY AN ORDER ID AND ARE NOT PURCHASES.
+  for (const url of [
+    'https://www.swiggy.com/support/issues/dash_order?orderId=123456&orderType=INSTAMART',
+    'https://www.swiggy.com/support/chat?redirectURI=%2Fsupport%3ForderId%3D123456',
+    'https://www.swiggy.com/my-account',
+  ]) {
+    ok(whatTheOrderPageSays('instamart', { title: 'Instamart', url }).said !== PLACED,
+      `and ${url.slice(24, 52)} is not a purchase, however many order ids it carries`);
+  }
+  // AND THE ORDINARY SHOPPING PAGES SAY NOTHING EITHER WAY.
+  for (const url of [
+    'https://www.swiggy.com/instamart',
+    'https://www.swiggy.com/instamart/search?query=Bla+Bli+Blu',
+    'https://www.swiggy.com/instamart/item/SHU0ZB5M7P',
+    'https://www.swiggy.com/instamart/cart',
+    'https://www.swiggy.com/instamart/payment',
+  ]) {
+    ok(whatTheOrderPageSays('instamart', {
+      title: 'Online Grocery Store | Buy Groceries at Best Prices - Instamart', url,
+    }).said !== PLACED, `and ${url.slice(24)} is not a purchase`);
   }
 
   // AND THE RULE RUNS BEFORE THE ONE THAT COULD ANSWER NOT_PLACED, rather than
@@ -477,11 +528,20 @@ console.log('\n=== 10. nothing this phase touches was supposed to be frozen ==='
     list.indexOf('export const ANDROID_LIKE_A_PHONE'));
   ok(/blinkit:/.test(only) && /instamart:/.test(only),
     'Blinkit and Instamart are in the in-app list');
-  ok((only.match(/orderPlaced: \{\}/g) || []).length === 2,
-    'and each of them carries an EMPTY order table, written as one');
-  ok((only.match(/titleSays:/g) || []).length === 1
-    && (only.match(/pathSays:/g) || []).length === 1,
-    'and there is still exactly one set of marks in the whole file, which is zepto\'s');
+  // ── AND INSTAMART EARNED ITS MARKS ON 22 SEPTEMBER 2026 ─────────────────
+  //
+  // The half this check exists to protect is unchanged: an unmeasured shop must
+  // not be given marks copied from a measured one, because three tables that
+  // look alike read as three measurements. What changed is that Instamart is no
+  // longer unmeasured — the owner bought through it and the whole purchase is in
+  // the log. BLINKIT IS STILL EMPTY, and stays empty until somebody watches one.
+  ok((only.match(/orderPlaced: \{\}/g) || []).length === 1,
+    'exactly ONE empty order table is left, and it is Blinkit\'s');
+  ok(/blinkit: \{[^}]*orderPlaced: \{\}/s.test(only),
+    'and it is Blinkit that carries it, not a shop somebody has since watched');
+  ok((only.match(/titleSays:/g) || []).length === 2
+    && (only.match(/pathSays:/g) || []).length === 2,
+    'and there are two sets of marks now — zepto\'s and instamart\'s, both from real purchases');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

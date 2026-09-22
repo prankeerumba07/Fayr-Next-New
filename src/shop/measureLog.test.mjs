@@ -40,10 +40,20 @@ function ok(cond, label) {
   else { fail += 1; console.log(`  FAIL ${label}`); }
 }
 
-console.log('=== 1. M3 — WHO IT FIRES FOR, AND IT IS TWO SHOPS ON A DEVELOPMENT BUILD ===');
+console.log('=== 1. M3 — WHO IT FIRES FOR, AND IT IS ONE SHOP ON A DEVELOPMENT BUILD ===');
 {
   ok(shouldMeasure({ key: 'blinkit', dev: true }) === true, 'blinkit has never been measured, so it is measured');
-  ok(shouldMeasure({ key: 'instamart', dev: true }) === true, 'and so is instamart');
+
+  // ── AND INSTAMART TURNED ITSELF OFF ON 22 SEPTEMBER 2026 ────────────────
+  //
+  // This is the whole design of shouldMeasure working: it reads the order table
+  // rather than naming shops, so the moment the owner's real purchase filled
+  // Instamart's marks in, the measuring stopped on its own. Nobody edited this
+  // decision — filling the table WAS the edit. The comment further down already
+  // said that: "filling in blinkit's order marks is the one and only thing that
+  // turns it off."
+  ok(shouldMeasure({ key: 'instamart', dev: true }) === false,
+    'AND INSTAMART NO LONGER IS, because its purchase has been watched');
 
   // ZEPTO IS MEASURED ALREADY, and turning this on for it would print a whole
   // page of somebody's real order for no reason at all.
@@ -70,7 +80,8 @@ console.log('=== 1. M3 — WHO IT FIRES FOR, AND IT IS TWO SHOPS ON A DEVELOPMEN
   // in blinkit's order marks is the one and only thing that turns it off.
   const table = withoutComments(read('src/shop/insideFayr.js'));
   ok(/blinkit:\s*\{[^}]*orderPlaced:\s*\{\s*\}/.test(table), 'blinkit’s order table is still empty');
-  ok(/instamart:\s*\{[^}]*orderPlaced:\s*\{\s*\}/.test(table), 'and so is instamart’s');
+  ok(!/instamart:\s*\{[^}]*orderPlaced:\s*\{\s*\}/.test(table),
+    'while instamart’s is filled in, which is what turned its measuring off');
   const mine = withoutComments(read('src/shop/measureLog.js'));
   ok(/anybodyHasMeasured\(key\) === false/.test(mine),
     'and the decision reads that table rather than naming the two shops');

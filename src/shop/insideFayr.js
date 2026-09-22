@@ -204,7 +204,49 @@ export const SHOPS_INSIDE_FAYR = {
   },
   instamart: {
     inApp: true,
-    orderPlaced: {},
+    // ── WHAT THIS SHOP'S PURCHASE LOOKS LIKE — MEASURED, 22 SEPTEMBER 2026 ───
+    //
+    // Off the owner's own Instamart purchase inside this screen, from
+    // .local-logs/run.log. Until this run the table below was `{}` and the log
+    // said so on every page: "NOBODY HAS MEASURED THIS SHOP'S ORDER PAGE". He
+    // bought the perfume, was never brought back to Fayr, and the screen then
+    // stuck on "Opening the shop" — both of which follow from an empty table.
+    //
+    // THE ADDRESSES HE PASSED THROUGH, in order:
+    //
+    //   /instamart                        the shop
+    //   /instamart/search?query=...       the results
+    //   /instamart/item/SHU0ZB5M7P        the product's own page
+    //   /instamart/cart                   the cart
+    //   /instamart/payment                paying
+    //   /instamart/timeline?orderId=<n>   AFTER PAYING — this is the confirmation
+    //
+    // SWIGGY'S TITLES SAY NOTHING, and that is measured rather than assumed.
+    // Every page above — the shop, the search, the PRODUCT'S OWN PAGE and the
+    // order — reported the same string:
+    //
+    //   "Online Grocery Store | Buy Groceries at Best Prices - Instamart"
+    //
+    // with the timeline page sometimes reporting the bare word "Instamart". So
+    // titleSays is EMPTY and the address is the only signal, exactly as it is on
+    // Zepto. An empty list here is a measurement, not an absence.
+    orderPlaced: {
+      // MEASURED EMPTY. See above: no title on this shop ever names an order.
+      titleSays: [],
+      // The order's own live page, reached only by paying.
+      pathSays: ['/instamart/timeline'],
+      // NOT A FRESH ORDER. Support pages carry an orderId too — he reached
+      // /support/issues/dash_order?orderId=... and /support/chat?...orderId=...
+      // while looking at an order he had already placed, and neither is a
+      // purchase. The account pages are not either.
+      notAFreshOrder: ['/support/', '/my-account'],
+      // ── WHERE THE ORDER'S KEY SITS IN THE ADDRESS ───────────────────────
+      //
+      // Instamart puts it in a QUERY PARAMETER, not a path segment — which is
+      // the one structural difference from Zepto in this table. What follows
+      // this fragment, up to the next slash, question mark or hash, is the key.
+      orderKeyFollows: 'orderId=',
+    },
     userAgent: null,
     // ── AND THE SHOP IS NOT AT THE SHOP'S FRONT DOOR — MEASURED 21 SEP 2026 ─
     //
