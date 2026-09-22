@@ -268,6 +268,29 @@ export const SHOPS_INSIDE_FAYR = {
     // title match scores 0/6 on the RIGHT product and can never go green. The
     // address is the only thing on this shop that names which product is open.
     productIdFollows: '/instamart/item/',
+    // ── AND WHERE IT SAYS "TOO MANY DEVICES" — MEASURED 22 SEPTEMBER 2026 ───
+    //
+    // Off the owner's own sign-in. He reported it in his own words: "I was
+    // already logged in on multiple devices, so I had to first log out from all
+    // the other devices." Swiggy sent him to two pages, and the second states
+    // the limit in its own address:
+    //
+    //   /my-account/login-limit-exceeds
+    //   /my-account/logout-options/?isFlowTypeAbuseManagement=true&abuseDeviceLimit=2
+    //
+    // FAYR RECOGNISED NEITHER, so it sat silent on a page of the shop's that it
+    // did not understand while he worked out what had happened. The number is
+    // read from the address rather than written here, because it is Swiggy's to
+    // change and a number copied into this file would go stale without anybody
+    // noticing.
+    //
+    // AND IT IS NOT A FAYR RULE. Nothing here can raise the limit or keep a
+    // session past it: the shop invalidates the token on its own side, and no
+    // amount of saving cookies survives that. All this does is say so.
+    tooManyDevices: {
+      pathSays: ['/my-account/login-limit-exceeds', '/my-account/logout-options'],
+      limitFollows: 'abuseDeviceLimit=',
+    },
     userAgent: null,
     // ── AND THE SHOP IS NOT AT THE SHOP'S FRONT DOOR — MEASURED 21 SEP 2026 ─
     //
@@ -591,4 +614,35 @@ export function theProductIdInTheAddress(shopKey, url) {
   // A plausible id and nothing else. Anything with a space or a slash in it is
   // not an identifier, and a bare word is not one either on these two shops.
   return /^[A-Za-z0-9._-]{4,}$/.test(id) ? id : null;
+}
+
+/**
+ * IS THIS THE SHOP SAYING "YOU ARE SIGNED IN ON TOO MANY DEVICES"?
+ *
+ * Answers `{ hit, limit }`. `limit` is the number the shop's own address states,
+ * when it states one, and null otherwise — never a number of ours. A shop nobody
+ * has measured answers `{ hit: false, limit: null }`, because a page nobody has
+ * seen is not a page this app may make a claim about.
+ *
+ * Mirrors theOrderKeyInTheAddress and theProductIdInTheAddress: same shape, same
+ * refusals, and nothing here opens or navigates anywhere.
+ */
+export function theDeviceLimit(shopKey, url) {
+  const none = { hit: false, limit: null };
+  const marks = shopKey == null ? null : SHOPS_INSIDE_FAYR[String(shopKey).toLowerCase()];
+  const table = marks == null ? null : marks.tooManyDevices;
+  if (table == null) return none;
+  if (typeof url !== 'string' || url === '') return none;
+  const after = url.replace(/^[a-z]+:\/\/[^/]*/i, '').toLowerCase();
+  const said = (table.pathSays || []).some(
+    (m) => typeof m === 'string' && m !== '' && after.includes(m.toLowerCase()),
+  );
+  if (!said) return none;
+  const follows = typeof table.limitFollows === 'string' ? table.limitFollows : '';
+  if (follows === '') return { hit: true, limit: null };
+  const at = after.indexOf(follows.toLowerCase());
+  if (at < 0) return { hit: true, limit: null };
+  const digits = after.slice(at + follows.length).split(/[^0-9]/)[0];
+  const n = Number.parseInt(digits, 10);
+  return { hit: true, limit: Number.isFinite(n) && n > 0 ? n : null };
 }

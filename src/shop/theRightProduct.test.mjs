@@ -26,7 +26,7 @@ import {
   howMuchOverlaps, isAPageOfTheShopsOwn, tidy, whatThePageIs, wordsWorthMatching,
   whatThePageIsHere,
 } from './theRightProduct.js';
-import { theProductIdInTheAddress } from './insideFayr.js';
+import { theDeviceLimit, theProductIdInTheAddress } from './insideFayr.js';
 import { BAR, TONE, theKeyword, whatTheBarSays } from './theBar.js';
 import { verdictDetail } from './shopLog.js';
 
@@ -299,8 +299,15 @@ console.log('\n=== 9. a missing keyword is said out loud, and NEVER papered over
   const keywordFn = bar.slice(bar.indexOf('export function theKeyword('),
     bar.indexOf('export function theKeyword(') + 260);
   ok(!/product/i.test(keywordFn), 'and theKeyword never so much as reads the product');
-  ok((bar.match(/product,\n\s+keyword: phrase,/g) || []).length === 5,
-    'and the product is carried in all five states, beside the keyword, never instead of it');
+  // ── COUNTED AGAINST THE STATES, NOT AGAINST A NUMBER — 22 SEPTEMBER 2026 ──
+  //
+  // This used to assert `=== 5`, and went red the day a sixth state was added
+  // (TOO_MANY_DEVICES, for the shop refusing on device count). The rule it is
+  // protecting is "EVERY state carries both", so it now counts the states and
+  // cannot go stale again when a seventh arrives.
+  const states = Object.keys(BAR).length;
+  ok((bar.match(/product,\n\s+keyword: phrase,/g) || []).length === states,
+    `and the product is carried in all ${states} states, beside the keyword, never instead of it`);
 
   // AND THERE IS NO COPY CONTROL ANYWHERE NEAR THIS SCREEN. The design draws
   // one; the owner took it away on purpose and the person types the keyword.
@@ -494,6 +501,82 @@ console.log('\n=== AND IT REFUSES ANYTHING THAT IS NOT AN ID ===');
     'and an empty id is no id');
   ok(theProductIdInTheAddress('instamart', 'https://www.swiggy.com/instamart/item/ab') === null,
     'and two characters is not an identifier');
+}
+
+console.log('\n=== THE SHOP REFUSING ON DEVICE COUNT — MEASURED 22 SEPTEMBER 2026 ===');
+{
+  // ── THE RUN THIS COMES FROM ───────────────────────────────────────────────
+  //
+  // The owner, signing in to Swiggy inside Fayr: "I was already logged in on
+  // multiple devices, so I had to first log out from all the other devices."
+  // Swiggy sent him to two pages, and the second states the limit itself:
+  //
+  //   /my-account/login-limit-exceeds
+  //   /my-account/logout-options/?isFlowTypeAbuseManagement=true&abuseDeviceLimit=2
+  //
+  // FAYR RECOGNISED NEITHER and sat silent on both, so he was left working out
+  // what had happened from a page that is not ours.
+  const LOGOUT = 'https://www.swiggy.com/my-account/logout-options/?isFlowTypeAbuseManagement=true&abuseDeviceLimit=2';
+  const EXCEEDS = 'https://www.swiggy.com/my-account/login-limit-exceeds';
+
+  ok(theDeviceLimit('instamart', LOGOUT).hit === true, 'the logout-options page is recognised');
+  ok(theDeviceLimit('instamart', LOGOUT).limit === 2,
+    'AND THE NUMBER IS SWIGGY’S OWN, read out of its address rather than written into ours');
+  ok(theDeviceLimit('instamart', EXCEEDS).hit === true, 'and so is login-limit-exceeds');
+  ok(theDeviceLimit('instamart', EXCEEDS).limit === null,
+    'which states no number, so none is invented');
+
+  // AND AN ORDINARY PAGE IS NOT THIS.
+  for (const u of [
+    'https://www.swiggy.com/instamart',
+    'https://www.swiggy.com/instamart/item/SHU0ZB5M7P',
+    'https://www.swiggy.com/auth',
+  ]) {
+    ok(theDeviceLimit('instamart', u).hit === false, `${u.slice(24) || '/'} is not the device-limit page`);
+  }
+  // AND A SHOP NOBODY HAS MEASURED CLAIMS NOTHING — Zepto and Blinkit have no
+  // table, so the same address answers no.
+  for (const shop of ['zepto', 'blinkit', 'amazon', null]) {
+    ok(theDeviceLimit(shop, LOGOUT).hit === false,
+      `${JSON.stringify(shop)} has not been watched hitting a device limit, so it says nothing`);
+  }
+  for (const junk of [null, undefined, '', 42, {}]) {
+    ok(theDeviceLimit('instamart', junk).hit === false, `${JSON.stringify(junk)} is not an address`);
+  }
+}
+
+console.log('\n=== AND THE BAR SAYS WHAT HAPPENED, ABOVE EVERYTHING ELSE ===');
+{
+  const say = (deviceLimit, over = {}) => whatTheBarSays({
+    productName: 'BLA BLI BLU Selfmade Perfume for Men',
+    keyword: 'bla bli blu perfume',
+    verdict: null, shopName: 'Instamart', deviceLimit, ...over,
+  });
+
+  const withNumber = say({ hit: true, limit: 2 });
+  ok(withNumber.state === BAR.TOO_MANY_DEVICES, 'the bar takes the device-limit state');
+  ok(/allows 2 devices/.test(withNumber.line), 'and says the shop’s own number');
+  ok(/Sign out of one there/.test(withNumber.line), 'and the one thing to do about it');
+
+  const withoutNumber = say({ hit: true, limit: null });
+  ok(/too many devices/i.test(withoutNumber.line), 'and says it plainly when the shop stated no number');
+  ok(!/\b2\b|\bnull\b|undefined/.test(withoutNumber.line), 'AND INVENTS NO NUMBER — the sentence drops it');
+
+  // IT OUTRANKS EVERYTHING, because nothing else matters while somebody cannot
+  // get in — including an order already seen.
+  ok(say({ hit: true, limit: 2 }, { orderPlaced: true }).state === BAR.TOO_MANY_DEVICES,
+    'and it outranks even "order placed", because nothing else matters while they are locked out');
+  ok(say({ hit: true, limit: 2 }, { verdict: 'RIGHT' }).state === BAR.TOO_MANY_DEVICES,
+    'and the product verdict too');
+
+  // AND IT IS NOT RED. Red on this bar means "wrong product"; being signed in
+  // elsewhere is the shop's rule, not a mistake the person made.
+  ok(withNumber.tone !== 'bad', 'it is not drawn as a wrong product');
+
+  // AND NOTHING CHANGES WHEN THE SHOP IS NOT REFUSING.
+  for (const d of [null, undefined, { hit: false, limit: null }]) {
+    ok(say(d).state !== BAR.TOO_MANY_DEVICES, `${JSON.stringify(d)} leaves the bar alone`);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

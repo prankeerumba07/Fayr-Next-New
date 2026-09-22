@@ -73,7 +73,8 @@ import { COLOR, FONT, SPACE } from '../ui/theme';
 import { goBackOrHome } from '../ui/nav';
 import {
   anybodyHasMeasured, comingBackFromPaying, schemeOf, shopsInsideFayr,
-  theProductIdInTheAddress, userAgentFor, whereToLand, whoOpensThis,
+  theDeviceLimit, theProductIdInTheAddress, userAgentFor, whereToLand,
+  whoOpensThis,
 } from './insideFayr';
 import {
   cameBackDetail, handoffDetail, logShop, navigationDetail, orderDetail,
@@ -479,6 +480,13 @@ export default function ShopScreen({ navigation, route }) {
     verdict: verdict ? verdict.verdict : null,
     orderPlaced: orderSeen,
     shopName: platform ? platform.name : null,
+    // ── AND WHETHER THE SHOP IS REFUSING ON DEVICE COUNT ──────────────────
+    //
+    // Read off the address the shop itself navigated to, so the number in the
+    // sentence is the shop's own. Fayr recognised neither of Swiggy's two pages
+    // before 22 September and sat silent on both while the owner worked out what
+    // had happened. See theDeviceLimit in insideFayr.js.
+    deviceLimit: theDeviceLimit(key, lastPage ? lastPage.url : null),
   });
 
   // ── THE HAND-OFF, AND IT HAPPENS ONCE ─────────────────────────────────────

@@ -36,6 +36,10 @@ console.log('=== 1. THE BAR CARRIES THE PRODUCT NAME, ALWAYS, IN EVERY STATE ===
     ['right', { verdict: RIGHT }],
     ['wrong', { verdict: WRONG }],
     ['order placed', { verdict: WRONG, orderPlaced: true }],
+    // Added 22 September 2026 with the state itself: the shop refusing on
+    // device count. Somebody locked out still needs to see WHICH product this
+    // was about, so it carries both strings like every other state.
+    ['too many devices', { deviceLimit: { hit: true, limit: 2 } }],
   ];
   const seen = new Set();
   for (const [label, over] of states) {
@@ -45,7 +49,10 @@ console.log('=== 1. THE BAR CARRIES THE PRODUCT NAME, ALWAYS, IN EVERY STATE ===
     ok(bar.keyword === 'boldfit headband', `and still carries the keyword when ${label}`);
     ok(bar.product !== bar.keyword, `and the two are two different strings when ${label}`);
   }
-  ok(seen.size === 5 && Object.values(BAR).every((s) => seen.has(s)), 'and that was all five states');
+  // COUNTED AGAINST BAR ITSELF, so a new state must be walked here rather than
+  // quietly skipped — which is what this line is for.
+  ok(seen.size === Object.keys(BAR).length && Object.values(BAR).every((s) => seen.has(s)),
+    `and that was all ${Object.keys(BAR).length} states`);
   // TIDIED, NOT INVENTED.
   ok(theProduct('  Boldfit   Headband \n') === 'Boldfit Headband', 'the name is tidied the way the keyword is');
   ok(theProduct('') === null && theProduct(null) === null && theProduct(7) === null,

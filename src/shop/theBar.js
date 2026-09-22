@@ -123,6 +123,7 @@ export const BAR = {
   WRONG: 'WRONG',
   RIGHT: 'RIGHT',
   ORDER_PLACED: 'ORDER_PLACED',
+  TOO_MANY_DEVICES: 'TOO_MANY_DEVICES',
 };
 
 /**
@@ -145,6 +146,10 @@ export const TONE = {
   [BAR.WRONG]: 'bad',
   [BAR.RIGHT]: 'good',
   [BAR.ORDER_PLACED]: 'good',
+  // Not 'bad'. Red on this bar means "wrong product", and being signed in
+  // somewhere else is not a mistake — it is the shop's rule and the person has
+  // something to do about it. The shop's own colour keeps the two apart.
+  [BAR.TOO_MANY_DEVICES]: 'plain',
 };
 
 /**
@@ -196,7 +201,9 @@ export function theProduct(productName) {
  * on screen for the whole session the way the owner asked — somebody told they
  * are on the wrong product needs to see which product more than anyone.
  */
-export function whatTheBarSays({ productName, keyword, verdict, orderPlaced, shopName }) {
+export function whatTheBarSays({
+  productName, keyword, verdict, orderPlaced, shopName, deviceLimit,
+}) {
   const phrase = theKeyword(keyword);
   const product = theProduct(productName);
   const shop = typeof shopName === 'string' && shopName !== '' ? shopName : 'the shop';
@@ -209,6 +216,38 @@ export function whatTheBarSays({ productName, keyword, verdict, orderPlaced, sho
   // anything, exactly as with WRONG. What it actually causes is the screen
   // handing over to the order read that already exists, and THE SERVER decides
   // whether any order matched this campaign.
+  // ── THE SHOP SAYING "TOO MANY DEVICES", ABOVE EVERYTHING ────────────────
+  //
+  // FIRST, because nothing else on this bar matters while somebody cannot get
+  // in. The owner met it on Swiggy: "I was already logged in on multiple
+  // devices, so I had to first log out from all the other devices." Fayr
+  // recognised neither of the two pages Swiggy sent him to and sat silent on
+  // both, so he was left to work out what had happened from a page that is not
+  // ours.
+  //
+  // IT IS NOT A FAYR RULE AND THIS DOES NOT PRETEND OTHERWISE. Nothing here can
+  // raise the limit or hold a session past it — the shop invalidates the token
+  // on its own side, and no amount of saving cookies survives that. All this
+  // does is name what happened and what to do, which is the difference between
+  // a dead end and an instruction.
+  //
+  // THE NUMBER IS THE SHOP'S, read out of its own address, and the sentence
+  // drops it rather than inventing one when the address does not say.
+  if (deviceLimit != null && deviceLimit.hit === true) {
+    const n = typeof deviceLimit.limit === 'number' && deviceLimit.limit > 0
+      ? deviceLimit.limit
+      : null;
+    return {
+      state: BAR.TOO_MANY_DEVICES,
+      tone: TONE[BAR.TOO_MANY_DEVICES],
+      product,
+      keyword: phrase,
+      line: n == null
+        ? `${shop} says you are signed in on too many devices. Sign out of one there, then come back.`
+        : `${shop} allows ${n} devices at a time. Sign out of one there, then come back.`,
+    };
+  }
+
   if (orderPlaced === true) {
     return {
       state: BAR.ORDER_PLACED,

@@ -539,9 +539,14 @@ console.log('\n=== 10. nothing this phase touches was supposed to be frozen ==='
     'exactly ONE empty order table is left, and it is Blinkit\'s');
   ok(/blinkit: \{[^}]*orderPlaced: \{\}/s.test(only),
     'and it is Blinkit that carries it, not a shop somebody has since watched');
-  ok((only.match(/titleSays:/g) || []).length === 2
-    && (only.match(/pathSays:/g) || []).length === 2,
-    'and there are two sets of marks now — zepto\'s and instamart\'s, both from real purchases');
+  // titleSays counts the ORDER tables only. pathSays also appears in Instamart's
+  // tooManyDevices marks (22 September 2026), so counting it alone would drift
+  // every time a shop learns a new page shape — count the order tables by their
+  // own key instead.
+  ok((only.match(/titleSays:/g) || []).length === 2,
+    'and there are two sets of order marks now — zepto\'s and instamart\'s, both from real purchases');
+  ok((only.match(/orderKeyFollows:/g) || []).length === 2,
+    'each with its own place for the order key');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
