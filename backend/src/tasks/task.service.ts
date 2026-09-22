@@ -1182,6 +1182,7 @@ export class TaskService {
       campaign.returnWindowDays,
       campaign.platform,
       await this.practiceWindow.holdMsAllowed(),
+      campaign.minRating,
     );
     const elig = refundEligibility(task, now, policy);
     if (!elig.eligible) {
@@ -1857,6 +1858,7 @@ export class TaskService {
       campaign.returnWindowDays,
       campaign.platform,
       await this.practiceWindow.holdMsAllowed(),
+      campaign.minRating,
     );
     await tx.task.update({
       where: { id: result.task.id },

@@ -1,0 +1,12 @@
+-- THE RATING THE SHOP SHOWED THE FIRST TIME FAYR READ ONE.
+--
+-- The owner measured, 22 September 2026, that on Blinkit and Instamart a rating
+-- can be EDITED but never DELETED. So `published = true` — "a rating exists" —
+-- is permanently true there and can never fail. The NUMBER can: five stars that
+-- becomes one is the only form of loophole 3 those shops permit, and catching it
+-- needs the first number kept beside the latest one.
+--
+-- ADDITIVE AND NULLABLE, with no default. Null means "no number was ever read",
+-- which is every task written before this column and every task on Instamart,
+-- whose web never exposes a star count at all.
+ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "ratingFirstSeen" INTEGER;

@@ -196,6 +196,13 @@ describe('every word said about somebody’s own money', () => {
       'journey-message.ts',
       'order-window.ts',
       'rating-mutability.ts',
+      // AND rating-value.ts, 22 September 2026, carrying CANNOT_SEE_THE_NUMBER —
+      // the sentence that says Instamart never shows a star count anywhere Fayr
+      // can read, so the rating can be seen to exist but never compared. Here
+      // for the same reason as the file above it: an absent check looks exactly
+      // like a check that passed, and that sentence is what stops a reader
+      // assuming the second.
+      'rating-value.ts',
       'refusal-words.ts',
       'shop-visit-words.ts',
       'states.ts',

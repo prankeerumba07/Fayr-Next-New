@@ -492,9 +492,13 @@ console.log('\n=== 9. the screen wires the decisions and decides nothing itself 
   // Zepto — the new function falls back to it whenever either side has no id.
   ok(/whatThePageIsHere\(\{/.test(screen),
     'the screen asks theRightProduct.js what the page is');
-  ok(/url: lastPage \? lastPage\.url : null/.test(screen)
-    && /wantedUrl: campaign \? campaign\.productUrl : null/.test(screen),
-  'and hands it BOTH addresses — the one on screen and the campaign’s own');
+  // BOTH IDS, READ BY insideFayr.js — which is where the shop knowledge lives.
+  // The verdict itself is shop-blind and takes only the two ids; see the note on
+  // whatThePageIsHere, and the check that caught the first writing of this
+  // importing the shop table into theRightProduct.js.
+  ok(/hereId: theProductIdInTheAddress\(key, lastPage \? lastPage\.url : null\)/.test(screen)
+    && /wantedId: theProductIdInTheAddress\(key, campaign \? campaign\.productUrl : null\)/.test(screen),
+  'and hands it BOTH ids — the product on screen and the campaign’s own');
   ok(!/matchOrder|readEvidence|parseOrderText|orderCandidates/.test(screen),
     'but it reads no order and matches none');
   // ── NARROWED 18 SEPTEMBER 2026, AND ONLY BY ONE NOTE ─────────────────────

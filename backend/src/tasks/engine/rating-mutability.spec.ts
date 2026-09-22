@@ -99,6 +99,7 @@ describe('the hold that follows from it', () => {
     review: { published: true } as EngineTask['review'],
     returned: false,
     holdStartedAt: NOW - 60 * 1000,
+    ratingFirstSeen: null,
     orderConfirmed: true,
     blocker: null,
     blockerReason: null,

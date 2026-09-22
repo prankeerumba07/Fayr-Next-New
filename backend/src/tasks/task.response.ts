@@ -250,6 +250,7 @@ export function toTaskResponse(
     campaign.returnWindowDays,
     campaign.platform,
     practiceHoldMs,
+    campaign.minRating,
   );
   const elig = refundEligibility(task, now, policy);
 

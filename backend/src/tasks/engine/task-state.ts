@@ -49,6 +49,13 @@ export interface EngineTask {
    * Null before a hold starts, and on every task written before this existed.
    */
   holdStartedAt: number | null;
+  /**
+   * THE RATING THE SHOP SHOWED THE FIRST TIME FAYR READ ONE — written once.
+   *
+   * Kept so a later read can be compared against it. See rating-value.ts for
+   * which shops allow a rating to move and which of those will show the number.
+   */
+  ratingFirstSeen: number | null;
   orderConfirmed: boolean;
   blocker: BlockerName | null;
   blockerReason: string | null;
@@ -85,6 +92,7 @@ export function createTask(init: CreateTaskInit): EngineTask {
     review: null,
     returned: null,
     holdStartedAt: null,
+    ratingFirstSeen: null,
     orderConfirmed: false,
     blocker: null,
     blockerReason: null,

@@ -11,6 +11,7 @@ import {
 import type { EngineTask } from './task-state';
 import { windowDaysFor, type ReturnPolicy } from './return-policy';
 import { watchingTheReviewIsWorthIt } from './rating-mutability';
+import { checkTheRating } from './rating-value';
 
 /**
  * The atomic, idempotent task state machine — ported semantics-for-semantics
@@ -207,6 +208,18 @@ function onEvidence(task: EngineTask, evidence: Evidence): HandlerOutput {
   if (e.order) patch.order = preferByAuthority(task.order, e.order);
   if (e.delivery) patch.delivery = preferByAuthority(task.delivery, e.delivery);
   if (e.returned != null) patch.returned = e.returned;
+  // ── AND THE FIRST NUMBER WE EVER SAW, KEPT — 22 SEPTEMBER 2026 ──────────
+  //
+  // Written once and never moved, for the same reason holdStartedAt is: a value
+  // that follows the latest reading is not a baseline, and a claimant who can
+  // move the baseline can move the rating under it. `?? ` is the whole rule.
+  //
+  // It is taken from the MERGED review rather than the incoming one, so a
+  // lower-authority source cannot set a baseline that preferReview then refused
+  // to accept as the current value.
+  if (patch.review?.rating != null && task.ratingFirstSeen == null) {
+    patch.ratingFirstSeen = patch.review.rating;
+  }
 
   let to = task.state;
   if (rank(to) < rank(STATES.PURCHASED) && e.order) to = STATES.PURCHASED;
@@ -493,6 +506,35 @@ export function refundEligibility(
       }
     }
   }
+
+  // ── AND THE RATING THEY ACTUALLY GAVE — 22 SEPTEMBER 2026 ────────────────
+  //
+  // Until now the only question asked about a review was `published === true`,
+  // meaning "a rating exists". The owner measured that on Blinkit and Instamart
+  // a rating can be EDITED but never DELETED, so that boolean is PERMANENTLY
+  // TRUE on those shops and can never fail. A check that cannot fail is a green
+  // tick that means nothing.
+  //
+  // The NUMBER can fail, two ways, and both are real:
+  //   below what the campaign asked   the person did not do the thing the offer
+  //                                   was for. minRating has been on the
+  //                                   campaign all along and NOTHING read it.
+  //   lower than when we first saw it loophole 3, in the only shape Blinkit
+  //                                   permits.
+  //
+  // AND WHERE THE SHOP HIDES THE NUMBER THIS HOLDS NOTHING. Instamart never
+  // exposes a star count anywhere Fayr can read — its own reader in platforms.js
+  // says so and sets rating null. Refusing to pay for that would punish every
+  // honest person there for Swiggy's choice. It is recorded as unverifiable and
+  // the refund proceeds on the evidence that does exist, which is exactly how
+  // the scheduler already treats an unverified quick-commerce release.
+  const rating = checkTheRating({
+    platform: task.platform,
+    minRating: policy?.minRating ?? null,
+    firstSeen: task.ratingFirstSeen ?? null,
+    now: task.review?.rating ?? null,
+  });
+  if (rating.holdsTheRefund) reasons.push(rating.because);
 
   return { eligible: reasons.length === 0, reasons, windowEndsAt: w };
 }

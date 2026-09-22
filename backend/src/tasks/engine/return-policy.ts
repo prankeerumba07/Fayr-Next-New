@@ -11,6 +11,16 @@ export interface ReturnPolicy {
   defaultDays: number;
   byCategory: Record<string, number>;
   /**
+   * THE RATING THE OFFER ASKED FOR, or null when it asked for none.
+   *
+   * Carried on the policy rather than read off the task because it belongs to
+   * the CAMPAIGN, exactly as holdMs does, and refundEligibility must stay a
+   * function of the task and the policy it was handed. Nothing in the task
+   * engine read campaigns.minRating before 22 September 2026 — the field had
+   * existed all along and was enforced nowhere.
+   */
+  minRating?: number | null;
+  /**
    * A HOLD MEASURED IN MILLISECONDS, for a shop where days are the wrong unit.
    *
    * Set only by policyForWindowDays, only for the three shops that deliver in
@@ -149,9 +159,20 @@ export function policyForWindowDays(
    * shortening a hold that does not exist would be a number with no meaning.
    */
   practiceHoldMs?: number | null,
+  /**
+   * THE RATING THE OFFER ASKED FOR — campaigns.minRating, or null.
+   *
+   * Carried on every branch below, including the operator-override one, because
+   * it is a fact about the OFFER and not about the shop or the window. Nothing
+   * in the task engine read this field before 22 September 2026.
+   */
+  minRating?: number | null,
 ): ReturnPolicy {
+  const asked = typeof minRating === 'number' && Number.isFinite(minRating)
+    ? minRating
+    : null;
   if (overrideDays != null) {
-    return { defaultDays: overrideDays, byCategory: {} };
+    return { defaultDays: overrideDays, byCategory: {}, minRating: asked };
   }
   if (cannotBeSentBack(platform)) {
     const rehearsal = typeof practiceHoldMs === 'number'
@@ -162,7 +183,10 @@ export function policyForWindowDays(
     return {
       ...DEFAULT_RETURN_POLICY,
       holdMs: rehearsal ?? QUICK_COMMERCE_HOLD_HOURS * HOUR,
+      minRating: asked,
     };
   }
-  return DEFAULT_RETURN_POLICY;
+  return asked == null
+    ? DEFAULT_RETURN_POLICY
+    : { ...DEFAULT_RETURN_POLICY, minRating: asked };
 }

@@ -122,6 +122,7 @@ export function toEngineTask(row: Task, appliedKeys: string[]): EngineTask {
     // rather than the evidence JSON — it is a fact about the hold, not about
     // anything a page said.
     holdStartedAt: row.holdStartedAt ? row.holdStartedAt.getTime() : null,
+    ratingFirstSeen: row.ratingFirstSeen ?? null,
     orderConfirmed: stored?.orderConfirmed ?? false,
     blocker: row.blocker as BlockerName | null,
     blockerReason: row.blockerReason,
@@ -151,6 +152,7 @@ export function toPromotedColumns(
     returned: task.returned,
     holdStartedAt:
       task.holdStartedAt != null ? new Date(task.holdStartedAt) : null,
+    ratingFirstSeen: task.ratingFirstSeen ?? null,
     itemPaise: task.order?.itemPaise ?? null,
     deliveredAt: task.delivery ? new Date(task.delivery.at) : null,
     // WHAT THE SHOP SAID, NOT WHAT THE HOLD IS. windowEndsAt below is the

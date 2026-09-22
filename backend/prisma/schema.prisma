@@ -386,6 +386,17 @@ model Task {
   /// Null on every task written before this existed, and on any task that never
   /// entered a hold. Null means "no review-anchored watch to satisfy".
   holdStartedAt            DateTime?
+
+  /// THE RATING THE SHOP SHOWED THE FIRST TIME FAYR READ ONE — written once.
+  ///
+  /// Kept beside the latest so the two can be compared. On Blinkit a rating can
+  /// be edited but not deleted, so "is it rated?" is permanently true and only
+  /// the NUMBER can reveal a five that became a one.
+  ///
+  /// Null on Instamart always: Swiggy's web exposes whether an order was rated
+  /// but never the star count — see src/platforms.js, which says so and sets
+  /// rating null rather than faking one.
+  ratingFirstSeen          Int?
   claimExpiresAt           DateTime? // deadline to purchase; past it with no purchase -> tickets returned
 
   /// THEY TAPPED BUY AND WENT TO THE SHOP. The moment our side recorded it.
