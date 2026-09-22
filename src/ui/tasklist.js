@@ -55,10 +55,45 @@ export function preferTask(existing, incoming) {
   return existing;
 }
 
-/** True when a task is finished and paid — the "Refund Claimed" tab. */
+/**
+ * True when a task is finished and paid — the "Refund Claimed" tab.
+ *
+ * ── AND SINCE 22 SEPTEMBER 2026, ALSO WHAT LOCKS THE OFFER'S CARD ─────────
+ *
+ * The owner completed the Cadbury journey end to end and his home card still
+ * read "Continue", which reopened the journey on "You have been paid ₹96". In
+ * his words: "Once the campaign is completed, the user should not be able to
+ * continue the same campaign again. The campaign card should remain visible in
+ * the feed for information, but it should be locked."
+ *
+ * ONE DEFINITION, TWO READERS. The My Products tab has always asked this
+ * question to decide which tab a row belongs in; the home card now asks the same
+ * function rather than growing a second idea of "finished". A second idea is how
+ * one tab and one card end up disagreeing about the same task.
+ */
 export function isSettled(task) {
   return !!task && task.state === STATES.REFUNDED;
 }
+
+/**
+ * THE WORDS A FINISHED OFFER'S CARD CARRIES.
+ *
+ * Beside isSettled, because they are the same fact said two ways and a reader
+ * looking at one should see the other. The card's other two banners live in
+ * ui/seats.js with the seat rule they belong to; this one is not a seat fact —
+ * the offer may have seats free and still be over FOR THIS PERSON.
+ *
+ * "Completed" and not "Locked", which is the seats word. Two different reasons a
+ * card cannot be opened must not read as one, or somebody whose journey is
+ * finished is told to come back when a slot opens.
+ */
+export const DONE_BANNER = 'Completed — you have finished this one';
+
+/** In place of "Continue ›". It is a statement, not an invitation. */
+export const DONE_CTA = 'Completed';
+
+/** The footer line, in place of the ticket cost or the seat count. */
+export const DONE_LINE = 'Your refund is in Earnings';
 
 /**
  * The two tabs, each row carrying what a row needs to render.

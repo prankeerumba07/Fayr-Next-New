@@ -7,12 +7,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PLATFORM_LIST, PLATFORMS } from './platforms';
 import * as campaignStore from './backend/campaignStore';
 import { getWallet } from './backend/meApi';
-import { hasTask } from './taskStore';
+import { hasTask, isDone } from './taskStore';
 import WaitingBox from './ui/WaitingBox';
 import { COLOR, FONT, RADIUS, SPACE, SHADOW, rupeesFromPaise, estMaxRefundRupees } from './ui/theme';
 import {
   LOCKED_BANNER, LOCKED_CTA, seatsLine, joinedLine, isFullCampaign, lockedLine,
 } from './ui/seats';
+import { DONE_BANNER, DONE_CTA, DONE_LINE } from './ui/tasklist';
 import { cardState } from './livecheck.js';
 import {
   Wordmark, SectionTitle, Card, RefundBadge, MarketplaceTag, ProductImage, TicketPill,
@@ -27,7 +28,7 @@ const BANNERS = [
 // A single campaign as the redesigned product card: photo, refund badge,
 // marketplace tag, name, and a claim/continue affordance. Tapping opens the
 // campaign — Task for now; switches to the dedicated Detail screen in Step B.
-function CampaignRow({ c, claimed, onOpen }) {
+function CampaignRow({ c, claimed, done, onOpen }) {
   // Both of these are null whenever the server did not state a figure, and the
   // card simply omits the line — see src/ui/seats.js for why silence rather than
   // a zero.
@@ -64,8 +65,28 @@ function CampaignRow({ c, claimed, onOpen }) {
   // "All seats taken" as a count. What was wrong was reading a count about
   // everybody as a sentence about this one person.
   const locked = full && !off && !claimed;
+  // ── AND THE THIRD THING A CARD CAN BE: FINISHED — 22 SEPTEMBER 2026 ───────
+  //
+  // The owner completed the Cadbury journey end to end and his card still read
+  // "Continue", which reopened the journey on "You have been paid ₹96": "Once
+  // the campaign is completed, the user should not be able to continue the same
+  // campaign again. The campaign card should remain visible in the feed for
+  // information, but it should be locked."
+  //
+  // IT OUTRANKS EVERY OTHER STATE, and that order is the point. A finished
+  // journey is finished whether or not the offer's seats are full and whether or
+  // not the shop's page still opens — those are facts about the OFFER, and this
+  // is a fact about this person's journey through it. Drawn first below for the
+  // same reason.
   return (
-    <Card onPress={onOpen} style={[styles.campaignCard, off && styles.campaignCardOff]}>
+    <Card
+      // NOT TAPPABLE WHEN IT IS OVER. The owner asked for this in so many words,
+      // and it is the one card state that opens nothing: there is nowhere left to
+      // go on this offer. The history is not lost — My Products keeps every
+      // finished journey, and the refund is in Earnings, which the footer says.
+      onPress={done ? undefined : onOpen}
+      style={[styles.campaignCard, (off || done) && styles.campaignCardOff]}
+    >
       {live.label ? (
         <View style={styles.offBanner}>
           <Text style={styles.offBannerText}>{live.label}</Text>
@@ -75,7 +96,12 @@ function CampaignRow({ c, claimed, onOpen }) {
           The owner's words: "I don't want the campaign to go away or vanish from
           the app once the slot is full." Nothing filters it — see seats.js — and
           somebody who wants to know what it was may open it and read. */}
-      {locked ? (
+      {done ? (
+        <View style={styles.lockedBanner}>
+          <Text style={styles.lockedBannerText}>{DONE_BANNER}</Text>
+        </View>
+      ) : null}
+      {locked && !done ? (
         <View style={styles.lockedBanner}>
           <Text style={styles.lockedBannerText}>{LOCKED_BANNER}</Text>
         </View>
@@ -105,14 +131,15 @@ function CampaignRow({ c, claimed, onOpen }) {
               sentences about one offer, one of them about somebody else. What
               is true for him is that his claim is in progress, which is what
               this line already says when it is allowed to. */}
-          {(claimed ? null : lockedLine(c)) || seats
+          {done ? DONE_LINE : (claimed ? null : lockedLine(c)) || seats
             || (claimed ? 'In progress' : `Claim · ${c.ticketCost} tickets`)}
         </Text>
-        <Text style={[styles.footerCta, (full || off) && styles.footerCtaOff]}>
+        <Text style={[styles.footerCta, (full || off || done) && styles.footerCtaOff]}>
           {/* "Locked" AND NOT "Claim", because it is not an invitation. What is
               ALLOWED is untouched — the server owns that refusal and answers in
               its own words; this is only what is drawn. */}
-          {off ? live.cta : locked ? LOCKED_CTA : claimed ? 'Continue ›' : 'Claim →'}
+          {done ? DONE_CTA
+            : off ? live.cta : locked ? LOCKED_CTA : claimed ? 'Continue ›' : 'Claim →'}
         </Text>
       </View>
     </Card>
@@ -220,6 +247,7 @@ export default function HomeScreen({ navigation }) {
               key={c.id}
               c={c}
               claimed={hasTask(c.id)}
+              done={isDone(c.id)}
               // A claimed offer opens its JOURNEY, at whatever page it is on.
               // That is the resume: the page comes from the server's record, so
               // tapping the card can never land somebody back at the beginning.

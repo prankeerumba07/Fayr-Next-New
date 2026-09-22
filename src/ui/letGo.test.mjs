@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import { isLetGo } from './letGo.js';
 import { closedInfo } from './stages.js';
+import { DONE_BANNER, DONE_CTA, isSettled } from './tasklist.js';
 import { STATES } from '../taskflow.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -160,6 +161,61 @@ console.log('\n=== 3. hasTask MEANS A LIVE CLAIM, THE CARDS READ IT, AND NOTHING
   ok(isLetGo({ state: STATES.REFUNDED, closedAt: CLOSED, order: { id: 'X' } }) === false
     && isLetGo({ state: STATES.REFUNDED, closedAt: CLOSED, order: null }) === false,
   'and is never let go, whatever its order says');
+}
+
+console.log('\n=== 4. A FINISHED JOURNEY IS NOT "CONTINUE" EITHER — 22 SEPTEMBER 2026 ===');
+{
+  // ── THE RUN THIS COMES FROM ───────────────────────────────────────────────
+  //
+  // The owner completed the Cadbury journey end to end — bought, reviewed, held,
+  // refunded — and his home card still read "Continue". Tapping it reopened the
+  // journey on "You have been paid ₹96". In his words: "Once the campaign is
+  // completed, the user should not be able to continue the same campaign again.
+  // The campaign card should remain visible in the feed for information, but it
+  // should be locked."
+  //
+  // THREE STATES, NOT TWO, AND THEY ARE DIFFERENT FACTS:
+  //   let go     closed, never bought      -> Claim      (isLetGo)
+  //   finished   bought, reviewed, paid    -> Completed  (isSettled)
+  //   live       anything else open        -> Continue
+  const done = { state: STATES.REFUNDED, closedAt: CLOSED, order: { id: 'X1' } };
+
+  // THE TWO MUST NOT BE CONFUSED. A finished task is NOT let go — that is the
+  // rule section 1 pins, and it stays true. It is a THIRD thing.
+  ok(isLetGo(done) === false, 'a finished journey is still not "let go" — closed does not mean gone');
+  ok(isSettled(done) === true, 'but it IS settled, which is what locks the card');
+  ok(isSettled({ state: STATES.CLAIMED, closedAt: CLOSED, order: null }) === false,
+    'and a claim that was let go is NOT settled — the two states never overlap');
+  for (const st of [STATES.CLAIMED, STATES.PURCHASED, STATES.DELIVERED, STATES.REVIEWED, STATES.HOLDING]) {
+    ok(isSettled({ state: st, order: { id: 'X1' } }) === false,
+      `${st} is still in flight and must keep saying Continue`);
+  }
+
+  // ONE DEFINITION, TWO READERS. My Products decides its "Refund Claimed" tab
+  // with isSettled; the store now asks the same function rather than growing a
+  // second idea of finished.
+  const store = strip(read('src/taskStore.js'));
+  ok(/import \{ isSettled \} from '\.\/ui\/tasklist';/.test(store),
+    'the store asks tasklist.js, which is where "finished" already lived');
+  ok(/export function isDone\(campaignId\) \{[\s\S]*?isSettled\(e\.authoritative\)/.test(store),
+    'isDone reads the AUTHORITATIVE copy — being finished is only the server\u2019s to say');
+  ok(!/state === 'REFUNDED'|STATES\.REFUNDED/.test(store),
+    'and the store holds no second idea of REFUNDED anywhere');
+
+  // AND THE CARD DRAWS IT, WITHOUT LOSING THE OFFER FROM THE FEED.
+  const home = strip(read('src/HomeScreen.js'));
+  ok(/done=\{isDone\(c\.id\)\}/.test(home), 'the card is told whether this person has finished it');
+  ok(/onPress=\{done \? undefined : onOpen\}/.test(home),
+    'A FINISHED CARD OPENS NOTHING, which is what stops it reopening the refund page');
+  ok(/\{done \? DONE_CTA/.test(home), 'and says Completed rather than Continue');
+  ok(/\{done \? DONE_LINE :/.test(home), 'and points at Earnings rather than a ticket cost');
+  ok(/\{done \?[\s\S]{0,120}DONE_BANNER/.test(home), 'and carries its own banner');
+  // STILL THERE. The whole point of locking rather than hiding.
+  ok(!/done && .*filter|filter\([^)]*done/.test(home),
+    'and nothing filters a finished offer out of the feed — it stays, for information');
+  // AND IT IS NOT THE SEATS WORD, because they are different reasons.
+  ok(DONE_CTA !== 'Locked' && !/slot/i.test(DONE_BANNER),
+    'the finished words never say "slot" — somebody who is done is not waiting for one');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

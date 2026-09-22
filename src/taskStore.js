@@ -18,6 +18,7 @@ import { isTaskAction, alreadyApplied } from './backend/taskActions';
 import { preferTask } from './ui/tasklist';
 import { forgottenCampaigns } from './forgotten';
 import { isLetGo } from './ui/letGo';
+import { isSettled } from './ui/tasklist';
 
 const FILE = 'fayr-tasks-v3.json'; // v3: {campaignId: {taskId, authoritative}}
 
@@ -197,6 +198,27 @@ export function hasTask(campaignId) {
   const e = entries[campaignId];
   return !!(e && e.taskId && !isLetGo(e.authoritative));
 }
+/**
+ * IS THIS OFFER FINISHED FOR THIS PERSON — bought, reviewed, held and paid?
+ *
+ * The third thing a card can be, added 22 September 2026. Until then it had two:
+ * a live claim (Continue) and no claim (Claim). A REFUNDED task is neither — it
+ * is closed, it is not let go, and hasTask therefore answered true, so a finished
+ * offer invited the person to carry on with it and reopened the page that says
+ * they were already paid.
+ *
+ * ASKED THROUGH tasklist.js's isSettled, which is the same function My Products
+ * uses to decide its "Refund Claimed" tab, so the feed and that tab cannot
+ * disagree about which journeys are over.
+ *
+ * READS THE AUTHORITATIVE COPY ONLY. The optimistic one is what this device
+ * hoped; being finished is a thing only the server can say.
+ */
+export function isDone(campaignId) {
+  const e = entries[campaignId];
+  return !!(e && isSettled(e.authoritative));
+}
+
 export function getTasks() {
   const out = {};
   for (const cid of Object.keys(entries)) out[cid] = entries[cid].optimistic;

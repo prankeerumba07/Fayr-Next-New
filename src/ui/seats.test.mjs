@@ -187,7 +187,17 @@ console.log('\n=== the locked offer is DRAWN, still in the list, and not claimab
       'and nothing drops a full offer on the way to the screen');
   }
   // AND THE TILE IS STILL A TILE: same Card, same onPress, no early return.
-  ok(/<Card onPress=\{onOpen\}/.test(home), 'a locked offer is still tappable');
+  //
+  // SHARPENED 22 SEPTEMBER 2026. This used to pin the literal `<Card
+  // onPress={onOpen}`, which stopped being the whole truth when a FINISHED
+  // journey became the one card state that opens nothing. The rule it was
+  // protecting is untouched and is now stated directly: a LOCKED offer — full
+  // seats — is still tappable, because the owner asked that somebody who wants
+  // to know what the offer was may open it and read.
+  ok(/onPress=\{done \? undefined : onOpen\}/.test(home),
+    'the tile opens unless the journey is FINISHED, and nothing else closes it');
+  ok(!/locked \?\s*undefined/.test(home) && !/locked && .*onPress/.test(home),
+    'a locked offer is still tappable — being full is not being over');
   ok(!/if \(locked\) return null/.test(home), 'and its card is never skipped');
 
   // ── IT MUST NOT LOOK CLAIMABLE, AND THE GUARD IS UNTOUCHED ──────────────
@@ -221,8 +231,8 @@ console.log('\n=== the locked offer is DRAWN, still in the list, and not claimab
   // about everybody as a sentence about this one person.
   ok(/claimed={hasTask\(c\.id\)}/.test(home),
     'the row is told whether this person holds a claim');
-  ok(/function CampaignRow\(\{ c, claimed, onOpen \}\)/.test(home),
-    'and takes it, so the locked line can ask');
+  ok(/function CampaignRow\(\{ c, claimed, done, onOpen \}\)/.test(home),
+    'and takes it, so the locked line can ask — alongside `done`, added 22 September');
   // ── AND IT IS HANDED TO cardState TOO, WHICH IS THE ONE THAT MATTERS ────
   //
   // The server greys a full offer out for everybody — offerAvailability's first
