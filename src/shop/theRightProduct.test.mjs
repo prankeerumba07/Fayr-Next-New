@@ -24,7 +24,9 @@ import { fileURLToPath } from 'node:url';
 import {
   ALMOST_NOTHING, BECAUSE, CANNOT_TELL, ENOUGH, ENOUGH_OF_ITS_OWN, RIGHT, WRONG,
   howMuchOverlaps, isAPageOfTheShopsOwn, tidy, whatThePageIs, wordsWorthMatching,
+  whatThePageIsHere,
 } from './theRightProduct.js';
+import { theProductIdInTheAddress } from './insideFayr.js';
 import { BAR, TONE, theKeyword, whatTheBarSays } from './theBar.js';
 import { verdictDetail } from './shopLog.js';
 
@@ -397,6 +399,101 @@ console.log('\n=== 12. Phase 1 is not disturbed ===');
     'and the product verdict is still asked about a name and a title and nothing else');
   ok(!/SHOPS_INSIDE_FAYR|shopsInsideFayr|insideFayr/.test(verdict),
     'so it cannot have learned which shop it is reading');
+}
+
+
+console.log('\n=== THE ADDRESS DECIDES, WHERE THE TITLE CANNOT — 22 SEPTEMBER 2026 ===');
+{
+  // ── THE RUN THIS COMES FROM ───────────────────────────────────────────────
+  //
+  // The owner searched Swiggy Instamart, found the BLA BLI BLU perfume, opened
+  // its own page, and the keyword bar never went green — not on the product
+  // page, not after adding to the cart. The log says why: that page's title is
+  //
+  //   "Online Grocery Store | Buy Groceries at Best Prices - Instamart"
+  //
+  // which is the SAME string the home page and the search results report. The
+  // name-against-title match scored words=0/6 on the RIGHT product. On that shop
+  // a verdict from the title is impossible, in either direction, for ever.
+  const GENERIC = 'Online Grocery Store | Buy Groceries at Best Prices - Instamart';
+  const NAME = 'BLA BLI BLU Selfmade Perfume for Men';
+  const WANTED = 'https://www.swiggy.com/instamart/item/SHU0ZB5M7P';
+
+  // FIRST, THE MEASUREMENT ITSELF: the title genuinely cannot answer.
+  ok(whatThePageIs(NAME, GENERIC).verdict === CANNOT_TELL,
+    'the title on Instamart’s product page cannot tell — this is the defect, pinned');
+
+  // AND THE ADDRESS CAN.
+  const idOf = (u) => theProductIdInTheAddress('instamart', u);
+  const onIt = whatThePageIsHere({
+    productName: NAME, title: GENERIC, hereId: idOf(WANTED), wantedId: idOf(WANTED),
+  });
+  ok(onIt.verdict === RIGHT, 'THE RIGHT PRODUCT IS GREEN, decided by the id in the address');
+  ok(onIt.because === BECAUSE.SAME_PRODUCT_ID, 'and says the address decided it');
+
+  const elsewhere = whatThePageIsHere({
+    productName: NAME, title: GENERIC,
+    hereId: idOf('https://www.swiggy.com/instamart/item/ZZZ9OTHER1'), wantedId: idOf(WANTED),
+  });
+  ok(elsewhere.verdict === WRONG, 'A DIFFERENT PRODUCT IS RED — the red he asked for');
+  ok(elsewhere.because === BECAUSE.DIFFERENT_PRODUCT_ID, 'and says which rule decided');
+
+  // AND A PAGE THAT IS NOT A PRODUCT AT ALL STILL CLAIMS NOTHING.
+  for (const url of [
+    'https://www.swiggy.com/instamart',
+    'https://www.swiggy.com/instamart/search?query=Bla+Bli+Blu',
+    'https://www.swiggy.com/instamart/cart',
+  ]) {
+    ok(whatThePageIsHere({
+      productName: NAME, title: GENERIC, hereId: idOf(url), wantedId: idOf(WANTED),
+    }).verdict === CANNOT_TELL, `${url.slice(24)} names no product, so it says nothing`);
+  }
+}
+
+console.log('\n=== AND ZEPTO, WHOSE GREEN ALREADY WORKS, IS UNTOUCHED ===');
+{
+  // The fallback is not a nicety. EVERY campaign in the database today has
+  // productUrl null, so the title is still the only answer until somebody fills
+  // one in — and Zepto's titles DO carry the product name.
+  const ZNAME = 'Cadbury Celebrations Assorted Chocolate Gift Pack';
+  const ZTITLE = 'Cadbury Celebrations Assorted Chocolate Gift Pack - Buy at ₹120 Online | Instant Delivery';
+  const ZURL = 'https://www.zepto.com/pn/cadbury-celebrations-assorted-chocolate-gift-pack/pvid/90c33466-de17-436d-b6a0-7d67e025cc63';
+
+  // WITH NO CAMPAIGN ADDRESS — which is every campaign today — it falls straight
+  // back to the title, and answers exactly what it answered before.
+  const zid = (u) => theProductIdInTheAddress('zepto', u);
+  const byTitle = whatThePageIsHere({
+    productName: ZNAME, title: ZTITLE, hereId: zid(ZURL), wantedId: zid(null),
+  });
+  ok(byTitle.verdict === RIGHT, 'Zepto is still green from its title alone');
+  ok(byTitle.because === whatThePageIs(ZNAME, ZTITLE).because,
+    'and by the very same rule it used before — the fallback is the old function, not a copy');
+
+  // AND WITH ONE, the id agrees with the title rather than fighting it.
+  ok(whatThePageIsHere({
+    productName: ZNAME, title: ZTITLE, hereId: zid(ZURL), wantedId: zid(ZURL),
+  }).verdict === RIGHT, 'and green by id too, when the campaign names its product');
+
+  // THE SLUG IS NOT THE ID. Zepto's address carries the product's NAME as well;
+  // matching on that would be the title's fuzzy guess wearing a different hat.
+  ok(theProductIdInTheAddress('zepto', ZURL) === '90c33466-de17-436d-b6a0-7d67e025cc63',
+    'the id is the pvid, never the slug');
+}
+
+console.log('\n=== AND IT REFUSES ANYTHING THAT IS NOT AN ID ===');
+{
+  ok(theProductIdInTheAddress('amazon', 'https://www.amazon.in/dp/B0C123') === null,
+    'a shop with no measured product address yields nothing');
+  ok(theProductIdInTheAddress('blinkit', 'https://blinkit.com/prn/x/prid/999') === null,
+    'and Blinkit, which nobody has watched, yields nothing rather than a guess');
+  for (const junk of [null, undefined, '', 42, {}, 'not a url']) {
+    ok(theProductIdInTheAddress('instamart', junk) === null,
+      `${JSON.stringify(junk)} is not an address`);
+  }
+  ok(theProductIdInTheAddress('instamart', 'https://www.swiggy.com/instamart/item/') === null,
+    'and an empty id is no id');
+  ok(theProductIdInTheAddress('instamart', 'https://www.swiggy.com/instamart/item/ab') === null,
+    'and two characters is not an identifier');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

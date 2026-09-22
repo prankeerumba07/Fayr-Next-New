@@ -484,8 +484,17 @@ console.log('\n=== 9. the screen wires the decisions and decides nothing itself 
   // — so the old form of this check would be a sentence that is no longer true.
   // What is still not this screen's business is everything downstream of the
   // page: reading an order, matching one, moving a task, touching money.
-  ok(/whatThePageIs\(/.test(screen),
+  // UPDATED AGAIN 22 SEPTEMBER 2026: it asks whatThePageIsHere, which puts the
+  // ADDRESS before the title. The owner opened the perfume's own page on
+  // Instamart and the bar stayed grey, because that shop reports the same
+  // generic title on every page and the name-against-title match scores 0/6 on
+  // the right product. The title match is still underneath and still answers for
+  // Zepto — the new function falls back to it whenever either side has no id.
+  ok(/whatThePageIsHere\(\{/.test(screen),
     'the screen asks theRightProduct.js what the page is');
+  ok(/url: lastPage \? lastPage\.url : null/.test(screen)
+    && /wantedUrl: campaign \? campaign\.productUrl : null/.test(screen),
+  'and hands it BOTH addresses — the one on screen and the campaign’s own');
   ok(!/matchOrder|readEvidence|parseOrderText|orderCandidates/.test(screen),
     'but it reads no order and matches none');
   // ── NARROWED 18 SEPTEMBER 2026, AND ONLY BY ONE NOTE ─────────────────────

@@ -73,7 +73,7 @@ import { COLOR, FONT, SPACE } from '../ui/theme';
 import { goBackOrHome } from '../ui/nav';
 import {
   anybodyHasMeasured, comingBackFromPaying, schemeOf, shopsInsideFayr,
-  userAgentFor, whereToLand, whoOpensThis,
+  theProductIdInTheAddress, userAgentFor, whereToLand, whoOpensThis,
 } from './insideFayr';
 import {
   cameBackDetail, handoffDetail, logShop, navigationDetail, orderDetail,
@@ -85,7 +85,7 @@ import {
   HOW_WE_KNEW_INSIDE_THE_SHOP, nowRememberTheSignInWasUp, shouldRecordTheSignIn,
   theyAreSignedOutHere, watchSignInScript, whatTheShopShowed,
 } from './theSignIn';
-import { whatThePageIs } from './theRightProduct';
+import { whatThePageIsHere } from './theRightProduct';
 import { theOrderPage } from './theOrderPage';
 import { watchTheTitleScript, whatTheTitleWatcherSaid } from './watchTheTitle';
 import {
@@ -360,9 +360,32 @@ export default function ShopScreen({ navigation, route }) {
   // tiny script this note once declined to write is watchTheTitle.js, and its
   // every report feeds the same two setters below.
   const [pageTitle, setPageTitle] = useState(null);
+  // ── THE ADDRESS IS ASKED FIRST NOW — 22 SEPTEMBER 2026 ────────────────────
+  //
+  // This used to be whatThePageIs(productName, pageTitle), and a note below said
+  // "an address shape for a product page is a thing nobody has measured on these
+  // shops". That was true until the owner bought through Instamart and opened
+  // the perfume's own page: /instamart/item/SHU0ZB5M7P, whose TITLE is the same
+  // generic "Online Grocery Store | Buy Groceries at Best Prices - Instamart"
+  // that its home page and its search results report. The title match scored
+  // 0/6 on the right product and the bar never went green — which is exactly
+  // what he reported.
+  //
+  // whatThePageIsHere asks the address first and falls straight back to the
+  // title when either side has no id, so Zepto — whose titles DO carry the
+  // product name, and whose green already works — goes on answering as it did.
   const verdict = useMemo(
-    () => (pageTitle == null ? null : whatThePageIs(productName, pageTitle)),
-    [productName, pageTitle],
+    () => (pageTitle == null && lastPage == null ? null : whatThePageIsHere({
+      productName,
+      title: pageTitle,
+      // THE READING IS insideFayr.js's, BECAUSE IT KNOWS WHICH SHOP. The verdict
+      // itself is shop-blind on purpose and takes only the two ids — see the
+      // note on whatThePageIsHere, and the check that caught the first writing
+      // of this importing the shop table into the wrong file.
+      hereId: theProductIdInTheAddress(key, lastPage ? lastPage.url : null),
+      wantedId: theProductIdInTheAddress(key, campaign ? campaign.productUrl : null),
+    })),
+    [productName, pageTitle, key, lastPage, campaign],
   );
 
   // ONE LINE PER TITLE, not per render. The log is a list of pages, and the same
@@ -574,9 +597,11 @@ export default function ShopScreen({ navigation, route }) {
       const title = typeof navState.title === 'string' ? navState.title : '';
       setPageTitle(title === '' ? null : title);
       // THE ORDER QUESTION GETS THE ADDRESS AS WELL AS THE TITLE, because a shop
-      // is as likely to say it in one as the other. The product question only
-      // ever gets the title — an address shape for a product page is a thing
-      // nobody has measured on these shops.
+      // is as likely to say it in one as the other. THE PRODUCT QUESTION NOW
+      // GETS IT TOO — corrected 22 September 2026. This note used to say an
+      // address shape for a product page was a thing nobody had measured; the
+      // owner's Instamart purchase measured it, and on that shop it is the only
+      // signal there is. See whatThePageIsHere.
       setLastPage({
         title: title === '' ? null : title,
         url: typeof navState.url === 'string' ? navState.url : null,

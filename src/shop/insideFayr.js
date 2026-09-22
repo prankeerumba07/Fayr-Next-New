@@ -148,6 +148,17 @@ export const SHOPS_INSIDE_FAYR = {
       // on our side for why the two must never be confused.
       orderKeyFollows: '/order/status/',
     },
+    // ── AND WHERE THE PRODUCT'S OWN ID SITS — MEASURED 22 SEPTEMBER 2026 ────
+    //
+    // Off the owner's own Cadbury purchase:
+    //
+    //   /pn/cadbury-celebrations-assorted-chocolate-gift-pack/pvid/90c33466-…
+    //
+    // The slug is the product's NAME and the pvid is its ID. The name in an
+    // address is a courtesy that shops rewrite; the id is the thing that
+    // actually identifies the line. What follows this fragment, up to the next
+    // slash, question mark or hash, is that id.
+    productIdFollows: '/pvid/',
     // NULL MEANS THE PHONE'S OWN, and for shopping that is the right answer.
     // ConnectScreen overrides the user agent for exactly one shop — Amazon —
     // and its own comment says why: amazon.in serves a mobile orders page whose
@@ -247,6 +258,16 @@ export const SHOPS_INSIDE_FAYR = {
       // this fragment, up to the next slash, question mark or hash, is the key.
       orderKeyFollows: 'orderId=',
     },
+    // ── AND WHERE THE PRODUCT'S OWN ID SITS — MEASURED 22 SEPTEMBER 2026 ────
+    //
+    // Off the owner's own purchase: /instamart/item/SHU0ZB5M7P.
+    //
+    // THIS SHOP NEEDS IT MORE THAN ANY OTHER. Its product page reports the same
+    // generic title as its home page and its search results — "Online Grocery
+    // Store | Buy Groceries at Best Prices - Instamart" — so the name-against-
+    // title match scores 0/6 on the RIGHT product and can never go green. The
+    // address is the only thing on this shop that names which product is open.
+    productIdFollows: '/instamart/item/',
     userAgent: null,
     // ── AND THE SHOP IS NOT AT THE SHOP'S FRONT DOOR — MEASURED 21 SEP 2026 ─
     //
@@ -524,4 +545,50 @@ export function comingBackFromPaying({ nextState, wentToPayAt, now }) {
   const at = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
   if (at < wentToPayAt) return { awayMs: null };
   return { awayMs: at - wentToPayAt };
+}
+
+/**
+ * THE PRODUCT'S OWN ID, READ OUT OF THE ADDRESS ON SCREEN.
+ *
+ * ── WHY THE ADDRESS AND NOT THE TITLE, ON SOME SHOPS ──────────────────────
+ *
+ * MEASURED, 22 SEPTEMBER 2026. The owner opened the BLA BLI BLU perfume's own
+ * page on Swiggy Instamart and the bar never went green. The reason is in the
+ * log: that page's title is
+ *
+ *   "Online Grocery Store | Buy Groceries at Best Prices - Instamart"
+ *
+ * — the SAME string the home page and the search results report. The title
+ * match scored words=0/6 on the RIGHT product, and on that shop it always will.
+ * A verdict from the title is impossible there, in either direction.
+ *
+ * The address is not. Both shops anybody has watched put the product's own id
+ * in it, and insideFayr.js records where:
+ *
+ *   zepto      /pn/<slug>/pvid/<uuid>        after '/pvid/'
+ *   instamart  /instamart/item/<id>          after '/instamart/item/'
+ *
+ * THE SLUG IS NOT THE ID. Zepto's address carries the product's NAME as well,
+ * and it is deliberately not read: a name in an address is a courtesy that
+ * shops rewrite, and matching on it would be the same fuzzy guess as the title
+ * wearing a different hat. The id is the thing that identifies the line.
+ *
+ * Mirrors theOrderKeyInTheAddress in theOrderPlaced.js — same shape, same
+ * refusals, and nothing here opens anything.
+ */
+export function theProductIdInTheAddress(shopKey, url) {
+  const marks = shopKey == null ? null : SHOPS_INSIDE_FAYR[String(shopKey).toLowerCase()];
+  if (marks == null) return null;
+  const follows = typeof marks.productIdFollows === 'string' ? marks.productIdFollows : '';
+  if (follows === '') return null;
+  if (typeof url !== 'string' || url === '') return null;
+  // The path and query only — never the origin, which is not ours to read here.
+  const after = url.replace(/^[a-z]+:\/\/[^/]*/i, '');
+  const at = after.toLowerCase().indexOf(follows.toLowerCase());
+  if (at < 0) return null;
+  const id = after.slice(at + follows.length).split(/[/?#]/)[0];
+  if (id === '') return null;
+  // A plausible id and nothing else. Anything with a space or a slash in it is
+  // not an identifier, and a bare word is not one either on these two shops.
+  return /^[A-Za-z0-9._-]{4,}$/.test(id) ? id : null;
 }

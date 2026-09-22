@@ -53,6 +53,9 @@ export const BECAUSE = {
   ENOUGH_WORDS: 'enough of the product’s own words',
   NAMES_SOMETHING_ELSE: 'the title has its own words and almost none of ours',
   NOT_ENOUGH_EITHER_WAY: 'not enough of the words either way',
+  // ── AND THE TWO THE ADDRESS DECIDES, ABOVE ANY TITLE ────────────────────
+  SAME_PRODUCT_ID: 'the address carries the product’s own id',
+  DIFFERENT_PRODUCT_ID: 'the address carries a different product’s id',
 };
 
 /**
@@ -279,4 +282,60 @@ export function whatThePageIs(productName, title) {
     return answer(WRONG, BECAUSE.NAMES_SOMETHING_ELSE);
   }
   return answer(CANNOT_TELL, BECAUSE.NOT_ENOUGH_EITHER_WAY);
+}
+
+
+/**
+ * IS THE PAGE ON SCREEN THE PRODUCT THEY CLAIMED — ASKING THE ID FIRST.
+ *
+ * `productName`  the campaign's product, for the title match beneath this.
+ * `title`        what the page reports.
+ * `hereId`       the product id read out of the address on screen, or null.
+ * `wantedId`     the product id the campaign is for, or null.
+ *
+ * ── IT TAKES IDS AND NOT ADDRESSES, DELIBERATELY ──────────────────────────
+ *
+ * Reading an id out of an address needs to know WHICH SHOP, and this file is
+ * shop-blind on purpose — theRightProduct.test.mjs pins that it never imports
+ * the shop table, so the title rule is one rule for every marketplace. The
+ * first writing of this took urls and a shop key, and that check caught it.
+ * insideFayr.js knows about shops and does the reading; this only compares.
+ *
+ * ── AN ID BEATS A TITLE, BOTH WAYS ────────────────────────────────────────
+ *
+ * MEASURED, 22 SEPTEMBER 2026. The owner opened the BLA BLI BLU perfume's own
+ * page on Swiggy Instamart and the bar never went green. That page's title is
+ *
+ *   "Online Grocery Store | Buy Groceries at Best Prices - Instamart"
+ *
+ * — the SAME string the home page and the search results report. The title
+ * match scored words=0/6 on the RIGHT product, and on that shop it always will.
+ * A verdict from the title is impossible there, in either direction.
+ *
+ * When both ids are known the two are either the same product or they are not,
+ * and no count of shared words can be more certain than that. Same → RIGHT.
+ * Different → WRONG, which is the red he asked for and the first thing on that
+ * shop that can honestly produce it.
+ *
+ * AND OTHERWISE NOTHING CHANGES. Either id missing and this hands straight back
+ * to whatThePageIs, so Zepto — whose titles DO carry the product name, and whose
+ * green already works — answers exactly as it did. That fallback is not a
+ * nicety: every campaign in the database today has productUrl null, so the title
+ * is still the only answer until somebody fills one in.
+ */
+export function whatThePageIsHere({ productName, title, hereId, wantedId }) {
+  const here = typeof hereId === 'string' && hereId !== '' ? hereId : null;
+  const wanted = typeof wantedId === 'string' && wantedId !== '' ? wantedId : null;
+  if (here != null && wanted != null) {
+    const same = here.toLowerCase() === wanted.toLowerCase();
+    return {
+      verdict: same ? RIGHT : WRONG,
+      because: same ? BECAUSE.SAME_PRODUCT_ID : BECAUSE.DIFFERENT_PRODUCT_ID,
+      share: same ? 1 : 0,
+      matched: same ? 1 : 0,
+      of: 1,
+      ofItsOwn: 1,
+    };
+  }
+  return whatThePageIs(productName, title);
 }
